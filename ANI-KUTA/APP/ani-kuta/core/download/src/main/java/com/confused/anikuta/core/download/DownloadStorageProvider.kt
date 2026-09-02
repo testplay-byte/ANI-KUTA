@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -396,23 +397,40 @@ class DownloadStorageProvider(
     }
 
     /**
-     * D-241: Removes a single episode (matched by [episodeKey]) from the
-     * `episodes` list of the `.data.json` for [folder].
+     * D-241 / D-392 (round 26): Removes a single episode (matched by
+     * [episodeKey]) from the `episodes` list of the `.data.json` for [folder],
+     * with a RETRY LADDER.
      *
      * Called by [DefaultDownloadManager.deleteDownloadedEpisode] AFTER the
-     * video file is deleted AND the `downloaded_episode` DB row is removed —
-     * this keeps the on-disk `.data.json` in sync with the DB.
+     * video file is deleted AND BEFORE the `downloaded_episode` DB row is
+     * removed — this keeps the on-disk `.data.json` in sync with the DB.
      *
-     * If the deleted episode was the LAST one in the list, the `.data.json` is
-     * left in place (with an empty `episodes` list). The folder + `.data.json`
-     * are kept so a future re-download doesn't have to recreate the content
-     * identity; if the user wants to fully remove the content they can use the
-     * "delete entire content" action (TODO — currently the delete flow only
-     * removes individual episodes).
+     * ## D-392: why the retry ladder exists
+     * The round-26 device report showed a delete where the video file WAS
+     * removed on disk but the `.data.json` still listed the episode afterwards
+     * (the single-shot write had no recovery path — a transient SAF failure or
+     * a stale document URI silently won). The ladder:
      *
-     * Returns `true` on success, `false` if the `.data.json` couldn't be read
-     * or written (the caller logs but doesn't fail the delete — the DB row is
-     * already gone, so the episode is functionally deleted).
+     *  - **Attempt 1** — the normal path: fresh `listFiles()` index → filter →
+     *    overwrite the existing `.data.json` document → verify by re-reading.
+     *  - **Attempt 2** — identical, after a short settle pause. A sibling
+     *    deletion (the video file) can invalidate previously-resolved
+     *    `DocumentFile` URIs on some providers; the FRESH index each attempt
+     *    is the stale-URI recovery.
+     *  - **Attempt 3 (nuclear)** — deletes the old `.data.json` document and
+     *    re-creates it from scratch, then writes. This sidesteps ANY stream-
+     *    write weirdness on the existing document (a provider refusing to
+     *    truncate, a wedged output stream, a mismatched mime/extension).
+     *
+     * If the deleted episode was the LAST one in the list the `.data.json`
+     * write STILL happens (empty episodes list) — the series-folder cleanup
+     * decision in [DefaultDownloadManager] re-reads the file right after and
+     * acts on the result.
+     *
+     * Returns `true` on success (including the idempotent "key not present"
+     * case), `false` if the `.data.json` couldn't be read or written after
+     * ALL attempts (the caller logs but doesn't fail the delete — the DB row
+     * deletion still proceeds, so the episode is functionally deleted).
      */
     suspend fun removeEpisodeFromDataJson(
         folder: DocumentFile,
@@ -427,6 +445,59 @@ class DownloadStorageProvider(
                 "episodeKey='$episodeKey' (len=${episodeKey.length}, " +
                 "utf8Bytes=${episodeKey.toByteArray(Charsets.UTF_8).size})"
         }
+        var succeeded = false
+        for (attempt in 1..DATA_JSON_WRITE_ATTEMPTS) {
+            val nuclear = attempt == DATA_JSON_WRITE_ATTEMPTS
+            succeeded = try {
+                removeEpisodeFromDataJsonAttempt(folder, episodeKey, attempt, nuclear)
+            } catch (e: Exception) {
+                DownloadLogger.e(e) {
+                    "removeEpisodeFromDataJson — attempt $attempt/${DATA_JSON_WRITE_ATTEMPTS} " +
+                        "THREW ${e.javaClass.simpleName}: ${e.message}"
+                }
+                false
+            }
+            if (succeeded) break
+            // Settle pause between attempts — gives the SAF provider a moment
+            // to flush the sibling deletion that just happened.
+            if (attempt < DATA_JSON_WRITE_ATTEMPTS) {
+                DownloadLogger.w {
+                    "removeEpisodeFromDataJson — attempt $attempt failed — retrying " +
+                        "in ${DATA_JSON_RETRY_PAUSE_MS}ms (fresh index" +
+                        (if (attempt + 1 == DATA_JSON_WRITE_ATTEMPTS)
+                            " + nuclear delete-recreate" else "") +
+                        ")"
+                }
+                delay(DATA_JSON_RETRY_PAUSE_MS)
+            }
+        }
+        if (!succeeded) {
+            DownloadLogger.e {
+                "removeEpisodeFromDataJson — ALL $DATA_JSON_WRITE_ATTEMPTS attempts FAILED " +
+                    "for '${folder.name}' + episodeKey='$episodeKey'. The .data.json on disk " +
+                    "may still list this episode — the DB row is still deleted (functionally " +
+                    "removed); the next folder scan reconciles the .data.json from disk."
+            }
+        }
+        succeeded
+    }
+
+    /**
+     * D-392: ONE attempt of the remove-episode ladder (see
+     * [removeEpisodeFromDataJson]). Every attempt rebuilds its folder index
+     * FRESH via `listFiles()` — never trusts a pre-deletion snapshot.
+     */
+    private suspend fun removeEpisodeFromDataJsonAttempt(
+        folder: DocumentFile,
+        episodeKey: String,
+        attempt: Int,
+        nuclear: Boolean,
+    ): Boolean = withContext(Dispatchers.IO) {
+        DownloadLogger.i {
+            "removeEpisodeFromDataJson — attempt $attempt/$DATA_JSON_WRITE_ATTEMPTS" +
+                "${if (nuclear) " (NUCLEAR: delete + re-create)" else ""} " +
+                "for '${folder.name}', key='$episodeKey'"
+        }
         val rawList = try {
             folder.listFiles()
         } catch (e: Exception) {
@@ -435,11 +506,6 @@ class DownloadStorageProvider(
                     "${e.javaClass.simpleName}: ${e.message}"
             }
             return@withContext false
-        }
-        val childNames = rawList.map { it.name }
-        DownloadLogger.i {
-            "removeEpisodeFromDataJson — folder.listFiles() returned ${rawList.size} " +
-                "child(ren): $childNames"
         }
         // D-242-fix6: don't !! on .name — a null name on any child throws
         // KotlinNullPointerException inside associateBy, which is swallowed
@@ -495,12 +561,23 @@ class DownloadStorageProvider(
             episodes = newList,
             updatedAt = System.currentTimeMillis(),
         )
-        DownloadLogger.i {
-            "removeEpisodeFromDataJson — calling writeDataJsonRaw with " +
-                "${newList.size} episode(s) (was $before)"
-        }
         try {
-            writeDataJsonRaw(updated, folder, index)
+            if (nuclear) {
+                // Attempt 3 — the nuclear fallback: remove the old document
+                // entirely, then write through the create path. If the delete
+                // fails the write falls back to overwriting the survivor.
+                val oldDoc = index[".data.json"]
+                val oldDeleted = oldDoc?.delete() ?: false
+                DownloadLogger.i {
+                    "removeEpisodeFromDataJson — NUCLEAR: old .data.json " +
+                        "delete()=$oldDeleted (uri=${oldDoc?.uri})"
+                }
+                val freshIndex =
+                    if (oldDeleted) emptyMap() else index // force createFile when gone
+                writeDataJsonRaw(updated, folder, freshIndex)
+            } else {
+                writeDataJsonRaw(updated, folder, index)
+            }
             DownloadLogger.i {
                 "removeEpisodeFromDataJson — writeDataJsonRaw completed without exception"
             }
@@ -534,6 +611,131 @@ class DownloadStorageProvider(
                 "(removed $episodeKey) — VERIFIED"
         }
         true
+    }
+
+    /**
+     * D-392 (round 26): deletes an ENTIRE content (series) folder —
+     * `.data.json`, `.cover.jpg`, `.nomedia`, `episodes/`, `subtitles/` and
+     * anything else inside — bottom-up, then the folder itself.
+     *
+     * Called by [DefaultDownloadManager.deleteDownloadedEpisode] when the
+     * deleted episode was the LAST one for the anime (the round-26 device
+     * report: "if it was the very last downloaded episode then the whole
+     * series folder was supposed to be deleted"). The alternative — leaving a
+     * husk folder with an empty `.data.json` — is exactly what the user
+     * flagged as wrong.
+     *
+     * ## Safety checks (belt AND braces — this function must NEVER nuke the
+     * wrong thing)
+     *  1. [folder] must exist and be a directory.
+     *  2. [folder] must NOT be the SAF root itself.
+     *  3. [folder].name must NOT be one of [SCAN_FORMATS] (`video`, `images`,
+     *     `text`, `audio`) — a format folder is never a series folder.
+     *  4. When [expectedMainId] is provided, the `.data.json` is re-read
+     *     RIGHT BEFORE the deletion and its `mainId` must match — the folder
+     *     identity is re-confirmed at the last possible moment even though
+     *     [findContentFolder] already matched it.
+     *
+     * Children are deleted recursively bottom-up (some SAF providers refuse
+     * `delete()` on non-empty directories), each with its own log line.
+     *
+     * @return `true` only when the folder itself is gone.
+     */
+    suspend fun deleteContentFolder(
+        folder: DocumentFile,
+        expectedMainId: String? = null,
+    ): Boolean = withContext(Dispatchers.IO) {
+        DownloadLogger.i {
+            "deleteContentFolder — ENTER folder.name='${folder.name}', " +
+                "uri=${folder.uri}, expectedMainId=$expectedMainId"
+        }
+        // Safety 1 — exists + is a directory.
+        if (!folder.exists() || !folder.isDirectory) {
+            DownloadLogger.w {
+                "deleteContentFolder — ABORT: folder doesn't exist or isn't a " +
+                    "directory (name='${folder.name}')"
+            }
+            return@withContext false
+        }
+        // Safety 2 — never the SAF root itself.
+        val root = getRootFolder()
+        if (root != null && folder.uri == root.uri) {
+            DownloadLogger.w {
+                "deleteContentFolder — ABORT: refusing to delete the SAF ROOT " +
+                    "(uri=${folder.uri})"
+            }
+            return@withContext false
+        }
+        // Safety 3 — never a format folder (video/ images/ text/ audio/).
+        val name = folder.name
+        if (name.isNullOrBlank() || name in SCAN_FORMATS) {
+            DownloadLogger.w {
+                "deleteContentFolder — ABORT: folder name '$name' is blank or a " +
+                    "format folder ($SCAN_FORMATS) — not a series folder"
+            }
+            return@withContext false
+        }
+        // Safety 4 — identity re-confirmation at the last possible moment.
+        if (expectedMainId != null) {
+            val dataJson = readDataJson(folder)
+            when {
+                dataJson == null -> DownloadLogger.w {
+                    "deleteContentFolder — .data.json unreadable right before " +
+                        "deletion; proceeding on the entry-time identity match " +
+                        "(findContentFolder matched mainId=$expectedMainId)"
+                }
+                dataJson.mainId != expectedMainId -> {
+                    DownloadLogger.w {
+                        "deleteContentFolder — ABORT: identity mismatch — " +
+                            ".data.json mainId='${dataJson.mainId}' != " +
+                            "expected='$expectedMainId'. This would delete ANOTHER " +
+                            "anime's folder."
+                    }
+                    return@withContext false
+                }
+                else -> DownloadLogger.i {
+                    "deleteContentFolder — identity CONFIRMED " +
+                        "(mainId='${dataJson.mainId}', ${dataJson.episodes.size} " +
+                        "episode(s) listed, title='${dataJson.title}')"
+                }
+            }
+        }
+        // Recursive bottom-up child deletion — every child logged.
+        val childFailures = deleteChildrenRecursively(folder)
+        val folderDeleted = folder.delete()
+        DownloadLogger.i {
+            "deleteContentFolder — RESULT for '${folder.name}': " +
+                "folder.delete()=$folderDeleted, childFailures=$childFailures"
+        }
+        folderDeleted || !folder.exists()
+    }
+
+    /**
+     * D-392: deletes every child of [dir], deepest-first. Returns the number
+     * of child deletions that FAILED (0 = clean sweep). Each success/failure
+     * is logged so a partial cleanup is fully diagnosable from logcat.
+     */
+    private fun deleteChildrenRecursively(dir: DocumentFile): Int {
+        var failures = 0
+        for (child in dir.listFiles()) {
+            if (child.isDirectory) {
+                failures += deleteChildrenRecursively(child)
+            }
+            val deleted = child.delete()
+            if (deleted) {
+                DownloadLogger.i {
+                    "deleteContentFolder — deleted '${child.name}' " +
+                        "(dir=${child.isDirectory}, uri=${child.uri})"
+                }
+            } else {
+                failures++
+                DownloadLogger.w {
+                    "deleteContentFolder — FAILED to delete '${child.name}' " +
+                        "(dir=${child.isDirectory}, uri=${child.uri})"
+                }
+            }
+        }
+        return failures
     }
 
     /**
@@ -779,6 +981,16 @@ class DownloadStorageProvider(
     companion object {
         /** The format folders scanned by [scanAllContent] + [findContentFolder]. */
         val SCAN_FORMATS = listOf("video", "images", "text", "audio")
+
+        /**
+         * D-392: how many attempts the `.data.json` remove-write ladder makes
+         * (normal → fresh-index retry → nuclear delete-recreate). See
+         * [removeEpisodeFromDataJson].
+         */
+        private const val DATA_JSON_WRITE_ATTEMPTS = 3
+
+        /** D-392: settle pause between the `.data.json` write attempts (ms). */
+        private const val DATA_JSON_RETRY_PAUSE_MS = 250L
 
         /** Cap on the same-title collision loop (REVIEW-5 M53 — defensive). */
         private const val MAX_COLLISION_SUFFIX = 100

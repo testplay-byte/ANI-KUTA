@@ -3,6 +3,7 @@ package com.confused.anikuta.core.download
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The default [DownloadManager] implementation.
@@ -216,6 +218,26 @@ class DefaultDownloadManager(
     override fun getDownloadedEpisodeUri(mainId: String, episodeKey: String): String? =
         store.getDownloadedVideoUri(mainId, episodeKey)
 
+    /**
+     * D-392 (round 26): the episode-delete orchestration, in FIVE explicit
+     * phases. Every phase logs its outcome — a delete is fully diagnosable
+     * from logcat alone:
+     *
+     *  1. **Locate** the content folder by `mainId` ([findContentFolder] —
+     *     walks the SAF format folders + matches the `.data.json`).
+     *  2. **Files** — delete the episode's video + every subtitle via
+     *     `DocumentsContract.deleteDocument` using the URIs from `.data.json`.
+     *  3. **`.data.json`** — remove the episode entry from the on-disk
+     *     `.data.json` ([DownloadStorageProvider.removeEpisodeFromDataJson] —
+     *     now a 3-attempt retry ladder: normal write → fresh-index write →
+     *     nuclear delete-recreate).
+     *  4. **Series cleanup** (NEW) — if that was the LAST downloaded episode,
+     *     delete the ENTIRE series folder (`.data.json`, `.cover.jpg`,
+     *     `.nomedia`, `episodes/`, `subtitles/`, the folder itself) and sweep
+     *     every `downloaded_episode` DB row for the anime. See
+     *     [maybeDeleteSeriesFolder].
+     *  5. **DB + cache** — delete the row + refresh the in-memory cache.
+     */
     override suspend fun deleteDownloadedEpisode(mainId: String, episodeKey: String) {
         DownloadLogger.i {
             "deleteDownloadedEpisode — ENTER mainId=$mainId, " +
@@ -239,8 +261,13 @@ class DefaultDownloadManager(
         }
 
         if (contentDir != null) {
-            // 1. Read the episode entry from .data.json to get its file URIs.
-            val dataJson = storage.readDataJson(contentDir)
+            // ── PHASE 2: delete the episode's files ─────────────────────────
+            // Read the episode entry from .data.json to get its file URIs.
+            // (withContext(IO) — readDataJson is blocking; deleteDownloadedEpisode
+            // can be called from the Main dispatcher via the ViewModel.)
+            val dataJson = withContext(Dispatchers.IO) {
+                runCatching { storage.readDataJson(contentDir) }.getOrNull()
+            }
             if (dataJson == null) {
                 DownloadLogger.w {
                     "deleteDownloadedEpisode — readDataJson returned null for " +
@@ -305,17 +332,21 @@ class DefaultDownloadManager(
                 }
             }
 
-            // 2. Remove this episode from the on-disk `.data.json` episodes list.
+            // ── PHASE 3: remove the episode from the on-disk .data.json ────
             // Done BEFORE deleting the DB row so the .data.json is always consistent.
             // R1-DATA-JSON-STILL: capture the boolean result + log the FULL stack
             // trace on failure (previous code logged only ${e.message}, hiding the
             // actual exception type + stack from the developer).
+            // D-392: the write now retries internally (fresh index → nuclear
+            // delete-recreate) — the round-26 report caught a single-shot write
+            // failing while the DB row still vanished (.data.json out of sync).
             runCatching {
                 val removeResult = storage.removeEpisodeFromDataJson(contentDir, episodeKey)
                 DownloadLogger.i {
                     "deleteDownloadedEpisode — removeEpisodeFromDataJson returned=$removeResult " +
                         "for episodeKey='$episodeKey' " +
-                        "(true=ok OR idempotent no-match; false=no .data.json / write failed / verify failed)"
+                        "(true=ok OR idempotent no-match; false=no .data.json / write failed " +
+                        "after ALL retries / verify failed)"
                 }
             }.onFailure { e ->
                 DownloadLogger.e(e) {
@@ -324,6 +355,12 @@ class DefaultDownloadManager(
                         "Stack trace logged above. THIS IS LIKELY THE ROOT CAUSE."
                 }
             }
+
+            // ── PHASE 4 (D-392): the series-folder cleanup ──────────────────
+            // If that was the last downloaded episode, the WHOLE series folder
+            // goes (the round-26 device report) — no husk folder with an empty
+            // .data.json left behind in the user's file manager.
+            maybeDeleteSeriesFolder(mainId, episodeKey, contentDir)
         } else {
             DownloadLogger.w {
                 "deleteDownloadedEpisode — content folder not found for mainId=$mainId; " +
@@ -331,7 +368,9 @@ class DefaultDownloadManager(
             }
         }
 
-        // 3. Delete the DB row.
+        // ── PHASE 5: delete the DB row + refresh the cache ─────────────────
+        // (always — even if prior phases failed, the row must go so the UI
+        // reflects the deletion; the next folder scan reconciles the disk.)
         DownloadLogger.i {
             "deleteDownloadedEpisode — deleting DB row for mainId=$mainId, episodeKey='$episodeKey'"
         }
@@ -340,6 +379,176 @@ class DefaultDownloadManager(
         // 4. Refresh the cache (always — even if prior steps failed).
         refreshDownloadedEpisodes()
         DownloadLogger.i { "deleteDownloadedEpisode — DONE (cache refreshed)" }
+    }
+
+    /**
+     * D-392 (round 26): decides + performs the series-folder cleanup after an
+     * episode delete. The user's rule: *deleting the very last downloaded
+     * episode (or the only one) must remove the whole series folder too.*
+     *
+     * ## The decision — two independent signals
+     *  - **(a) Canonical**: the `.data.json` re-read AFTER the removal now
+     *    lists ZERO episodes → this was the last episode → delete the folder.
+     *  - **(b) Orphan fallback**: the `.data.json` is missing/unreadable AND
+     *    the DB has no remaining rows for the anime (this row excluded) → the
+     *    folder is pure residue with nothing the app can still play → delete
+     *    it too.
+     *
+     * If (a) says episodes remain, the folder STAYS — nothing to clean.
+     *
+     * ## On trigger
+     *  1. [DownloadStorageProvider.deleteContentFolder] removes the folder —
+     *     with its own belt-and-braces safety ladder (not the SAF root, not a
+     *     format folder, identity re-confirmed against `expectedMainId` right
+     *     before deletion).
+     *  2. EVERY `downloaded_episode` row for the anime is swept
+     *     ([DownloadStore.deleteDownloadedEpisodesByMainId]) — any survivor
+     *     would point into the deleted folder (phantom downloads that fail on
+     *     play + confuse the next scan). Sweeping is safe precisely because
+     *     the folder is already gone.
+     *
+     * All decisions + outcomes are logged — this function is the round-26
+     * "delete logic robustness" centerpiece.
+     */
+    private suspend fun maybeDeleteSeriesFolder(
+        mainId: String,
+        episodeKey: String,
+        contentDir: DocumentFile,
+    ) {
+        // The authoritative remaining-episodes list — re-read AFTER the
+        // removal (PHASE 3). withContext(IO): readDataJson is blocking.
+        val dataJsonAfter = withContext(Dispatchers.IO) {
+            runCatching { storage.readDataJson(contentDir) }.getOrNull()
+        }
+        val episodesRemaining = dataJsonAfter?.episodes?.size
+        // The DB's view AFTER this row is deleted (PHASE 5 runs later — the
+        // row is still present right now, hence the -1).
+        val dbRowsForAnime = store.getDownloadedEpisodeCountForAnime(mainId)
+        val dbRemaining = (dbRowsForAnime - 1).coerceAtLeast(0)
+
+        val shouldDelete = when {
+            dataJsonAfter == null -> {
+                DownloadLogger.w {
+                    "maybeDeleteSeriesFolder — .data.json unreadable after the removal " +
+                        "(mainId=$mainId, folder='${contentDir.name}'). Falling back to the " +
+                        "DB signal: dbRemaining=$dbRemaining " +
+                        "(dbRowsForAnime=$dbRowsForAnime, this row in flight)."
+                }
+                dbRemaining == 0
+            }
+            episodesRemaining == 0 -> true
+            else -> false
+        }
+
+        if (!shouldDelete) {
+            DownloadLogger.i {
+                "maybeDeleteSeriesFolder — KEEPING the series folder for mainId=$mainId: " +
+                    "episodesRemainingInDataJson=$episodesRemaining, dbRemaining=$dbRemaining " +
+                    "(not the last episode)"
+            }
+            return
+        }
+
+        DownloadLogger.i {
+            "maybeDeleteSeriesFolder — LAST EPISODE detected (episodeKey='$episodeKey'): " +
+                "episodesRemainingInDataJson=$episodesRemaining, dbRemaining=$dbRemaining " +
+                "→ deleting the WHOLE series folder '${contentDir.name}' " +
+                "(.data.json + .cover.jpg + .nomedia + episodes/ + subtitles/ + the folder)"
+        }
+        val folderDeleted = runCatching {
+            storage.deleteContentFolder(contentDir, expectedMainId = mainId)
+        }.onFailure { e ->
+            DownloadLogger.e(e) {
+                "maybeDeleteSeriesFolder — deleteContentFolder THREW " +
+                    "${e.javaClass.simpleName}: ${e.message}"
+            }
+        }.getOrDefault(false)
+
+        if (folderDeleted) {
+            // Sweep every DB row for the anime — survivors would reference
+            // files inside the now-deleted folder.
+            val sweptRows = store.deleteDownloadedEpisodesByMainId(mainId)
+            DownloadLogger.i {
+                "maybeDeleteSeriesFolder — series folder DELETED + swept " +
+                    "$sweptRows DB row(s) for mainId=$mainId (the in-flight row's " +
+                    "PHASE-5 delete is now a harmless no-op)"
+            }
+        } else {
+            DownloadLogger.w {
+                "maybeDeleteSeriesFolder — series-folder deletion FAILED for " +
+                    "mainId=$mainId ('${contentDir.name}'). The DB rows are kept — " +
+                    "the next folder scan (DownloadScanner) reconciles the state " +
+                    "from what actually remains on disk."
+            }
+        }
+    }
+
+    /**
+     * D-392 (round 26): the "delete all" path — removes EVERY downloaded
+     * episode of [mainId] in one atomic operation.
+     *
+     * Primary path: locate the series folder ONCE, delete it WHOLE (the same
+     * [DownloadStorageProvider.deleteContentFolder] safety ladder — identity
+     * re-confirmed, never the root, never a format folder), then sweep every
+     * `downloaded_episode` row for the anime. One folder walk, one deletion —
+     * the old per-episode loop did N walks (findContentFolder reads every
+     * `.data.json` in the tree per call) and left the empty husk folder.
+     *
+     * Fallback path (folder not found OR its deletion failed): a sequential
+     * [deleteDownloadedEpisode] loop — each iteration handles its own files +
+     * `.data.json` entry + row, so the DB still ends consistent even when the
+     * folder can't be touched.
+     */
+    override suspend fun deleteDownloadedAnime(mainId: String) {
+        DownloadLogger.i { "deleteDownloadedAnime — ENTER mainId=$mainId (delete-all)" }
+
+        val contentDir = storage.findContentFolder(mainId)
+        DownloadLogger.i {
+            "deleteDownloadedAnime — findContentFolder returned: " +
+                if (contentDir != null) {
+                    "name='${contentDir.name}', uri=${contentDir.uri}"
+                } else {
+                    "null — falling back to the per-episode delete loop"
+                }
+        }
+
+        if (contentDir != null) {
+            val folderDeleted = runCatching {
+                storage.deleteContentFolder(contentDir, expectedMainId = mainId)
+            }.onFailure { e ->
+                DownloadLogger.e(e) {
+                    "deleteDownloadedAnime — deleteContentFolder THREW " +
+                        "${e.javaClass.simpleName}: ${e.message}"
+                }
+            }.getOrDefault(false)
+
+            if (folderDeleted) {
+                val sweptRows = store.deleteDownloadedEpisodesByMainId(mainId)
+                refreshDownloadedEpisodes()
+                DownloadLogger.i {
+                    "deleteDownloadedAnime — DONE: series folder " +
+                        "'${contentDir.name}' deleted + $sweptRows DB row(s) swept " +
+                        "for mainId=$mainId"
+                }
+                return
+            }
+            DownloadLogger.w {
+                "deleteDownloadedAnime — whole-folder deletion FAILED — falling " +
+                    "back to the per-episode delete loop for mainId=$mainId"
+            }
+        }
+
+        // Fallback: per-episode deletes (handles files + .data.json + rows).
+        val rows = store.getDownloadedEpisodes().filter { it.content.mainId == mainId }
+        DownloadLogger.i {
+            "deleteDownloadedAnime — fallback loop over ${rows.size} episode(s) " +
+                "for mainId=$mainId"
+        }
+        rows.forEach { episode ->
+            deleteDownloadedEpisode(mainId, episode.episode.episodeKey)
+        }
+        refreshDownloadedEpisodes()
+        DownloadLogger.i { "deleteDownloadedAnime — DONE (fallback path, mainId=$mainId)" }
     }
 
     override suspend fun requestFolderRescan() {

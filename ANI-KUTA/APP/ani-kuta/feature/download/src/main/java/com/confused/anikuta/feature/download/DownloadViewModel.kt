@@ -179,12 +179,11 @@ class DownloadViewModel(
     }
 
     fun deleteAnime(mainId: String) = viewModelScope.launch {
-        // Delete every downloaded episode for this anime.
-        val eps = manager.getDownloadedEpisodes().value
-            .filter { it.content.mainId == mainId }
-        eps.forEach { ep ->
-            manager.deleteDownloadedEpisode(mainId, ep.episode.episodeKey)
-        }
+        // D-392 (round 26): the atomic delete-all — one folder walk, the whole
+        // series folder removed (identity-checked), every DB row swept. The old
+        // per-episode loop did N findContentFolder walks and left an empty husk
+        // folder behind; the manager now owns the whole operation.
+        manager.deleteDownloadedAnime(mainId)
     }
 
     /** Returns the content:// URI for a downloaded episode (null if not downloaded). */

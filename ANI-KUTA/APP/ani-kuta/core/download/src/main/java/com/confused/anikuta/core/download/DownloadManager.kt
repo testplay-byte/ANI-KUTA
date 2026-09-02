@@ -66,8 +66,23 @@ interface DownloadManager {
     /** Gets the content:// URI for a downloaded episode (null if not downloaded). */
     fun getDownloadedEpisodeUri(mainId: String, episodeKey: String): String?
 
-    /** Deletes a downloaded episode (file + DB row). */
+    /**
+     * Deletes a downloaded episode (video + subtitles + `.data.json` entry +
+     * DB row). If it was the LAST downloaded episode of the anime, the whole
+     * series folder is removed too (D-392 — see
+     * [DefaultDownloadManager.maybeDeleteSeriesFolder]).
+     */
     suspend fun deleteDownloadedEpisode(mainId: String, episodeKey: String)
+
+    /**
+     * D-392 (round 26): deletes EVERY downloaded episode of an anime at once —
+     * the "delete all" action. Removes the whole series folder (with the
+     * identity-checked safety ladder) + sweeps every `downloaded_episode` DB
+     * row for the anime. Falls back to a per-episode
+     * [deleteDownloadedEpisode] loop when the folder can't be located (or its
+     * deletion fails) so the DB is always left consistent.
+     */
+    suspend fun deleteDownloadedAnime(mainId: String)
 
     /**
      * Requests a rescan of the download folder (reinstall recognition).

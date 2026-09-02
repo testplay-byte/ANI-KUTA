@@ -317,6 +317,35 @@ class DownloadStore(private val database: AnikutaDatabase) {
     }
 
     /**
+     * D-392 (round 26): the number of `downloaded_episode` rows an anime has.
+     *
+     * Used by [DefaultDownloadManager.deleteDownloadedEpisode]'s series-folder
+     * cleanup decision — "was this the LAST downloaded episode?" needs the DB's
+     * answer BEFORE the row itself is deleted (the caller subtracts the row in
+     * flight).
+     */
+    fun getDownloadedEpisodeCountForAnime(mainId: String): Int =
+        episodeQueries.getDownloadedEpisodeCount(mainId).executeAsOne().toInt()
+
+    /**
+     * D-392 (round 26): deletes EVERY `downloaded_episode` row for [mainId].
+     *
+     * The series-folder sweep — called after the whole content folder was
+     * removed on disk. Any row still standing for this anime points INTO a
+     * folder that no longer exists; out-of-sync rows must never survive the
+     * folder (otherwise the app would show phantom downloads that fail on
+     * play and confuse the next folder scan).
+     *
+     * @return the number of rows that existed before the sweep (0 = nothing
+     *         to sweep — the DB was already clean).
+     */
+    fun deleteDownloadedEpisodesByMainId(mainId: String): Int {
+        val before = episodeQueries.getDownloadedEpisodeCount(mainId).executeAsOne().toInt()
+        episodeQueries.deleteDownloadedEpisodesByMainId(mainId)
+        return before
+    }
+
+    /**
      * Marks an episode as missing (deletes the row). Called by [DownloadScanner] when
      * `data.json` says an episode should be here but the file is missing on disk.
      */

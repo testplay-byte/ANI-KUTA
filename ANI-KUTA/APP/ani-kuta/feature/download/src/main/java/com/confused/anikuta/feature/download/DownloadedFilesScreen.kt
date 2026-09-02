@@ -639,18 +639,31 @@ private fun DownloadedEpisodeRow(
 }
 
 /**
- * D-384 (round 25): the two-step delete icon with a STABLE frame and an
- * animated morph.
+ * D-389 (round 26): the two-step delete icon — the armed state GROWS the glyph
+ * to ~3x its idle size.
  *
- * Why this exists: the old code swapped [Icons.Filled.Delete] ↔
- * [Icons.Filled.DeleteForever] instantly with no transition. The plain Delete
- * glyph occupies only the middle ~60% of its 24dp viewport while DeleteForever
- * fills it edge-to-edge, so the armed swap visually READ as a ~3x size jump
- * (the round-25 device report). Two normalizations:
- *  1. the armed glyph renders at 0.65x scale so both states occupy the same
- *     visual footprint inside the fixed [iconSize] box;
- *  2. the swap itself is an [AnimatedContent] scale+fade morph (~150ms), so
- *     the state change reads as a deliberate transition, never a jump.
+ * Round-25 history (D-384): the plain [Icons.Filled.Delete] →
+ * [Icons.Filled.DeleteForever] swap was normalized with a 0.65x armed scale so
+ * both glyphs occupied the same footprint. The round-26 device report flagged
+ * that as WRONG: the user expects the armed (confirm) state to be a BIG,
+ * unmissable danger glyph — roughly three times the idle size — not a subtle
+ * same-size morph.
+ *
+ * How it works now:
+ *  1. [animateFloatAsState] drives the glyph scale 1f → 3f over ~220ms with a
+ *     [FastOutSlowInEasing] curve — a deliberate, springy GROW on arm and a
+ *     shrink back on disarm.
+ *  2. The [AnimatedContent] fade+scale morph (150ms) still handles the glyph
+ *     identity swap (Delete ↔ DeleteForever) so the transition never "pops".
+ *     The two animations compose multiplicatively: on arm, DeleteForever fades
+ *     in at ~0.6x and settles at 3x — one continuous grow.
+ *  3. The draw-phase [Modifier.scale] intentionally does NOT change layout or
+ *     the tap target: the row's geometry stays perfectly stable while the
+ *     glyph visually dominates (a 48dp armed glyph inside the 32dp IconButton
+ *     frame simply draws beyond its box — Compose doesn't clip icon content,
+ *     and the row's trailing padding absorbs the overflow).
+ *  4. The error tint (armed) + [Icons.Filled.DeleteForever] identity keep the
+ *     "this is the dangerous state" signal the two-step flow needs.
  */
 @Composable
 private fun TwoStepDeleteIcon(
@@ -659,6 +672,14 @@ private fun TwoStepDeleteIcon(
     idleContentDescription: String,
     armedContentDescription: String,
 ) {
+    // D-389: the armed glyph renders at ~3x the idle size (was 0.65x in round
+    // 25 — the user explicitly wants the confirm state to be THREE TIMES
+    // BIGGER, not smaller). Animated so the grow reads as a deliberate action.
+    val armedScale by animateFloatAsState(
+        targetValue = if (armed) ARMED_ICON_SCALE else 1f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "twoStepDeleteIconScale",
+    )
     Box(
         modifier = Modifier.size(iconSize),
         contentAlignment = Alignment.Center,
@@ -683,11 +704,14 @@ private fun TwoStepDeleteIcon(
                 contentDescription = if (isArmed) armedContentDescription else idleContentDescription,
                 tint = if (isArmed) MaterialTheme.colorScheme.error
                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                // The scale normalization — see the KDoc above.
+                // The 3x grow — see the KDoc above (D-389).
                 modifier = Modifier
                     .size(iconSize)
-                    .scale(if (isArmed) 0.65f else 1f),
+                    .scale(armedScale),
             )
         }
     }
 }
+
+/** D-389: the armed (confirm) glyph scale — 3x the idle size, per the device report. */
+private const val ARMED_ICON_SCALE = 3f
