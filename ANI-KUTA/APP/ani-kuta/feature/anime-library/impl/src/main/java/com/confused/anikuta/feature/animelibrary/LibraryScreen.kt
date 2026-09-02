@@ -210,12 +210,19 @@ internal class CoverRevealController(
 /**
  * D-291: tracks how fast the library is scrolling (0f idle … 1f hard fling).
  *
- * [position] returns a coarse scroll signal (firstVisibleItemIndex * 4096 +
- * firstVisibleItemScrollOffset — the multiplier just keeps the index term
- * dominant). The signal feeds an EMA speed estimate; a 150ms decay loop fades
- * the factor back to idle after scrolling stops, so covers that finish
- * loading AFTER a fling ends still get the calm (slow) fade — "if the user
- * jumps into some area directly then it will slow down that area smoothly".
+ * Task 64 (round 24): [position] now returns the FIRST VISIBLE ITEM INDEX
+ * only. The old signal (index * 4096 + scrollOffset) changed on EVERY scroll
+ * FRAME, so the snapshotFlow below emitted (and ran its collect math on the
+ * main dispatcher) at frame rate for the whole duration of every scroll —
+ * pure per-frame overhead with no benefit, since only a coarse velocity
+ * estimate is needed for the fade duration. The index-only signal emits once
+ * per item crossed — dozens of times fewer emissions, still plenty of
+ * samples during a fling.
+ *
+ * The signal feeds an EMA speed estimate; a 150ms decay loop fades the
+ * factor back to idle after scrolling stops, so covers that finish loading
+ * AFTER a fling ends still get the calm (slow) fade — "if the user jumps
+ * into some area directly then it will slow down that area smoothly".
  */
 @Composable
 private fun rememberScrollVelocityFactor(position: () -> Int): State<Float> {
@@ -232,9 +239,9 @@ private fun rememberScrollVelocityFactor(position: () -> Int): State<Float> {
             }
             val dtMs = (now - lastTime) / 1_000_000f
             if (dtMs >= 1f && signal != lastSignal) {
-                // signal-units per ms; ~3/ms reads as a hard fling.
+                // items per ms; ~0.02/ms (one item per ~50ms) reads as a hard fling.
                 val speed = abs(signal - lastSignal) / dtMs
-                val instant = (speed / 3.0f).coerceIn(0f, 1f)
+                val instant = (speed / 0.02f).coerceIn(0f, 1f)
                 factor.floatValue = factor.floatValue * 0.4f + instant * 0.6f
                 lastSignal = signal
                 lastTime = now
@@ -327,20 +334,18 @@ fun LibraryScreen(
     // (comfortable masonry / list / grid). remember(displayMode) keeps the
     // lambda identity STABLE between recompositions (a fresh lambda every
     // recomposition would restart the tracker's LaunchedEffects), while still
-    // switching signals when the display mode changes.
+    // switching signals when the display mode changes. Task 64: INDEX-ONLY
+    // signal (no scrollOffset term — see rememberScrollVelocityFactor).
     val revealPositionSignal = remember(displayMode) {
         when (displayMode) {
             LibraryDisplayMode.COMFORTABLE_GRID -> ({
-                viewModel.staggeredState.firstVisibleItemIndex * 4096 +
-                    viewModel.staggeredState.firstVisibleItemScrollOffset
+                viewModel.staggeredState.firstVisibleItemIndex
             })
             LibraryDisplayMode.LIST -> ({
-                viewModel.listState.firstVisibleItemIndex * 4096 +
-                    viewModel.listState.firstVisibleItemScrollOffset
+                viewModel.listState.firstVisibleItemIndex
             })
             else -> ({
-                viewModel.gridState.firstVisibleItemIndex * 4096 +
-                    viewModel.gridState.firstVisibleItemScrollOffset
+                viewModel.gridState.firstVisibleItemIndex
             })
         }
     }
@@ -2828,14 +2833,20 @@ private fun LibraryGrid(
     val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
     val coverTransitionEnabled = appPrefs.coverTransitionEnabled
 
-    // D-242-fix21: Comfortable grid uses LazyVerticalStaggeredGrid (masonry
-    // layout) so items in a column can have different heights (shorter items
-    // don't force taller items to have gaps). All other modes use LazyVerticalGrid.
-    // D-290: staggeredState is VM-held (survives tab switches) — was
-    // rememberLazyStaggeredGridState() which died with the composable.
+    // Task 64 (round 24): the shared-element gate is now a LAMBDA threaded to
+    // the cells, and its scroll term is evaluated INSIDE [LibraryCoverImage]'s
+    // composition scope — not here. The old Boolean param flipped at every
+    // scroll START and STOP, and since every cell's content lambda captured
+    // it, each flip recomposed ALL visible cards (badges, borders, titles and
+    // all — ~2× full-grid recompositions per fling gesture). Now a flip only
+    // re-executes the cheap cover-image scopes. The pref itself is still read
+    // ONCE here (never inside the cells — the synchronous SharedPreferences
+    // read per cell was M2's original fix); the branch below bakes it into a
+    // stable remembered lambda bound to that branch's scroll state.
     if (displayMode == LibraryDisplayMode.COMFORTABLE_GRID) {
-        val coverSharedElementsActive =
-            coverTransitionEnabled && !staggeredState.isScrollInProgress
+        val sharedElementsGate: () -> Boolean = remember(coverTransitionEnabled, staggeredState) {
+            { coverTransitionEnabled && !staggeredState.isScrollInProgress }
+        }
         LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Fixed(columns.coerceIn(2, 5)),
             state = staggeredState,
@@ -2871,7 +2882,7 @@ private fun LibraryGrid(
                     showAllCaughtUpTag = showAllCaughtUpTag,
                     comfortableBorderMode = comfortableBorderMode,
                     hideTitles = hideTitlesInComfortable,
-                    coverSharedElementsActive = coverSharedElementsActive,
+                    sharedElementsGate = sharedElementsGate,
                 )
             }
         }
@@ -2880,9 +2891,11 @@ private fun LibraryGrid(
         // between neighbors (horizontal AND vertical) and no side/top padding;
         // covers run edge-to-edge. COMPACT_GRID keeps the standard layout.
         val isCoverOnly = displayMode == LibraryDisplayMode.COVER_ONLY
-        val coverSharedElementsActive =
-            coverTransitionEnabled && !gridState.isScrollInProgress
-        // D-141: in selection mode, reserve extra bottom space for the action bar.
+        // Task 64: same lambda treatment for the standard grid branch — the
+        // isScrollInProgress read lands inside the cover cells' scope.
+        val sharedElementsGate: () -> Boolean = remember(coverTransitionEnabled, gridState) {
+            { coverTransitionEnabled && !gridState.isScrollInProgress }
+        }
         LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Fixed(columns.coerceIn(2, 5)),
@@ -2923,7 +2936,7 @@ private fun LibraryGrid(
                     displayMode = displayMode,
                     showAllCaughtUpTag = showAllCaughtUpTag,
                     comfortableBorderMode = comfortableBorderMode,
-                    coverSharedElementsActive = coverSharedElementsActive,
+                    sharedElementsGate = sharedElementsGate,
                 )
             }
         }
@@ -2960,6 +2973,21 @@ private fun LibraryGrid(
  *   cell (and its 5-column neighbors) never recompose during the fade.
  * - **Soft placeholder** — a low-alpha surfaceVariant tint sits behind the
  *   image so an unrevealed cover reads as "reserved space", not a black hole.
+ *
+ * Task 64 (round 24): two composition-cost cuts for fling smoothness —
+ * - **Reveal fast path** — a cover that is ALREADY revealed (the common case
+ *   during scroll-back / tab-return) composes a PLAIN AsyncImage: no
+ *   Animatable, no onState machinery, no alpha graphicsLayer. The check is a
+ *   `remember`-captured snapshot (NOT a reactive read of the VM set), so the
+ *   moment a first load succeeds the cell STAYS on the animated path until
+ *   the fade finishes (a reactive branch would swap branches mid-fade and
+ *   snap the alpha to 1, killing the animation the reveal system exists to
+ *   run). Cells entering composition later re-evaluate and take the fast
+ *   path. Cells with no controller at all also take it (they never animate).
+ * - **Gate lambda** — [sharedElementsGate] is evaluated HERE, in the cover's
+ *   own scope: the old grid-level Boolean flipped at every scroll
+ *   start/stop and recomposed every full card; now only these cheap cover
+ *   scopes re-run on a flip.
  */
 @Composable
 private fun LibraryCoverImage(
@@ -2969,11 +2997,9 @@ private fun LibraryCoverImage(
     contentScale: ContentScale = ContentScale.Crop,
     revealKey: String? = null,
     reveal: CoverRevealController? = null,
-    // Task 62 (round 22 — M2): the shared-element gate, computed ONCE at the
-    // grid/list level (the pref read + the scroll gate) — the per-cell
-    // koinInject + synchronous SharedPreferences read on every recomposition
-    // of every cell is gone.
-    sharedElementsActive: Boolean = false,
+    // Task 64 (round 24): the grid-level shared-element gate as a LAMBDA —
+    // evaluated inside THIS scope (see the KDoc above).
+    sharedElementsGate: () -> Boolean = { false },
 ) {
     val context = LocalContext.current
     // D-320/D-328: shared-element key for the experimental cover transition.
@@ -2981,7 +3007,7 @@ private fun LibraryCoverImage(
     // collide with a Search card showing the SAME anime — during a Library ⇄
     // Search switch both screens compose at once, and pre-D-328 both built
     // "cover:<url>", making the shared cover fly BETWEEN the two pages.
-    val sharedElementKey = if (sharedElementsActive) {
+    val sharedElementKey = if (sharedElementsGate()) {
         libraryCoverKey(url)
     } else null
     val request = remember(url, context) {
@@ -2992,55 +3018,72 @@ private fun LibraryCoverImage(
             .build()
     }
 
-    // ── D-291: reveal-once state ──
-    // Initially revealed (alpha 1, instant) unless a controller + key say this
-    // cover has never been revealed. Both states are remembered per key so a
-    // cell that scrolls away mid-load and comes back keeps its promise.
-    val hasReveal = revealKey != null && reveal != null
-    var revealed by remember(revealKey) {
-        mutableStateOf(if (hasReveal) reveal!!.isRevealed(revealKey!!) else true)
+    // ── Task 64: the reveal fast-path snapshot (see the KDoc) ──
+    // Captured ONCE per cell instance: no controller / no key → fast path;
+    // controller + already-revealed key → fast path; otherwise animated.
+    // A remember (not a direct read) so a mid-flight markRevealed() can never
+    // swap the branch out from under a running fade.
+    val initiallyRevealed = remember(revealKey, reveal) {
+        val controller = reveal
+        val key = revealKey
+        controller == null || key == null || controller.isRevealed(key)
     }
-    var fadeDurationMs by remember(revealKey) { mutableStateOf(220) }
-    // Target alpha: 0 until first load success (or 1 immediately when already
-    // revealed / no reveal controller). The animate*AsState spec is rebuilt
-    // when fadeDurationMs changes, which only happens at reveal time — the
-    // tween the fade actually runs with is the one sampled below in onState.
-    val revealAlpha = animateFloatAsState(
-        targetValue = if (revealed) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = fadeDurationMs,
-            easing = FastOutSlowInEasing,
-        ),
-        label = "coverReveal",
-    )
 
     Box(
         modifier = modifier.background(
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
         ),
     ) {
-        AsyncImage(
-            model = request,
-            contentDescription = contentDescription,
-            contentScale = contentScale,
-            onState = { state ->
-                if (state is AsyncImagePainter.State.Success && hasReveal && !revealed) {
-                    // Sample the scroll velocity NON-reactively right now and
-                    // map it to the fade duration: calm ≈ 240ms, fling ≈ 70ms.
-                    fadeDurationMs = (240 - 170 * reveal!!.velocity.value)
-                        .toInt()
-                        .coerceIn(70, 240)
-                    reveal!!.markRevealed(revealKey!!)
-                    revealed = true
-                }
-            },
-            // Draw-phase alpha read: animating the fade re-draws ONLY this
-            // cell's layer — zero recomposition churn in the grid.
-            modifier = Modifier
-                .fillMaxSize()
-                .coverSharedElement(sharedElementKey)
-                .graphicsLayer { alpha = revealAlpha.value },
-        )
+        if (initiallyRevealed) {
+            // Task 64 fast path — a previously-revealed (or controller-less)
+            // cover: full alpha, ZERO animation machinery on the cell.
+            AsyncImage(
+                model = request,
+                contentDescription = contentDescription,
+                contentScale = contentScale,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .coverSharedElement(sharedElementKey),
+            )
+        } else {
+            // ── D-291: the first-load animated path ──
+            var revealed by remember(revealKey) { mutableStateOf(false) }
+            var fadeDurationMs by remember(revealKey) { mutableStateOf(220) }
+            // Target alpha: 0 until first load success. The animate*AsState
+            // spec is rebuilt when fadeDurationMs changes, which only happens
+            // at reveal time — the tween the fade actually runs with is the
+            // one sampled below in onState.
+            val revealAlpha = animateFloatAsState(
+                targetValue = if (revealed) 1f else 0f,
+                animationSpec = tween(
+                    durationMillis = fadeDurationMs,
+                    easing = FastOutSlowInEasing,
+                ),
+                label = "coverReveal",
+            )
+            AsyncImage(
+                model = request,
+                contentDescription = contentDescription,
+                contentScale = contentScale,
+                onState = { state ->
+                    if (state is AsyncImagePainter.State.Success) {
+                        // Sample the scroll velocity NON-reactively right now and
+                        // map it to the fade duration: calm ≈ 240ms, fling ≈ 70ms.
+                        fadeDurationMs = (240 - 170 * reveal!!.velocity.value)
+                            .toInt()
+                            .coerceIn(70, 240)
+                        reveal!!.markRevealed(revealKey!!)
+                        revealed = true
+                    }
+                },
+                // Draw-phase alpha read: animating the fade re-draws ONLY this
+                // cell's layer — zero recomposition churn in the grid.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .coverSharedElement(sharedElementKey)
+                    .graphicsLayer { alpha = revealAlpha.value },
+            )
+        }
     }
 }
 
@@ -3066,9 +3109,12 @@ private fun LibraryGridCard(
     showAllCaughtUpTag: Boolean = false,
     comfortableBorderMode: ComfortableBorderMode = ComfortableBorderMode.COVER_AND_TITLE,
     hideTitles: Boolean = false,
-    // Task 62 (round 22 — M2): the grid-level shared-element gate (see
-    // LibraryGrid) — threaded to [LibraryCoverImage].
-    coverSharedElementsActive: Boolean = false,
+    // Task 64 (round 24): the grid-level shared-element gate as a LAMBDA —
+    // evaluated inside [LibraryCoverImage]'s scope so a scroll start/stop
+    // flip only recomposes the cover images, never the full cards (the old
+    // Boolean param dragged every visible card's badges/borders/titles into
+    // each flip).
+    sharedElementsGate: () -> Boolean = { false },
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -3080,11 +3126,19 @@ private fun LibraryGridCard(
 
     // Fade unselected cards to 40% opacity while selection mode is active, so the
     // selected items visually pop and the rest recede. Animated for a smooth fade.
-    val cardAlpha by animateFloatAsState(
-        targetValue = if (isSelectionMode && !isSelected) 0.4f else 1f,
-        animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
-        label = "cardAlpha",
-    )
+    // Task 64 (round 24): the animation is composed ONLY in selection mode —
+    // every grid cell used to carry an idle Animatable + LaunchedEffect for
+    // this at all times, pure composition overhead during flings (selection
+    // mode is the only time the fade is ever visible).
+    val cardAlpha: Float = if (isSelectionMode) {
+        animateFloatAsState(
+            targetValue = if (isSelected) 1f else 0.4f,
+            animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
+            label = "cardAlpha",
+        ).value
+    } else {
+        1f
+    }
 
     // D-242-fix19: Cover border — configurable width + color. Applied to the
     // card Box so it wraps the cover image + title overlay + badges.
@@ -3175,7 +3229,7 @@ private fun LibraryGridCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(cardShape),
-                    sharedElementsActive = coverSharedElementsActive,
+                    sharedElementsGate = sharedElementsGate,
                 )
 
                 // Cover badges (same as compact grid).
@@ -3316,7 +3370,7 @@ private fun LibraryGridCard(
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
                     .clip(cardShape),
-                sharedElementsActive = coverSharedElementsActive,
+                sharedElementsGate = sharedElementsGate,
             )
 
             // D-242-fix15: Cover badges — positions hardcoded (no user-selectable position).
@@ -3514,11 +3568,15 @@ private fun LibraryList(
     val listDensity by viewModel.listDensity.collectAsState()
     val listTitlePosition by viewModel.listTitlePosition.collectAsState()
 
-    // Task 62 (round 22 — M2): the shared-element gate (see LibraryGrid) —
-    // ONE prefs read per list recomposition, OFF while the list scrolls.
+    // Task 62 (round 22 — M2): ONE prefs read per list recomposition.
+    // Task 64 (round 24): the gate is a LAMBDA evaluated inside the cover
+    // cells' scope (see LibraryGrid) — a scroll start/stop flip no longer
+    // recomposes every full row.
     val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
-    val coverSharedElementsActive =
-        appPrefs.coverTransitionEnabled && !listState.isScrollInProgress
+    val coverTransitionEnabled = appPrefs.coverTransitionEnabled
+    val sharedElementsGate: () -> Boolean = remember(coverTransitionEnabled, listState) {
+        { coverTransitionEnabled && !listState.isScrollInProgress }
+    }
 
     // D-141: in selection mode, reserve extra bottom space for the action bar.
     LazyColumn(
@@ -3550,7 +3608,7 @@ private fun LibraryList(
                 coverBorderWidth = coverBorderWidth,
                 listDensity = listDensity,
                 listTitlePosition = listTitlePosition,
-                coverSharedElementsActive = coverSharedElementsActive,
+                sharedElementsGate = sharedElementsGate,
             )
         }
     }
@@ -3583,9 +3641,9 @@ private fun LibraryListRow(
     coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
     listDensity: ListDensity = ListDensity.NORMAL,
     listTitlePosition: ListTitlePosition = ListTitlePosition.BOTTOM,
-    // Task 62 (round 22 — M2): the list-level shared-element gate (see
-    // LibraryList) — threaded to [LibraryCoverImage].
-    coverSharedElementsActive: Boolean = false,
+    // Task 64 (round 24): the list-level shared-element gate as a LAMBDA —
+    // evaluated inside [LibraryCoverImage]'s scope (see LibraryGrid).
+    sharedElementsGate: () -> Boolean = { false },
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -3594,11 +3652,17 @@ private fun LibraryListRow(
         animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
         label = "rowScale",
     )
-    val rowAlpha by animateFloatAsState(
-        targetValue = if (isSelectionMode && !isSelected) 0.4f else 1f,
-        animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
-        label = "rowAlpha",
-    )
+    // Task 64 (round 24): composed ONLY in selection mode (see the grid card's
+    // cardAlpha note) — no idle Animatable per row during flings.
+    val rowAlpha: Float = if (isSelectionMode) {
+        animateFloatAsState(
+            targetValue = if (isSelected) 1f else 0.4f,
+            animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
+            label = "rowAlpha",
+        ).value
+    } else {
+        1f
+    }
 
     // D-242-fix19: Resolve border color — ADAPTIVE extracts per-cover color.
     val isDark = isSystemInDarkTheme()
@@ -3711,7 +3775,7 @@ private fun LibraryListRow(
                     .width(listDensity.coverWidth.dp)
                     .height(listDensity.coverHeight.dp)
                     .clip(RoundedCornerShape(8.dp)),
-                sharedElementsActive = coverSharedElementsActive,
+                sharedElementsGate = sharedElementsGate,
             )
             if (isSelectionMode) {
                 Box(

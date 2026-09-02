@@ -308,6 +308,54 @@ class LibraryViewModel(
     /** The unfiltered, unsorted entries of the current category view (D-290). */
     private var masterEntries: List<LibraryEntry> = emptyList()
 
+    // ── Task 64 (round 24 — R2, the category-switch DB re-run) ───────────────
+    //
+    // The v0.4.10/v0.4.11 device rounds: "switching to an unloaded category
+    // lags for a long time". Root cause: EVERY category tap re-ran the FULL
+    // 7-query DB pipeline (every library_item row + every content record +
+    // every content_details row + the 3 badge-aggregate queries), rebuilt
+    // all ~653 entries, re-enriched them, and emitted a brand-new list —
+    // ~100–300 ms of work (plus a full grid re-compose) for what is a PURE
+    // in-memory re-filter of data the VM already holds.
+    //
+    // The load pipeline was ALREADY full-table (getAllLibraryItems /
+    // getAllLibraryContentRecords / getAllContentDetailsMap return ALL rows
+    // regardless of the selected category — the category filter was applied
+    // in memory on top). So: build the full set ONCE per load, cache it, and
+    // make selectCategory a pure in-memory derivation. The cache is refreshed
+    // by every loadLibraryImpl() run (init, tab-return resume refresh,
+    // pull-to-refresh, and every mutation path — deleteCategory etc. all end
+    // in a full reload), so it can never serve stale data between mutations.
+    /** The FULL, enriched entry set across ALL categories (Task 64). */
+    private var allEntries: List<LibraryEntry> = emptyList()
+
+    /** The raw library_item rows the cache was built from (category id →
+     *  mainIds + per-category counts derive from these without a DB read). */
+    private var allLibraryItems: List<com.confused.anikuta.core.content.LibraryItemRecord> = emptyList()
+
+    /** True once [allEntries] mirrors the DB (set by [loadLibraryImpl]). */
+    private var allEntriesLoaded = false
+
+    /**
+     * Task 64: the in-memory category view of [allEntries] — the entries whose
+     * mainId appears in a row of [allLibraryItems] with [categoryId]. Order
+     * follows the full set (added_at DESC), which filtering preserves, so the
+     * DATE_ADDED sort contract holds exactly as the DB path did.
+     */
+    private fun categoryViewOf(
+        entries: List<LibraryEntry>,
+        items: List<com.confused.anikuta.core.content.LibraryItemRecord>,
+        categoryId: Long?,
+    ): List<LibraryEntry> {
+        if (categoryId == null) return entries
+        val ids = HashSet<String>(4)
+        for (item in items) {
+            if (item.categoryId == categoryId) ids.add(item.mainId)
+        }
+        if (ids.isEmpty()) return emptyList()
+        return entries.filter { it.mainId in ids }
+    }
+
     /**
      * D-291: cover-URL keys whose image has been revealed at least once.
      *
@@ -399,13 +447,12 @@ class LibraryViewModel(
             _categoryCounts.value = counts
             _totalEntries.value = items.map { it.mainId }.distinct().size
 
-            // mainIds in view — filtered by the selected category when set.
-            // Preserves the added_at DESC order (the DATE_ADDED sort relies on it).
-            val uniqueMainIds = if (selectedCategoryId != null) {
-                items.filter { it.categoryId == selectedCategoryId }.map { it.mainId }.distinct()
-            } else {
-                items.map { it.mainId }.distinct()
-            }
+            // mainIds in view — Task 64 (round 24): the load now builds the
+            // FULL set (all categories). The category filter is a pure
+            // in-memory derivation on top (see [allEntries]) — the load
+            // queries were already full-table, so this costs nothing extra,
+            // and a category switch never re-runs the pipeline.
+            val uniqueMainIds = items.map { it.mainId }.distinct()
 
             Logger.i(TAG) { "Library: ${uniqueMainIds.size} items in view, ${_totalEntries.value} total (category=${selectedCategoryId ?: "all"})" }
 
@@ -462,18 +509,27 @@ class LibraryViewModel(
             }
 
             if (entries.isEmpty()) {
+                // Task 64: cache the (empty) full set so switches stay in-memory.
+                allEntries = emptyList()
+                allLibraryItems = items
+                allEntriesLoaded = true
                 masterEntries = emptyList()
                 _state.value = LibraryState.Empty
             } else {
                 // Batch queries 5-7: badge enrichment (released count, audio, watched).
                 enrichEntriesWithBadgeData(entries)
+                // Task 64: the FULL enriched set + the raw rows are now the VM's
+                // cache — selectCategory re-filters from here without any DB work.
+                allEntries = entries
+                allLibraryItems = items
+                allEntriesLoaded = true
                 // D-290: SINGLE emission — the final filtered+sorted list is
                 // computed BEFORE any state write, so no unsorted intermediate
                 // ordering can ever be composed (the key-anchor jump bug).
-                masterEntries = entries
+                masterEntries = categoryViewOf(entries, items, selectedCategoryId)
                 _state.value = LibraryState.Success(
                     filterAndSort(
-                        entries = entries,
+                        entries = masterEntries,
                         query = _searchQuery.value,
                         sortType = _sortType.value,
                         ascending = _sortAscending.value,
@@ -525,6 +581,14 @@ class LibraryViewModel(
     /**
      * Select a category. D-141: Uses reloadFromCache instead of loadLibrary
      * to avoid re-fetching AniList data on every tab switch.
+     *
+     * Task 64 (round 24 — R2): when the full-set cache is live (it is after
+     * any successful load, and every mutation/PTR/resume path refreshes it),
+     * this is a PURE IN-MEMORY re-filter on Dispatchers.Default — the 7-query
+     * DB pipeline + full entry rebuild + re-enrichment no longer run on every
+     * category tap (the v0.4.10/11 device report: "switching to an unloaded
+     * category lags for a long time"). Falls back to the full reload when the
+     * cache isn't primed (first composition race, post-error, etc.).
      */
     fun selectCategory(categoryId: Long?) {
         _selectedCategoryId.value = categoryId
@@ -535,7 +599,45 @@ class LibraryViewModel(
         // (a retained index from the previous category would land mid-list or
         // clamp to the bottom of a smaller set).
         resetScrollToTop()
-        reloadFromCache()
+        if (allEntriesLoaded && _state.value is LibraryState.Success) {
+            // In-memory path: derive + filter + sort ALL off-main; only the
+            // single state write lands on main. Guarded against a concurrent
+            // full reload superseding us (D-290's discipline — the newest
+            // input set wins).
+            viewModelScope.launch {
+                val selected = categoryId
+                val query = _searchQuery.value
+                val sortType = _sortType.value
+                val ascending = _sortAscending.value
+                val derived = withContext(dispatchers.default) {
+                    val view = categoryViewOf(allEntries, allLibraryItems, selected)
+                    val state = if (view.isEmpty() && allEntries.isEmpty()) {
+                        LibraryState.Empty
+                    } else {
+                        LibraryState.Success(
+                            filterAndSort(
+                                entries = view,
+                                query = query,
+                                sortType = sortType,
+                                ascending = ascending,
+                            ),
+                        )
+                    }
+                    view to state
+                }
+                if (_selectedCategoryId.value == selected &&
+                    _searchQuery.value == query &&
+                    _sortType.value == sortType &&
+                    _sortAscending.value == ascending &&
+                    allEntriesLoaded
+                ) {
+                    masterEntries = derived.first
+                    _state.value = derived.second
+                }
+            }
+        } else {
+            reloadFromCache()
+        }
     }
 
     /** D.5: Whether a pull-to-refresh is in progress. */
