@@ -24,6 +24,11 @@ import android.util.Log
  *   diagnostics; losing them in release would blind the crash handler and
  *   every catch-site that reports why something failed (decision D-362's
  *   device-diagnosability concern, kept for the SEVERITY that matters).
+ * - [w]/[e] are BEST-EFFORT platform calls (runCatching): on the JVM unit-test
+ *   harness android.util.Log is NOT MOCKED and throws — a diagnostics log
+ *   line must never become a test failure (or worse, replace the REAL
+ *   exception being logged). CI caught this the day w/e stopped being gated
+ *   on [enabled] (the CloudstreamLinkResolverTest failure-path locks).
  * - Lambda-based: the message lambda is only invoked if the level logs.
  */
 object Logger {
@@ -59,13 +64,16 @@ object Logger {
 
     fun w(tag: String, throwable: Throwable? = null, message: () -> String) {
         // Task 63 (D): warnings ALWAYS reach logcat — failure diagnostics.
+        // Best-effort: the JVM test harness's unmocked android.util.Log must
+        // never surface (it would REPLACE the real failure being logged).
         val msg = message()
-        Log.w(tag, msg, throwable)
+        runCatching { Log.w(tag, msg, throwable) }
     }
 
     fun e(tag: String, throwable: Throwable? = null, message: () -> String) {
         // Task 63 (D): errors ALWAYS reach logcat — crash diagnostics.
+        // Best-effort: same JVM-safety as [w].
         val msg = message()
-        Log.e(tag, msg, throwable)
+        runCatching { Log.e(tag, msg, throwable) }
     }
 }
