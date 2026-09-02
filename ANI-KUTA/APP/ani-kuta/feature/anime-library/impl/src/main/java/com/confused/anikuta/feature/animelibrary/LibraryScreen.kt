@@ -41,11 +41,13 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -3770,54 +3772,61 @@ private fun LibraryListRow(
 
     // D-242-fix19: Compute All Caught Up status first. When true, episode
     // tags are HIDDEN (only All Caught Up + score + year show).
-    val isAllCaughtUp = showAllCaughtUpTag &&
-        anime.releasedEpisodes != null && anime.releasedEpisodes > 0 &&
-        anime.watchedCount != null && anime.watchedCount > 0 &&
-        (anime.unwatchedCount == null || anime.unwatchedCount == 0)
-
-    // D-242-fix18: Build detail tags (year, score, episode info, all caught up).
-    val detailTags = mutableListOf<ListDetailTag>()
-
-    // Episode badge tag — skipped when All Caught Up is showing.
-    if (!isAllCaughtUp) {
-        when (episodeBadgeMode) {
-            EpisodeBadgeMode.OFF -> {}
-            EpisodeBadgeMode.TOTAL -> {
-                (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
-                    detailTags.add(ListDetailTag("EP $ep", badgeColors.totalContainer, badgeColors.totalContent))
-                }
-            }
-            EpisodeBadgeMode.RELEASED -> {
-                val subCount = if (releasedUnwatchedOnly) anime.subUnwatchedCount else anime.subEpisodeCount
-                val dubCount = if (releasedUnwatchedOnly) anime.dubUnwatchedCount else anime.dubEpisodeCount
-                if (subCount != null && subCount > 0) {
-                    detailTags.add(ListDetailTag("SUB $subCount", badgeColors.subContainer, badgeColors.subContent))
-                }
-                if (dubCount != null && dubCount > 0) {
-                    detailTags.add(ListDetailTag("DUB $dubCount", badgeColors.dubContainer, badgeColors.dubContent))
-                }
-                if (detailTags.isEmpty()) {
-                    anime.releasedEpisodes?.let { ep ->
-                        detailTags.add(ListDetailTag("EP $ep", badgeColors.totalContainer, badgeColors.totalContent))
+    // D-382 (round 25 perf): the tag list is now BUILT ONCE per (entry, config,
+    // theme) inside remember — previously every recomposition of the row
+    // re-allocated the list + all its strings/objects, which multiplied across
+    // dozens of rows entering the viewport during flings (the 16MB GC churn in
+    // the user's logcat). LibraryEntry/BadgeColorScheme/ColorScheme are data
+    // classes with structural equals, so they are safe remember keys.
+    val colorScheme = MaterialTheme.colorScheme
+    val detailTags = remember(
+        anime, episodeBadgeMode, showScoreBadge, releasedUnwatchedOnly,
+        showAllCaughtUpTag, colorScheme, badgeColors,
+    ) {
+        val isAllCaughtUp = showAllCaughtUpTag &&
+            anime.releasedEpisodes != null && anime.releasedEpisodes > 0 &&
+            anime.watchedCount != null && anime.watchedCount > 0 &&
+            (anime.unwatchedCount == null || anime.unwatchedCount == 0)
+        buildList {
+            // Episode badge tag — skipped when All Caught Up is showing.
+            if (!isAllCaughtUp) {
+                when (episodeBadgeMode) {
+                    EpisodeBadgeMode.OFF -> {}
+                    EpisodeBadgeMode.TOTAL -> {
+                        (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
+                            add(ListDetailTag("EP $ep", badgeColors.totalContainer, badgeColors.totalContent))
+                        }
+                    }
+                    EpisodeBadgeMode.RELEASED -> {
+                        val subCount = if (releasedUnwatchedOnly) anime.subUnwatchedCount else anime.subEpisodeCount
+                        val dubCount = if (releasedUnwatchedOnly) anime.dubUnwatchedCount else anime.dubEpisodeCount
+                        if (subCount != null && subCount > 0) {
+                            add(ListDetailTag("SUB $subCount", badgeColors.subContainer, badgeColors.subContent))
+                        }
+                        if (dubCount != null && dubCount > 0) {
+                            add(ListDetailTag("DUB $dubCount", badgeColors.dubContainer, badgeColors.dubContent))
+                        }
+                        if (isEmpty()) {
+                            anime.releasedEpisodes?.let { ep ->
+                                add(ListDetailTag("EP $ep", badgeColors.totalContainer, badgeColors.totalContent))
+                            }
+                        }
                     }
                 }
             }
+            // All Caught Up tag.
+            if (isAllCaughtUp) {
+                add(ListDetailTag("All Caught Up", badgeColors.allCaughtUpContainer, badgeColors.allCaughtUpContent))
+            }
+            // Score tag.
+            if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
+                add(ListDetailTag("★ ${anime.averageScore}", badgeColors.scoreContainer, badgeColors.scoreContent))
+            }
+            // Year tag (always shown if available).
+            anime.seasonYear?.let { year ->
+                add(ListDetailTag("$year", colorScheme.surfaceVariant, colorScheme.onSurfaceVariant))
+            }
         }
-    }
-
-    // All Caught Up tag (uses pre-computed isAllCaughtUp).
-    if (isAllCaughtUp) {
-        detailTags.add(ListDetailTag("All Caught Up", badgeColors.allCaughtUpContainer, badgeColors.allCaughtUpContent))
-    }
-
-    // Score tag.
-    if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
-        detailTags.add(ListDetailTag("★ ${anime.averageScore}", badgeColors.scoreContainer, badgeColors.scoreContent))
-    }
-
-    // Year tag (always shown if available).
-    anime.seasonYear?.let { year ->
-        detailTags.add(ListDetailTag("$year", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant))
     }
 
     Row(
@@ -3959,14 +3968,28 @@ private fun DetailTagPill(tag: ListDetailTag) {
 /**
  * D-242-fix20: Renders detail tags as a horizontal scrollable row of custom
  * pill tags. Uses [DetailTagPill] for each tag — no empty space, tight fit.
+ *
+ * D-382 (round 25 perf): replaced the previous LazyRow with a plain
+ * Row + horizontalScroll. The LazyRow was THE structural jank source of
+ * list-mode scrolling: EVERY row composed a full nested lazy layout
+ * (SubcomposeLayout + rememberSaveable-backed list state + a gesture/scroll
+ * node + an item provider, with each pill subcomposed during MEASURE) just to
+ * show 2–5 fixed pills — the grid modes compose nothing of the sort, which is
+ * exactly why "3 per row is smooth, the list mode jitters" (user logcat:
+ * 50–268ms frames + a 16MB concurrent GC during one fling). A plain Row
+ * measures all children in a single pass, has one saveable + one gesture
+ * node, and zero subcomposition — same visuals, an order of magnitude
+ * cheaper per row.
  */
 @Composable
 private fun DetailTagRow(tags: List<ListDetailTag>) {
-    LazyRow(
+    Row(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
     ) {
-        items(tags) { tag ->
+        tags.forEach { tag ->
             DetailTagPill(tag)
         }
     }

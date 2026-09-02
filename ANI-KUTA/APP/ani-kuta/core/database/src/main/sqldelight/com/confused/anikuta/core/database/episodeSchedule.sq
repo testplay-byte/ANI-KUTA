@@ -30,28 +30,34 @@ INSERT OR REPLACE INTO episode_schedule(
 );
 
 -- Get upcoming schedule entries (scheduled_at >= now), ordered ascending.
--- D-236: INNER JOIN library_item so only library anime appear in the schedule
+-- D-236: semi-join via EXISTS so only library anime appear in the schedule
 -- (prevents non-library anime that were merely opened from leaking in).
+-- D-381 (round 25 crash fix): the previous INNER JOIN DUPLICATED every schedule
+-- row once per library_item row — and library_item is one row PER CATEGORY
+-- (idx_library_item_unique is (main_id, category_id)), so an anime in two
+-- categories produced two identical rows → duplicate LazyColumn keys
+-- ("mainId_ep_scheduledAt") → IllegalArgumentException crash in the Schedule
+-- list. EXISTS is a semi-join: at most one match, no duplication.
 getUpcomingSchedule:
 SELECT es.* FROM episode_schedule es
-INNER JOIN library_item li ON es.main_id = li.main_id
 WHERE es.scheduled_at >= :from AND es.scheduled_at <= :to
+  AND EXISTS (SELECT 1 FROM library_item li WHERE li.main_id = es.main_id)
 ORDER BY es.scheduled_at ASC;
 
 -- D-193 Phase 6: Get today's already-aired entries (for grayed-out display at top).
--- D-236: INNER JOIN library_item (same fix as getUpcomingSchedule).
+-- D-236 + D-381: EXISTS semi-join (same dedup fix as getUpcomingSchedule).
 getTodayAiredSchedule:
 SELECT es.* FROM episode_schedule es
-INNER JOIN library_item li ON es.main_id = li.main_id
 WHERE es.scheduled_at >= :dayStart AND es.scheduled_at < :now
+  AND EXISTS (SELECT 1 FROM library_item li WHERE li.main_id = es.main_id)
 ORDER BY es.scheduled_at DESC;
 
 -- Get schedule entries for a specific day (for the calendar day-detail sheet).
--- D-236: INNER JOIN library_item (same fix as getUpcomingSchedule).
+-- D-236 + D-381: EXISTS semi-join (same dedup fix as getUpcomingSchedule).
 getScheduleForDay:
 SELECT es.* FROM episode_schedule es
-INNER JOIN library_item li ON es.main_id = li.main_id
 WHERE es.scheduled_at >= :dayStart AND es.scheduled_at < :dayEnd
+  AND EXISTS (SELECT 1 FROM library_item li WHERE li.main_id = es.main_id)
 ORDER BY es.scheduled_at ASC;
 
 -- Get schedule entries for a specific anime.

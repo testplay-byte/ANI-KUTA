@@ -45,7 +45,13 @@ class UpdatesViewModel(
 
     val state: StateFlow<UpdatesUiState> = updateStore.observeAllUpdates(100)
         .map { updates ->
+            // D-381: dedupe on the display composite (mainId + episodeNumber +
+            // audioVariant) as a second guard — the screen keys use the same
+            // composite, so a collision here would have been a duplicate-key
+            // crash there. First row wins (newest — observeAllUpdates orders
+            // by discovered_at DESC).
             val enriched = updates.mapNotNull { update -> enrichUpdate(update) }
+                .distinctBy { "${it.mainId}:${it.episodeNumber}:${it.audioVariant}" }
             val newUpdates = enriched.filter { !it.acknowledged }
             val earlierUpdates = enriched.filter { it.acknowledged }
             UpdatesUiState.Loaded(newUpdates = newUpdates, earlierUpdates = earlierUpdates)
