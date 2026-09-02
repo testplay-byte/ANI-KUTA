@@ -1047,13 +1047,33 @@ private fun CategoryTabsRow(
     // (the selected category must be IN VIEW when the library page opens).
     val listState = rememberLazyListState()
 
+    // Task 64 (round 24): a user-tap marker. The auto-center below ANIMATES
+    // only when the selection change came from the user TAPPING a chip; page
+    // opens, tab returns, restored selections, and category-list changes
+    // (rename/add/delete) land INSTANTLY with the first frame. The chips' click
+    // handlers set this before delegating to [onSelectCategory]; the effect
+    // consumes it when it runs.
+    var animateNextCenter by remember { mutableStateOf(false) }
+
     // Task 61 (round 21 — the device report: "if I have selected the very
     // first or very last category then when I open up the library page it
     // opens it up in the middle. The right or left categories are not
-    // shown"): when the page composes (and whenever the selection or the
-    // category list changes), the row SCROLLS to the SELECTED chip so it is
-    // fully in view — first/last categories included. scrollToItem (no
-    // animation) lands with the first frame; index -1 = nothing to do.
+    // shown") + Task 64 (round 24 — the centering spec, re-done after the
+    // round-23 attempt was reverted): the row scrolls so the SELECTED chip
+    // is CENTERED in the row whenever possible. Centering is impossible at
+    // the two EDGES (LazyRow clamps — the first chip stays at the start, the
+    // last at the end), which is exactly the spec's "excluding the left and
+    // right side ones".
+    //
+    // Mechanics: the centered target needs the chip's measured width, which
+    // only exists once the item is composed. For the INSTANT paths (open /
+    // restore / list change) step 1 snaps the chip into view start-aligned
+    // (composing + measuring it), step 2 re-scrolls with the NEGATIVE offset
+    // that centers it — both no-animation, landing with the first frame.
+    // For a USER TAP the tapped chip is by definition already composed, so
+    // the row glides DIRECTLY from wherever it is to the centered target —
+    // no visible pre-snap (the round-23 version snapped-then-glided, which
+    // read as a backwards jump).
     LaunchedEffect(categories, selectedCategoryId, showAllTab) {
         val selectedIndex = when {
             selectedCategoryId == null && showAllTab -> 0
@@ -1064,7 +1084,47 @@ private fun CategoryTabsRow(
             }
         }
         if (selectedIndex >= 0) {
-            listState.scrollToItem(selectedIndex)
+            val animate = animateNextCenter
+            animateNextCenter = false
+            if (animate) {
+                // The tapped chip is composed — find its measured size now.
+                var handled = false
+                repeat(3) {
+                    if (!handled) {
+                        val layout = listState.layoutInfo
+                        val item = layout.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
+                        if (item != null) {
+                            val viewport = layout.viewportEndOffset - layout.viewportStartOffset
+                            val centerOffset = -((viewport - item.size) / 2)
+                            listState.animateScrollToItem(selectedIndex, centerOffset)
+                            handled = true
+                        } else {
+                            // Not composed this frame (rare) — wait a frame, retry.
+                            androidx.compose.runtime.withFrameNanos { }
+                        }
+                    }
+                }
+            } else {
+                // Step 1: snap start-aligned — composes + measures the chip.
+                listState.scrollToItem(selectedIndex)
+                // Step 2: center it with the negative offset (clamped at the
+                // edges by LazyRow itself).
+                var centered = false
+                repeat(3) {
+                    if (!centered) {
+                        val layout = listState.layoutInfo
+                        val item = layout.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
+                        if (item != null) {
+                            val viewport = layout.viewportEndOffset - layout.viewportStartOffset
+                            val centerOffset = -((viewport - item.size) / 2)
+                            listState.scrollToItem(selectedIndex, centerOffset)
+                            centered = true
+                        } else {
+                            androidx.compose.runtime.withFrameNanos { }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1082,7 +1142,10 @@ private fun CategoryTabsRow(
                 CategoryTab(
                     label = "All",
                     isSelected = selectedCategoryId == null,
-                    onClick = { onSelectCategory(null) },
+                    onClick = {
+                        animateNextCenter = true
+                        onSelectCategory(null)
+                    },
                     onLongClick = null, // "All" cannot be managed.
                 )
             }
@@ -1096,7 +1159,10 @@ private fun CategoryTabsRow(
             CategoryTab(
                 label = label,
                 isSelected = selectedCategoryId == category.id,
-                onClick = { onSelectCategory(category.id) },
+                onClick = {
+                    animateNextCenter = true
+                    onSelectCategory(category.id)
+                },
                 onLongClick = { onLongPressCategory(category) },
             )
         }
@@ -1115,6 +1181,19 @@ private fun CategoryTabsRow(
  *  - a little THICKER (2dp → 3dp) and CLOSER to the text (4dp → 2dp gap);
  *  - the tab's internal vertical padding shrank (4dp → 2dp) with the row's
  *    paddings — a tighter category section overall.
+ *
+ * Task 64 (round 24 — the device report: "The full category names do not
+ * show… without any minimization of the name, like adding dots at the end
+ * and shrinking the name or anything like that"): the chip now sizes to the
+ * FULL single-line text width. Root cause of the truncation: the Task-62
+ * underline fix wrapped the Column in `width(IntrinsicSize.Min)` — a Text's
+ * MIN intrinsic width is its widest WORD (intrinsic measurement assumes the
+ * paragraph can wrap), so every multi-word category name (or "Name (count)")
+ * had its column sized to ONE WORD and the maxLines=1 + Ellipsis text
+ * truncated to "My Long Ca…". `IntrinsicSize.Max` measures the FULL single
+ * line (the LazyRow already gives items unbounded main-axis width, so the
+ * chip renders at its full text width and the row scrolls); the ellipsis is
+ * removed outright so a bounded constraint can never re-introduce dots.
  *
  * Long-press is only wired up when [onLongClick] is non-null (i.e. for real
  * categories, not the "All" tab). No background — just text + underline,
@@ -1136,15 +1215,12 @@ private fun CategoryTab(
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
-            // Task 62 (round 22 — the INVISIBLE underline fix): LazyRow measures
-            // its items with UNBOUNDED main-axis width, so the underline's
-            // fillMaxWidth() below was a NO-OP (0-width sliver — the round-22
-            // device report: "there previously was a line but now there is no
-            // line"). width(IntrinsicSize.Min) bounds the Column to its widest
-            // child (the Text), which makes fillMaxWidth() resolve to EXACTLY
-            // the text width again — and it also gives the clickable area the
-            // text's width instead of the whole row slot.
-            .width(IntrinsicSize.Min)
+            // Task 64 (round 24 — the full-name fix): IntrinsicSize.Max sizes
+            // the Column to the text's FULL single-line width (the Min variant
+            // measured the widest WORD — see the KDoc above). fillMaxWidth()
+            // below resolves to exactly the text width, and the clickable
+            // area keeps the text's width.
+            .width(IntrinsicSize.Max)
             .padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -1155,8 +1231,10 @@ private fun CategoryTab(
             fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
             color = if (isSelected) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            // Task 64: no maxLines / no Ellipsis — the chip always renders the
+            // name in full (one line, the row scrolls; a name wider than the
+            // viewport simply scrolls inside the row).
+            softWrap = false,
         )
         // ── Underline indicator — as wide as the text, 3dp thick, 1dp gap ──
         // Task 62: the gap tightened 2dp → 1dp (the device spec: the line
