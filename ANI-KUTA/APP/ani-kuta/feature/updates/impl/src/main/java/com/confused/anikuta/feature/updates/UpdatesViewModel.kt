@@ -117,10 +117,11 @@ class UpdatesViewModel(
                 val count = updateEngine.checkDueAnime(filterMainIds, trigger = "manual")
                 Logger.i(TAG) { "checkForUpdates — $count new episode(s) found" }
 
-                // D-193 v2: also schedule smart-release checks for anime airing within ±1h,
-                // so a manual Check Now still sets up the smart-polling chain.
+                // D-193 v2 + D-391 (round 26): also (re-)schedule the smart-release
+                // one-shots for every known future airing, so a manual Check Now
+                // still sets up the smart-polling chain.
                 try {
-                    smartReleaseScheduler?.scheduleImminentChecks()
+                    smartReleaseScheduler?.scheduleUpcomingChecks()
                 } catch (e: Exception) {
                     Logger.w(TAG) { "Smart-release scheduling failed (non-fatal): ${e.message}" }
                 }

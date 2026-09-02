@@ -287,8 +287,14 @@ class UpdateProgressNotifierImpl(
     }
 
     /**
-     * The "what it will do next" line — e.g. "Next check: in ~24h · Fri 3:30 PM"
+     * The "what it will do next" line — e.g. "Next check: in ~18h · Fri 3:30 PM"
      * (the device's own 12/24-hour clock) or "Next check: manual — up to you".
+     *
+     * D-391 (round 26): [UpdateCheckSummary.nextCheckAt] is now release-aware
+     * — the EARLIEST of the next smart-release check (fires exactly at the
+     * next expected episode release + confirms watchability) and the periodic
+     * interval. The line labels the SMART case so the "why 18h not 24h" is
+     * self-explanatory on the notification itself.
      */
     private fun nextCheckLine(summary: UpdateCheckSummary): String? {
         val next = summary.nextCheckAt ?: return "Next check: manual — whenever you check"
@@ -304,7 +310,16 @@ class UpdateProgressNotifierImpl(
         val timeText = android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date(next))
         val dayText = java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(java.util.Date(next))
         val intervalText = summary.intervalHours?.let { " · every ${it}h" } ?: ""
-        return "Next check: $inText · $dayText $timeText$intervalText"
+        // D-391: when the next check is EARLIER than a plain interval pass
+        // would be, it's a smart release check — say so (it fires at the next
+        // actual expected release + confirms the episode is watchable).
+        val smart = summary.intervalHours != null &&
+            next < now + (summary.intervalHours ?: 24L) * 3_600_000L - 60_000L
+        return if (smart) {
+            "Next check: $inText · $dayText $timeText (at the next episode's expected release)"
+        } else {
+            "Next check: $inText · $dayText $timeText$intervalText"
+        }
     }
 
     /** Loads a small cover bitmap for the large icon (best-effort, async). */

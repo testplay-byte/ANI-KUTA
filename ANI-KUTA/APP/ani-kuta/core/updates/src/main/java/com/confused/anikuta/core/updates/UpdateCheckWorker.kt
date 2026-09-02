@@ -93,10 +93,12 @@ class UpdateCheckWorker(
             // depend on. The cleanup is wired via the NotificationSender interface in a future phase.
             // For now, the retention purge is handled by the NotificationManager itself.
 
-            // D-193 Phase 5: Schedule smart-release checks for anime airing within ±1h.
+            // D-391 (round 26): schedule smart-release one-shots for EVERY
+            // known future airing (was ±1h/5 — a release 18h out was never
+            // pre-scheduled, so the "next check" bore no relation to it).
             try {
                 val smartScheduler = koin.get<SmartReleaseScheduler>()
-                smartScheduler.scheduleImminentChecks()
+                smartScheduler.scheduleUpcomingChecks()
             } catch (e: Exception) {
                 Logger.w(TAG) { "Smart-release scheduling failed (non-fatal): ${e.message}" }
             }

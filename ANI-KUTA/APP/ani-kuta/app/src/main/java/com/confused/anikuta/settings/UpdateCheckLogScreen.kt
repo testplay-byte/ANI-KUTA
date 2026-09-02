@@ -256,13 +256,23 @@ private fun NextCheckCard(
             // ── HOW it will initiate (the "how it will initiate and such") ──
             Spacer(Modifier.height(8.dp))
             Text(
-                text = when (info.mode) {
-                    UpdateMode.AUTO ->
+                text = when {
+                    // D-391 (round 26): the next fire is a SMART one-shot — the
+                    // check lands exactly at the next expected release, then
+                    // confirms the episode is actually watchable on the source.
+                    info.mode == UpdateMode.AUTO && info.smartCheck ->
+                        "Smart check — fires exactly at the next episode's expected release " +
+                            "(airing time + the per-anime learned delay), then confirms the " +
+                            "episode is actually watchable on the source. The periodic engine" +
+                            (info.intervalHours?.let { " (every ${it}h)" } ?: "") +
+                            " continues as the background safety net."
+                    info.mode == UpdateMode.AUTO ->
                         "Automatic — a WorkManager periodic job${info.intervalHours?.let { " every ${it}h" } ?: ""}, " +
-                            "runs on network + battery-not-low"
-                    UpdateMode.MANUAL ->
+                            "runs on network + battery-not-low. Smart release checks fire " +
+                            "separately at each episode's expected release time."
+                    info.mode == UpdateMode.MANUAL ->
                         "Manual — pull-to-refresh on the Updates tab, filtered to your selected categories"
-                    UpdateMode.OFF ->
+                    else ->
                         "No background job is scheduled — enable Updates in Settings to resume checking"
                 },
                 fontFamily = RobotoFamily,
@@ -270,12 +280,19 @@ private fun NextCheckCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            // ── WHICH content the next search will cover ──
+            // ── WHICH content is actually releasing before the next check ──
+            // D-391 (round 26): only the anime whose episodes ACTUALLY release
+            // before the next check (by airing time), each with its release
+            // schedule — never the whole backoff-based due set again.
             if (info.due.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "Will check ${info.due.size} anime" +
-                        (if (info.dueTotal > info.due.size) " (+${info.dueTotal - info.due.size} more)" else ""),
+                    text = if (info.dueTotal == 1) {
+                        "1 anime releasing before the next check"
+                    } else {
+                        "${info.due.size} anime releasing before the next check" +
+                            (if (info.dueTotal > info.due.size) " (+${info.dueTotal - info.due.size} more)" else "")
+                    },
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
@@ -291,7 +308,10 @@ private fun NextCheckCard(
     }
 }
 
-/** One queued-for-next-check anime row — cover + title, tappable to Details. */
+/**
+ * One releasing-soon anime row — cover + title + its RELEASE SCHEDULE (D-391:
+ * "it will show me the release schedule of it"), tappable to Details.
+ */
 @Composable
 private fun DuePreviewRow(
     preview: DueAnimePreview,
@@ -321,15 +341,39 @@ private fun DuePreviewRow(
             )
         }
         Spacer(Modifier.width(8.dp))
-        Text(
-            text = preview.title,
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = preview.title,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            // D-391: the release-schedule line — "EP 5 · Thu, Sep 3 · 9:30 PM
+            // (in 18h 33m)" — only when the airing data is known.
+            val airingAt = preview.nextAiringAt
+            if (airingAt != null) {
+                // Compose the formatted time OUTSIDE buildString —
+                // formatDeviceTime is @Composable (reads the device 12/24h
+                // clock) and can't run inside a plain lambda.
+                val timeText = formatDeviceTime(airingAt)
+                val remaining = (airingAt - System.currentTimeMillis()).coerceAtLeast(0)
+                Text(
+                    text = buildString {
+                        preview.nextAiringEpisode?.let { append("EP $it · ") }
+                        append(timeText)
+                        if (remaining > 0) append(" · in ${formatCountdown(remaining)}")
+                    },
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
@@ -606,27 +650,44 @@ private fun formatDuration(ms: Long): String {
 //  The ViewModel (D-388: extended with the next-check projection)
 // ══════════════════════════════════════════════════════════════════════════
 
-/** One anime queued for the next check (title + cover for the next-check card). */
+/** One anime queued for the next check (title + cover + its release schedule). */
 data class DueAnimePreview(
     val mainId: String,
     val title: String,
     val coverUrl: String?,
+    /** D-391: the episode's expected AniList airing time (null = unknown). */
+    val nextAiringAt: Long? = null,
+    /** D-391: the episode number that's expected (null = unknown). */
+    val nextAiringEpisode: Long? = null,
 )
 
 /**
- * D-388 (round 25): everything the pinned next-check card renders.
+ * D-388 (round 25) + D-391 (round 26): everything the pinned next-check card
+ * renders.
  *
- * [nextCheckAt] prefers WorkManager's REAL next fire time for the periodic
- * job ([com.confused.anikuta.core.updates.UpdateCheckWorker]'s unique work —
- * `nextScheduleTimeMillis`), falling back to the LAST logged session's
- * projection (the engine writes it into the history entry). Null = manual
- * mode / off / nothing scheduled.
+ * [nextCheckAt] is the EARLIEST of:
+ *  - the next smart-release one-shot (WorkManager's real fire time, queried
+ *    by the [SmartReleaseScheduler.WORK_TAG] tag) — a check that lands
+ *    exactly at the next ACTUAL expected episode release; and
+ *  - the periodic [com.confused.anikuta.core.updates.UpdateCheckWorker] job's
+ *    `nextScheduleTimeMillis` (falling back to the last logged projection,
+ *    then now + interval).
+ *
+ * [smartCheck] = true when the earliest is a smart one-shot (the card then
+ * explains the release-time checking + watchability confirmation).
+ *
+ * [due] = the anime whose episodes ACTUALLY release before the next check
+ * (filtered by `next_airing_at`, NOT the old backoff-based due set — the
+ * round-26 report: "it should only show the one that is really going to be
+ * released, with its release schedule"). Null mode = manual/off/nothing.
  */
 data class NextCheckInfo(
     val mode: UpdateMode,
     val intervalHours: Long?,
     val nextCheckAt: Long?,
-    /** The anime due for the next check — [due] shows up to 3, [dueTotal] is all. */
+    /** D-391: the next fire comes from a smart-release one-shot (at the release). */
+    val smartCheck: Boolean = false,
+    /** The anime releasing before the next check — [due] shows up to 3, [dueTotal] is all. */
     val due: List<DueAnimePreview>,
     val dueTotal: Int,
 )
@@ -666,16 +727,17 @@ class UpdateCheckLogViewModel(
     }
 
     /**
-     * Builds the next-check projection:
-     *  - AUTO → WorkManager's nextScheduleTimeMillis for the periodic job
-     *    (the REAL fire time), falling back to the latest session's logged
-     *    projection, falling back to now + interval;
+     * Builds the next-check projection (D-391 — see [NextCheckInfo]'s KDoc):
+     *  - AUTO → the EARLIEST of the next smart-release one-shot (WorkManager,
+     *    by tag — a check at the next ACTUAL expected release) and the periodic
+     *    job's next fire time (falling back to the latest session's logged
+     *    projection, then now + interval);
      *  - MANUAL/OFF → null (the card explains the mode instead).
      *
-     * The due anime are whatever [updateStore.getDueAnime] returns for the
-     * next fire time (mirroring the engine's own due set, dub-completed
-     * union included) — exactly "on which content it will initiate the
-     * search on".
+     * The due list: anime whose `next_airing_at` falls before the next check —
+     * "only the one(s) really releasing", each with its episode number + the
+     * release time. The old backoff-based due set listed everything due in
+     * the whole interval (the "it showed me three+" complaint).
      */
     private suspend fun buildNextCheck(latest: UpdateCheckLogEntry?): NextCheckInfo? {
         return runCatching {
@@ -686,26 +748,38 @@ class UpdateCheckLogViewModel(
                 UpdateMode.OFF -> null
                 UpdateMode.MANUAL -> null
                 UpdateMode.AUTO -> {
+                    // D-391: the smart one-shot — the next ACTUAL release check.
+                    val smartNext = querySmartReleaseNextRun()
                     val workNext = queryWorkManagerNextRun()
                     // Local binding — `latest.nextCheckAt` is a cross-module
                     // public property, so the null-checked form can NOT smart
                     // cast (Kotlin rule); the local can.
                     val loggedNext = latest?.nextCheckAt
-                    when {
+                    val periodicNext = when {
                         workNext != null && workNext > 0L -> workNext
                         loggedNext != null && loggedNext > System.currentTimeMillis() -> loggedNext
                         else -> System.currentTimeMillis() + interval * 3_600_000L
                     }
+                    // The earlier of the two wins — the countdown then tracks
+                    // the next real event, not the periodic interval.
+                    if (smartNext != null && smartNext < periodicNext) smartNext else periodicNext
                 }
             }
 
-            // The due set at the next fire time — what the next search covers.
-            val horizon = nextCheckAt ?: System.currentTimeMillis()
-            val dueStates = updateStore.getDueAnime(horizon) +
-                updateStore.getDueDubAnime(horizon)
-            val distinct = dueStates.distinctBy { it.mainId }
+            // D-391: the release-focused due set — only anime whose episode
+            // actually airs before the next check (a 1h grace window back for
+            // a just-aired episode whose smart check may still be retrying).
+            val now = System.currentTimeMillis()
+            val horizon = nextCheckAt ?: now
+            val graceStart = now - 60L * 60 * 1000
+            val releasing = updateStore.getAutoUpdateEnabledAnime()
+                .filter { state ->
+                    val airingAt = state.nextAiringAt
+                    airingAt != null && airingAt >= graceStart && airingAt <= horizon
+                }
+                .sortedBy { it.nextAiringAt!! } // soonest release first
 
-            val previews = distinct
+            val previews = releasing
                 .take(DUE_PREVIEW_ROWS + 3) // small over-fetch, then cap for display
                 .mapNotNull { state ->
                     val content = contentRepository.getMainEntryByMainId(state.mainId) ?: return@mapNotNull null
@@ -716,17 +790,43 @@ class UpdateCheckLogViewModel(
                         mainId = state.mainId,
                         title = content.title,
                         coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl,
+                        nextAiringAt = state.nextAiringAt,
+                        nextAiringEpisode = state.nextAiringEpisode,
                     )
                 }
                 .take(DUE_PREVIEW_ROWS)
+
+            // D-391: smart when the smart one-shot is the earliest fire.
+            val smartNext = querySmartReleaseNextRun()
+            val smartIsNext = nextCheckAt != null &&
+                smartNext != null && smartNext == nextCheckAt
 
             NextCheckInfo(
                 mode = mode,
                 intervalHours = interval,
                 nextCheckAt = nextCheckAt,
+                smartCheck = smartIsNext,
                 due = previews,
-                dueTotal = distinct.size,
+                dueTotal = releasing.size,
             )
+        }.getOrNull()
+    }
+
+    /**
+     * D-391 (round 26): WorkManager's REAL next smart-release one-shot fire
+     * time — the minimum `nextScheduleTimeMillis` over the ENQUEUED work
+     * tagged [com.confused.anikuta.core.updates.SmartReleaseScheduler.WORK_TAG]
+     * ("smart_release"). Null when none are scheduled (no known airings).
+     */
+    private fun querySmartReleaseNextRun(): Long? {
+        return runCatching {
+            val wm = androidx.work.WorkManager.getInstance(appContext)
+            val infos = wm.getWorkInfosByTag(
+                com.confused.anikuta.core.updates.SmartReleaseScheduler.WORK_TAG,
+            ).get()
+            infos.filter {
+                it.state == androidx.work.WorkInfo.State.ENQUEUED
+            }.mapNotNull { it.nextScheduleTimeMillis }.minOrNull()
         }.getOrNull()
     }
 

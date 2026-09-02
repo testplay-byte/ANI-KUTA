@@ -259,11 +259,15 @@ class UpdateEngine(
     }
 
     /**
-     * D-388 (round 25): builds the finish payload shared by the results
-     * notification and the history. The next-check projection:
-     * - AUTO → now + the configured interval ("~" — the exact fire time is
-     *   WorkManager's; the history page reads WorkManager's
-     *   nextScheduleTimeMillis when available);
+     * D-388 (round 25) → D-391 (round 26): builds the finish payload shared by
+     * the results notification and the history. The next-check projection:
+     * - AUTO → the EARLIEST of (a) the next smart-release check — the next
+     *   ACTUAL expected episode release (airing + learned delay) — and (b) the
+     *   configured periodic interval. The round-26 device report caught (b)
+     *   alone being flat-out wrong: a countdown of "23h" while the next real
+     *   release was 18h away. The history page refines this further with
+     *   WorkManager's real fire times (both the periodic job AND the
+     *   smart-release one-shots);
      * - MANUAL/OFF (or unknown prefs) → null ("next check is up to you").
      */
     private fun buildSummary(
@@ -277,8 +281,11 @@ class UpdateEngine(
         val mode = updatePreferences?.getMode()
         val interval = updatePreferences?.getIntervalHours()
         val nextCheckAt = when (mode) {
-            com.confused.anikuta.core.preferences.UpdateMode.AUTO ->
-                finishedAt + (interval ?: 24L) * 3_600_000L
+            com.confused.anikuta.core.preferences.UpdateMode.AUTO -> {
+                val intervalNext = finishedAt + (interval ?: 24L) * 3_600_000L
+                val smartNext = earliestUpcomingReleaseCheck(finishedAt)
+                if (smartNext != null && smartNext < intervalNext) smartNext else intervalNext
+            }
             else -> null
         }
         return UpdateCheckSummary(
@@ -291,6 +298,29 @@ class UpdateEngine(
             startedAt = startedAt,
             finishedAt = finishedAt,
         )
+    }
+
+    /**
+     * D-391 (round 26): the earliest upcoming smart-release check target —
+     * `next_airing_at + learned offset` over every auto-update-enabled anime
+     * with a FUTURE airing (the one-shots [SmartReleaseScheduler] schedules).
+     * Mirrors [SmartReleaseScheduler.scheduleUpcomingChecks]'s computation so
+     * the notification's "next check" line matches what actually fires.
+     * Null when no anime has a known future airing.
+     */
+    private fun earliestUpcomingReleaseCheck(now: Long): Long? {
+        return runCatching {
+            updateStore.getAutoUpdateEnabledAnime()
+                .mapNotNull { state ->
+                    val airingAt = state.nextAiringAt ?: return@mapNotNull null
+                    if (airingAt <= now) return@mapNotNull null
+                    // Same default + clamp as SmartReleaseScheduler.
+                    val offset = (state.learnedOffsetMs ?: 10L * 60 * 1000)
+                        .coerceIn(0L, 24L * 60 * 60 * 1000)
+                    airingAt + offset
+                }
+                .minOrNull()
+        }.getOrNull()
     }
 
     /**
