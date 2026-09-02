@@ -234,8 +234,37 @@ object AndroidConfig {
     // with covers + the how), 12h/device-time formatting, covers + Details
     // navigation on every history row, the dedicated Settings→Updates row +
     // check-now, and the Debug→Update Check History button.
-    const val versionCode = 78
-    const val versionName = "0.4.13"
+    //
+    // Task 66 (round 26 — the four v0.4.13 device findings, doc
+    // cloudstream-v2/17): (A) D-389 the armed delete icon GROWS to 3x — the
+    // round-25 0.65x "normalization" was the exact inverse of the request
+    // (animateFloatAsState 1f→3f over 220ms, draw-phase scale so the row
+    // geometry + tap target stay stable); (B) D-392 the robust delete logic
+    // — the .data.json remove is now a 3-attempt ladder (normal write →
+    // fresh-index retry → nuclear delete-recreate), deleting the LAST
+    // episode removes the WHOLE series folder (identity-checked safety
+    // ladder: never the SAF root, never a format folder, mainId re-confirmed
+    // at the last moment) + sweeps every DB row, delete-all is ONE atomic
+    // folder operation instead of an N-walk loop, and every phase logs its
+    // outcome; (C) D-390 the dedicated CsBrowseLoader module — the round-25
+    // bleeding fix failed because shelfLists' all-lists fallback still poured
+    // name-ignoring providers' whole home into every row, and ALL shelves
+    // fetched at once read as "rushing"; now the plan skeleton (zero
+    // network) → STRICTLY SEQUENTIAL shelf fetches in the provider's own
+    // order → a strict name matcher (exact → fuzzy → EMPTY, never
+    // all-lists) → static-home snapshot detection (ONE fetch replaces N) →
+    // a duplicate-content safety net, with the category subpages sharing the
+    // matcher; (D) D-391 the completed smart-update system + the
+    // release-aware next check — ScheduleEngine (re-)aims one-shot checks
+    // for EVERY future airing the moment it discovers them (7-day horizon,
+    // airingAt + the per-anime LEARNED delay, WorkManager-tagged), the
+    // history countdown = min(the earliest smart one-shot, the periodic
+    // fire), the "releasing before the next check" list is filtered by
+    // next_airing_at (only what's REALLY releasing — each row shows EP n +
+    // the release time + countdown), and the engine summary + notification
+    // next-check line are release-aware.
+    const val versionCode = 79
+    const val versionName = "0.4.14"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

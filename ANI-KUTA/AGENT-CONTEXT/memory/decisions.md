@@ -2787,3 +2787,15 @@ Categories skeleton (pre-merged, pre-network) → per-shelf sections as they lan
 
 ## D-388 (round 25): the update-notification module's channel split + the summary payload
 Progress feed = silent IMPORTANCE_LOW (as before); results = NEW IMPORTANCE_DEFAULT channel with sound + vibration. onFinish carries UpdateCheckSummary (per-anime lines + nextCheckAt + interval) — one payload feeds the notification, the JSON log, and the history page. UpdateCheckItemLog gained coverUrl (default null — legacy JSON decodes). The history's next-check card prefers WorkInfo.nextScheduleTimeMillis, falls back to the latest session's logged nextCheckAt, then now+interval. Tapping a results notification deep-links to the history via the open_update_history extra.
+
+## D-389 (round 26): the armed delete glyph grows to 3x via draw-phase scale
+animateFloatAsState 1f→3f (220ms FastOutSlowIn) on Modifier.scale — the layout and the tap target stay at the row's geometry; the 48dp armed glyph simply draws beyond its 32dp box (no clipping, the trailing row padding absorbs it). ARMED_ICON_SCALE is a private const next to the composable.
+
+## D-392 (round 26): the five-phase delete + the folder-cleanup contract
+removeEpisodeFromDataJson = a 3-attempt ladder (normal → fresh-index after 250ms → nuclear delete-recreate; verify-by-re-read each). maybeDeleteSeriesFolder triggers on .data.json episodes==0 (canonical) OR unreadable+DB-empty (orphan): deleteContentFolder (bottom-up recursion; never the SAF root / a format folder; mainId re-confirmed by re-reading .data.json right before deletion) + deleteDownloadedEpisodesByMainId sweep. deleteDownloadedAnime is atomic (1 walk + sweep; per-episode loop is the fallback only).
+
+## D-390 (round 26): the CS browse load lives in CsBrowseLoader — sequential, strict, snapshot-deduped
+Phase A skeleton (zero network) → Phase B one-shelf-at-a-time (CsShelfMatcher: exact → fuzzy → EMPTY; NO all-lists fallback ever again) with static-home snapshot detection (a response answering other shelves = the full home → capture once, slice forever after) → Phase C the canonical merge + the duplicate-content safety net (identical first-5-URL sections collapse). The subpages share the matcher. The repository keeps only provider resolution + the cache write; the CsBrowseEvent contract is unchanged.
+
+## D-391 (round 26): the smart-update one-shots cover every future airing; the next check is release-aware
+scheduleUpcomingChecks (7-day horizon, cap 40, airingAt + learned offset per anime, WorkManager tag "smart_release") is called from ScheduleEngine.fetchSchedule (the authoritative trigger — the moment an airing is discovered its check exists), the periodic worker, and the manual Check Now. nextCheckAt everywhere = min(the earliest ENQUEUED smart one-shot, the periodic fire); the history due-list filters by next_airing_at (+1h grace) with per-row release schedules. core:schedule's existing dependency on core:updates carries the scheduler seam (no new module edges).
