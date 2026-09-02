@@ -159,15 +159,14 @@ object EpisodeListDumper {
     }
 
     /**
-     * logcat ALWAYS (release builds included) + the in-app debug console when
-     * the app Logger is enabled (debug builds — the ConsoleTab can then filter
-     * by this tag).
+     * logcat ALWAYS (release builds included). Task 64: the in-app debug
+     * console capture is gone with the console-logging family — logcat is the
+     * dump's destination again.
      */
     private fun log(line: String) {
-        // In debug builds Logger.d already writes to logcat (level D) + the
-        // debug console — calling Log.i TOO duplicated every dump line twice in
-        // the user's logcat captures. Release builds (Logger disabled) use the
-        // direct Log.i path.
+        // In debug builds Logger.d already writes to logcat (level D) — calling
+        // Log.i TOO duplicated every dump line twice in the user's logcat
+        // captures. Release builds (Logger disabled) use the direct Log.i path.
         if (Logger.isEnabled) {
             Logger.d(TAG) { line }
         } else {

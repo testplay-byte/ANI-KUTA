@@ -325,11 +325,6 @@ object PlayerSettingsKey : NavKey
 @Serializable
 object VideoCachingKey : NavKey
 
-// CloudStream V2: release-available log console + export (the debug stage's
-// on-device diagnostics tool — Settings → Developer tools → Console logs).
-@Serializable
-object ConsoleLogsKey : NavKey
-
 // Task 57 (round 17): dedicated Debug page — debug-bubble toggle (debug builds
 // only) + CloudStream resolve-list source details / copy button (release too).
 @Serializable
@@ -388,7 +383,6 @@ private val allowedUpdateSheetKeys = setOf(
     AppearanceKey::class,
     AppearanceGeneralKey::class,
     DetailsPageSettingsKey::class,
-    ConsoleLogsKey::class,
     DebugSettingsKey::class,
     EpisodeSettingsKey::class,
     PlayerSettingsKey::class,
@@ -1075,19 +1069,16 @@ fun AppRoot() {
                 onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onOpenVideoCaching = { backstack.add(VideoCachingKey) },
-                onOpenConsoleLogs = { backstack.add(ConsoleLogsKey) },
                 onOpenDebug = { backstack.add(DebugSettingsKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
-                onBack = pop,
-            )
-            // CloudStream V2: console logs — the release-available diagnostics
-            // console (ring buffer + logcat export via the share sheet).
-            is ConsoleLogsKey -> com.confused.anikuta.settings.ConsoleLogsScreen(
                 onBack = pop,
             )
             // Task 57 (round 17): the dedicated Debug page — bubble toggle
             // (debug builds) + resolve-list source details / copy button
             // (release-available, defaults OFF).
+            // Task 64 (round 24): the ConsoleLogsKey branch is gone with the
+            // console-logging family (Settings → Developer tools → Console
+            // logs row removed too).
             is DebugSettingsKey -> com.confused.anikuta.settings.DebugSettingsScreen(
                 onBack = pop,
             )

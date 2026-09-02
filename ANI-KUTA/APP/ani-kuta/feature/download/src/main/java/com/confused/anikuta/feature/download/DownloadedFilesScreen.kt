@@ -41,8 +41,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -262,20 +265,24 @@ private fun DownloadedAnimeCard(
                     // primary-tinted pill style (matches the resolver's server
                     // chip). The device round asked for the FULL detail in the
                     // tag ("(5 Episodes Downloaded)"), not the old "5 EP".
+                    // Task 64 (round 24): the parentheses are gone and ONLY the
+                    // episode COUNT is bold — the tail stays regular weight
+                    // (the round-24 device spec: "bold number, rest normal").
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                     ) {
                         Text(
-                            text = if (episodes.size == 1) {
-                                "(1 Episode Downloaded)"
-                            } else {
-                                "(${episodes.size} Episodes Downloaded)"
+                            text = buildAnnotatedString {
+                                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                                    append("${episodes.size}")
+                                }
+                                append(if (episodes.size == 1) " Episode Downloaded" else " Episodes Downloaded")
                             },
                             fontFamily = RobotoFamily,
                             fontSize = 10.sp,
                             lineHeight = 14.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.Normal,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             maxLines = 1,

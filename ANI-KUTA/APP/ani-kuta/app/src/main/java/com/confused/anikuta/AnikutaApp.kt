@@ -9,7 +9,6 @@ import com.confused.anikuta.core.anilist.di.anilistModule
 import com.confused.anikuta.core.appupdate.di.appUpdateModule
 import com.confused.anikuta.core.common.LogLevel
 import com.confused.anikuta.core.common.Logger
-import com.confused.anikuta.core.common.RingLogBuffer
 import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.database.DatabaseDriverFactory
 import com.confused.anikuta.core.network.HttpClientFactory
@@ -91,28 +90,15 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             com.confused.anikuta.error.AnikutaCrashHandler(this)
         )
 
-        // Task 49 (round 9 — console logging tool): the Logger + its ring buffer
-        // now run in EVERY build so Settings → Developer tools → Console logs
-        // captures, filters and exports logs from the user's device (the whole
-        // point is diagnosing release-APK device rounds). Min level bounds the
-        // overhead: DEBUG lines only in debug builds, INFO+ in release
-        // (decision D-362 — reverses CORE_RULES §20 "release off" deliberately:
-        // lambda-gated logging makes the cost an if-check + string build for
-        // INFO+, and device-diagnosability outweighed it).
+        // Task 49 (round 9) → Task 64 (round 24): the console capture
+        // (Logger.setAppender(RingLogBuffer) + the com.lagradost.api.Log
+        // sink forwarding into the ring) is REMOVED — the in-app console
+        // logging tool is gone per the round-24 device instruction ("remove
+        // the console logs only"). The Logger itself stays (logcat-only now);
+        // min level still bounds the overhead: DEBUG lines only in debug
+        // builds, INFO+ in release (decision D-362).
         Logger.setEnabled(true)
         Logger.setMinLevel(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.INFO)
-        // The ring captures ALL Logger output in all builds.
-        Logger.setAppender(RingLogBuffer)
-        // Plugin-facing facade (com.lagradost.api.Log — 48/80 census plugins log
-        // through it) + the vendored CS layer's mirrored sites → the same ring.
-        com.lagradost.api.Log.sink = { level, tag, message ->
-            when (level) {
-                com.lagradost.api.Log.Level.D -> RingLogBuffer.append(LogLevel.DEBUG, tag, message, null)
-                com.lagradost.api.Log.Level.I -> RingLogBuffer.append(LogLevel.INFO, tag, message, null)
-                com.lagradost.api.Log.Level.W -> RingLogBuffer.append(LogLevel.WARN, tag, message, null)
-                com.lagradost.api.Log.Level.E -> RingLogBuffer.append(LogLevel.ERROR, tag, message, null)
-            }
-        }
 
         // ── Extension compat setup (BEFORE Koin, BEFORE any extension loads) ──
         // Extensions use Injekt (a service locator) to resolve NetworkHelper,
@@ -175,14 +161,10 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             modules(debugKoinModules())
         }
 
-        // DB-4: wire debug-only integrations (Logger appender → DebugLogBuffer).
-        // No-op in release builds (initDebugIntegrations() is a no-op there).
-        // Must run AFTER Koin starts so DebugLogBuffer is resolvable.
-        try {
-            initDebugIntegrations()
-        } catch (e: Exception) {
-            Logger.e("AnikutaApp", e) { "Failed to init debug integrations" }
-        }
+        // Task 64 (round 24): initDebugIntegrations() (the Logger appender →
+        // DebugLogBuffer composite wiring) is REMOVED with the console family.
+        // The debug-bubble Koin modules above stay (its Screen/Database/Network/
+        // App-info tabs are untouched).
 
         // Task 45: the CloudStream→aniyomi SOURCE BRIDGE — every trusted CloudStream
         // provider is published as an AnimeSource into ExtensionManager, so a

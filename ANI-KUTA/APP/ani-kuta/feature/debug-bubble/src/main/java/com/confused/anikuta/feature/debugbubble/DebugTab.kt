@@ -3,7 +3,6 @@ package com.confused.anikuta.feature.debugbubble
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -12,11 +11,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * The debug panel's tabs (Phase DB).
  *
  * Each tab has a Material [ImageVector] icon (no emojis — per user) + a label.
+ *
+ * Task 64 (round 24): the CONSOLE tab is REMOVED with the console-logging
+ * family (DebugLogBuffer/LogAppender/RingLogBuffer) — the round-24 device
+ * instruction was "remove the console logs only", and every other bubble
+ * tab keeps working exactly as before.
  */
 enum class DebugTab(val label: String, val icon: ImageVector) {
     SCREEN("Screen", Icons.Filled.PhoneAndroid),
     DATABASE("Database", Icons.Filled.Storage),
-    CONSOLE("Console", Icons.Filled.Terminal),
     NETWORK("Network", Icons.Filled.Wifi),
     APP_INFO("App Info", Icons.Filled.Info),
 }

@@ -16,7 +16,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,7 +48,6 @@ fun SettingsScreen(
     onOpenNotifications: () -> Unit,
     onOpenPlayerSettings: () -> Unit,
     onOpenVideoCaching: () -> Unit,
-    onOpenConsoleLogs: () -> Unit,
     onOpenDebug: () -> Unit,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit,
@@ -149,21 +147,13 @@ fun SettingsScreen(
                         )
                     }
 
-                    // ── Developer tools (Task 49 — console logging tool) ──
-                    // Release-available: the console + export are how device-round
-                    // bug reports get REAL data (ring buffer + own-process logcat).
-                    item {
-                        SettingsSectionLabel("Developer tools")
-                        MoreListRow(
-                            icon = Icons.Filled.Terminal,
-                            title = "Console logs",
-                            subtitle = "Live app log — filter, copy, export for bug reports",
-                            onClick = onOpenConsoleLogs,
-                        )
-                    }
-
                     // ── Debug (Task 57 / round 17) — dedicated page: bubble (debug builds),
                     // resolve-list source details + copy button (release too). ──
+                    // Task 64 (round 24): the "Developer tools → Console logs"
+                    // section above this one is REMOVED with the console-logging
+                    // family (the round-24 device instruction: remove the console
+                    // logs ONLY — this Debug options page and everything in it
+                    // stays exactly as it was).
                     item {
                         SettingsSectionLabel("Debug")
                         MoreListRow(

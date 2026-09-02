@@ -800,7 +800,8 @@ private fun SharePluginRow(
 }
 
 /**
- * The export itself — the ConsoleLogsScreen.shareLogReport pattern, now with
+ * The export itself — the share-log-report pattern (historically born in the
+ * since-removed ConsoleLogsScreen), now with
  * the Task-59 metadata: a fresh rewritten copy in cacheDir/exports/ (the
  * FileProvider already exposes the whole cacheDir) named
  * `<internalName>.WHITECAT` — every original .cs3 entry byte-for-byte plus
