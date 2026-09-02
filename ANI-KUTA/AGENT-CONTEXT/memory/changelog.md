@@ -1698,3 +1698,13 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **Library performance pass:** H1 — the 8 bulk-mutation paths (category ops, add/remove/delete-selected, the picker's membership queries) run on the IO dispatcher; H2 — ONE combined+debounced(200ms) pipeline runs the filter+sort on Default (no more per-keystroke main-thread sorts); M1 — the PTR threshold reads via snapshotFlow+distinctUntilChanged (no more whole-root recomposition per drag frame); M2 — the shared-element registration gate is hoisted to the grid/list level and OFF while scrolling (per-cell koinInject+prefs reads gone); M3 — the root's 34 collectAsState calls split into leaf state-owner composables (the root keeps 6); M4 — the 23 prefs reads run on Default before the first load.
 - **Downloads tag:** "(N Episodes Downloaded)" (singular-aware) on every downloaded-anime card.
 - **Cover zoom focal point:** the pinch now zooms INTO the fingers (the image point under them stays under them — top-right pinches zoom the top-right), via a non-consuming centroid observer on the Initial pointer pass + focal pan math; pan-while-zoomed and the auto-reset on lift are unchanged.
+
+## Phase CS-V2 Round 24 — Task 64: the ordered re-do (v0.4.12/77)
+- REVERTED the branch to ba3c6937 (v0.4.10) per the user's instruction; the revert itself CI-verified before any new work.
+- Library performance take two: image fetch cap 2→12/8-per-host; the in-memory category switch (full-set VM cache); per-cell animation fast paths; the shared-element gate lambda; the index-only velocity signal.
+- Library chips: the IntrinsicSize.Min word-width truncation fixed (Max + no ellipsis) + the centered auto-scroll (instant on open, animated on tap).
+- Downloads tag: no parentheses, bold count only. Console-logging family removed; the Debug options page + every other debug affordance kept.
+- Genres radar rework: bigger heading, the dedicated all-genres section below it, the category filter ladder (non-empty options only, gone-default→All fallback, the section can never disappear).
+- CS browse: original shelf indexes (pre-compaction) fix the subpage mixing; same-title sections merge (no duplicate rows).
+- Watch Activity: the weekday-label bottom clipping fixed (full row-pitch slots).
+- NEW: the update-check LIVE status notification (per-content names streaming) + the content-update history page (JSON file, no DB changes this round).

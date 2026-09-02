@@ -183,8 +183,26 @@ object AndroidConfig {
     // root recomposition split), shows "(N Episodes Downloaded)" on the
     // downloaded cards, and adds FOCAL-POINT pinch zoom to the cover viewer
     // (the fingers stay glued to the image point under them; pan kept).
-    const val versionCode = 75
-    const val versionName = "0.4.10"
+    // Task 64 (round 24 — THE ORDERED RE-DO after the v0.4.11 revert):
+    // baseline reverted to ba3c6937 (v0.4.10) per the user's instruction,
+    // then the improvements re-implemented ONE BY ONE with per-item CI
+    // verification: (A) the library performance deep pass, take two (image
+    // fetch cap 2→12 total/8 per-host; the in-memory category switch — the
+    // full-set cache; per-cell animation fast paths; the shared-element gate
+    // lambda; the index-only velocity signal), (B) the library chips
+    // full-name fix (IntrinsicSize.Min sized multi-word names to ONE WORD —
+    // IntrinsicSize.Max + no ellipsis) + the centered auto-scroll, (C) the
+    // downloads tag (no parentheses, bold count only) + the console-log
+    // family removed (the Debug page + all its other functionality stays),
+    // (D) the genres radar rework (bigger heading, the dedicated genre
+    // section below it, the category filter with the honest empty/fallback
+    // ladder — the section can never disappear), (E) the CS browse category
+    // identity (original shelf indexes pre-compaction + same-title merges),
+    // (F) the watch-activity weekday-label clipping fix, and (G) the
+    // update-check LIVE status notification + the content-update history
+    // page (JSON file — NO database changes this round).
+    const val versionCode = 77
+    const val versionName = "0.4.12"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.
