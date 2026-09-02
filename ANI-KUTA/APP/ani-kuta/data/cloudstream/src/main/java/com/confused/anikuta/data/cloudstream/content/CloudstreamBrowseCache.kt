@@ -150,15 +150,27 @@ class CloudstreamBrowseCache(
      * Stores a successful browse. Memory synchronously (the NEXT peek must
      * see it), disk asynchronously (never blocks the browse result path).
      * Empty sections are ignored (see class doc).
+     *
+     * D-387 (round 25 — the background-refresh arrangement jump): the NEW
+     * snapshot CARRIES OVER the previous one's display. A stale-cache
+     * background refresh re-put()s fresh sections mid-session; with display
+     * defaulting to null, the new snapshot lost the persisted arrangement →
+     * the ViewModel's re-read of `cachedBrowseDisplay()` returned null → the
+     * restore validation failed → a FRESH shuffle re-arranged the rows WHILE
+     * the user was looking at the cached ones (categories appeared to swap
+     * content — the round-25 "bleeding into each other's categories" report).
+     * The carry-over keeps the arrangement the user sees; saveDisplay()
+     * re-persists it whenever the shuffle actually runs.
      */
     fun put(providerName: String, sections: List<CsBrowseSection>) {
         if (sections.isEmpty()) return
+        val key = memKey(providerName)
         val snapshot = CsBrowseSnapshot(
             providerName = providerName,
             sections = sections,
             fetchedAtMs = System.currentTimeMillis(),
+            display = memory[key]?.display,
         )
-        val key = memKey(providerName)
         memory[key] = snapshot
         scope.launch {
             diskMutex.withLock {

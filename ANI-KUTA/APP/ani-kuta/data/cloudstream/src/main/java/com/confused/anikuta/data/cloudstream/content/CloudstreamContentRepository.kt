@@ -21,10 +21,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
@@ -94,6 +97,50 @@ data class CsBrowseSection(
 data class CsContentPage(
     val items: List<CsContentCard>,
     val hasNext: Boolean = false,
+)
+
+// ── D-387 (round 25): the PHASED browse events ─────────────────────────────
+
+/**
+ * D-387 (round 25 — the phased browse loading pipeline): the events emitted
+ * by [CloudstreamContentRepository.browseSectionsProgressive]. The user's
+ * spec: "it will first of all load up all the categories, then load up all
+ * the contents; while it is doing that it will show the beautiful animation
+ * of what it is doing; after everything has been loaded it will show all the
+ * results properly; after showing the results it will start to load up the
+ * cover images" — mapped to:
+ *  1. [Categories] — the category skeleton (the MERGED row structure —
+ *     titles + original shelf indexes), known BEFORE any network request;
+ *  2. [Section] — one shelf's content, emitted the MOMENT its request lands
+ *     (rows fill in progressively, in arrival order — the slowest shelf no
+ *     longer gates the page);
+ *  3. [Complete] — the canonical final result (shelf order + same-title merge
+ *     + cap + cache), so the ViewModel can run the display arrangement
+ *     (restore / smart-shuffle + persist) exactly as before.
+ *
+ * Covers (phase 4 of the spec) are NOT part of this pipeline — Coil loads
+ * them per card with crossfade as the rows compose (unchanged).
+ */
+sealed interface CsBrowseEvent {
+    /** The category skeleton — every row the page will have, before any fetch. */
+    data class Categories(val slots: List<CsBrowseSlot>) : CsBrowseEvent
+
+    /** One shelf's content landed (empty shelves never emit — their slot keeps shimmering until [Complete]). */
+    data class Section(val section: CsBrowseSection) : CsBrowseEvent
+
+    /** The canonical final result (merged, capped, cached). */
+    data class Complete(val sections: List<CsBrowseSection>) : CsBrowseEvent
+}
+
+/**
+ * D-387: one skeleton row of the phased browse — [title] + [shelfIndex] of
+ * the MERGED row structure (same-title shelves collapse into ONE slot, first
+ * occurrence's index — mirroring [CloudstreamContentRepository]'s
+ * mergeSameTitleSections, so the skeleton's shape equals the final result's).
+ */
+data class CsBrowseSlot(
+    val title: String,
+    val shelfIndex: Int,
 )
 
 /**
@@ -253,94 +300,174 @@ class CloudstreamContentRepository(
      * failure of EVERY shelf yields an empty result. Coroutine cancellation
      * still propagates from inside the parallel fetches.
      */
-    suspend fun browseSections(providerName: String): List<CsBrowseSection> = withContext(Dispatchers.IO) {
-        val provider = resolveProvider(providerName)
-        val shelves = provider.mainPage
-        val started = System.currentTimeMillis()
-        Logger.i(TAG) {
-            "browse: $providerName — ${shelves.size} shelf(ves): [${shelves.joinToString { it.name }}]"
+    suspend fun browseSections(providerName: String): List<CsBrowseSection> {
+        // D-387 (round 25): the classic all-at-once API is now a thin terminal
+        // collector of the PHASED pipeline — one implementation, two consumers
+        // (this fun for any legacy caller; SearchViewModel collects the events
+        // for the progressive UI). The flow throws exactly like this fun used
+        // to (all-shelves Cloudflare block / cancellation propagate).
+        var result: List<CsBrowseSection> = emptyList()
+        browseSectionsProgressive(providerName).collect { event ->
+            if (event is CsBrowseEvent.Complete) result = event.sections
         }
+        return result
+    }
 
-        val responses = coroutineScope {
+    /**
+     * D-387 (round 25 — the phased browse pipeline + the category-bleeding fix):
+     * the full [browseSections] behavior expressed as a Flow of
+     * [CsBrowseEvent]s.
+     *
+     * Phase 1 — [CsBrowseEvent.Categories]: the category skeleton (titles +
+     * original shelf indexes, SAME-TITLE-MERGED exactly like the final result)
+     * is known from `provider.mainPage` BEFORE any network request → emitted
+     * immediately, so the UI can show the full category structure with
+     * shimmer rows instead of a blank spinner.
+     *
+     * Phase 2 — [CsBrowseEvent.Section]: every shelf is fetched in parallel
+     * (per-shelf failure TOLERATED, logged under the `browse:` prefix; only a
+     * failure of EVERY shelf yields an empty result; cancellation propagates);
+     * each shelf's section is emitted the MOMENT its response lands — rows
+     * fill in progressively, the slowest shelf no longer gates the whole page.
+     *
+     * THE BLEEDING FIX rides this phase: many CloudStream providers IGNORE
+     * MainPageRequest.name and return the WHOLE home response (EVERY named
+     * list) for ANY shelf request. The previous code flattened ALL lists
+     * regardless of their names — every category row got the same mixed
+     * content (the round-25 report: "content from one category was bleeding
+     * into other categories"). [shelfLists] now selects the lists that belong
+     * to the REQUESTED shelf (name match → single list → all-lists fallback).
+     *
+     * Phase 3 — [CsBrowseEvent.Complete]: the canonical final result — shelf
+     * order restored, same-title sections merged, capped at
+     * [MAX_SECTION_ITEMS], cached (non-empty results only — Task 48) — so the
+     * ViewModel's display arrangement (restore / smart-shuffle + persist) is
+     * byte-identical with the pre-rework behavior.
+     */
+    fun browseSectionsProgressive(providerName: String): Flow<CsBrowseEvent> = channelFlow {
+        withContext(Dispatchers.IO) {
+            val provider = resolveProvider(providerName)
+            val shelves = provider.mainPage
+            val started = System.currentTimeMillis()
+            Logger.i(TAG) {
+                "browse: $providerName — ${shelves.size} shelf(ves): [${shelves.joinToString { it.name }}]"
+            }
+
+            // ── Phase 1: the category skeleton — needs ZERO network. ──
+            val skeleton = mergeSameTitleSections(
+                shelves.mapIndexed { index, data ->
+                    CsBrowseSection(title = data.name, items = emptyList(), shelfIndex = index)
+                },
+            )
+            send(
+                CsBrowseEvent.Categories(
+                    slots = skeleton.map { CsBrowseSlot(title = it.title, shelfIndex = it.shelfIndex) },
+                ),
+            )
+
+            // ── Phase 2: fetch every shelf in parallel; emit as each lands. ──
             val firstCloudflareBlock =
                 java.util.concurrent.atomic.AtomicReference<com.lagradost.cloudstream3.network.CloudflareBlockedException?>(null)
-            val awaited = shelves.map { data ->
-                async {
-                    val request = MainPageRequest(
-                        name = data.name,
-                        data = data.data,
-                        horizontalImages = data.horizontalImages,
-                    )
-                    try {
-                        provider.getMainPage(1, request)
-                    } catch (ce: kotlinx.coroutines.CancellationException) {
-                        throw ce
-                    } catch (cf: com.lagradost.cloudstream3.network.CloudflareBlockedException) {
-                        firstCloudflareBlock.compareAndSet(null, cf)
-                        Logger.w(TAG) {
-                            "browse: $providerName shelf '${data.name}' blocked by Cloudflare: ${cf.message}"
+            val collected = java.util.concurrent.ConcurrentLinkedQueue<CsBrowseSection>()
+            coroutineScope {
+                shelves.mapIndexed { index, data ->
+                    async {
+                        val request = MainPageRequest(
+                            name = data.name,
+                            data = data.data,
+                            horizontalImages = data.horizontalImages,
+                        )
+                        val response = try {
+                            provider.getMainPage(1, request)
+                        } catch (ce: kotlinx.coroutines.CancellationException) {
+                            throw ce
+                        } catch (cf: com.lagradost.cloudstream3.network.CloudflareBlockedException) {
+                            firstCloudflareBlock.compareAndSet(null, cf)
+                            Logger.w(TAG) {
+                                "browse: $providerName shelf '${data.name}' blocked by Cloudflare: ${cf.message}"
+                            }
+                            null
+                        } catch (t: Throwable) {
+                            Logger.w(TAG) {
+                                "browse: $providerName shelf '${data.name}' FAILED: " +
+                                    "${t::class.java.simpleName}: ${t.message}"
+                            }
+                            null
                         }
-                        null
-                    } catch (t: Throwable) {
-                        Logger.w(TAG) {
-                            "browse: $providerName shelf '${data.name}' FAILED: " +
-                                "${t::class.java.simpleName}: ${t.message}"
+                        // D-387: the name-matched lists — see [shelfLists] (THE
+                        // category-bleeding fix; same discipline as browseShelf).
+                        val cards = response
+                            ?.let { shelfLists(it, data.name) }
+                            .orEmpty()
+                            .flatMap { it.list }
+                            .distinctBy { it.url }
+                            .take(MAX_SECTION_ITEMS)
+                            .map { it.toCard(providerName, provider.mainUrl) }
+                        Logger.i(TAG) { "browse: $providerName shelf '${data.name}' -> ${cards.size} item(s)" }
+                        if (cards.isNotEmpty()) {
+                            val section = CsBrowseSection(
+                                title = data.name,
+                                items = cards,
+                                shelfIndex = index,
+                            )
+                            collected.add(section)
+                            // Emitted the moment this shelf lands — thread-safe:
+                            // channelFlow's ProducerScope.send is safe from ANY
+                            // coroutine inside this scope.
+                            send(CsBrowseEvent.Section(section))
                         }
-                        null
                     }
-                }
-            }.map { it.await() }
+                }.awaitAll()
+            }
+
             // Every shelf blocked → surface the block as the browse error (the
             // honest-error contract: a challenge page is NEVER "no results").
             firstCloudflareBlock.get()?.let { cf ->
-                if (awaited.all { it == null }) throw cf
+                if (collected.isEmpty()) throw cf
             }
-            awaited
-        }
 
-        val sections = responses.mapIndexedNotNull { index, response ->
-            val shelf = shelves[index]
-            // A shelf's response may itself carry several named lists — flatten
-            // them into the one row, deduped by url within the row (cross-row
-            // duplicates are fine: lazy keys are row-scoped, and CloudStream's
-            // own home shows the same card in multiple rows).
-            val cards = response
-                ?.items.orEmpty()
-                .flatMap { it.list }
-                .distinctBy { it.url }
-                .take(MAX_SECTION_ITEMS)
-                .map { it.toCard(providerName, provider.mainUrl) }
-            Logger.i(TAG) { "browse: $providerName shelf '${shelf.name}' -> ${cards.size} item(s)" }
-            // Task 64 (round 24 — F): shelfIndex = the ORIGINAL mainPage index
-            // (the loop index over [shelves], captured BEFORE the failed-shelf
-            // compaction of mapIndexedNotNull). This was the MIXING root cause:
-            // the search page used to derive the subpage shelf from the
-            // COMPACTED list position, so one failed shelf shifted every later
-            // row onto the WRONG category's subpage.
-            if (cards.isEmpty()) null else CsBrowseSection(
-                title = shelf.name,
-                items = cards,
-                shelfIndex = index,
-            )
+            // ── Phase 3: the canonical final result. ──
+            // Shelf order restored (the queue holds ARRIVAL order) so the
+            // same-title merge's first-appearance order matches the classic
+            // pipeline exactly.
+            val mergedSections = mergeSameTitleSections(collected.sortedBy { it.shelfIndex })
+            Logger.i(TAG) {
+                "browse: $providerName -> ${mergedSections.size} section(s) in ${System.currentTimeMillis() - started}ms"
+            }
+            // Task 48: every successful (non-empty) browse feeds the instant-open
+            // cache — empty results never overwrite a good cached feed.
+            if (mergedSections.isNotEmpty()) {
+                browseCache?.put(providerName, mergedSections)
+            }
+            send(CsBrowseEvent.Complete(mergedSections))
         }
+    }
 
-        // Task 64 (round 24 — F): MERGE same-title sections (case-insensitive) —
-        // the DUPLICATE-category root cause: providers can declare several
-        // shelves with the same name (or the same name in different casing),
-        // and each rendered as its own identically-titled row. Merged row:
-        // concatenated items, deduped by url, re-capped, FIRST occurrence's
-        // shelfIndex (subpage taps open that shelf — same name, same content
-        // family). First-appearance order is preserved.
-        val mergedSections = mergeSameTitleSections(sections)
-        Logger.i(TAG) {
-            "browse: $providerName -> ${mergedSections.size} section(s) in ${System.currentTimeMillis() - started}ms"
+    /**
+     * D-387 (round 25 — the category-bleeding fix): selects the response's
+     * named lists that belong to the REQUESTED shelf. Many CloudStream
+     * providers IGNORE MainPageRequest.name and return the WHOLE home
+     * response (EVERY named list) for any shelf request — flattening all of
+     * them poured every category's content into every row. Selection order:
+     *  1. the lists whose [HomePageList.name] matches the shelf name
+     *     (case-insensitive, trimmed — providers are inconsistent with casing);
+     *  2. a single-list response (nothing to disambiguate — the provider's
+     *     one list IS the shelf content);
+     *  3. ALL lists flattened — providers whose list names simply never match
+     *     the shelf names keep the pre-fix behavior (their lists ARE shelf
+     *     content and merging them is the only sane reading).
+     */
+    private fun shelfLists(
+        response: com.lagradost.cloudstream3.HomePageResponse,
+        shelfName: String,
+    ): List<com.lagradost.cloudstream3.HomePageList> {
+        val lists = response.items
+        val matching = lists.filter { it.name.trim().equals(shelfName.trim(), ignoreCase = true) }
+        return when {
+            matching.isNotEmpty() -> matching
+            lists.size == 1 -> lists
+            else -> lists
         }
-        // Task 48: every successful (non-empty) browse feeds the instant-open
-        // cache — empty results never overwrite a good cached feed.
-        if (mergedSections.isNotEmpty()) {
-            browseCache?.put(providerName, mergedSections)
-        }
-        mergedSections
     }
 
     /**
@@ -398,7 +525,11 @@ class CloudstreamContentRepository(
         )
         val response = provider.getMainPage(page, request)
             ?: return@withContext CsContentPage(emptyList())
-        val cards = response.items
+        // D-387 (round 25 — the category-bleeding fix, same as the browse
+        // pipeline): providers that ignore MainPageRequest.name and return
+        // the WHOLE home would otherwise pour every category's content into
+        // this category's subpage. Name-matched selection first.
+        val cards = shelfLists(response, shelf.name)
             .flatMap { it.list }
             .distinctBy { it.url } // D-304 duplicate-key crash guard
             .map { it.toCard(providerName, provider.mainUrl) }

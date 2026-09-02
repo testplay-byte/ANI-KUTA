@@ -76,6 +76,14 @@ class SearchViewModel(
         private const val MAX_RECENTS = 10
 
         /**
+         * D-387 (round 25 — the phased browse): the per-row display cap while
+         * the progressive skeleton fills in — mirrors the repository's
+         * MAX_SECTION_ITEMS so a filling row never shows MORE cards than the
+         * canonical final result will.
+         */
+        private const val PROGRESSIVE_ROW_CAP = 20
+
+        /**
          * Task 62 (round 22): the cross-section uniqueness window of the smart
          * shuffle — the first N items of any randomized category must not
          * appear in the first N of any other one (the device spec: "the first
@@ -988,6 +996,11 @@ class SearchViewModel(
         return viewModelScope.launch {
             // ── Step 1: cache-first instant render (Task 48) ──
             val cached = cloudstreamRepository.cachedBrowseSections(providerName)
+            // D-387 (round 25 — the PHASED browse): the progressive skeleton is
+            // ONLY for the no-cache path. A stale cache still renders instantly
+            // (above) and the background refresh updates it SILENTLY — the
+            // user must never watch a loaded page dissolve back into shimmer.
+            val showPhases = cached == null || cached.isEmpty()
             // Task 62 (round 22 — the STABLE randomized browse): the persisted
             // display arrangement. Restored EXACTLY when valid → a cold app
             // reopen shows the page the user last saw (the round-22 report:
@@ -1051,7 +1064,64 @@ class SearchViewModel(
 
             try {
                 Logger.i(TAG) { "Browsing CloudStream provider: $providerName" }
-                val sections = cloudstreamRepository.browseSections(providerName)
+                // D-387 (round 25 — the PHASED browse pipeline): the repository
+                // now streams the browse as events — (1) the category skeleton
+                // (titles, pre-merged like the final result) BEFORE any network,
+                // (2) each shelf's content the MOMENT it lands, (3) the
+                // canonical final result. No-cache opens show the skeleton with
+                // shimmer rows that fill in progressively (the round-25 spec:
+                // "first load all the categories, then load all the contents,
+                // show the animation of what it is doing"); the slowest shelf no
+                // longer gates the page. Covers stay with Coil (progressive by
+                // nature once the rows compose).
+                var slots: List<ExtensionBrowseSlot> = emptyList()
+                var sections: List<com.confused.anikuta.data.cloudstream.content.CsBrowseSection> = emptyList()
+                cloudstreamRepository.browseSectionsProgressive(providerName).collect { event ->
+                    when (event) {
+                        is com.confused.anikuta.data.cloudstream.content.CsBrowseEvent.Categories -> {
+                            slots = event.slots.map { ExtensionBrowseSlot(title = it.title, shelfIndex = it.shelfIndex) }
+                            if (!showPhases || slots.isEmpty()) return@collect
+                            if (_query.value.isNotBlank()) return@collect
+                            if (!isCurrent(gen)) return@collect
+                            showingDefaults = true
+                            _uiState.value = SearchUiState.ExtensionBrowseLoading(
+                                sourceName = providerName,
+                                slots = slots,
+                            )
+                            Logger.i(TAG) { "Browse skeleton for '$providerName' — ${slots.size} category row(s)" }
+                        }
+                        is com.confused.anikuta.data.cloudstream.content.CsBrowseEvent.Section -> {
+                            if (!showPhases || slots.isEmpty()) return@collect
+                            if (_query.value.isNotBlank()) return@collect
+                            if (!isCurrent(gen)) return@collect
+                            // Fill the matching slot — the skeleton is title-merged
+                            // like the final result, so a slot absorbs EVERY shelf
+                            // of its title family (same concat + dedupe + cap
+                            // discipline as the repository's merge).
+                            val incoming = event.section.items.map { it.toExtensionAnime() }
+                            slots = slots.map { slot ->
+                                if (slot.title.trim().equals(event.section.title.trim(), ignoreCase = true)) {
+                                    slot.copy(
+                                        results = (
+                                            slot.results.orEmpty() + incoming
+                                            )
+                                            .distinctBy { "${it.sourceKey ?: it.sourceId}:${it.url}" }
+                                            .take(PROGRESSIVE_ROW_CAP),
+                                    )
+                                } else {
+                                    slot
+                                }
+                            }
+                            _uiState.value = SearchUiState.ExtensionBrowseLoading(
+                                sourceName = providerName,
+                                slots = slots,
+                            )
+                        }
+                        is com.confused.anikuta.data.cloudstream.content.CsBrowseEvent.Complete -> {
+                            sections = event.sections
+                        }
+                    }
+                }
                 Logger.i(TAG) { "Got ${sections.size} browse section(s) from $providerName" }
                 if (_query.value.isNotBlank()) return@launch
                 if (!isCurrent(gen)) return@launch
@@ -1643,6 +1713,20 @@ data class ExtensionBrowseSection(
     val shelfIndex: Int = 0,
 )
 
+/**
+ * D-387 (round 25 — the phased browse): ONE row of the progressive loading
+ * state. [results] == null while the shelf is still fetching (the screen
+ * renders a shimmer row); it fills the moment that shelf's response lands.
+ * The slot list is title-merged EXACTLY like the final result (the repository
+ * pre-merges the skeleton), so the loading page has the same row structure
+ * the completed page will have — rows never re-shape at the end.
+ */
+data class ExtensionBrowseSlot(
+    val title: String,
+    val shelfIndex: Int,
+    val results: List<ExtensionAnime>? = null,
+)
+
 // ── UI state ──
 
 sealed interface SearchUiState {
@@ -1683,6 +1767,18 @@ sealed interface SearchUiState {
     data class ExtensionBrowseSuccess(
         val sourceName: String,
         val sections: List<ExtensionBrowseSection>,
+    ) : SearchUiState
+
+    /**
+     * D-387 (round 25 — the phased browse): the PROGRESSIVE browse state —
+     * the category skeleton is already rendered (titles + shimmer rows) and
+     * the rows fill in one shelf at a time as their responses land. When the
+     * canonical result completes, the state graduates to
+     * [ExtensionBrowseSuccess] (arranged + persisted exactly as before).
+     */
+    data class ExtensionBrowseLoading(
+        val sourceName: String,
+        val slots: List<ExtensionBrowseSlot>,
     ) : SearchUiState
     /** Extension source error — shows the actual error message (source name + reason). */
     data class ExtensionError(val message: String) : SearchUiState

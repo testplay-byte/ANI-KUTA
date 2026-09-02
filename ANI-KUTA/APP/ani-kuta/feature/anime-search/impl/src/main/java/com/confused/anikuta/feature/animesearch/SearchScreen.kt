@@ -1,7 +1,11 @@
 package com.confused.anikuta.feature.animesearch
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,6 +29,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyRowItems
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -254,6 +259,7 @@ fun SearchScreen(
                 SearchSource.ANILIST -> when (uiState) {
                     is SearchUiState.ExtensionSuccess,
                     is SearchUiState.ExtensionBrowseSuccess,
+                    is SearchUiState.ExtensionBrowseLoading, // D-387: extension-only state
                     is SearchUiState.ExtensionError,
                     is SearchUiState.ExtensionEmpty,
                     SearchUiState.ExtensionNotAvailable,
@@ -429,6 +435,35 @@ fun SearchScreen(
                     )
                 }
 
+                // D-387 (round 25 — the PHASED browse): the progressive loading
+                // state — the category skeleton renders IMMEDIATELY (titles +
+                // shimmer rows), and each row fills in the moment its shelf's
+                // response lands. A small status line counts the fill progress
+                // ("what it is doing"); the final result graduates to
+                // ExtensionBrowseSuccess below.
+                is SearchUiState.ExtensionBrowseLoading -> {
+                    val browse = effectiveState as SearchUiState.ExtensionBrowseLoading
+                    ExtensionBrowseProgressiveList(
+                        slots = browse.slots,
+                        listState = browseListState,
+                        providerName = browse.sourceName,
+                        onNavigateToCategory = onNavigateToCategory,
+                        onResultTap = { anime ->
+                            onNavigateToExtensionAnime(
+                                anime.sourceId,
+                                anime.sourceKey,
+                                anime.url,
+                                anime.title,
+                                anime.thumbnailUrl,
+                                anime.year,
+                            )
+                        },
+                        recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
+                            RecentsHeaderData(recents, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
+                        } else null,
+                    )
+                }
+
                 // Task 44: SECTIONED CloudStream browse — every provider shelf
                 // ("Latest Updated", "Most Popular", …) renders as its own titled
                 // horizontal row (the device round-3 "sections in row format"
@@ -468,7 +503,8 @@ fun SearchScreen(
                             if (gridState.firstVisibleItemIndex > 0) Float.MAX_VALUE
                             else gridState.firstVisibleItemScrollOffset.toFloat()
                         }
-                        is SearchUiState.ExtensionBrowseSuccess -> {
+                        is SearchUiState.ExtensionBrowseSuccess,
+                        is SearchUiState.ExtensionBrowseLoading -> {
                             if (browseListState.firstVisibleItemIndex > 0) Float.MAX_VALUE
                             else browseListState.firstVisibleItemScrollOffset.toFloat()
                         }
@@ -890,6 +926,209 @@ private fun ExtensionResultsGrid(
  * flat-grid [ExtensionResultCard] at a fixed row width; taps route through the
  * same extension-details navigation.
  */
+/**
+ * D-387 (round 25 — the PHASED browse loading list): renders the progressive
+ * [SearchUiState.ExtensionBrowseLoading] state.
+ *
+ * Visual contract (the round-25 spec): "it will first of all load up all the
+ * categories, then load up all the contents; while it is doing that it will
+ * show the beautiful animation of what it is doing; after everything has been
+ * loaded it will show all the results properly; after showing the results it
+ * will start to load up the cover images."
+ *  - the CATEGORY STRUCTURE renders immediately (titles from the pre-merged
+ *    skeleton — same shape as the final result);
+ *  - unfilled rows show a SHIMMER row of placeholder cards (the CORE_RULES
+ *    §22 pattern: a reversed alpha pulse on surfaceVariant blocks — cheap,
+ *    60fps-safe, theme-adaptive; mirrors feature/anime-browse's BrowseSkeleton);
+ *  - each row FILLS IN the moment its shelf's response lands (the slowest
+ *    shelf no longer gates the page);
+ *  - a status line above the rows counts the progress ("Loading categories —
+ *    2 of 7") — the visible "what it is doing";
+ *  - covers (the spec's phase 4) load via Coil with crossfade as the real
+ *    cards compose — unchanged.
+ */
+@Composable
+private fun ExtensionBrowseProgressiveList(
+    slots: List<ExtensionBrowseSlot>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    onResultTap: (ExtensionAnime) -> Unit,
+    recentsHeader: RecentsHeaderData? = null,
+    providerName: String = "",
+    onNavigateToCategory: (providerName: String, sectionTitle: String, sectionIndex: Int) -> Unit = { _, _, _ -> },
+) {
+    // The shimmer pulse — ONE infinite transition for the WHOLE list (the
+    // alpha is read inside each placeholder's background draw; alpha-only =
+    // draw-phase cheap, no per-frame recomposition).
+    val transition = rememberInfiniteTransition(label = "browseShimmer")
+    val pulse by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.75f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "browseShimmerAlpha",
+    )
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 110.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        if (recentsHeader != null) {
+            item(key = "recents-header") {
+                RecentSearchesCard(
+                    recents = recentsHeader.recents,
+                    onPick = recentsHeader.onPick,
+                    onRemove = recentsHeader.onRemove,
+                    onClear = recentsHeader.onClear,
+                )
+            }
+        }
+
+        slots.forEachIndexed { slotIndex, slot ->
+            item(key = "slot-$slotIndex-${slot.title}") {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Title row — tappable to the category subpage ONLY once the
+                    // row has content (a skeleton row has nothing to paginate).
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp)
+                            .let { base ->
+                                if (slot.results != null) {
+                                    base
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            onNavigateToCategory(providerName, slot.title, slot.shelfIndex)
+                                        }
+                                        .padding(vertical = 2.dp)
+                                } else {
+                                    base.padding(vertical = 2.dp)
+                                }
+                            },
+                    ) {
+                        Text(
+                            text = slot.title,
+                            fontFamily = RobotoFamily,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
+                                ?: MaterialTheme.colorScheme.onBackground,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        // The "what it is doing" tell: a tiny spinner while THIS
+                        // row is still fetching.
+                        if (slot.results == null) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(13.dp),
+                                strokeWidth = 1.5.dp,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (slot.results == null) {
+                        // The shimmer placeholder row — 5 cards of the real card
+                        // geometry (110dp wide, 2:3, 12dp corners) + a ghost title
+                        // block per card, so the skeleton mirrors the real layout.
+                        // (See ShimmerCardsRow — kept as its own composable.)
+                        ShimmerCardsRow(pulse)
+                    } else {
+                        // Filled — the real row (same rendering as the success
+                        // list: row-scoped dedupe is already applied upstream).
+                        val distinct = remember(slot.results) {
+                            slot.results.distinctBy { "${it.sourceKey ?: it.sourceId}:${it.url}" }
+                        }
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            lazyRowItems(
+                                distinct,
+                                key = { "${it.sourceKey ?: it.sourceId}:${it.url}" },
+                            ) { anime ->
+                                Box(modifier = Modifier.width(110.dp)) {
+                                    ExtensionResultCard(anime, onResultTap)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The overall progress status line — "what it is doing" at a glance
+        // (stays while ANY row is unfilled; disappears with the last fill).
+        if (slots.any { it.results == null }) {
+            item(key = "browse-loading-status") {
+                val filled = slots.count { it.results != null }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 1.5.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = "Loading categories — $filled of ${slots.size}",
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * D-387: the shimmer placeholder row of the progressive browse — five cards
+ * with the REAL card geometry (110dp × 2:3, 12dp corners) pulsing on
+ * surfaceVariant, plus a ghost title block under each, so the skeleton
+ * mirrors the layout it is about to become (CORE_RULES §22).
+ */
+@Composable
+private fun ShimmerCardsRow(pulse: Float) {
+    val block = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = pulse)
+    val cardShape = RoundedCornerShape(12.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        repeat(5) {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .width(110.dp)
+                        .aspectRatio(2f / 3f)
+                        .clip(cardShape)
+                        .background(block),
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .width(70.dp)
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(block.copy(alpha = pulse * 0.8f)),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun ExtensionBrowseSections(
     sections: List<ExtensionBrowseSection>,
