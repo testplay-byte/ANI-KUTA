@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -709,14 +710,20 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
                     //
                     // Task 64 (round 24 — item 6, the weekday-label clipping fix): each
                     // label slot is now ONE FULL ROW PITCH tall (cell + spacing) instead
-                    // of one CELL tall (12dp). The 8sp text's line height never fit the
-                    // old fixed box — its bottom clipped inside it (the device report:
-                    // "the bottom half of them gets cut off, maybe because there is not
-                    // enough area for them to be viewed"). With the pitch carried by the
-                    // slot height, the column's spacing drops to 0 and every slot's
-                    // CENTER still lands on its cell row's center (±1dp) — the grid
-                    // alignment is visually unchanged. (The month labels already got the
-                    // same taller-box treatment — see the comment below the cells.)
+                    // of one CELL tall (12dp).
+                    //
+                    // D-385 (round 25 — the FINAL clip fix): the round-24 taller box was
+                    // necessary but not sufficient — the 8sp Text had NO lineHeight, so
+                    // it inherited the ambient Material bodyLarge line metrics (24sp!)
+                    // and rendered an ~8dp glyph centered inside a 24dp(+) line box;
+                    // with the slot's max-height constraint at 14dp and Compose's
+                    // default TextOverflow.Clip, the bottom ~3dp of every letter was
+                    // still shaved off ("the bottom half of them is slightly cut off").
+                    // The fix: an EXPLICIT compact lineHeight (10sp) so the line box
+                    // fits the slot at any font scale, plus a -1dp optical lift so each
+                    // label's center lands EXACTLY on its cell row's center (slot
+                    // center = rowPitch+7 vs cell center = rowPitch+6) — the user's
+                    // "move them up a bit so they align with the actual heatmap".
                     Column(
                         modifier = Modifier.width(14.dp).padding(bottom = 18.dp),
                         verticalArrangement = Arrangement.spacedBy(0.dp),
@@ -724,11 +731,13 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
                         dayMarkers.forEach { label ->
                             Box(
                                 modifier = Modifier.width(14.dp)
-                                    .height(cellSize + cellSpacing),
+                                    .height(cellSize + cellSpacing)
+                                    .offset(y = (-1).dp),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
                                     label, fontFamily = RobotoFamily, fontSize = 8.sp,
+                                    lineHeight = 10.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                     maxLines = 1,
                                 )
@@ -762,6 +771,9 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
                                     )
                                 }
                                 // Month label — taller Box so the text isn't clipped at the bottom.
+                                // D-385: explicit lineHeight too (same ambient-lineHeight clip
+                                // risk as the weekday labels — at fontScale > 1.1 the glyph
+                                // bottom escaped the 18dp box).
                                 Box(
                                     modifier = Modifier.width(cellSize).height(18.dp),
                                     contentAlignment = Alignment.TopCenter,
@@ -769,6 +781,7 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
                                     weekMonthLabels.getOrNull(w)?.let { label ->
                                         Text(
                                             label, fontFamily = RobotoFamily, fontSize = 8.sp,
+                                            lineHeight = 10.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                             maxLines = 1,
                                         )
