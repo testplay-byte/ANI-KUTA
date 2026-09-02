@@ -11,10 +11,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -56,6 +61,12 @@ import org.koin.compose.koinInject
 @Composable
 fun DebugSettingsScreen(
     onBack: () -> Unit,
+    // D-388 (round 25): the dedicated "Update Check History" button — the
+    // round-25 device spec: "When I click the debug options there, it would
+    // show me a dedicated button there called Update Check History. When I
+    // click that it would open up a new page and there I would see the whole
+    // history…".
+    onOpenUpdateCheckHistory: () -> Unit = {},
     debugPreferences: DebugPreferences = koinInject(),
 ) {
     // Write-through reactive reads — same pattern as the DebugBubbleToggle row.
@@ -105,6 +116,59 @@ fun DebugSettingsScreen(
                             checked = copyButton,
                             onCheckedChange = { debugPreferences.resolveCopyButton = it },
                         )
+                    }
+
+                    // ── D-388 (round 25): the update-check history entry — a
+                    // dedicated button on the Debug page opening the FULL
+                    // history (when it checked, why, how, results, covers, next
+                    // actions + the live next-check timer card). Release-visible
+                    // (the user tests release APKs). ──
+                    item {
+                        SettingsSectionLabel("Update checking")
+                    }
+                    item {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(onClick = onOpenUpdateCheckHistory)
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.History,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Update Check History",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        text = "Every episode check — when, why, how, results, next actions",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(top = 2.dp),
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Open",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
 
                     // ── Developer tools (debug builds only) ──

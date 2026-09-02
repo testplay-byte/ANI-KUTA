@@ -599,12 +599,22 @@ fun AppRoot() {
 
     // D-193 Phase 7: Handle notification tap deep-link — if the app was opened
     // from a notification, navigate to the details page for the tapped anime.
+    // D-388 (round 25): the check-RESULTS notification deep-links to the update
+    // check history page instead (its "open_update_history" extra).
     val context = androidx.compose.ui.platform.LocalContext.current
     val notifMainId = remember {
         val intent = (context as? android.app.Activity)?.intent
         intent?.getStringExtra("notification_main_id")
     }
-    LaunchedEffect(notifMainId) {
+    val notifOpenHistory = remember {
+        val intent = (context as? android.app.Activity)?.intent
+        intent?.getBooleanExtra("open_update_history", false) == true
+    }
+    LaunchedEffect(notifMainId, notifOpenHistory) {
+        if (notifOpenHistory && backstack.size == 1) {
+            backstack.add(UpdateCheckLogKey)
+            (context as? android.app.Activity)?.intent?.removeExtra("open_update_history")
+        }
         if (!notifMainId.isNullOrBlank() && backstack.size == 1) {
             // Look up the content to determine whether it has an AniList ID or is extension-only.
             val content = contentRepository.getMainEntryByMainId(notifMainId)
@@ -1072,7 +1082,12 @@ fun AppRoot() {
                 onOpenAppearance = { backstack.add(AppearanceKey) },
                 onOpenExtensions = { backstack.add(ExtensionsSettingsKey()) },
                 onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
-                onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
+                // D-388 (round 25): the UPDATES page is its own Settings row now
+                // (episode update checks, schedule, check-now, history).
+                onOpenUpdates = { backstack.add(UpdatesSettingsKey) },
+                // D-388: Notifications points to the ALERTS page (master
+                // toggle, per-anime config, test) — not the updates page.
+                onOpenNotifications = { backstack.add(NotificationsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onOpenVideoCaching = { backstack.add(VideoCachingKey) },
                 onOpenDebug = { backstack.add(DebugSettingsKey) },
@@ -1087,6 +1102,8 @@ fun AppRoot() {
             // logs row removed too).
             is DebugSettingsKey -> com.confused.anikuta.settings.DebugSettingsScreen(
                 onBack = pop,
+                // D-388 (round 25): the dedicated Update Check History button.
+                onOpenUpdateCheckHistory = { backstack.add(UpdateCheckLogKey) },
             )
             // CloudStream V2: the plugin detail page — resolves the plugin across
             // Trusted/Untrusted/Failed/Available and shows metadata + live
@@ -1124,6 +1141,28 @@ fun AppRoot() {
             // the engine's next actions) from the JSON log store.
             is UpdateCheckLogKey -> com.confused.anikuta.settings.UpdateCheckLogScreen(
                 onBack = pop,
+                // D-388 (round 25): every history row navigates to the anime's
+                // Details page (the canonical mainId bridge — same as the
+                // Updates/History tabs).
+                onNavigateToDetails = { mainId ->
+                    val content = contentRepository.getMainEntryByMainId(mainId)
+                    if (content != null) {
+                        val details = contentRepository.getContentDetails(mainId)
+                        val anilistId = details?.anilistId
+                        if (anilistId != null) {
+                            navigateToDetails(AnimeDetailsKey.AniList(anilistId))
+                        } else {
+                            if (details != null) {
+                                navigateToDetails(AnimeDetailsKey.Extension(
+                                    details.sourceId ?: 0L,
+                                    details.animeUrl ?: content.animeUrl ?: "",
+                                    content.title,
+                                    details.extThumbnailUrl,
+                                ))
+                            }
+                        }
+                    }
+                },
             )
             is NotificationsKey -> NotificationsSettingsScreen(
                 onBack = pop,

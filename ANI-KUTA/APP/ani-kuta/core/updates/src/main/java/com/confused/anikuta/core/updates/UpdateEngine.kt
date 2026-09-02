@@ -157,7 +157,9 @@ class UpdateEngine(
             _checkProgress.tryEmit(CheckProgress(0, 0, "", "", null))
             // Task 64: an empty run still finishes the notification + lands in
             // the history ("when the app actually checked" — even when idle).
-            runCatching { progressNotifier?.onFinish(0, 0) }
+            // D-388: the summary payload (next-check info included).
+            val summary = buildSummary(trigger, 0, 0, emptyList(), startedAt)
+            runCatching { progressNotifier?.onFinish(summary) }
             runCatching {
                 checkLogger?.logSession(
                     UpdateCheckLogEntry(
@@ -169,6 +171,7 @@ class UpdateEngine(
                         totalNewEpisodes = 0,
                         success = true,
                         items = emptyList(),
+                        nextCheckAt = summary.nextCheckAt,
                     )
                 )
             }
@@ -214,6 +217,10 @@ class UpdateEngine(
                                 newEpisodes = result.newEpisodes,
                                 detail = result.detail,
                                 nextAction = result.nextAction,
+                                // D-388 (round 25): the cover captured at check
+                                // time — the history rows + the notification's
+                                // large icon render it.
+                                coverUrl = coverUrl,
                             )
                         )
                     }
@@ -223,25 +230,67 @@ class UpdateEngine(
 
         // D-193 Phase 4: emit terminal progress.
         _checkProgress.tryEmit(CheckProgress(total, total, "", "", null))
-        // Task 64: the finish markers — the notification + the history entry.
-        runCatching { progressNotifier?.onFinish(total, totalNew) }
+        // Task 64 + D-388 (round 25): the finish markers — the notification now
+        // gets the full SUMMARY (per-anime lines + the next-check info: "what
+        // it will do next"), and the history entry records nextCheckAt for its
+        // pinned next-check card.
+        val finishedAt = System.currentTimeMillis()
+        val cappedItems = itemLogs.take(MAX_CHECK_LOG_ITEMS)
+        val summary = buildSummary(trigger, total, totalNew, cappedItems, startedAt, finishedAt)
+        runCatching { progressNotifier?.onFinish(summary) }
         runCatching {
             checkLogger?.logSession(
                 UpdateCheckLogEntry(
                     id = sessionId,
                     startedAt = startedAt,
-                    finishedAt = System.currentTimeMillis(),
+                    finishedAt = finishedAt,
                     trigger = trigger,
                     totalChecked = total,
                     totalNewEpisodes = totalNew,
                     success = true,
-                    items = itemLogs.take(MAX_CHECK_LOG_ITEMS),
+                    items = cappedItems,
+                    nextCheckAt = summary.nextCheckAt,
                 )
             )
         }
 
         Logger.i(TAG) { "checkDueAnime — complete. $totalNew new episode(s) found." }
         return totalNew
+    }
+
+    /**
+     * D-388 (round 25): builds the finish payload shared by the results
+     * notification and the history. The next-check projection:
+     * - AUTO → now + the configured interval ("~" — the exact fire time is
+     *   WorkManager's; the history page reads WorkManager's
+     *   nextScheduleTimeMillis when available);
+     * - MANUAL/OFF (or unknown prefs) → null ("next check is up to you").
+     */
+    private fun buildSummary(
+        trigger: String,
+        totalChecked: Int,
+        totalNew: Int,
+        items: List<UpdateCheckItemLog>,
+        startedAt: Long,
+        finishedAt: Long = System.currentTimeMillis(),
+    ): UpdateCheckSummary {
+        val mode = updatePreferences?.getMode()
+        val interval = updatePreferences?.getIntervalHours()
+        val nextCheckAt = when (mode) {
+            com.confused.anikuta.core.preferences.UpdateMode.AUTO ->
+                finishedAt + (interval ?: 24L) * 3_600_000L
+            else -> null
+        }
+        return UpdateCheckSummary(
+            trigger = trigger,
+            totalChecked = totalChecked,
+            totalNewEpisodes = totalNew,
+            items = items,
+            nextCheckAt = nextCheckAt,
+            intervalHours = interval,
+            startedAt = startedAt,
+            finishedAt = finishedAt,
+        )
     }
 
     /**

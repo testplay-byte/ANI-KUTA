@@ -9,9 +9,16 @@ import kotlinx.serialization.Serializable
  * notification that updates IN REAL TIME per content item ("which content it
  * checked out, the names of them").
  *
- * The round-23 attempt was reverted with its branch; this is the clean
- * re-implementation. The engine calls these on its IO dispatcher —
- * implementations must be cheap + never throw (best-effort).
+ * D-388 (round 25 — the FULL update-notifications module rework): the
+ * finish callback now carries a full [UpdateCheckSummary] (per-anime lines,
+ * next-check info) so the results notification can name the anime, show
+ * per-item outcomes, and state what happens next — the round-25 device
+ * report: "It did not tell me the name of the anime. It did not tell me what
+ * it was searching for and it did not tell me the next details, like what it
+ * will do next and such."
+ *
+ * The engine calls these on its IO dispatcher — implementations must be
+ * cheap + never throw (best-effort).
  */
 interface UpdateProgressNotifier {
 
@@ -21,12 +28,39 @@ interface UpdateProgressNotifier {
     /** About to check item [current] of [total] — [title] is its name. */
     fun onProgress(current: Int, total: Int, title: String)
 
-    /** The check finished — [totalChecked] items, [totalNew] new episodes. */
-    fun onFinish(totalChecked: Int, totalNew: Int)
+    /** The check finished — [summary] carries everything the results
+     *  notification + the history need (per-item outcomes, next check). */
+    fun onFinish(summary: UpdateCheckSummary)
 
     /** The check failed mid-run (an exception escaped the engine). */
     fun onFailed(error: String)
 }
+
+/**
+ * D-388 (round 25): the finish payload — one object the notifier turns into
+ * the rich results notification (per-anime lines + the next-check line) and
+ * the engine ALSO hands to [UpdateCheckLogger] (as [UpdateCheckLogEntry]).
+ */
+@Serializable
+data class UpdateCheckSummary(
+    /** What started the check: "periodic" | "manual". */
+    val trigger: String,
+    /** How many anime were checked. */
+    val totalChecked: Int,
+    /** New episodes found across all items. */
+    val totalNewEpisodes: Int,
+    /** Per-anime outcomes in check order (title, cover, outcome, next action). */
+    val items: List<UpdateCheckItemLog>,
+    /** When the NEXT check will run (epoch ms) — null when manual/off/unknown.
+     *  The notifier renders "Next check: in Xh · day time". */
+    val nextCheckAt: Long? = null,
+    /** The scheduled interval in hours (rendered as "every 24h"). */
+    val intervalHours: Long? = null,
+    /** When this session started (epoch ms). */
+    val startedAt: Long,
+    /** When this session finished (epoch ms). */
+    val finishedAt: Long,
+)
 
 /**
  * Task 64 (round 24 — the content-update HISTORY): one completed check
@@ -51,6 +85,12 @@ const val MAX_CHECK_LOG_SESSIONS = 30
 const val MAX_CHECK_LOG_ITEMS = 200
 
 /**
+ * How many per-anime lines the results notification shows (BigTextStyle —
+ * the rest are summarized as "+N more").
+ */
+const val MAX_NOTIFICATION_ITEM_LINES = 5
+
+/**
  * One full check session.
  */
 @Serializable
@@ -73,11 +113,19 @@ data class UpdateCheckLogEntry(
     val error: String? = null,
     /** Per-content outcomes, in check order. */
     val items: List<UpdateCheckItemLog> = emptyList(),
+    /** D-388 (round 25): when the NEXT check is expected (epoch ms; null =
+     *  manual/off) — the history's pinned next-check card uses the LATEST
+     *  session's value as its fallback when WorkManager reports nothing. */
+    val nextCheckAt: Long? = null,
 )
 
 /**
  * One content item's check outcome — the "debug kind of detail" the user
  * asked for: what was checked, what happened, what the engine decided next.
+ *
+ * D-388 (round 25): [coverUrl] so the history rows + the notification's
+ * large icon can show the anime's cover (null on legacy JSON entries —
+ * `ignoreUnknownKeys` + a default keep old files decodable).
  */
 @Serializable
 data class UpdateCheckItemLog(
@@ -92,6 +140,10 @@ data class UpdateCheckItemLog(
     /** The engine's next action — e.g. "re-check in 8h (backoff step 3)",
      *  "re-check 1h after next airing", "auto-update disabled (3 failures)". */
     val nextAction: String,
+    /** The anime's cover URL (AniList axis first, extension thumbnail as
+     *  fallback) — captured at check time for the history rows + the
+     *  notification's large icon. */
+    val coverUrl: String? = null,
 )
 
 /**

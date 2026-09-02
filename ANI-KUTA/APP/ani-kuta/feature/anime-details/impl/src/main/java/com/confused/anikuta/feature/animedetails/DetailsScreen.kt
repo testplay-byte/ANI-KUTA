@@ -1959,9 +1959,7 @@ private fun DetailBanner(
     }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  Action button — 40dp black-40%-alpha circle, 22dp white icon
-════════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 //  D-386 (round 25): the details-page metadata stack — up to FOUR icon rows
 //  under the series title (release year, rating, status, total episodes).
 //
@@ -1975,7 +1973,7 @@ private fun DetailBanner(
 //  Each row = a 13dp icon + a 12sp label. Four rows ≈ 84dp, which fits the
 //  150dp cover-height budget of the banner's bottom row alongside a 2-line
 //  title — the banner stays balanced while every fact gets a full row.
-════════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun DetailsMetaColumn(anime: com.confused.anikuta.core.common.model.UnifiedAnime) {
@@ -2070,6 +2068,8 @@ private fun DetailsMetaRow(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+//  Action button — 40dp black-40%-alpha circle, 22dp white icon
+// ════════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun ActionButton(

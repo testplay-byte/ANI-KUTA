@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,6 +46,10 @@ fun SettingsScreen(
     onOpenAppearance: () -> Unit,
     onOpenExtensions: () -> Unit,
     onOpenAutoLink: () -> Unit,
+    // D-388 (round 25): the UPDATES row is now its own entry (the round-25
+    // device report went looking for an "updates page" in Settings and found
+    // none — update checks/history lived hidden under Notifications).
+    onOpenUpdates: () -> Unit = {},
     onOpenNotifications: () -> Unit,
     onOpenPlayerSettings: () -> Unit,
     onOpenVideoCaching: () -> Unit,
@@ -102,7 +107,21 @@ fun SettingsScreen(
                         )
                     }
 
-                    // ── Notifications (Phase NOTIF) ──
+                    // ── Updates (D-388, round 25) — the update-check engine's
+                    // own settings page: mode, interval, categories, check-now,
+                    // and the update-check history. ──
+                    item {
+                        SettingsSectionLabel("Updates")
+                        MoreListRow(
+                            icon = Icons.Filled.Update,
+                            title = "Updates",
+                            subtitle = "Episode update checks, schedule, history",
+                            onClick = onOpenUpdates,
+                        )
+                    }
+
+                    // ── Notifications (Phase NOTIF) — new-episode ALERTS (the
+                    // master toggle, per-anime config, test notification). ──
                     item {
                         SettingsSectionLabel("Notifications")
                         MoreListRow(

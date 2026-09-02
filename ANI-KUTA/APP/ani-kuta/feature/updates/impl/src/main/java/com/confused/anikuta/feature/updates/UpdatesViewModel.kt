@@ -114,7 +114,7 @@ class UpdatesViewModel(
                     null // AUTO mode — check all due anime
                 }
 
-                val count = updateEngine.checkDueAnime(filterMainIds)
+                val count = updateEngine.checkDueAnime(filterMainIds, trigger = "manual")
                 Logger.i(TAG) { "checkForUpdates — $count new episode(s) found" }
 
                 // D-193 v2: also schedule smart-release checks for anime airing within ±1h,

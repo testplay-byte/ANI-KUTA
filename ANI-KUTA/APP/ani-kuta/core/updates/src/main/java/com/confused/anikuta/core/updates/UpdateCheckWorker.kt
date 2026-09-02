@@ -80,7 +80,9 @@ class UpdateCheckWorker(
                 null // AUTO mode — check all due anime.
             }
 
-            val newCount = engine.checkDueAnime(filterMainIds)
+            // D-388 (round 25): trigger labeled explicitly — the history + the
+            // results notification now distinguish periodic vs manual runs.
+            val newCount = engine.checkDueAnime(filterMainIds, trigger = "periodic")
 
             // 2. Retention cleanup (M9: delete acknowledged updates older than 7 days).
             val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(RETENTION_DAYS)
