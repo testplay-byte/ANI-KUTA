@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -706,8 +707,18 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
             Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp)) {
                 Row {
                     // Left: day markers — bottom padding accounts for the month-label row.
+                    // Task 63 (round 23 — G): the OPTICAL LIFT — the round-23 device
+                    // spec asked the bottom-left day labels to "show a little bit up":
+                    // the whole marker column renders 4dp ABOVE its rows (offset), and
+                    // the bottom padding grows by the same 4dp (20 -> 24) so the
+                    // column's visual bottom edge stays exactly where it was — the
+                    // label/cell row alignment math is preserved, every marker (the
+                    // bottom S/S included) just sits a touch higher.
                     Column(
-                        modifier = Modifier.width(14.dp).padding(bottom = 20.dp),
+                        modifier = Modifier
+                            .width(14.dp)
+                            .offset(y = (-4).dp)
+                            .padding(bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(cellSpacing),
                     ) {
                         dayMarkers.forEach { label ->

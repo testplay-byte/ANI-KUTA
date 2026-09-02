@@ -211,6 +211,11 @@ class DatabaseDriverFactory(private val context: Context) {
                     // created duplicates on existing installs). Keeps the lowest id per pair.
                     db.execSQL("DELETE FROM library_item WHERE id NOT IN (SELECT MIN(id) FROM library_item GROUP BY main_id, category_id)")
                     db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_library_item_unique ON library_item(main_id, category_id)")
+                    // Task 63 (round 23 — H): covering index for the library batch
+                    // loader's GROUP BY subquery (MAX(added_at) per main_id) — the
+                    // .sq file creates it for fresh installs; this idempotent
+                    // statement upgrades EXISTING installs (same Phase DB-OPT pattern).
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_library_item_main_added ON library_item(main_id, added_at)")
                     // D-198: anilist_detail table dropped (merged into content_details). Skip its
                     // index — content_details has its own partial idx_content_details_data_ref.
                     // D-198: content table dropped + recreated as main_entry. Skip the

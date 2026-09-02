@@ -43,22 +43,35 @@ object ImageLoaderFactory {
     private const val TAG = "Anikuta:Core:ImageLoader"
     private const val DISK_CACHE_MAX_SIZE = 500L * 1024 * 1024 // 500 MB
 
-    /** Task 61: the max concurrent IMAGE network fetches app-wide. */
-    private const val MAX_CONCURRENT_IMAGE_REQUESTS = 2
+    /**
+     * Task 63 (round 23 — A1): the max concurrent IMAGE network fetches app-wide.
+     * Was 2 (the round-21 search-page spec) — on the LIBRARY grid that cap
+     * starved the visible cells: a fling enqueues dozens of cover requests,
+     * cells scrolling out of the lazy cache window are disposed (their requests
+     * CANCELLED), and re-entering cells re-enqueue at the queue TAIL — the
+     * queue thrashed and visible covers took seconds (the v0.4.10 device
+     * report: "it constantly tries to load the cover images", 5-6 FPS areas).
+     * 8 total / 6 per host keeps the round-21 spirit (bounded FIFO, OkHttp
+     * never preempts, LazyGrid enqueues the visible cells first) with 4x the
+     * throughput — a screenful of covers completes before the user flings
+     * past, and request cancel/re-enqueue churn all but disappears.
+     */
+    private const val MAX_CONCURRENT_IMAGE_REQUESTS = 8
+    private const val MAX_CONCURRENT_IMAGE_REQUESTS_PER_HOST = 6
 
     fun create(context: Context, okHttpClient: OkHttpClient): ImageLoader {
         Logger.i(TAG) {
             "Creating ImageLoader with 500MB disk cache " +
                 "($MAX_CONCURRENT_IMAGE_REQUESTS concurrent fetch cap)"
         }
-        // Task 61: the image-dedicated client — a clone of the app client
+        // Task 61/63: the image-dedicated client — a clone of the app client
         // (shared connection pool + interceptors via newBuilder) with its OWN
-        // dispatcher, so the 2-request cap only ever throttles image loads.
+        // dispatcher, so the cap only ever throttles image loads.
         val imageHttpClient = okHttpClient.newBuilder()
             .dispatcher(
                 Dispatcher().apply {
                     maxRequests = MAX_CONCURRENT_IMAGE_REQUESTS
-                    maxRequestsPerHost = MAX_CONCURRENT_IMAGE_REQUESTS
+                    maxRequestsPerHost = MAX_CONCURRENT_IMAGE_REQUESTS_PER_HOST
                 }
             )
             .build()

@@ -556,6 +556,44 @@ class ContentRepository(
     }
 
     /**
+     * Task 63 (round 23 — H): delete a category AND move its items into another
+     * category in ONE transaction.
+     *
+     * The LibraryViewModel used to loop [addToCategory] per item + [deleteCategory]
+     * — every INSERT was its own implicit transaction (N statements, N fsyncs, N
+     * per-item count/log round-trips) and a crash mid-loop left the library half-
+     * moved with the source category still alive. Here the move inserts (with
+     * incrementally computed display_order — an item already in the target
+     * category is skipped by INSERT OR IGNORE, its order survives) plus the
+     * category DELETE (whose CASCADE removes the old rows) all commit atomically.
+     *
+     * @return the number of items moved.
+     */
+    fun deleteCategoryAndMoveItemsTo(categoryId: Long, targetCategoryId: Long): Int {
+        val mainIds = getMainIdsByCategory(categoryId)
+        var moved = 0
+        database.transaction {
+            var order = libraryQueries.countItemsInCategory(targetCategoryId).executeAsOne()
+            val now = System.currentTimeMillis()
+            for (mainId in mainIds) {
+                libraryQueries.addToCategory(
+                    mainId = mainId,
+                    categoryId = targetCategoryId,
+                    displayOrder = order,
+                    addedAt = now,
+                )
+                order++
+                moved++
+            }
+            libraryQueries.deleteCategory(categoryId)
+        }
+        Logger.i(TAG) {
+            "Deleted category id=$categoryId; moved $moved item(s) to category id=$targetCategoryId"
+        }
+        return moved
+    }
+
+    /**
      * Rename a category. Only non-permanent categories can be renamed.
      */
     fun renameCategory(categoryId: Long, newName: String) {

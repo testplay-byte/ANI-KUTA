@@ -1042,13 +1042,33 @@ private fun CategoryTabsRow(
     // (the selected category must be IN VIEW when the library page opens).
     val listState = rememberLazyListState()
 
+    // Task 63 (round 23 — A3): whether the INITIAL snap already happened.
+    // The first positioning (page open / category list arrival / a tab
+    // RETURN, which restarts this effect fresh) lands WITHOUT animation —
+    // with the first frame. Only a selection change while the row is alive
+    // (the user tapping a chip) animates to the centered position.
+    // (Plain remember, NOT rememberSaveable: a config change or tab return
+    // should re-snap INSTANTLY, not replay a glide.)
+    var didInitialSnap by remember { mutableStateOf(false) }
+
     // Task 61 (round 21 — the device report: "if I have selected the very
     // first or very last category then when I open up the library page it
     // opens it up in the middle. The right or left categories are not
-    // shown"): when the page composes (and whenever the selection or the
-    // category list changes), the row SCROLLS to the SELECTED chip so it is
-    // fully in view — first/last categories included. scrollToItem (no
-    // animation) lands with the first frame; index -1 = nothing to do.
+    // shown") + Task 63 (round 23 — A3, the device spec: "when the user
+    // manually switches from one category to another, the top category
+    // section will automatically scroll… it will center the currently
+    // selected one… if it is possible, excluding the left and right side
+    // ones"): the row scrolls so the SELECTED chip is CENTERED in the row
+    // whenever possible. Centering is impossible at the two EDGES (LazyRow
+    // clamps — the first chip stays at the start, the last at the end),
+    // which is exactly the spec's "excluding the left and right side ones".
+    //
+    // Mechanics: centering needs the chip's measured width, which only
+    // exists once the item is composed. Step 1 snaps the chip into view
+    // (scrollToItem, start-aligned — width becomes measurable); step 2
+    // scrolls again with a NEGATIVE offset equal to half the leftover
+    // viewport space, which centers it (clamped at the edges). The first
+    // pass after composition is instant (no animation); user taps animate.
     LaunchedEffect(categories, selectedCategoryId, showAllTab) {
         val selectedIndex = when {
             selectedCategoryId == null && showAllTab -> 0
@@ -1059,7 +1079,36 @@ private fun CategoryTabsRow(
             }
         }
         if (selectedIndex >= 0) {
+            // Step 1: snap the chip into the viewport (start-aligned) so its
+            // size is measurable — instant, lands with the first frame.
             listState.scrollToItem(selectedIndex)
+            // Step 2: center it. The item is now composed, so its width is
+            // in layoutInfo; if the layout hasn't produced it yet (rare,
+            // same-frame effect run), the centering pass simply waits a
+            // frame via the loop below.
+            var centered = false
+            repeat(2) {
+                if (!centered) {
+                    val layout = listState.layoutInfo
+                    val item = layout.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
+                    if (item != null) {
+                        val viewport = layout.viewportEndOffset - layout.viewportStartOffset
+                        val centerOffset = -((viewport - item.size) / 2)
+                        if (didInitialSnap) {
+                            listState.animateScrollToItem(selectedIndex, centerOffset)
+                        } else {
+                            listState.scrollToItem(selectedIndex, centerOffset)
+                        }
+                        centered = true
+                    } else {
+                        // Layout info not ready yet — yield a frame and retry
+                        // (withFrameNanos is the compose runtime's
+                        // MonotonicFrameClock API, NOT a kotlinx top-level).
+                        androidx.compose.runtime.withFrameNanos { }
+                    }
+                }
+            }
+            didInitialSnap = true
         }
     }
 

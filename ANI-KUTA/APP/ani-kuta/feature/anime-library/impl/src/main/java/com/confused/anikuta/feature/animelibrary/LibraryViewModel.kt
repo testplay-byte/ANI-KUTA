@@ -7,6 +7,7 @@ import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.content.LibraryCategory
+import com.confused.anikuta.core.content.LibraryItemRecord
 import com.confused.anikuta.core.preferences.PreferenceStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -308,6 +309,32 @@ class LibraryViewModel(
     /** The unfiltered, unsorted entries of the current category view (D-290). */
     private var masterEntries: List<LibraryEntry> = emptyList()
 
+    // ── Task 63 (round 23 — A2): the full-set in-memory cache ────────────────
+    //
+    // Every category switch used to re-run the FULL pipeline (7 batch queries
+    // + entry reconstruction + badge enrichment + filter/sort — ~100-300 ms)
+    // because [masterEntries] only ever held the SELECTED category's view.
+    // The full set (ALL categories, enriched once) is cached here; a category
+    // tap is now a pure in-memory re-filter (~1-2 ms on Default). The DB load
+    // path still refreshes this cache (init / pull-to-refresh / the silent
+    // resume reload) — the cache is only a READ shortcut, never a source of
+    // truth.
+    /**
+     * Task 63 (A2): every library entry across ALL categories, enriched with
+     * badge data — the read-cache category switches re-filter from.
+     */
+    private var allEntries: List<LibraryEntry> = emptyList()
+
+    /**
+     * Task 63 (A2): the raw library_item rows backing [allEntries] — category
+     * membership is derived from these (an anime can sit in several
+     * categories; the (main_id, category_id) unique index dedupes rows).
+     */
+    private var allLibraryItemRows: List<LibraryItemRecord> = emptyList()
+
+    /** True once [allEntries] holds a complete, enriched snapshot. */
+    private var allEntriesLoaded: Boolean = false
+
     /**
      * D-291: cover-URL keys whose image has been revealed at least once.
      *
@@ -399,13 +426,12 @@ class LibraryViewModel(
             _categoryCounts.value = counts
             _totalEntries.value = items.map { it.mainId }.distinct().size
 
-            // mainIds in view — filtered by the selected category when set.
-            // Preserves the added_at DESC order (the DATE_ADDED sort relies on it).
-            val uniqueMainIds = if (selectedCategoryId != null) {
-                items.filter { it.categoryId == selectedCategoryId }.map { it.mainId }.distinct()
-            } else {
-                items.map { it.mainId }.distinct()
-            }
+            // Task 63 (A2): the FULL mainId set — the entry list is built for
+            // ALL categories once and cached ([allEntries]); the SELECTED
+            // category's view is a pure in-memory filter of it afterwards (a
+            // category tap never rebuilds from the DB again). Order still
+            // follows added_at DESC (the DATE_ADDED sort relies on it).
+            val uniqueMainIds = items.map { it.mainId }.distinct()
 
             Logger.i(TAG) { "Library: ${uniqueMainIds.size} items in view, ${_totalEntries.value} total (category=${selectedCategoryId ?: "all"})" }
 
@@ -462,23 +488,46 @@ class LibraryViewModel(
             }
 
             if (entries.isEmpty()) {
+                // Task 63 (A2): cache the (empty) full set too, so a category
+                // tap on a just-emptied library still takes the fast path.
+                allEntries = emptyList()
+                allLibraryItemRows = items
+                allEntriesLoaded = true
                 masterEntries = emptyList()
                 _state.value = LibraryState.Empty
             } else {
                 // Batch queries 5-7: badge enrichment (released count, audio, watched).
                 enrichEntriesWithBadgeData(entries)
-                // D-290: SINGLE emission — the final filtered+sorted list is
-                // computed BEFORE any state write, so no unsorted intermediate
-                // ordering can ever be composed (the key-anchor jump bug).
-                masterEntries = entries
-                _state.value = LibraryState.Success(
-                    filterAndSort(
-                        entries = entries,
-                        query = _searchQuery.value,
-                        sortType = _sortType.value,
-                        ascending = _sortAscending.value,
-                    ),
+                // Task 63 (A2): cache the complete enriched set + its rows.
+                allEntries = entries
+                allLibraryItemRows = items
+                allEntriesLoaded = true
+                // D-290 + Task 63 (A2): the SELECTED category's view — a pure
+                // in-memory filter of the cached full set. Re-reads the CURRENT
+                // selection at emission time (a category tap racing this load
+                // must never emit the OLD category's view late). SINGLE emission:
+                // the final filtered+sorted list is computed BEFORE any state
+                // write, so no unsorted intermediate ordering can ever be
+                // composed (the key-anchor jump bug).
+                val viewEntries = entriesForCategory(
+                    entries,
+                    items,
+                    _selectedCategoryId.value,
                 )
+                if (viewEntries.isEmpty()) {
+                    masterEntries = emptyList()
+                    _state.value = LibraryState.Empty
+                } else {
+                    masterEntries = viewEntries
+                    _state.value = LibraryState.Success(
+                        filterAndSort(
+                            entries = viewEntries,
+                            query = _searchQuery.value,
+                            sortType = _sortType.value,
+                            ascending = _sortAscending.value,
+                        ),
+                    )
+                }
             }
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to load library: ${e.message}" }
@@ -535,7 +584,57 @@ class LibraryViewModel(
         // (a retained index from the previous category would land mid-list or
         // clamp to the bottom of a smaller set).
         resetScrollToTop()
-        reloadFromCache()
+        // Task 63 (round 23 — A2): with the full-set cache warm, a category
+        // switch is a pure IN-MEMORY re-filter (~1-2 ms on Default) — the old
+        // path re-ran the whole 7-query DB pipeline + entry reconstruction +
+        // enrichment on every tap (the v0.4.10 device report: "if the library
+        // pages have not been loaded then those categories lag for quite a lot
+        // of time"). Cold cache (fresh process, first composition) → the full
+        // load, exactly as before.
+        if (allEntriesLoaded) {
+            viewModelScope.launch {
+                withContext(dispatchers.default) {
+                    val viewEntries = entriesForCategory(allEntries, allLibraryItemRows, categoryId)
+                    // Race guard: if a DB reload (resume refresh) lands while
+                    // this re-filter runs, IT re-derives from the live
+                    // selection — the stale view here stands down.
+                    if (_selectedCategoryId.value == categoryId) {
+                        if (viewEntries.isEmpty()) {
+                            masterEntries = emptyList()
+                            _state.value = LibraryState.Empty
+                        } else {
+                            masterEntries = viewEntries
+                            _state.value = LibraryState.Success(
+                                filterAndSort(
+                                    entries = viewEntries,
+                                    query = _searchQuery.value,
+                                    sortType = _sortType.value,
+                                    ascending = _sortAscending.value,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            reloadFromCache()
+        }
+    }
+
+    /**
+     * Task 63 (A2): the selected category's entries — the in-memory view
+     * filter shared by [loadLibraryImpl] and the warm-cache [selectCategory]
+     * path. Order follows the input list (added_at DESC for a fresh load;
+     * stable for a warm re-filter).
+     */
+    private fun entriesForCategory(
+        entries: List<LibraryEntry>,
+        items: List<LibraryItemRecord>,
+        categoryId: Long?,
+    ): List<LibraryEntry> {
+        if (categoryId == null) return entries
+        val ids = items.filter { it.categoryId == categoryId }.map { it.mainId }.toHashSet()
+        return entries.filter { it.mainId in ids }
     }
 
     /** D.5: Whether a pull-to-refresh is in progress. */
@@ -599,12 +698,15 @@ class LibraryViewModel(
         viewModelScope.launch(dispatchers.io) {
             val defaultCat = contentRepository.getDefaultCategory()
             if (defaultCat != null) {
-                val mainIds = contentRepository.getMainIdsByCategory(categoryId)
-                for (mainId in mainIds) {
-                    contentRepository.addToCategory(mainId, defaultCat.id)
-                }
+                // Task 63 (round 23 — H): ONE transaction — the per-item loop
+                // (N implicit transactions, a count query + INSERT + log line
+                // per item) is now a single atomic move+delete in the repository.
+                contentRepository.deleteCategoryAndMoveItemsTo(categoryId, defaultCat.id)
+            } else {
+                // No Default category (shouldn't happen — it is seeded + permanent):
+                // the plain delete; CASCADE clears the items as before.
+                contentRepository.deleteCategory(categoryId)
             }
-            contentRepository.deleteCategory(categoryId)
             _categoryToManage.value = null
             if (_selectedCategoryId.value == categoryId) {
                 _selectedCategoryId.value = null
