@@ -1152,10 +1152,21 @@ class SearchViewModel(
             return restored
         }
         val shuffled = smartShuffleSections(
-            raw.mapIndexed { index, section ->
+            raw.map { section ->
                 ExtensionBrowseSection(
                     title = section.title,
-                    shelfIndex = index,
+                    // Task 63 (round 23 — F1): the section's OWN original
+                    // mainPage index (captured in the repository BEFORE empty-
+                    // shelf compaction + duplicate merge) — NOT this list's
+                    // position. The pre-fix `mapIndexed { index, ... }` derived
+                    // the index from the COMPACTED list, so one failed/empty
+                    // shelf shifted every later row's subpage onto the WRONG
+                    // category (the round-23 "categories show the wrong
+                    // content" mixing bug). Sections that never captured an
+                    // index (legacy cache, -1) fall through to position 0 —
+                    // restore rejected them already; a shuffle under this state
+                    // is a migration edge that re-persists correctly right after.
+                    shelfIndex = section.shelfIndex.takeIf { it >= 0 } ?: 0,
                     results = section.items.map { it.toExtensionAnime() },
                 )
             },
@@ -1167,12 +1178,22 @@ class SearchViewModel(
     /**
      * Task 62: rebuilds the sections from a persisted display arrangement.
      * Returns null when [display] is absent or INVALID for the current raw
-     * list (wrong row count, an out-of-range or repeated shelf index — the
-     * provider changed its mainPage): the caller falls back to the smart
-     * shuffle. Items are matched by URL (the stable cross-session identity):
-     * persisted urls still present keep their display slots, vanished ones
-     * drop, and genuinely new items append at the end of their row in the
-     * provider's original order.
+     * list (wrong row count, an unknown/repeated shelf index — the provider
+     * changed its mainPage): the caller falls back to the smart shuffle.
+     * Items are matched by URL (the stable cross-session identity): persisted
+     * urls still present keep their display slots, vanished ones drop, and
+     * genuinely new items append at the end of their row in the provider's
+     * original order.
+     *
+     * Task 63 (round 23 — F3): the rows are resolved by the raw section's OWN
+     * [CsBrowseSection.shelfIndex] (the ORIGINAL mainPage index — the list
+     * position was the pre-fix mixing source), and each row's persisted
+     * TITLE must match that section's title (case-insensitive): a provider
+     * mainPage reorder/rename or a Task-63 duplicate-merge that moved what
+     * sits at an index is a mismatch → null → fresh shuffle. Legacy rows
+     * (blank title, pre-63 snapshots) skip the title check; their stale
+     * compacted indexes fail the index checks whenever a shelf was ever
+     * dropped, merged, or reordered — the honest fallback.
      */
     private fun restoreBrowseDisplay(
         raw: List<CsBrowseSection>,
@@ -1180,13 +1201,27 @@ class SearchViewModel(
     ): List<ExtensionBrowseSection>? {
         if (display == null) return null
         if (display.rows.size != raw.size) return null
+        // The index → section lookup: raw sections now carry their ORIGINAL
+        // mainPage indexes (unique per section post-merge).
+        val byShelfIndex = HashMap<Int, CsBrowseSection>(raw.size * 2)
+        for (section in raw) {
+            if (section.shelfIndex < 0) return null // legacy/invalid capture
+            if (byShelfIndex.put(section.shelfIndex, section) != null) return null
+        }
         val seenIndexes = HashSet<Int>(raw.size * 2)
         for (row in display.rows) {
-            if (row.shelfIndex !in raw.indices) return null
+            val section = byShelfIndex[row.shelfIndex] ?: return null
             if (!seenIndexes.add(row.shelfIndex)) return null
+            // Task 63 (F3): the title check — a non-blank persisted title must
+            // match the section now sitting at that index.
+            if (row.title.isNotBlank() &&
+                !row.title.equals(section.title, ignoreCase = true)
+            ) {
+                return null
+            }
         }
         return display.rows.map { row ->
-            val section = raw[row.shelfIndex]
+            val section = byShelfIndex.getValue(row.shelfIndex)
             val byUrl = HashMap<String, CsContentCard>(section.items.size * 2)
             for (card in section.items) {
                 if (card.url !in byUrl) byUrl[card.url] = card
@@ -1268,6 +1303,9 @@ class SearchViewModel(
                     rows = sections.map { section ->
                         CsBrowseDisplayRow(
                             shelfIndex = section.shelfIndex,
+                            // Task 63 (round 23 — F3): the title rides the row —
+                            // the restore-side validation key.
+                            title = section.title,
                             itemUrls = section.results.map { it.url },
                         )
                     },

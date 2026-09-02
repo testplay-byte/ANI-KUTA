@@ -52,6 +52,10 @@ class UpdateEngine(
     private val notificationSender: NotificationSender? = null,
     // D-193 Phase 6: update preferences for sub/dub checking toggles.
     private val updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences? = null,
+    // Task 63 (round 23 — C): background-status notifier (nullable — tests
+    // pass null). Wired in :app; posts the notification-bar progress the
+    // user asked for while the engine checks for new episodes.
+    private val progressNotifier: UpdateProgressNotifier? = null,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Updates"
@@ -112,31 +116,49 @@ class UpdateEngine(
         var totalNew = 0
         var current = 0
         val total = dueAnime.size
+        // Task 63 (round 23 — C): the notification-bar status starts here —
+        // "Checking for new episodes", 0/total. (The empty case above never
+        // reaches this line: nothing was checked, so nothing is posted.)
+        progressNotifier?.onCheckStart(total)
 
         // T7: check up to MAX_CONCURRENT in parallel.
-        coroutineScope {
-            dueAnime.map { state ->
-                async {
-                    // D-193 Phase 4: emit progress before each check.
-                    val content = contentRepository.getMainEntryByMainId(state.mainId)
-                    val title = content?.title ?: "Unknown"
-                    // D-193 Phase 5: look up cover URL for the live-progress banner.
-                    // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
-                    val details = content?.let { contentRepository.getContentDetails(it.mainId) }
-                    val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
-                    synchronized(this@UpdateEngine) {
-                        current++
-                        _checkProgress.tryEmit(CheckProgress(current, total, state.mainId, title, coverUrl))
-                    }
+        try {
+            coroutineScope {
+                dueAnime.map { state ->
+                    async {
+                        // D-193 Phase 4: emit progress before each check.
+                        val content = contentRepository.getMainEntryByMainId(state.mainId)
+                        val title = content?.title ?: "Unknown"
+                        // D-193 Phase 5: look up cover URL for the live-progress banner.
+                        // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+                        val details = content?.let { contentRepository.getContentDetails(it.mainId) }
+                        val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
+                        synchronized(this@UpdateEngine) {
+                            current++
+                            _checkProgress.tryEmit(CheckProgress(current, total, state.mainId, title, coverUrl))
+                        }
+                        // Task 63 (C): the notification-bar progress tick (NOT
+                        // inside the engine lock — the impl throttles itself).
+                        progressNotifier?.onProgress(current, total, title)
 
-                    val newCount = checkSingleAnime(state, now)
-                    synchronized(this@UpdateEngine) { totalNew += newCount }
-                }
-            }.awaitAll()
+                        val newCount = checkSingleAnime(state, now)
+                        synchronized(this@UpdateEngine) { totalNew += newCount }
+                    }
+                }.awaitAll()
+            }
+        } catch (t: Throwable) {
+            // Task 63 (C): the run aborted — the ongoing status notification
+            // must not linger forever; report the stop, then rethrow so the
+            // worker's retry semantics stay unchanged.
+            progressNotifier?.onFailed(t.message ?: "unknown error")
+            throw t
         }
 
         // D-193 Phase 4: emit terminal progress.
         _checkProgress.tryEmit(CheckProgress(total, total, "", "", null))
+        // Task 63 (C): the terminal status — "Episode check complete, N new
+        // episodes" (autoCancel — sits in the shade until tapped).
+        progressNotifier?.onFinish(total, totalNew)
 
         Logger.i(TAG) { "checkDueAnime — complete. $totalNew new episode(s) found." }
         totalNew

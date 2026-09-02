@@ -72,6 +72,13 @@ data class CsBrowseSnapshot(
  * index in the provider's mainPage (the category subpages resolve by it);
  * [CsBrowseDisplayRow.itemUrls] is the row's item order (urls are the only
  * stable cross-session item identity).
+ *
+ * Task 63 (round 23 — F3): [CsBrowseDisplayRow.title] is the section title
+ * the row was persisted under — the restore-side VALIDATION key. A provider
+ * that reorders/renames its mainPage (or a merge that changes what sits at
+ * an index) is detected as a title mismatch → fresh shuffle, never a
+ * silently-wrong restore. Defaulted "" = legacy row (pre-63 snapshots) —
+ * blank titles SKIP the check (index validation alone still applies).
  */
 @Serializable
 data class CsBrowseDisplay(
@@ -82,6 +89,7 @@ data class CsBrowseDisplay(
 data class CsBrowseDisplayRow(
     val shelfIndex: Int,
     val itemUrls: List<String>,
+    val title: String = "",
 )
 
 class CloudstreamBrowseCache(
@@ -140,15 +148,25 @@ class CloudstreamBrowseCache(
      * Stores a successful browse. Memory synchronously (the NEXT peek must
      * see it), disk asynchronously (never blocks the browse result path).
      * Empty sections are ignored (see class doc).
+     *
+     * Task 63 (round 23 — F3): the PREVIOUS snapshot's `display` is carried
+     * over. The round-22 invariant ("the persisted arrangement restored
+     * exactly across cold restarts + BACKGROUND REFRESHES") holds as long as
+     * the refresh's section set still validates against it (size + indexes +
+     * titles — restoreBrowseDisplay); when the provider changed, validation
+     * fails and the search page shuffles + re-persists fresh. Without the
+     * carry-over a background refresh would silently DROP the arrangement
+     * and re-shuffle on the next open — exactly what round 22 fixed.
      */
     fun put(providerName: String, sections: List<CsBrowseSection>) {
         if (sections.isEmpty()) return
+        val key = memKey(providerName)
         val snapshot = CsBrowseSnapshot(
             providerName = providerName,
             sections = sections,
             fetchedAtMs = System.currentTimeMillis(),
+            display = memory[key]?.display,
         )
-        val key = memKey(providerName)
         memory[key] = snapshot
         scope.launch {
             diskMutex.withLock {

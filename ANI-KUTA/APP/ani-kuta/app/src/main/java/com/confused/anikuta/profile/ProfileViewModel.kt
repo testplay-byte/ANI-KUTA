@@ -34,7 +34,21 @@ class ProfileViewModel(
 
     companion object {
         private const val TAG = "Anikuta:Feature:Profile"
+
+        // Task 63 (round 23 — E): the persisted key for the genres radar filter
+        // ("All" or a library category NAME). Re-applied on every loadStats;
+        // falls back to All when the stored category no longer exists.
+        private const val GENRE_FILTER_PREF = "profile_genre_filter"
+        private const val GENRE_FILTER_ALL = "All"
     }
+
+    // ── Task 63 (round 23 — E): the genre-filter caches ──────────────────
+    // The rows loadStats() already reads (library items + categories) are kept
+    // so a filter switch is a pure in-memory re-derivation + one genre-count
+    // query on Dispatchers.IO — never a full stats reload. D-285 records, not
+    // raw SQLDelight rows (same lightweight shape the Library batch loader uses).
+    private var cachedLibraryItems: List<com.confused.anikuta.core.content.LibraryItemRecord> = emptyList()
+    private var cachedCategories: List<com.confused.anikuta.core.content.LibraryCategory> = emptyList()
 
     private val _state = MutableStateFlow(ProfileUiState())
     val state: StateFlow<ProfileUiState> = _state.asStateFlow()
@@ -48,9 +62,21 @@ class ProfileViewModel(
             try {
                 Logger.i(TAG) { "Loading profile stats..." }
 
-                val libraryItems = database.libraryQueries.getAllLibraryItems().executeAsList()
-                val totalAnime = libraryItems.map { it.main_id }.distinct().size
-                val libraryMainIds = libraryItems.map { it.main_id }.toSet()
+                val libraryItems = contentRepository.getAllLibraryItems()
+                val totalAnime = libraryItems.map { it.mainId }.distinct().size
+
+                // Task 63 (round 23 — E): the genres radar filter — [All] + every
+                // library category (the user's AniList statuses ARE their imported
+                // category names: Watching / Planning / Completed / Dropped /
+                // Paused, plus any custom ones). The PERSISTED choice is re-applied
+                // on entry; a stored name that no longer matches a category falls
+                // back to All.
+                cachedLibraryItems = libraryItems
+                cachedCategories = contentRepository.getAllCategories()
+                val filterOptions = listOf(GENRE_FILTER_ALL) + cachedCategories.map { it.name }
+                val savedFilter = preferenceStore.getString(GENRE_FILTER_PREF, GENRE_FILTER_ALL)
+                val activeFilter = if (savedFilter in filterOptions) savedFilter else GENRE_FILTER_ALL
+                val genreFilterMainIds = mainIdsForGenreFilter(activeFilter)
 
                 // Watch progress
                 val allProgress = database.watchQueries.getAllWatchProgress().executeAsList().map { row ->
@@ -91,9 +117,11 @@ class ProfileViewModel(
                 } else 0.0
                 val avgRatingFormatted = if (avgRating > 0) String.format("%.1f", avgRating / 10.0) else "—"
 
-                // Genre distribution — backfill from existing anilist_detail.genres first
+                // Genre distribution — backfill from existing anilist_detail.genres first.
+                // Task 63 (E): counts are restricted to the ACTIVE FILTER's mainIds (All =
+                // the whole library, exactly the pre-filter behavior).
                 genreRepository.backfillGenresFromExistingData(database)
-                val genreCounts = genreRepository.getLibraryGenreCounts(libraryMainIds)
+                val genreCounts = genreRepository.getLibraryGenreCounts(genreFilterMainIds)
                 val genreDistribution = genreCounts.associate { it.first to it.second }
 
                 // Current streak
@@ -208,6 +236,8 @@ class ProfileViewModel(
                     avgDailyWatchTime = avgDailyWatchTime,
                     timeline = timeline,
                     recentlyWatched = recentlyWatched,
+                    genreFilterOptions = filterOptions,
+                    selectedGenreFilter = activeFilter,
                 )
 
                 Logger.i(TAG) { "Profile stats loaded: $totalAnime anime, $totalEpisodesWatched episodes, ${genreCounts.size} genres" }
@@ -333,10 +363,55 @@ class ProfileViewModel(
         }
     }
 
+    /**
+     * Task 63 (round 23 — E): the mainIds the genres radar currently counts —
+     * All = every library entry, otherwise the selected CATEGORY's entries.
+     * Pure in-memory over the cached rows (empty set if the category vanished).
+     */
+    private fun mainIdsForGenreFilter(filter: String): Set<String> {
+        if (filter == GENRE_FILTER_ALL) {
+            return cachedLibraryItems.map { it.mainId }.toSet()
+        }
+        val categoryId = cachedCategories.firstOrNull { it.name == filter }?.id
+            ?: return cachedLibraryItems.map { it.mainId }.toSet()
+        return cachedLibraryItems
+            .filter { it.categoryId == categoryId }
+            .map { it.mainId }
+            .toSet()
+    }
+
+    /**
+     * Task 63 (round 23 — E): switch the genres radar filter — persists the
+     * choice, recomputes the counts for the new mainId set off-main, and
+     * resets any open genre sheet (its anime list was derived under the old
+     * filter). All = the whole library (the previous behavior).
+     */
+    fun onGenreFilterSelect(filter: String) {
+        preferenceStore.putString(GENRE_FILTER_PREF, filter)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val mainIds = mainIdsForGenreFilter(filter)
+                val genreCounts = genreRepository.getLibraryGenreCounts(mainIds)
+                _state.value = _state.value.copy(
+                    selectedGenreFilter = filter,
+                    genreDistribution = genreCounts.associate { it.first to it.second },
+                    selectedGenre = null,
+                    genreAnime = emptyList(),
+                )
+                Logger.i(TAG) { "Genre filter -> $filter (${mainIds.size} anime in scope)" }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "Genre filter switch failed: ${e.message}" }
+            }
+        }
+    }
+
     fun onGenreClick(genre: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val libraryItems = database.libraryQueries.getAllLibraryItems().executeAsList()
-            val libraryMainIds = libraryItems.map { it.main_id }.toSet()
+            // Task 63 (E): the sheet applies the SAME filter as the radar — the
+            // listed anime come from the active filter's mainId set, not the raw
+            // whole library ("Watching: Action" lists only Watching anime with
+            // the Action genre).
+            val libraryMainIds = mainIdsForGenreFilter(_state.value.selectedGenreFilter)
             val genreAnime = libraryMainIds.mapNotNull { mid ->
                 val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
                 // D-198: getAniListDetail → getContentDetails; only include AniList-linked rows.
@@ -396,6 +471,10 @@ data class ProfileUiState(
     val recentlyWatched: List<RecentlyWatchedItem> = emptyList(),
     val selectedGenre: String? = null,
     val genreAnime: List<RecentlyWatchedItem> = emptyList(),
+    /** Task 63 (E): "All" + library category names the genres radar can filter to. */
+    val genreFilterOptions: List<String> = listOf("All"),
+    /** Task 63 (E): the active genres radar filter (a [genreFilterOptions] entry). */
+    val selectedGenreFilter: String = "All",
 )
 
 data class TimeDnaData(

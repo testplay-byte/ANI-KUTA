@@ -71,11 +71,20 @@ data class CsContentCard(
  * One browse shelf rendered as its own titled row on the search page (Task 44,
  * device round 3: "show a popular, latest and other sections in row format").
  * [title] is the provider's own shelf name ("Latest Updated", "Most Popular", …).
+ *
+ * Task 63 (round 23 — F1): [shelfIndex] is the shelf's ORIGINAL index in the
+ * provider's mainPage list — captured BEFORE empty-shelf compaction and
+ * BEFORE the duplicate-title merge. The category subpages resolve their shelf
+ * by it (browseShelf), so it must be the mainPage identity, NOT the position
+ * in this (possibly compacted/merged) list. Defaulted to -1 = "not captured"
+ * (snapshot-compat: old cached files decode with it; the search page's
+ * restore validation rejects those rows → fresh shuffle).
  */
 @kotlinx.serialization.Serializable
 data class CsBrowseSection(
     val title: String,
     val items: List<CsContentCard>,
+    val shelfIndex: Int = -1,
 )
 
 // NOTE (Task 48): [CsBrowseSection] + [CsContentCard] are @Serializable so
@@ -290,7 +299,7 @@ class CloudstreamContentRepository(
             awaited
         }
 
-        val sections = responses.mapIndexedNotNull { index, response ->
+        val rawSections = responses.mapIndexedNotNull { index, response ->
             val shelf = shelves[index]
             // A shelf's response may itself carry several named lists — flatten
             // them into the one row, deduped by url within the row (cross-row
@@ -303,8 +312,30 @@ class CloudstreamContentRepository(
                 .take(MAX_SECTION_ITEMS)
                 .map { it.toCard(providerName, provider.mainUrl) }
             Logger.i(TAG) { "browse: $providerName shelf '${shelf.name}' -> ${cards.size} item(s)" }
-            if (cards.isEmpty()) null else CsBrowseSection(title = shelf.name, items = cards)
+            // Task 63 (F1): `index` here is the ORIGINAL mainPage index (the
+            // position in `shelves`/`responses` — compaction happens BELOW, in
+            // this mapIndexedNotNull's null-drops, so a section's identity is
+            // captured BEFORE any shelf is dropped). The category subpages
+            // resolve by this index; the pre-fix code let the search page derive
+            // it from the COMPACTED list position, so one failed/empty shelf
+            // shifted every later row onto the WRONG shelf (the round-23 device
+            // report: "the categories show the wrong content").
+            if (cards.isEmpty()) null else CsBrowseSection(
+                title = shelf.name,
+                items = cards,
+                shelfIndex = index,
+            )
         }
+        // Task 63 (round 23 — F2): the duplicate-title MERGE. Some providers
+        // list 2-3 shelves with the SAME name (the round-23 device report:
+        // "there are 2 or 3 categories with the exact same name") — each
+        // rendered as its own row with disjoint item sets. Same-title sections
+        // (case-insensitive) merge into ONE row: items concatenated,
+        // re-deduped by url, re-capped; the FIRST shelf's original index wins
+        // (the subpage paginates that shelf; the merged items are display-only
+        // and the subpage's own fetch re-covers the rest). The MERGED list is
+        // what gets returned AND cached.
+        val sections = mergeDuplicateTitleSections(rawSections)
         Logger.i(TAG) {
             "browse: $providerName -> ${sections.size} section(s) in ${System.currentTimeMillis() - started}ms"
         }
@@ -406,6 +437,48 @@ class CloudstreamContentRepository(
     }
 
     // ── Internals ───────────────────────────────────────────────────────────
+
+    /**
+     * Task 63 (round 23 — F2): merges same-title sections (case-insensitive)
+     * into one. Preserves the input order (the mainPage shelf order); the
+     * merged row keeps the FIRST section's original [CsBrowseSection.shelfIndex]
+     * (the subpage paginates that shelf — the concatenated items are
+     * display-only) and re-applies the per-row item discipline: concat →
+     * distinctBy url → [MAX_SECTION_ITEMS] cap. Sections with unique titles
+     * pass through untouched (same instances — a no-copy fast path).
+     */
+    private fun mergeDuplicateTitleSections(sections: List<CsBrowseSection>): List<CsBrowseSection> {
+        // Fast path: no case-insensitive title collision → the input as-is.
+        val lowerTitles = HashSet<String>(sections.size * 2)
+        var hasDuplicates = false
+        for (section in sections) {
+            if (!lowerTitles.add(section.title.lowercase())) {
+                hasDuplicates = true
+                break
+            }
+        }
+        if (!hasDuplicates) return sections
+
+        val byTitle = LinkedHashMap<String, CsBrowseSection>(sections.size * 2)
+        for (section in sections) {
+            val key = section.title.lowercase()
+            val existing = byTitle[key]
+            if (existing == null) {
+                byTitle[key] = section
+            } else {
+                byTitle[key] = existing.copy(
+                    items = (existing.items + section.items)
+                        .distinctBy { it.url }
+                        .take(MAX_SECTION_ITEMS),
+                )
+                Logger.i(TAG) {
+                    "browse: merged duplicate section '${section.title}' " +
+                        "(shelf ${existing.shelfIndex} + shelf ${section.shelfIndex})"
+                }
+            }
+        }
+        return byTitle.values.toList()
+    }
 
     /**
      * Name → live MainAPI. Only TRUSTED plugins ever load, so everything in

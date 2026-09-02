@@ -301,6 +301,12 @@ private fun StatsTab(
                     genres = state.genreDistribution,
                     onGenreClick = { viewModel.onGenreClick(it) },
                     selectedGenre = state.selectedGenre,
+                    // Task 63 (round 23 — E): the category filter chips right of
+                    // the heading — "All" + library categories; persisted choice
+                    // re-applied on entry (VM), sheet honors the same scope.
+                    filterOptions = state.genreFilterOptions,
+                    selectedFilter = state.selectedGenreFilter,
+                    onFilterSelect = { viewModel.onGenreFilterSelect(it) },
                 )
             }
         }

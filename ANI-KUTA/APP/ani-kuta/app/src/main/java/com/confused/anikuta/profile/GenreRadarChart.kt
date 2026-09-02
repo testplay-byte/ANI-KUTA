@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -15,6 +16,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
@@ -46,12 +48,20 @@ import kotlin.math.sin
  * - Clickable labels: tapping a genre label opens the anime sheet
  * - Up to 16 genres supported
  * - Horizontally scrollable legend below with highlight for selected genre
+ * - Task 63 (round 23 — E): the heading row carries the category FILTER chips
+ *   (All + library categories, selected one highlighted) right of "Genres".
  */
 @Composable
 fun GenreRadarChart(
     genres: Map<String, Int>,
     onGenreClick: (String) -> Unit,
     selectedGenre: String? = null,
+    // Task 63 (round 23 — E): the category filter row — "All" + library
+    // category names; the VM restricts [genres] to the selection. Defaults
+    // keep the chart usable in previews/tests without a filter.
+    filterOptions: List<String> = listOf("All"),
+    selectedFilter: String = "All",
+    onFilterSelect: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (genres.isEmpty()) return
@@ -95,14 +105,52 @@ fun GenreRadarChart(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            "Genres",
-            fontFamily = RobotoFamily,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
-        )
+        // Task 63 (round 23 — E): the heading row — "Genres" on the left, the
+        // category FILTER chips right of it. The chips sit in a scrollable
+        // LazyRow (weight 1f) so any number of categories fits; the selected
+        // one is primary-tinted. Pill style matches the legend row below.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                "Genres",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp),
+            )
+            LazyRow(
+                modifier = Modifier.weight(1f).padding(start = 8.dp, top = 12.dp, bottom = 8.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(filterOptions.size) { index ->
+                    val option = filterOptions[index]
+                    val isSelected = option == selectedFilter
+                    Surface(
+                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.pointerInput(option) {
+                            detectTapGestures { onFilterSelect(option) }
+                        },
+                    ) {
+                        Text(
+                            text = option,
+                            fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                            color = if (isSelected) androidx.compose.ui.graphics.Color.Black
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
 
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),

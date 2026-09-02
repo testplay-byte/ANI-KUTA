@@ -2,6 +2,7 @@ package com.confused.anikuta.core.updates.di
 
 import com.confused.anikuta.core.updates.UpdateEngine
 import com.confused.anikuta.core.updates.SmartReleaseScheduler
+import com.confused.anikuta.core.updates.UpdateProgressNotifier
 import com.confused.anikuta.core.updates.UpdateScheduler
 import com.confused.anikuta.core.updates.UpdateStore
 import org.koin.dsl.module
@@ -20,6 +21,9 @@ val updatesModule = module {
             actualReleaseUpdater = getOrNull(),
             notificationSender = getOrNull(),
             updatePreferences = getOrNull(),
+            // Task 63 (round 23 — C): background-status notifier (bound in
+            // :app's appModule; nullable here so headless use/tests skip it).
+            progressNotifier = getOrNull<UpdateProgressNotifier>(),
         )
     }
     // D-193 Phase 4: UpdateScheduler for configurable WorkManager interval.

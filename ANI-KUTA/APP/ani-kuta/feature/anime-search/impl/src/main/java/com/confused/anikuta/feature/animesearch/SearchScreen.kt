@@ -918,8 +918,14 @@ private fun ExtensionBrowseSections(
             }
         }
 
-        sections.forEachIndexed { sectionIndex, section ->
-            item(key = "section-$sectionIndex-${section.title}") {
+        sections.forEach { section ->
+            // Task 63 (round 23 — F4): the key is the section's UNIQUE original
+            // shelf index — stable across shuffles (a row moving positions keeps
+            // its identity: LazyColumn treats it as moved, not recreated). The
+            // pre-fix key mixed the list POSITION into it, so every re-shuffle
+            // re-keyed every row (full recomposition) and duplicate titles were
+            // only saved by the position prefix.
+            item(key = "section-${section.shelfIndex}") {
                 // D-304 defense-in-depth: dedupe within the row so LazyRow keys
                 // stay unique even if a future code path reintroduces dupes.
                 val distinct = remember(section) {
