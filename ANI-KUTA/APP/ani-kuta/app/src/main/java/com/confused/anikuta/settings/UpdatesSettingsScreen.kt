@@ -51,6 +51,8 @@ import org.koin.compose.koinInject
 fun UpdatesSettingsScreen(
     onOpenNotifications: () -> Unit,
     onOpenCategories: () -> Unit,
+    // Task 64 (round 24): opens the content-update history page.
+    onOpenCheckLog: () -> Unit = {},
     updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences = koinInject(),
     updateScheduler: com.confused.anikuta.core.updates.UpdateScheduler = koinInject(),
 ) {
@@ -212,6 +214,24 @@ fun UpdatesSettingsScreen(
                                 title = "Notifications",
                                 description = "Enable, triggers, per-anime config, test",
                                 onClick = onOpenNotifications,
+                            )
+                        }
+                    }
+
+                    // ── Task 64 (round 24): the content-update HISTORY ──
+                    // "keep track of when the app actually checked for updates… a
+                    // dedicated option to check out the updates log, like a content
+                    // update history" — every check session lands there (when it
+                    // ran, what it checked, outcomes, the engine's next actions).
+                    item {
+                        SectionLabel("History")
+                    }
+                    item {
+                        SeparateCard {
+                            NavRowContent(
+                                title = "Update check history",
+                                description = "Every episode check — what was checked, what was found, what happens next",
+                                onClick = onOpenCheckLog,
                             )
                         }
                     }

@@ -306,6 +306,11 @@ object UpdatesSettingsKey : NavKey
 @Serializable
 object UpdateCategoriesKey : NavKey
 
+// Task 64 (round 24): the update-check history page (Settings → Updates →
+// "Update check history") — every check session from the JSON log store.
+@Serializable
+object UpdateCheckLogKey : NavKey
+
 @Serializable
 object AppearanceKey : NavKey
 
@@ -385,6 +390,7 @@ private val allowedUpdateSheetKeys = setOf(
     DetailsPageSettingsKey::class,
     DebugSettingsKey::class,
     EpisodeSettingsKey::class,
+    UpdateCheckLogKey::class,
     PlayerSettingsKey::class,
     VideoCachingKey::class,
     ProfileKey::class,
@@ -1109,8 +1115,16 @@ fun AppRoot() {
             is UpdatesSettingsKey -> UpdatesSettingsScreen(
                 onOpenNotifications = { backstack.add(NotificationsKey) },
                 onOpenCategories = { backstack.add(UpdateCategoriesKey) },
+                // Task 64 (round 24): the content-update history page.
+                onOpenCheckLog = { backstack.add(UpdateCheckLogKey) },
             )
             is UpdateCategoriesKey -> UpdateCategoriesScreen(onBack = pop)
+            // Task 64 (round 24): the update-check history — every check
+            // session (when it ran, what it checked, per-content outcomes,
+            // the engine's next actions) from the JSON log store.
+            is UpdateCheckLogKey -> com.confused.anikuta.settings.UpdateCheckLogScreen(
+                onBack = pop,
+            )
             is NotificationsKey -> NotificationsSettingsScreen(
                 onBack = pop,
                 onOpenLibrary = { backstack.add(NotificationsLibraryKey) },

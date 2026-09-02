@@ -307,6 +307,18 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 }
             }
 
+            // Task 64 (round 24): the update-check LIVE progress notification +
+            // the content-update history store (JSON file — NOT the database,
+            // this round's constraint). The engine picks both up through its
+            // nullable constructor seams (see UpdatesModule).
+            single<com.confused.anikuta.core.updates.UpdateProgressNotifier> {
+                com.confused.anikuta.notifications.UpdateProgressNotifierImpl(androidContext())
+            }
+            single { com.confused.anikuta.settings.UpdateCheckLogStore(androidContext()) }
+            single<com.confused.anikuta.core.updates.UpdateCheckLogger> {
+                get<com.confused.anikuta.settings.UpdateCheckLogStore>()
+            }
+
             // Session ID (for activity tracking — new per process restart)
             single(named("sessionId")) { UUID.randomUUID().toString() }
 
@@ -328,6 +340,7 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
 
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)
+            viewModelOf(::com.confused.anikuta.settings.UpdateCheckLogViewModel)
             viewModelOf(::NotificationsLibraryViewModel)
             viewModelOf(::VideoCachingViewModel) // Video caching settings (test-feature branch)
             viewModelOf(::ProfileViewModel) // Profile page
