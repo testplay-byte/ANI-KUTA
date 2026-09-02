@@ -241,7 +241,7 @@ class UpdateEngine(
         }
 
         Logger.i(TAG) { "checkDueAnime — complete. $totalNew new episode(s) found." }
-        totalNew
+        return totalNew
     }
 
     /**
