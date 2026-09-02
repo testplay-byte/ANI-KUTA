@@ -263,8 +263,42 @@ object AndroidConfig {
     // next_airing_at (only what's REALLY releasing — each row shows EP n +
     // the release time + countdown), and the engine summary + notification
     // next-check line are release-aware.
-    const val versionCode = 79
-    const val versionName = "0.4.14"
+    //
+    // Task 67 (round 27 — the five v0.4.14 device findings, doc
+    // cloudstream-v2/18): (A) D-397 the armed delete glyph grows 2.5x IN THE
+    // LAYOUT PHASE — the round-26 draw-phase scale(3f) painted a 48dp glyph
+    // out of a 16dp box (the rounded card Surface clipped its top/left/right
+    // + the rasterized layer blurred, and 3x overshot the re-spec); the
+    // glyph's dp size (16→40dp / 20→50dp) AND the IconButton frame (32→48dp /
+    // 36→56dp) now animate as real MEASURED size, so nothing can clip and the
+    // vector re-rasters crisply; (B) D-397b the episode rows are key()'d by
+    // episodeKey — the forEachIndexed Column's POSITIONAL remember slots made
+    // the row moving up after a delete inherit the dead row's exit Animatables
+    // (alpha=0, translated away — "its content disappears" until re-expand);
+    // (C) D-393 the DISK-TRUTH file deletion — the round-26 flow deleted
+    // files only via the .data.json URIs, so a stale/missing entry silently
+    // skipped the file deletion while the DB row still died ("the files are
+    // there"); Phase 2 now adds deleteEpisodeFilesOnDisk() — a
+    // census→delete→verify sweep of episodes/ + subtitles/ (+ legacy root
+    // files) keyed on the episode number FROM THE DB ROW, matching the
+    // canonical filename token (full-token regex so EP 1 never matches
+    // E00001.5) with retry rounds + a survivors report (empty = the on-disk
+    // guarantee), and the series-folder cleanup decides by the DB alone
+    // (dbRemaining==0 — immune to .data.json ghosts, never nukes files whose
+    // rows are live) with a playable-files disk check before the row sweep;
+    // (D) D-395 the search top bar is a nested-scroll reveal LATCH — any
+    // downward delta collapses, any upward delta reveals, content-mode
+    // transitions re-reveal (the old OR-of-all-three-scroll-states expression
+    // latched collapsed from a dead Idle column's remembered ScrollState and
+    // only re-expanded at the literal top); (E) D-396 the update-check history
+    // records + resolves the smart-schedule MATH per series — the check-time
+    // record (nextAiringEpisode/At, learnedOffsetMs, expectedCheckAt = airing
+    // + the same clamped offset as SmartReleaseScheduler) + the LANDED
+    // WorkManager one-shot fire time resolved live via the new per-anime
+    // sr_main_<mainId> tag, rendered as a 4-line fact panel (Next release /
+    // Learned delay / Calculated / Landed + drift).
+    const val versionCode = 80
+    const val versionName = "0.4.15"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

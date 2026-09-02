@@ -796,6 +796,10 @@ class DownloadStorageProvider(
         var lastCensus = before
         for (pass in 1..DISK_SWEEP_PASSES) {
             val stillMatching = listEpisodeFilesForToken(folder, targetToken)
+            // Keep the freshest census even when we break — a settle-delayed
+            // deletion can land between passes, and a stale non-empty census
+            // would wrongly report survivors.
+            lastCensus = stillMatching
             if (stillMatching.names.isEmpty()) break // nothing (left) to do
             for (name in stillMatching.names) {
                 val deleted = deleteFileByName(folder, name)
