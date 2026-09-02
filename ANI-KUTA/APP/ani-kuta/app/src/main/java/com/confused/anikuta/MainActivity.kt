@@ -325,16 +325,6 @@ object PlayerSettingsKey : NavKey
 @Serializable
 object VideoCachingKey : NavKey
 
-// CloudStream V2: release-available log console + export (the debug stage's
-// on-device diagnostics tool — Settings → Developer tools → Console logs).
-@Serializable
-object ConsoleLogsKey : NavKey
-
-// Task 57 (round 17): dedicated Debug page — debug-bubble toggle (debug builds
-// only) + CloudStream resolve-list source details / copy button (release too).
-@Serializable
-object DebugSettingsKey : NavKey
-
 // About & Updates screen — hosts the app-update UI (version, auto-check toggle,
 // manual check, downloaded APK list). The UpdateBottomSheet overlay is rendered
 // from AppRoot (below) gated on AppUpdateManager.shouldShowUpdateSheet.
@@ -388,8 +378,6 @@ private val allowedUpdateSheetKeys = setOf(
     AppearanceKey::class,
     AppearanceGeneralKey::class,
     DetailsPageSettingsKey::class,
-    ConsoleLogsKey::class,
-    DebugSettingsKey::class,
     EpisodeSettingsKey::class,
     PlayerSettingsKey::class,
     VideoCachingKey::class,
@@ -640,12 +628,11 @@ fun AppRoot() {
         pop()
     }
 
-    // D-163 (DB-1): hoisted debug-context state. Screens write via
-    // LocalDebugContextUpdater; the debug bubble reads via LocalDebugContext.
-    // The provider wraps BOTH the nav content AND the bubble (DebugBubbleHost)
-    // so the bubble — a sibling of the nav content in this Box — is inside the
-    // provider's subtree and can read the context (D-162 C1 fix).
-    var debugContext by remember { androidx.compose.runtime.mutableStateOf<com.confused.anikuta.core.debugapi.DebugContext?>(null) }
+    // Task 63 (round 23 — D): the D-163 debug-context state + its
+    // CompositionLocalProviders are removed with the debug-bubble module +
+    // core/debug-api (the Developer-tools removal). The
+    // LocalLibrarySelectionMode provider stays (it is user-facing — the
+    // library's long-press multi-select).
 
     // Task 53 / RC-6: the CS resolve-sheet request — set by a CloudStream
     // episode tap on the details page; the sheet (an overlay sibling of the
@@ -660,8 +647,6 @@ fun AppRoot() {
 
     androidx.compose.runtime.CompositionLocalProvider(
         LocalLibrarySelectionMode provides librarySelectionMode,
-        com.confused.anikuta.core.debugapi.LocalDebugContext provides debugContext,
-        com.confused.anikuta.core.debugapi.LocalDebugContextUpdater provides { ctx -> debugContext = ctx },
     ) {
         Box(
             modifier = Modifier
@@ -1075,22 +1060,13 @@ fun AppRoot() {
                 onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onOpenVideoCaching = { backstack.add(VideoCachingKey) },
-                onOpenConsoleLogs = { backstack.add(ConsoleLogsKey) },
-                onOpenDebug = { backstack.add(DebugSettingsKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
                 onBack = pop,
             )
-            // CloudStream V2: console logs — the release-available diagnostics
-            // console (ring buffer + logcat export via the share sheet).
-            is ConsoleLogsKey -> com.confused.anikuta.settings.ConsoleLogsScreen(
-                onBack = pop,
-            )
-            // Task 57 (round 17): the dedicated Debug page — bubble toggle
-            // (debug builds) + resolve-list source details / copy button
-            // (release-available, defaults OFF).
-            is DebugSettingsKey -> com.confused.anikuta.settings.DebugSettingsScreen(
-                onBack = pop,
-            )
+            // Task 63 (round 23 — D): ConsoleLogsKey + DebugSettingsKey and
+            // their screens are REMOVED with the whole Developer-tools /
+            // console-logging toolkit (the device spec's "proper clean
+            // experience").
             // CloudStream V2: the plugin detail page — resolves the plugin across
             // Trusted/Untrusted/Failed/Available and shows metadata + live
             // providers + state actions (trust/untrust/install/uninstall/retry).
@@ -1332,11 +1308,6 @@ fun AppRoot() {
                 selectionModeContent = selectionContent,
             )
         }
-
-        // D-163 (DB-1): the debug bubble — renders on top of every screen.
-        // DebugBubbleHost is a no-op in release builds (release source set).
-        // In debug builds it renders the draggable squircle bubble.
-        DebugBubbleHost()
 
         // ── Task 53 / RC-6: the CS resolve sheet (AnymeX entry pattern) ──
         // Overlay sibling of the nav content: the details page stays visible

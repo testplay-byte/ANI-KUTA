@@ -166,27 +166,8 @@ fun WatchScreen(
     val playbackCacheManager = koinInject<PlaybackCacheManager>()
     val scope = rememberCoroutineScope()
 
-    // DB-7: provide debug context for the Current Screen tab.
-    val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
-    val watchCtx = remember(watchKey) {
-        com.confused.anikuta.core.debugapi.DebugContext(
-            screenName = "Watch — ${watchKey.animeTitle}",
-            screenData = mapOf(
-                "mainId" to watchKey.mainId,
-                "episodeNumber" to watchKey.episodeNumber.toString(),
-                "videoUrl" to (watchKey.videoUrl.take(60) + "…"),
-                "episodeCount" to episodeList.size.toString(),
-            ),
-            relevantTables = if (watchKey.mainId.isNotBlank()) listOf(
-                com.confused.anikuta.core.debugapi.DbReference("watch_progress", "main_id", watchKey.mainId, "View watch progress"),
-                com.confused.anikuta.core.debugapi.DbReference("downloaded_episode", "main_id", watchKey.mainId, "View downloads"),
-            ) else emptyList(),
-        )
-    }
-    androidx.compose.runtime.LaunchedEffect(watchCtx) { updateDebugContext(watchCtx) }
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { updateDebugContext(null) }
-    }
+    // Task 63 (round 23 — D): the DB-7 debug-context block is removed with the
+    // debug-bubble module + core/debug-api (the Developer-tools removal).
 
     var mpvView by remember { mutableStateOf<AnikutaMPVView?>(null) }
     var mpvInitialized by remember { mutableStateOf(false) }
@@ -1283,10 +1264,6 @@ fun WatchScreen(
             onDismiss = { showQualitySheet = false },
             currentServerName = currentServerName,
             currentAudioVersion = currentAudioVersion,
-            // Task 58 (round 18): the debug report's context (Settings → Debug
-            // options → Copy button ON → the sheet header's report action).
-            animeTitle = watchKey.animeTitle,
-            episodeNumber = watchKey.episodeNumber,
         )
     }
 

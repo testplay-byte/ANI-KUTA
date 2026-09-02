@@ -7,9 +7,7 @@ import com.confused.anikuta.core.activitytracker.activityTrackerModule
 import com.confused.anikuta.core.ads.di.adsModule  // D-272: smart-link ad system
 import com.confused.anikuta.core.anilist.di.anilistModule
 import com.confused.anikuta.core.appupdate.di.appUpdateModule
-import com.confused.anikuta.core.common.LogLevel
 import com.confused.anikuta.core.common.Logger
-import com.confused.anikuta.core.common.RingLogBuffer
 import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.database.DatabaseDriverFactory
 import com.confused.anikuta.core.network.HttpClientFactory
@@ -91,28 +89,13 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             com.confused.anikuta.error.AnikutaCrashHandler(this)
         )
 
-        // Task 49 (round 9 — console logging tool): the Logger + its ring buffer
-        // now run in EVERY build so Settings → Developer tools → Console logs
-        // captures, filters and exports logs from the user's device (the whole
-        // point is diagnosing release-APK device rounds). Min level bounds the
-        // overhead: DEBUG lines only in debug builds, INFO+ in release
-        // (decision D-362 — reverses CORE_RULES §20 "release off" deliberately:
-        // lambda-gated logging makes the cost an if-check + string build for
-        // INFO+, and device-diagnosability outweighed it).
-        Logger.setEnabled(true)
-        Logger.setMinLevel(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.INFO)
-        // The ring captures ALL Logger output in all builds.
-        Logger.setAppender(RingLogBuffer)
-        // Plugin-facing facade (com.lagradost.api.Log — 48/80 census plugins log
-        // through it) + the vendored CS layer's mirrored sites → the same ring.
-        com.lagradost.api.Log.sink = { level, tag, message ->
-            when (level) {
-                com.lagradost.api.Log.Level.D -> RingLogBuffer.append(LogLevel.DEBUG, tag, message, null)
-                com.lagradost.api.Log.Level.I -> RingLogBuffer.append(LogLevel.INFO, tag, message, null)
-                com.lagradost.api.Log.Level.W -> RingLogBuffer.append(LogLevel.WARN, tag, message, null)
-                com.lagradost.api.Log.Level.E -> RingLogBuffer.append(LogLevel.ERROR, tag, message, null)
-            }
-        }
+        // Task 63 (round 23 — D): the console-logging toolkit is REMOVED with
+        // Developer tools (the device spec: "completely remove the console
+        // logging … a proper clean experience"). Logger gating is back to the
+        // CORE_RULES §20 shape: v/d/i log in DEBUG builds only (a clean
+        // release logcat — no INFO chatter), w/e ALWAYS (the crash/failure
+        // diagnostics the crash handler and every catch-site rely on).
+        Logger.setEnabled(BuildConfig.DEBUG)
 
         // ── Extension compat setup (BEFORE Koin, BEFORE any extension loads) ──
         // Extensions use Injekt (a service locator) to resolve NetworkHelper,
@@ -169,19 +152,9 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 playbackCacheModule,
                 appModule,
             )
-            // Debug-only Koin modules (debug-bubble, etc.). No-op in release
-            // builds — debugKoinModules() returns emptyList() there.
-            // (Phase DB-1 — D-163.)
-            modules(debugKoinModules())
-        }
-
-        // DB-4: wire debug-only integrations (Logger appender → DebugLogBuffer).
-        // No-op in release builds (initDebugIntegrations() is a no-op there).
-        // Must run AFTER Koin starts so DebugLogBuffer is resolvable.
-        try {
-            initDebugIntegrations()
-        } catch (e: Exception) {
-            Logger.e("AnikutaApp", e) { "Failed to init debug integrations" }
+            // Task 63 (round 23 — D): debugKoinModules() is removed with the
+            // debug-bubble module + core/debug-api (the Developer-tools
+            // removal) — no build-type source sets remain.
         }
 
         // Task 45: the CloudStream→aniyomi SOURCE BRIDGE — every trusted CloudStream
@@ -283,11 +256,9 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
         // App-level infrastructure DI
         private val appModule = module {
             // Network
-            // DB-5: wrapDebugOkHttp adds the DebugNetworkStats interceptor in
-            // debug builds; no-op (identity) in release builds.
-            single<OkHttpClient> { wrapDebugOkHttp(HttpClientFactory().create()) }
+            single<OkHttpClient> { HttpClientFactory().create() }
             // D.0.4: Download HTTP client — long timeouts, separate connection pool.
-            single<OkHttpClient>(HttpClientFactory.DOWNLOAD) { wrapDebugOkHttp(HttpClientFactory().createDownloadClient()) }
+            single<OkHttpClient>(HttpClientFactory.DOWNLOAD) { HttpClientFactory().createDownloadClient() }
 
             // D.4: Coil ImageLoader with 500MB disk cache (persistent)
             single { ImageLoaderFactory.create(get(), get()) }
@@ -296,10 +267,10 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             single { com.confused.anikuta.core.designsystem.color.CoverColorExtractor(get(), get()) }
 
             // Database
-            // DB-9: wrapDebugSqlDriver wraps the driver with DebugSqlDriverWrapper
-            // in debug builds (tracks DB writes for the DB Activity view); no-op
-            // (identity) in release builds.
-            single<SqlDriver> { wrapDebugSqlDriver(DatabaseDriverFactory(get()).create()) }
+            // Task 63 (round 23 — D): the DB-9 DebugSqlDriverWrapper wrap is
+            // removed with the debug bubble (plain driver — no per-op stats
+            // interception).
+            single<SqlDriver> { DatabaseDriverFactory(get()).create() }
             single<AnikutaDatabase> { AnikutaDatabase(get()) }
 
             // Phase SC-2: bind ScheduleStore as ActualReleaseUpdater (breaks the circular
@@ -325,6 +296,15 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 }
             }
 
+            // Task 63 (round 23 — C): the background-status notifier — the
+            // notification-bar progress while the update engine checks anime
+            // for new episodes (periodic worker + manual checks). Impl lives
+            // here in :app; the interface is in :core:updates (same seam
+            // pattern as NotificationSender above).
+            single<com.confused.anikuta.core.updates.UpdateProgressNotifier> {
+                com.confused.anikuta.notifications.UpdateProgressNotifierImpl(get())
+            }
+
             // Session ID (for activity tracking — new per process restart)
             single(named("sessionId")) { UUID.randomUUID().toString() }
 
@@ -341,8 +321,8 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             single { com.confused.anikuta.core.preferences.SettingsRepository(get()) }
             // D-193 Phase 3: UpdatePreferences for the updates settings
             single { com.confused.anikuta.core.preferences.UpdatePreferences(get()) }
-            // Task 57 (round 17): Debug page prefs (resolve-list source details + copy button).
-            single { com.confused.anikuta.core.preferences.DebugPreferences(get()) }
+            // Task 63 (round 23 — D): the Task-57 DebugPreferences Koin
+            // binding is removed with the Developer-tools toolkit.
 
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)

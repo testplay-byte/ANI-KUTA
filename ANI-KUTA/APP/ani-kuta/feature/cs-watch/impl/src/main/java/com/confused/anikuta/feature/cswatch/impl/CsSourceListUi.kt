@@ -1,6 +1,5 @@
 package com.confused.anikuta.feature.cswatch.impl
 
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -29,7 +28,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
@@ -47,16 +45,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,8 +59,6 @@ import com.confused.anikuta.core.csplayer.CsAudioTag
 import com.confused.anikuta.core.csplayer.CsLinkType
 import com.confused.anikuta.core.csplayer.CsVideoLink
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
-import com.confused.anikuta.core.preferences.DebugPreferences
-import org.koin.compose.koinInject
 
 /**
  * Task 55 (round 15) — the SHARED source-list UI for the CS module.
@@ -78,12 +70,13 @@ import org.koin.compose.koinInject
  *  - [CsLinksSheet] (the in-player "Qualities and Servers" — current-link
  *    highlight, failed strikes, long-press copy).
  *
- * Task 57 (round 17 — P4 + P5): [serverNameOf] also strips BRACKETED
- * audio/quality decorations glued to segments (P5), and both lists grow the
- * debug affordances — a per-row copy icon + raw url/type line, plus the
- * [buildResolveDebugReport] header copy (P4). All gated by DebugPreferences
- * flags (Settings → Debug options), default OFF: the default path renders
- * byte-identical to the pre-Task-57 lists.
+ * Task 57 (round 17 — P5): [serverNameOf] also strips BRACKETED
+ * audio/quality decorations glued to segments.
+ *
+ * Task 63 (round 23 — D): the Task-57 P4 debug affordances (per-row copy
+ * icon, raw url/type line, the resolve-report header copy) are REMOVED with
+ * the Developer-tools toolkit; the user-facing LONG-PRESS url copy and the
+ * formatting popup stay.
  *
  * Everything here is `internal` to :feature:cs-watch:impl — the aniyomi stack
  * keeps its own copies (the replication rule, doc 05 §1).
@@ -214,80 +207,6 @@ internal data class CsAudioGroup(
      *  carry the type badge (HLS/DASH) so rows stay distinguishable. */
     val disambiguateType: Boolean,
 )
-
-// ════════════════════════════════════════════════════════════════════════════
-//  Task 57 (P4) — the resolve debug report (pure — unit-tested)
-// ════════════════════════════════════════════════════════════════════════════
-
-/**
- * Task 57 (P4 — debug tooling): the plain-text resolve report a bug report
- * needs — provider/anime/episode header + one block per link (name, derived
- * server, audio label, quality + chip rank, type, referer, sorted header
- * KEYS, url). Deterministic by construction (numbered links, no timestamps)
- * so the same resolve copies byte-identically every time. Header KEYS only:
- * header VALUES never ride the clipboard (tokens stay on the device).
- *
- * Consumed by the resolve sheet's header copy action when Debug options'
- * "Copy button" flag is ON; [buildLinkDetail] is the one-link form for the
- * per-row copy actions.
- */
-internal fun buildResolveDebugReport(
-    provider: String,
-    animeTitle: String,
-    episodeNumber: Float,
-    links: List<CsVideoLink>,
-): String = buildString {
-    appendLine("ANI-KUTA resolve report (v2 debug)")
-    appendLine("provider: $provider")
-    appendLine("anime: $animeTitle")
-    appendLine("episode: $episodeNumber")
-    appendLine("links: ${links.size}")
-    if (links.isNotEmpty()) {
-        appendLine("---")
-        links.forEachIndexed { index, link ->
-            appendLinkDetail(this, index + 1, link)
-        }
-    }
-}
-
-/**
- * Task 57 (P4): the ONE-LINK form of [buildResolveDebugReport] — the payload
- * of the per-chip / per-row copy actions (same per-link block format).
- */
-internal fun buildLinkDetail(link: CsVideoLink): String = buildString {
-    appendLinkDetail(this, 1, link)
-}
-
-/** One link's numbered detail block (shared by the report + the one-link copy). */
-private fun appendLinkDetail(sb: StringBuilder, number: Int, link: CsVideoLink) {
-    sb.appendLine("$number. name: ${link.name}")
-    sb.appendLine("   server: ${serverNameOf(link.name)}")
-    sb.appendLine("   audio: ${link.audioLabel}")
-    sb.appendLine("   quality: ${link.qualityLabel} (${qualityRank(link.quality)})")
-    sb.appendLine("   type: ${link.type}")
-    sb.appendLine("   referer: ${link.referer}")
-    sb.appendLine("   headers: ${link.allHeaders.keys.sorted()}")
-    sb.appendLine("   url: ${link.url}")
-}
-
-/**
- * Task 57 (P4): the resolve lists' copy feedback — the repo precedent
- * (LibraryScreen / DetailsScreen / ErrorActivity) is LocalClipboardManager +
- * [AnnotatedString] with a short Toast confirmation (no silent taps). Returns
- * a `(text, toast)` invoker shared by the per-row and header-level actions.
- */
-@Composable
-internal fun rememberCopyFeedback(): (String, String) -> Unit {
-    val clipboardManager = LocalClipboardManager.current
-    val context = LocalContext.current
-    return remember(clipboardManager, context) {
-        val copy: (String, String) -> Unit = { text, toast ->
-            clipboardManager.setText(AnnotatedString(text))
-            Toast.makeText(context, toast, Toast.LENGTH_SHORT).show()
-        }
-        copy
-    }
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Task 60 (round 20): the formatting menu ON the sheet's heading
@@ -440,17 +359,11 @@ internal fun CsServerAccordion(
     /** URLs that errored in the engine (in-player sheet: strike-through). */
     failedLinkUrls: Set<String> = emptySet(),
     onCopyUrl: ((String) -> Unit)? = null,
-    /** Task 57 (P4): the debug affordances' gate (copy icon + raw source
-     *  lines). Default OFF — see [rememberCopyFeedback]. */
-    debugPreferences: DebugPreferences = koinInject(),
 ) {
-    // Task 57 (P4): LIVE-collected debug flags — toggling Settings → Debug
-    // options while a sheet is open applies immediately; both default false,
-    // so the default path renders byte-identical to the pre-Task-57 accordion.
-    val copyEnabled by debugPreferences.resolveCopyButtonFlow()
-        .collectAsState(initial = false)
-    val showSources by debugPreferences.showResolveSourcesFlow()
-        .collectAsState(initial = false)
+    // Task 63 (round 23 — D): the Task-57 P4 debug affordances (copy icon +
+    // raw source lines + their DebugPreferences gates) are removed with the
+    // Developer-tools toolkit; the USER-FACING long-press URL copy
+    // ([onCopyUrl]) stays.
 
     // Track which server is expanded (only one at a time). null = all collapsed.
     // The CURRENT link's server (in-player) or the remembered server (entry)
@@ -479,8 +392,6 @@ internal fun CsServerAccordion(
                 },
                 onPickVideo = onPickVideo,
                 onCopyUrl = onCopyUrl,
-                copyEnabled = copyEnabled,
-                showSources = showSources,
             )
         }
     }
@@ -496,12 +407,7 @@ private fun CsServerCard(
     onToggle: () -> Unit,
     onPickVideo: (CsVideoLink) -> Unit,
     onCopyUrl: ((String) -> Unit)?,
-    /** Task 57 (P4): per-chip copy icon + raw source line gates. */
-    copyEnabled: Boolean,
-    showSources: Boolean,
 ) {
-    // Task 57 (P4): the per-chip copy action's clipboard + toast feedback.
-    val copyFeedback = rememberCopyFeedback()
     Surface(
         color = if (isExpanded) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -599,11 +505,6 @@ private fun CsServerCard(
                                     isFailed = isFailed,
                                     onClick = { onPickVideo(link) },
                                     onLongClick = onCopyUrl?.let { cb -> { cb(link.url) } },
-                                    onCopyDetails = if (copyEnabled) {
-                                        // Task 57 (P4): copies THIS link's full details.
-                                        { copyFeedback(buildLinkDetail(link), "Copied 1 link details") }
-                                    } else null,
-                                    sourceDetail = if (showSources) "${link.type} · ${link.url}" else null,
                                 )
                             }
                         }
@@ -617,11 +518,9 @@ private fun CsServerCard(
 /**
  * The aniyomi ResolverSheet's chip: PlayArrow + quality, primaryContainer.
  *
- * Task 57 (P4 — debug affordances, both default-OFF):
- *  - [onCopyDetails]: a small copy icon on the chip's RIGHT that copies this
- *    link's full resolve details ([buildLinkDetail]);
- *  - [sourceDetail]: the raw url/type as a tiny secondary line (10sp,
- *    onSurfaceVariant, end-ellipsized — URLs are long).
+ * Task 63 (round 23 — D): the Task-57 P4 debug affordances (the trailing
+ * copy icon + the raw url/type line) are removed with the Developer-tools
+ * toolkit. The LONG-PRESS url copy stays (user-facing).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -631,8 +530,6 @@ private fun CsQualityChip(
     isSelected: Boolean = false,
     isFailed: Boolean = false,
     onLongClick: (() -> Unit)? = null,
-    onCopyDetails: (() -> Unit)? = null,
-    sourceDetail: String? = null,
 ) {
     Surface(
         color = when {
@@ -670,30 +567,6 @@ private fun CsQualityChip(
                     fontWeight = FontWeight.ExtraBold,
                     color = contentColor,
                 )
-                if (onCopyDetails != null) {
-                    // Task 57 (P4): the copy affordance on the chip's right.
-                    Spacer(Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Copy link details",
-                        tint = contentColor,
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clickable { onCopyDetails() },
-                    )
-                }
-            }
-            if (sourceDetail != null) {
-                // Task 57 (P4): the raw source debug line (type + url).
-                Text(
-                    text = sourceDetail,
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
     }
@@ -713,9 +586,8 @@ private fun CsQualityChip(
  * URL twice (multi-quality DASH manifests) must never crash the LazyColumn
  * with duplicate keys (the resolver dedups by URL; this is defense in depth).
  *
- * Task 57 (P4 — debug affordances, both default-OFF): a trailing copy icon
- * per row (copies the full link detail block, [buildLinkDetail]) and the raw
- * url/type line under the label — same gates as the accordion's chips.
+ * Task 63 (round 23 — D): the Task-57 P4 debug affordances (trailing copy
+ * icon + raw url/type line) are removed with the Developer-tools toolkit.
  */
 @Composable
 internal fun CsRawLinkList(
@@ -723,18 +595,7 @@ internal fun CsRawLinkList(
     onPickVideo: (CsVideoLink) -> Unit,
     currentLinkUrl: String? = null,
     failedLinkUrls: Set<String> = emptySet(),
-    /** Task 57 (P4): the debug affordances' gate (copy icon + raw source
-     *  lines). Default OFF. */
-    debugPreferences: DebugPreferences = koinInject(),
 ) {
-    // Task 57 (P4): LIVE-collected debug flags — default false, so the
-    // default path renders byte-identical to the pre-Task-57 rows.
-    val copyEnabled by debugPreferences.resolveCopyButtonFlow()
-        .collectAsState(initial = false)
-    val showSources by debugPreferences.showResolveSourcesFlow()
-        .collectAsState(initial = false)
-    val copyFeedback = rememberCopyFeedback()
-
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth(),
@@ -776,19 +637,6 @@ internal fun CsRawLinkList(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        if (copyEnabled) {
-                            // Task 57 (P4): trailing copy icon — full link details.
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copy link details",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .clickable {
-                                        copyFeedback(buildLinkDetail(link), "Copied 1 link details")
-                                    },
-                            )
-                        }
                         if (isCurrent) {
                             Icon(
                                 imageVector = Icons.Default.Check,
@@ -797,18 +645,6 @@ internal fun CsRawLinkList(
                                 modifier = Modifier.size(20.dp),
                             )
                         }
-                    }
-                    if (showSources) {
-                        // Task 57 (P4): the raw source debug line (type + url).
-                        Text(
-                            text = "${link.type} · ${link.url}",
-                            fontFamily = RobotoFamily,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
                     }
                 }
             }

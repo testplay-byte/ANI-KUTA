@@ -10,13 +10,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,8 +47,6 @@ fun SettingsScreen(
     onOpenNotifications: () -> Unit,
     onOpenPlayerSettings: () -> Unit,
     onOpenVideoCaching: () -> Unit,
-    onOpenConsoleLogs: () -> Unit,
-    onOpenDebug: () -> Unit,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -149,30 +145,13 @@ fun SettingsScreen(
                         )
                     }
 
-                    // ── Developer tools (Task 49 — console logging tool) ──
-                    // Release-available: the console + export are how device-round
-                    // bug reports get REAL data (ring buffer + own-process logcat).
-                    item {
-                        SettingsSectionLabel("Developer tools")
-                        MoreListRow(
-                            icon = Icons.Filled.Terminal,
-                            title = "Console logs",
-                            subtitle = "Live app log — filter, copy, export for bug reports",
-                            onClick = onOpenConsoleLogs,
-                        )
-                    }
-
-                    // ── Debug (Task 57 / round 17) — dedicated page: bubble (debug builds),
-                    // resolve-list source details + copy button (release too). ──
-                    item {
-                        SettingsSectionLabel("Debug")
-                        MoreListRow(
-                            icon = Icons.Filled.BugReport,
-                            title = "Debug options",
-                            subtitle = "Debug bubble, source details, resolve-list copy button",
-                            onClick = onOpenDebug,
-                        )
-                    }
+                    // Task 63 (round 23 — D): the Developer tools + Console
+                    // logs sections are REMOVED by the device spec ("remove the
+                    // developer tools and completely remove the console
+                    // logging … a proper clean experience") — along with every
+                    // line of code behind them (DebugSettingsScreen,
+                    // ConsoleLogsScreen, DebugPreferences, ResolverDebugReport,
+                    // the debug bubble module, EpisodeListDumper).
                 }
 
                 ScrollBlurOverlay(

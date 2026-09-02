@@ -551,36 +551,8 @@ fun DetailsScreen(
         )
     }
 
-    // DB-7: provide debug context for the Current Screen tab.
-    // Shows the anime's mainId, resolver state, + relevant DB rows.
-    val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
-    val mainId = viewModel.currentMainId
-    val debugCtx = remember(state, mainId, resolverState) {
-        val epCount = when (val es = episodeState) {
-            is EpisodeState.Loaded -> es.episodes.size
-            else -> 0
-        }
-        com.confused.anikuta.core.debugapi.DebugContext(
-            screenName = "Details",
-            screenData = buildMap {
-                mainId?.let { put("mainId", it) }
-                put("resolverState", resolverState::class.simpleName ?: "Unknown")
-                put("episodeCount", epCount.toString())
-                linkedSource?.let { put("sourceId", it.sourceId.toString()); put("sourceName", it.sourceName) }
-            },
-            relevantTables = mainId?.let {
-                listOf(
-                    com.confused.anikuta.core.debugapi.DbReference("main_entry", "main_id", it, "View main_entry row"),
-                    com.confused.anikuta.core.debugapi.DbReference("episode_metadata", "main_id", it, "View episode metadata"),
-                    com.confused.anikuta.core.debugapi.DbReference("watch_progress", "main_id", it, "View watch progress"),
-                )
-            } ?: emptyList(),
-        )
-    }
-    androidx.compose.runtime.LaunchedEffect(debugCtx) { updateDebugContext(debugCtx) }
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { updateDebugContext(null) }
-    }
+    // Task 63 (round 23 — D): the DB-7 debug-context block is removed with the
+    // debug-bubble module + core/debug-api (the Developer-tools removal).
 
     // D-223: When a cover accent is available, compute a derived ColorScheme
     // with the primary family overridden for this anime.
@@ -1352,10 +1324,8 @@ fun DetailsScreen(
             resolverState = resolverState,
             episodeNumber = currentEpisode?.episode_number ?: 0f,
             downloadMode = resolverDownloadMode,
-            // Task 58 (round 18): the debug report's context (Settings → Debug
-            // options → Copy button ON → the sheet header's report action).
-            sourceName = effectiveLinkedSource?.sourceName ?: "",
-            animeTitle = (state as? DetailsState.Success)?.anime?.displayName ?: "",
+            // Task 63 (round 23 — D): the Task-58 debug-report context params
+            // (sourceName/animeTitle) are removed with the debug toolkit.
             // D-210: "Open in WebView" on the resolver Error state — opens the
             // source's episode page in a WebView so the user can solve Cloudflare
             // or browse the source manually. Null if no source is linked.

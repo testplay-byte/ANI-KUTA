@@ -7,98 +7,65 @@ import android.util.Log
  *
  * CORE_RULES.md §20:
  * - Filtered: log levels (VERBOSE/DEBUG/INFO/WARN/ERROR), per-module tags.
- * - Toggleable: release builds off, debug on. Runtime toggle in Settings.
- * - Lambda-based: the message lambda is only invoked if enabled + level matches.
+ * - Toggleable: release builds off, debug on.
+ * - Lambda-based: the message lambda is only invoked if the level logs.
  * - Never call `Log.d()` directly — always go through Logger.
  *
  * Tag convention: "Anikuta:<Layer>:<Module>"
  * e.g. Logger.d("Anikuta:Core:Database") { "query executed" }
+ *
+ * Task 63 (round 23 — D): the console-logging toolkit (ring buffer + console
+ * screen + in-app export) is REMOVED by the device spec, and with it the
+ * appender/level plumbing that served it. The surviving shape is the
+ * ORIGINAL CORE_RULES §20 one plus one deliberate deviation:
+ * - [v]/[d]/[i] are gated by [enabled] (set from `:app`'s BuildConfig.DEBUG)
+ *   — a clean release logcat: no INFO chatter from the ~200 Logger.i sites.
+ * - [w]/[e] ALWAYS log (enabled or not) — they are the crash/failure
+ *   diagnostics; losing them in release would blind the crash handler and
+ *   every catch-site that reports why something failed (decision D-362's
+ *   device-diagnosability concern, kept for the SEVERITY that matters).
+ * - Lambda-based: the message lambda is only invoked if the level logs.
  */
 object Logger {
 
     @Volatile
     private var enabled: Boolean = false
 
-    @Volatile
-    private var minLevel: LogLevel = LogLevel.VERBOSE
-
-    /**
-     * In-memory log appender (Phase DB). Null by default — zero overhead when
-     * not set. Set by `:app/src/debug/DebugInit.kt` to a `DebugLogBuffer`
-     * (10,000-entry ring buffer) in debug builds. Release builds never set it.
-     */
-    @Volatile
-    private var appender: LogAppender? = null
-
-    /** Set the in-memory appender (debug builds only). Null = no buffering. */
-    fun setAppender(appender: LogAppender?) {
-        this.appender = appender
-    }
-
     /** Called from :app Application.onCreate() with :app's BuildConfig.DEBUG. */
     fun setEnabled(enabled: Boolean) {
         this.enabled = enabled
     }
 
-    /**
-     * D-313: read accessor for callers that mirror a message into BOTH logcat
-     * (always) and the Logger pipeline (when enabled) — e.g. the episode-list
-     * dumper, which must reach logcat in release builds but should also appear
-     * in the debug console when one is attached.
-     */
-    val isEnabled: Boolean
-        get() = enabled
-
-    fun setMinLevel(level: LogLevel) {
-        minLevel = level
-    }
-
     fun v(tag: String, throwable: Throwable? = null, message: () -> String) {
-        if (enabled && minLevel <= LogLevel.VERBOSE) {
+        if (enabled) {
             val msg = message()
             Log.v(tag, msg, throwable)
-            appender?.append(LogLevel.VERBOSE, tag, msg, throwable)
         }
     }
 
     fun d(tag: String, throwable: Throwable? = null, message: () -> String) {
-        if (enabled && minLevel <= LogLevel.DEBUG) {
+        if (enabled) {
             val msg = message()
             Log.d(tag, msg, throwable)
-            appender?.append(LogLevel.DEBUG, tag, msg, throwable)
         }
     }
 
     fun i(tag: String, throwable: Throwable? = null, message: () -> String) {
-        if (enabled && minLevel <= LogLevel.INFO) {
+        if (enabled) {
             val msg = message()
             Log.i(tag, msg, throwable)
-            appender?.append(LogLevel.INFO, tag, msg, throwable)
         }
     }
 
     fun w(tag: String, throwable: Throwable? = null, message: () -> String) {
-        if (enabled && minLevel <= LogLevel.WARN) {
-            val msg = message()
-            Log.w(tag, msg, throwable)
-            appender?.append(LogLevel.WARN, tag, msg, throwable)
-        }
+        // Task 63 (D): warnings ALWAYS reach logcat — failure diagnostics.
+        val msg = message()
+        Log.w(tag, msg, throwable)
     }
 
     fun e(tag: String, throwable: Throwable? = null, message: () -> String) {
-        if (enabled && minLevel <= LogLevel.ERROR) {
-            val msg = message()
-            Log.e(tag, msg, throwable)
-            appender?.append(LogLevel.ERROR, tag, msg, throwable)
-        }
+        // Task 63 (D): errors ALWAYS reach logcat — crash diagnostics.
+        val msg = message()
+        Log.e(tag, msg, throwable)
     }
-}
-
-enum class LogLevel(val severity: Int) {
-    VERBOSE(0),
-    DEBUG(1),
-    INFO(2),
-    WARN(3),
-    ERROR(4),
-    NONE(5);
 }

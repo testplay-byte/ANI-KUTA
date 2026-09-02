@@ -8,7 +8,6 @@ android {
 
 dependencies {
     implementation(project(":feature:watch:api"))
-    implementation(project(":core:debug-api"))  // DB-7: LocalDebugContext
     implementation(project(":core:designsystem"))
     implementation(project(":core:common"))
     implementation(project(":core:navigation-api"))

@@ -92,24 +92,8 @@ fun DownloadsScreen(
     val collapsed = lazyListState.firstVisibleItemIndex > 0 ||
         lazyListState.firstVisibleItemScrollOffset > 20
 
-    // DB-7: provide debug context for the Current Screen tab.
-    val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
-    val dlCtx = remember(state) {
-        com.confused.anikuta.core.debugapi.DebugContext(
-            screenName = "Downloads",
-            screenData = mapOf(
-                "state" to (state::class.simpleName ?: "Unknown"),
-            ),
-            relevantTables = listOf(
-                com.confused.anikuta.core.debugapi.DbReference("download_queue", "1", "1", "View download queue"),
-                com.confused.anikuta.core.debugapi.DbReference("downloaded_episode", "1", "1", "View downloaded episodes"),
-            ),
-        )
-    }
-    androidx.compose.runtime.LaunchedEffect(dlCtx) { updateDebugContext(dlCtx) }
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { updateDebugContext(null) }
-    }
+    // Task 63 (round 23 — D): the DB-7 debug-context block is removed with the
+    // debug-bubble module + core/debug-api (the Developer-tools removal).
 
     val context = LocalContext.current
 

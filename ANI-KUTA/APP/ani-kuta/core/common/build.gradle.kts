@@ -12,6 +12,8 @@ dependencies {
     // D-312: SeasonDetector promoted to its own module — core/common keeps
     // consuming it via EpisodeTitleParser.
     implementation(project(":core:seasons"))
-    // Task 49 (console logging tool): RingLogBufferTest runs on the JVM.
+    // Task 63 (round 23 — D): RingLogBuffer + its JVM test removed with the
+    // console-logging toolkit (the source set is now empty — the dep stays
+    // for any future JVM test in this module).
     testImplementation(libs.junit)
 }

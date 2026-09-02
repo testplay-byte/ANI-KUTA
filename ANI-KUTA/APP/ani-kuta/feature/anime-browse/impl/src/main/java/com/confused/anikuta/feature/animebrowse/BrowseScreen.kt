@@ -27,7 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -100,28 +99,8 @@ fun BrowseScreen(
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
 
-    // DB-7: provide debug context for the Current Screen tab.
-    val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
-    val browseCtx = remember(state, popular.size, topRated.size) {
-        val animeCount = when (state) {
-            is BrowseState.Success -> (state as BrowseState.Success).anime.size
-            else -> 0
-        }
-        com.confused.anikuta.core.debugapi.DebugContext(
-            screenName = "Browse",
-            screenData = mapOf(
-                "state" to (state::class.simpleName ?: "Unknown"),
-                "animeCount" to animeCount.toString(),
-                "popularCount" to popular.size.toString(),
-                "topRatedCount" to topRated.size.toString(),
-                "isRefreshing" to isRefreshing.toString(),
-            ),
-        )
-    }
-    LaunchedEffect(browseCtx) { updateDebugContext(browseCtx) }
-    DisposableEffect(Unit) {
-        onDispose { updateDebugContext(null) }
-    }
+    // Task 63 (round 23 — D): the DB-7 debug-context block is removed with the
+    // debug-bubble module + core/debug-api (the Developer-tools removal).
     val ptrState = rememberPullToRefreshState()
     val context = LocalContext.current
 

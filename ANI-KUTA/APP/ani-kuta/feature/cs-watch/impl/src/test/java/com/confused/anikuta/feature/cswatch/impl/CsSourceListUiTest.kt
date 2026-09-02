@@ -3,7 +3,6 @@ package com.confused.anikuta.feature.cswatch.impl
 import com.confused.anikuta.core.csplayer.CsLinkType
 import com.confused.anikuta.core.csplayer.CsVideoLink
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -11,8 +10,8 @@ import org.junit.Test
  * Task 55 (round 15) — pure-JVM locks for the source-list grouping (the
  * aniyomi 3-tier Server → AudioVersion → Quality replicated for CS links).
  *
- * Task 57 (round 17 — P5/P4): the serverNameOf bracket vocabulary + the
- * resolve debug report builder's format.
+ * Task 57 (round 17 — P5): the serverNameOf bracket vocabulary. (The P4
+ * resolve-report locks are REMOVED — Task 63/round-23 D.)
  */
 class CsSourceListUiTest {
 
@@ -177,72 +176,6 @@ class CsSourceListUiTest {
         assertEquals("Vidstream-2", serverNameOf("Vidstream-2"))
     }
 
-    // ── Task 57 (round 17 — P4): the resolve debug report. ──────────────────
-
-    @Test
-    fun `resolve debug report formats every link deterministically`() {
-        val links = listOf(
-            link("Mirror [SUB] 1080p", 1080, "https://a.example/master.m3u8", audioTag = "SUB"),
-            link("Streamtape (Dub) 720p", 720, "https://b.example/video", type = CsLinkType.VIDEO, audioTag = "DUB"),
-            link("Gogo", 400, "https://c.example/unknown"),
-        )
-        val report = buildResolveDebugReport("ProviderX", "Solo Leveling", 5f, links)
-        val lines = report.split('\n')
-        // Header block.
-        assertEquals("ANI-KUTA resolve report (v2 debug)", lines.first())
-        assertTrue(lines.contains("provider: ProviderX"))
-        assertTrue(lines.contains("anime: Solo Leveling"))
-        assertTrue(lines.contains("episode: 5.0"))
-        assertTrue(lines.contains("links: 3"))
-        assertTrue(lines.contains("---"))
-        // Per-link blocks: numbering + every field line.
-        assertTrue(lines.contains("1. name: Mirror [SUB] 1080p"))
-        assertTrue(lines.contains("2. name: Streamtape (Dub) 720p"))
-        assertTrue(lines.contains("3. name: Gogo"))
-        assertTrue(lines.contains("   server: Mirror"))
-        assertTrue(lines.contains("   server: Streamtape"))
-        assertTrue(lines.contains("   server: Gogo"))
-        assertTrue(lines.contains("   audio: SUB"))
-        assertTrue(lines.contains("   audio: DUB"))
-        assertTrue(lines.contains("   audio: Default"))
-        assertTrue(lines.contains("   quality: 1080p (1080)"))
-        assertTrue(lines.contains("   quality: 720p (720)"))
-        assertTrue(lines.contains("   quality: Unknown (-1)"))
-        assertTrue(lines.contains("   type: M3U8"))
-        assertTrue(lines.contains("   type: VIDEO"))
-        assertTrue(lines.contains("   referer: "))
-        assertTrue(lines.contains("   headers: []"))
-        assertTrue(lines.contains("   url: https://a.example/master.m3u8"))
-        assertTrue(lines.contains("   url: https://b.example/video"))
-        // Deterministic: same input → byte-identical report (no timestamps).
-        assertEquals(report, buildResolveDebugReport("ProviderX", "Solo Leveling", 5f, links))
-    }
-
-    @Test
-    fun `resolve debug report sorts header keys and keeps values out`() {
-        val link = CsVideoLink(
-            name = "Mirror",
-            url = "https://a.example/m.m3u8",
-            quality = 1080,
-            type = CsLinkType.M3U8,
-            referer = "https://ref.example/",
-            headers = mapOf("User-Agent" to "secretUA", "Accept" to "*/*"),
-            source = "ProviderX",
-        )
-        val report = buildResolveDebugReport("ProviderX", "Anime", 1f, listOf(link))
-        // Keys only (values never leave the device), sorted, referer merged in.
-        assertTrue(report.contains("   headers: [Accept, User-Agent, referer]"))
-        assertFalse(report.contains("secretUA"))
-        assertFalse(report.contains("*/*"))
-    }
-
-    @Test
-    fun `resolve debug report with zero links has header only`() {
-        val report = buildResolveDebugReport("ProviderX", "Solo Leveling", 1f, emptyList())
-        val lines = report.split('\n')
-        assertTrue(lines.contains("links: 0"))
-        assertFalse(lines.contains("---"))
-        assertFalse(report.contains("1. name:"))
-        assertEquals(5, lines.filter { it.isNotBlank() }.size)
-    }
+    // Task 63 (round 23 — D): the Task-57 P4 resolve-report tests are
+    // REMOVED with the debug-report builders (the Developer-tools removal).
 }

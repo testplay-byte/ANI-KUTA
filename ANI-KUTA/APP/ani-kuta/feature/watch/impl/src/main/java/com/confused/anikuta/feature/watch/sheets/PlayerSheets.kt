@@ -33,7 +33,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
@@ -52,18 +51,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,14 +69,11 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.player.VideoTrack
-import com.confused.anikuta.core.preferences.DebugPreferences
 import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.core.videoresolver.ResolverAudioVersion
-import com.confused.anikuta.core.videoresolver.ResolverDebugReport
 import com.confused.anikuta.core.videoresolver.ResolverServer
 import com.confused.anikuta.core.videoresolver.ResolverVideo
 import org.koin.compose.koinInject
-import android.widget.Toast
 
 /**
  * Subtitle tracks bottom sheet — shows available subtitle tracks + "Off" option
@@ -343,12 +335,6 @@ fun QualitySheet(
     currentServerName: String = "",
     currentAudioVersion: String = "",
     playerPreferences: PlayerPreferences = koinInject(),
-    // Task 58 (round 18 — the BOTH-STACKS debug toolkit): report context +
-    // the shared DebugPreferences gates (the mirror of the entry sheets).
-    // Defaults keep every existing call site compiling.
-    animeTitle: String = "",
-    episodeNumber: Float = 0f,
-    debugPreferences: DebugPreferences = koinInject(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -356,14 +342,6 @@ fun QualitySheet(
     // Task 55 (round 15 — ADDITIVE): the formatting toggle (shared pref with
     // the CS sheets + the ResolverSheet; read at open).
     var formatted by remember { mutableStateOf(playerPreferences.resolveSheetFormatted) }
-
-    // Task 58: the debug gates — LIVE-collected so toggling Settings → Debug
-    // options while this sheet is open applies without reopening. Default OFF.
-    val debugCopyEnabled by debugPreferences.resolveCopyButtonFlow()
-        .collectAsState(initial = false)
-    val debugShowSources by debugPreferences.showResolveSourcesFlow()
-        .collectAsState(initial = false)
-    val copyFeedback = rememberQualityCopyFeedback()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -399,38 +377,6 @@ fun QualitySheet(
                     },
                     modifier = Modifier.weight(1f),
                 )
-                // Task 58: the header-level "copy the whole report" action —
-                // OFF unless enabled in Settings → Debug options (the mirror
-                // of the entry sheets' header action, same 32dp circle slot).
-                if (debugCopyEnabled) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = CircleShape,
-                        modifier = Modifier
-                            .padding(start = 8.dp)
-                            .size(32.dp)
-                            .clickable {
-                                copyFeedback(
-                                    ResolverDebugReport.buildReport(
-                                        sourceName = currentServerName,
-                                        animeTitle = animeTitle,
-                                        episodeNumber = episodeNumber,
-                                        servers = servers,
-                                    ),
-                                    "Report copied",
-                                )
-                            },
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copy resolve report",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    }
-                }
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = CircleShape,
@@ -480,15 +426,6 @@ fun QualitySheet(
                     currentVideoTitle = currentVideoTitle,
                     onQualitySelected = onQualitySelected,
                     onDismiss = onDismiss,
-                    onCopyDetails = if (debugCopyEnabled) {
-                        { server, audio, video ->
-                            copyFeedback(
-                                ResolverDebugReport.buildVideoDetail(server, audio, video),
-                                "Copied 1 video details",
-                            )
-                        }
-                    } else null,
-                    showSources = debugShowSources,
                 )
             } else {
                 QualityServerAccordion(
@@ -498,15 +435,6 @@ fun QualitySheet(
                         onQualitySelected(video)
                         onDismiss()
                     },
-                    onCopyDetails = if (debugCopyEnabled) {
-                        { server, audio, video ->
-                            copyFeedback(
-                                ResolverDebugReport.buildVideoDetail(server, audio, video),
-                                "Copied 1 video details",
-                            )
-                        }
-                    } else null,
-                    showSources = debugShowSources,
                 )
             }
             Spacer(Modifier.height(16.dp))
@@ -522,9 +450,6 @@ fun QualitySheet(
  * The unformatted view: one row per resolved video — the raw resolver label
  * (server · audio · quality) with the current-video highlight. Tap = pick.
  *
- * Task 58 (round 18): the gated debug affordances — a trailing copy icon +
- * the raw URL line per row (both OFF unless enabled in Settings → Debug
- * options; default rows stay byte-identical to round 16).
  */
 @Composable
 private fun RawVideoRows(
@@ -532,8 +457,6 @@ private fun RawVideoRows(
     currentVideoTitle: String,
     onQualitySelected: (ResolverVideo) -> Unit,
     onDismiss: () -> Unit,
-    onCopyDetails: ((ResolverServer, ResolverAudioVersion, ResolverVideo) -> Unit)? = null,
-    showSources: Boolean = false,
 ) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -593,18 +516,6 @@ private fun RawVideoRows(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                // Task 58: the raw URL line under the label when
-                                // "Show sources" is ON (10sp, muted, ellipsized).
-                                if (showSources) {
-                                    Text(
-                                        text = video.url,
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
                             }
                             if (isCurrent) {
                                 Icon(
@@ -612,19 +523,6 @@ private fun RawVideoRows(
                                     contentDescription = "Selected",
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp),
-                                )
-                            }
-                            // Task 58: the per-row copy icon (trailing, 18dp) when
-                            // "Copy button" is ON — copies that one video's block.
-                            if (onCopyDetails != null) {
-                                Spacer(Modifier.width(8.dp))
-                                Icon(
-                                    imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "Copy video details",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier
-                                        .size(18.dp)
-                                        .clickable { onCopyDetails(server, av, video) },
                                 )
                             }
                         }
@@ -641,9 +539,6 @@ private fun QualityServerAccordion(
     servers: List<ResolverServer>,
     currentVideoTitle: String,
     onPickVideo: (ResolverVideo) -> Unit,
-    // Task 58: the gated debug affordances passed through to the chips.
-    onCopyDetails: ((ResolverServer, ResolverAudioVersion, ResolverVideo) -> Unit)? = null,
-    showSources: Boolean = false,
 ) {
     var expandedServer by remember {
         mutableStateOf<String?>(
@@ -669,8 +564,6 @@ private fun QualityServerAccordion(
                     expandedServer = if (isExpanded) null else server.name
                 },
                 onPickVideo = onPickVideo,
-                onCopyDetails = onCopyDetails,
-                showSources = showSources,
             )
         }
     }
@@ -684,9 +577,6 @@ private fun QualityServerCard(
     currentVideoTitle: String,
     onToggle: () -> Unit,
     onPickVideo: (ResolverVideo) -> Unit,
-    // Task 58: the gated debug affordances passed through to the chips.
-    onCopyDetails: ((ResolverServer, ResolverAudioVersion, ResolverVideo) -> Unit)? = null,
-    showSources: Boolean = false,
 ) {
     val hasCurrentVideo = server.audioVersions.any { av ->
         av.videos.any { it.videoTitle == currentVideoTitle }
@@ -782,14 +672,6 @@ private fun QualityServerCard(
                                         quality = video.quality,
                                         isSelected = isCurrent,
                                         onClick = { onPickVideo(video) },
-                                        // Task 58: per-chip debug copy + the raw
-                                        // source line (both gated, default OFF).
-                                        onCopyDetails = onCopyDetails?.let { callback ->
-                                            { callback(server, av, video) }
-                                        },
-                                        sourceDetail = if (showSources) {
-                                            video.url
-                                        } else null,
                                     )
                                 }
                         }
@@ -805,10 +687,6 @@ private fun QualityChip(
     quality: String,
     isSelected: Boolean,
     onClick: () -> Unit,
-    // Task 58 (round 18): the debug-toolkit params — BOTH null/absent in
-    // normal use (Settings → Debug options flags OFF).
-    onCopyDetails: (() -> Unit)? = null,
-    sourceDetail: String? = null,
 ) {
     Surface(
         color = if (isSelected) MaterialTheme.colorScheme.primary
@@ -838,34 +716,6 @@ private fun QualityChip(
                     color = if (isSelected) MaterialTheme.colorScheme.onPrimary
                            else MaterialTheme.colorScheme.onPrimaryContainer,
                 )
-                // Task 58: the per-chip copy icon — RIGHT of the label (the CS
-                // chip's placement), 16dp, muted.
-                if (onCopyDetails != null) {
-                    Spacer(Modifier.width(6.dp))
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Copy video details",
-                        tint = (if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onPrimaryContainer).copy(alpha = 0.7f),
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clickable(onClick = onCopyDetails),
-                    )
-                }
-            }
-            // Task 58: the raw source line under the label (10sp, muted,
-            // end-ellipsized — the CS chip's exact presentation).
-            if (sourceDetail != null) {
-                Text(
-                    text = sourceDetail,
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    color = (if (isSelected) MaterialTheme.colorScheme.onPrimary
-                            else MaterialTheme.colorScheme.onPrimaryContainer).copy(alpha = 0.7f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 6.dp),
-                )
             }
         }
     }
@@ -887,25 +737,6 @@ private fun qualitySortKey(label: String): Int {
     if (label.contains("8K", ignoreCase = true)) return 4320
     val digits = Regex("\\d+").find(label)?.value?.toIntOrNull() ?: return -1
     return if (digits in 100..4320) digits else -1
-}
-
-/**
- * Task 58 (round 18): the watch-side sheets' copy feedback — the repo
- * precedent (LocalClipboardManager + AnnotatedString + a short Toast). A
- * file-local twin of ResolverSheet's helper (the replication rule: each
- * aniyomi sheet file keeps its own copy; no cross-stack imports).
- */
-@Composable
-private fun rememberQualityCopyFeedback(): (String, String) -> Unit {
-    val clipboardManager = LocalClipboardManager.current
-    val context = LocalContext.current
-    return remember(clipboardManager, context) {
-        val copy: (String, String) -> Unit = { text, toast ->
-            clipboardManager.setText(AnnotatedString(text))
-            Toast.makeText(context, toast, Toast.LENGTH_SHORT).show()
-        }
-        copy
-    }
 }
 
 

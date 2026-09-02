@@ -1399,14 +1399,8 @@ class DetailsViewModel(
                     initialized = false
                 }
                 val rawEpisodes = withContext(Dispatchers.IO) { source.getEpisodeList(sAnime) }
-                // D-313: raw dump (pre-normalization) + normalization — the SAME
-                // treatment the other two fetch sites get.
-                EpisodeListDumper.dump(
-                    sourceName = source.name,
-                    animeTitle = animeTitle,
-                    episodes = rawEpisodes,
-                    site = "manual-refresh",
-                )
+                // Task 63 (round 23 — D): EpisodeListDumper removed with the
+                // console-logging toolkit; normalization stays (D-313).
                 val normalization = EpisodeListNormalizer.normalize(rawEpisodes)
                 val episodes = normalization.episodes
                 if (normalization.renumbered || normalization.duplicateUrlsDropped > 0) {
@@ -3196,15 +3190,8 @@ class DetailsViewModel(
                         val rawFreshEpisodes = withContext(Dispatchers.IO) {
                             source.getEpisodeList(sAnime)
                         }
-                        // D-313: dump the RAW list (pre-normalization) + normalize it
-                        // (URL dedupe + unique general numbering). The dump is the
-                        // user-facing diagnostic channel — see EpisodeListDumper.
-                        EpisodeListDumper.dump(
-                            sourceName = source.name,
-                            animeTitle = animeTitle,
-                            episodes = rawFreshEpisodes,
-                            site = "background-refresh",
-                        )
+                        // Task 63 (round 23 — D): EpisodeListDumper removed with
+                        // the console-logging toolkit; normalization stays (D-313).
                         val normalization = EpisodeListNormalizer.normalize(rawFreshEpisodes)
                         val freshEpisodes = normalization.episodes
                         if (normalization.renumbered || normalization.duplicateUrlsDropped > 0) {
@@ -3357,15 +3344,9 @@ class DetailsViewModel(
                 val rawEpisodes = withContext(Dispatchers.IO) {
                     source.getEpisodeList(sAnime)
                 }
-                // D-313: dump the RAW list (pre-normalization) + normalize it
-                // (URL dedupe + unique general numbering). See EpisodeListDumper
-                // + EpisodeListNormalizer for the rationale.
-                EpisodeListDumper.dump(
-                    sourceName = source.name,
-                    animeTitle = animeTitle,
-                    episodes = rawEpisodes,
-                    site = "network-first",
-                )
+                // Task 63 (round 23 — D): EpisodeListDumper removed with the
+                // console-logging toolkit; normalization stays (D-313 +
+                // EpisodeListNormalizer for the rationale).
                 val normalization = EpisodeListNormalizer.normalize(rawEpisodes)
                 val episodes = normalization.episodes
                 if (normalization.renumbered || normalization.duplicateUrlsDropped > 0) {

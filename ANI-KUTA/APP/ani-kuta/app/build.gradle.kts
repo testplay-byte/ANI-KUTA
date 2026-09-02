@@ -93,11 +93,6 @@ dependencies {
     implementation(project(":core:notifications"))
     implementation(project(":core:app-update"))
     implementation(project(":core:ads"))  // Ad system — smart-link interstitial (D-272)
-    implementation(project(":core:debug-api"))  // always on classpath (types only)
-
-    // Debug bubble — debug builds only (D-163). Release builds contain zero
-    // debug-bubble code. Wiring in :app/src/debug/DebugInit.kt.
-    debugImplementation(project(":feature:debug-bubble"))
 
     // AndroidX
     implementation(libs.androidx.core.ktx)
