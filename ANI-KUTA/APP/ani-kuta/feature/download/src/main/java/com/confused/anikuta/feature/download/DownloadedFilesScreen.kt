@@ -6,6 +6,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -44,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,7 +54,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -372,6 +373,15 @@ private fun DownloadedAnimeCard(
                 // D-384 (round 25): the icon swap is an animated morph with a
                 // STABLE frame (see TwoStepDeleteIcon) and the confirm tap now
                 // starts the slide-out choreography instead of an instant delete.
+                // D-397 (round 27): the frame now GROWS with the armed glyph
+                // (36dp → 56dp, layout-phase) — same clip/resolution fix as the
+                // per-episode button; the header is tall (the 62dp cover row),
+                // so the bigger frame fits without shifting the header height.
+                val deleteAllFrameSize by animateDpAsState(
+                    targetValue = if (confirmDeleteKey == CONFIRM_DELETE_ALL) 56.dp else 36.dp,
+                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                    label = "deleteAllFrameSize",
+                )
                 IconButton(
                     onClick = {
                         if (!cardRemoving) {
@@ -383,7 +393,7 @@ private fun DownloadedAnimeCard(
                             }
                         }
                     },
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(deleteAllFrameSize),
                 ) {
                     TwoStepDeleteIcon(
                         armed = confirmDeleteKey == CONFIRM_DELETE_ALL,
@@ -406,25 +416,38 @@ private fun DownloadedAnimeCard(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                         )
                     }
-                    DownloadedEpisodeRow(
-                        task = task,
-                        armed = confirmDeleteKey == task.episode.episodeKey,
-                        onArmDelete = {
-                            // Arming another episode's button disarms any other.
-                            confirmDeleteKey =
-                                if (confirmDeleteKey == task.episode.episodeKey) null
-                                else task.episode.episodeKey
-                        },
-                        onPlayRow = {
-                            // Task 61: tapping the row plays AND disarms.
-                            confirmDeleteKey = null
-                            onPlay(task.episode.episodeKey)
-                        },
-                        onDeleteConfirmed = {
-                            confirmDeleteKey = null
-                            onDelete(task.episode.episodeKey)
-                        },
-                    )
+                    // D-397 (round 27): slot identity — WITHOUT this key(), the
+                    // rows' `remember` slots are POSITIONAL (forEachIndexed in a
+                    // plain Column). When an episode is deleted, the row that
+                    // MOVES UP inherits the deleted row's slot state — including
+                    // its exit-choreography Animatables (alpha already animated
+                    // to 0 + translationX ~1200px) — so the moved row rendered
+                    // EMPTY/off-screen until the card was collapsed + re-expanded
+                    // (the round-27 device report: "the other episode moves up but
+                    // its content disappears"). `key()` binds each row's state to
+                    // its EPISODE, so the deleted key's slots are discarded and
+                    // every surviving row keeps its own (alpha=1) state.
+                    key(task.episode.episodeKey) {
+                        DownloadedEpisodeRow(
+                            task = task,
+                            armed = confirmDeleteKey == task.episode.episodeKey,
+                            onArmDelete = {
+                                // Arming another episode's button disarms any other.
+                                confirmDeleteKey =
+                                    if (confirmDeleteKey == task.episode.episodeKey) null
+                                    else task.episode.episodeKey
+                            },
+                            onPlayRow = {
+                                // Task 61: tapping the row plays AND disarms.
+                                confirmDeleteKey = null
+                                onPlay(task.episode.episodeKey)
+                            },
+                            onDeleteConfirmed = {
+                                confirmDeleteKey = null
+                                onDelete(task.episode.episodeKey)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -613,9 +636,19 @@ private fun DownloadedEpisodeRow(
             }
         }
         // Task 61: the per-episode two-step delete — the FIRST tap arms (the
-        // icon morphs to DeleteForever + error tint), the SECOND tap on the
-        // SAME button starts the slide-out exit (D-384); any other tap on the
-        // card disarms (handled by the card's confirmDeleteKey resets).
+        // icon morphs to DeleteForever + error tint + GROWS 2.5x, D-397), the
+        // SECOND tap on the SAME button starts the slide-out exit (D-384); any
+        // other tap on the card disarms (handled by the card's confirmDeleteKey
+        // resets).
+        // D-397: the button FRAME animates with the glyph (32dp → 48dp) — the
+        // growth is a real LAYOUT change, so the glyph never clips against the
+        // card bounds + re-rasters crisply (the draw-phase 3x scale of round 26
+        // cut the glyph's top/left/right off and blurred it).
+        val deleteFrameSize by animateDpAsState(
+            targetValue = if (armed) 48.dp else 32.dp,
+            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+            label = "episodeDeleteFrameSize",
+        )
         IconButton(
             onClick = {
                 if (!removing) {
@@ -626,7 +659,7 @@ private fun DownloadedEpisodeRow(
                     }
                 }
             },
-            modifier = Modifier.size(32.dp),
+            modifier = Modifier.size(deleteFrameSize),
         ) {
             TwoStepDeleteIcon(
                 armed = armed,
@@ -639,31 +672,34 @@ private fun DownloadedEpisodeRow(
 }
 
 /**
- * D-389 (round 26): the two-step delete icon — the armed state GROWS the glyph
- * to ~3x its idle size.
+ * D-389 → D-397 (round 27): the two-step delete icon — the armed (confirm)
+ * state GROWS the glyph to ~2.5x its idle size, IN THE LAYOUT PHASE.
  *
  * Round-25 history (D-384): the plain [Icons.Filled.Delete] →
- * [Icons.Filled.DeleteForever] swap was normalized with a 0.65x armed scale so
- * both glyphs occupied the same footprint. The round-26 device report flagged
- * that as WRONG: the user expects the armed (confirm) state to be a BIG,
- * unmissable danger glyph — roughly three times the idle size — not a subtle
- * same-size morph.
+ * [Icons.Filled.DeleteForever] swap was normalized with a 0.65x armed scale
+ * so both glyphs occupied the same footprint. The round-26 device report
+ * flagged that as WRONG ("the user expects the armed state to be BIG") —
+ * D-389 grew it 3x. The round-27 device report then caught THREE problems
+ * with that 3x implementation:
+ *  1. the top/left/right of the grown glyph were CUT OFF — the 3x
+ *     draw-phase `Modifier.scale` painted a 48dp glyph out of a 16dp layout
+ *     box, and the card's rounded [Surface] CLIPS to its own bounds;
+ *  2. the glyph's RESOLUTION degraded — the scaled layer rasterizes at the
+ *     small size and gets stretched at draw time;
+ *  3. 3x was simply TOO BIG — the user re-specced it to 2.5x.
  *
- * How it works now:
- *  1. [animateFloatAsState] drives the glyph scale 1f → 3f over ~220ms with a
- *     [FastOutSlowInEasing] curve — a deliberate, springy GROW on arm and a
- *     shrink back on disarm.
- *  2. The [AnimatedContent] fade+scale morph (150ms) still handles the glyph
- *     identity swap (Delete ↔ DeleteForever) so the transition never "pops".
- *     The two animations compose multiplicatively: on arm, DeleteForever fades
- *     in at ~0.6x and settles at 3x — one continuous grow.
- *  3. The draw-phase [Modifier.scale] intentionally does NOT change layout or
- *     the tap target: the row's geometry stays perfectly stable while the
- *     glyph visually dominates (a 48dp armed glyph inside the 32dp IconButton
- *     frame simply draws beyond its box — Compose doesn't clip icon content,
- *     and the row's trailing padding absorbs the overflow).
- *  4. The error tint (armed) + [Icons.Filled.DeleteForever] identity keep the
- *     "this is the dangerous state" signal the two-step flow needs.
+ * D-397's fix — grow in the LAYOUT phase, not the draw phase:
+ *  - [animateDpAsState] animates the glyph's dp size 16dp → 40dp (2.5x) and
+ *    the CALLER animates the [IconButton] frame with it (32dp → 48dp per
+ *    episode row, 36dp → 56dp for the delete-all header). Because the
+ *    growth is real MEASURED size, the layout makes room for the glyph —
+ *    nothing can clip it (the row/header simply cede the width), and the
+ *    VECTOR path renders at its final size — pixel-crisp at any scale;
+ *  - the [AnimatedContent] fade+scale morph (150ms) still handles the glyph
+ *    identity swap (Delete ↔ DeleteForever) so the transition never "pops";
+ *    its subtle 0.6x→1x scale is cosmetic only, unrelated to the growth;
+ *  - the error tint (armed) + [Icons.Filled.DeleteForever] identity keep the
+ *    "this is the dangerous state" signal the two-step flow needs.
  */
 @Composable
 private fun TwoStepDeleteIcon(
@@ -672,16 +708,15 @@ private fun TwoStepDeleteIcon(
     idleContentDescription: String,
     armedContentDescription: String,
 ) {
-    // D-389: the armed glyph renders at ~3x the idle size (was 0.65x in round
-    // 25 — the user explicitly wants the confirm state to be THREE TIMES
-    // BIGGER, not smaller). Animated so the grow reads as a deliberate action.
-    val armedScale by animateFloatAsState(
-        targetValue = if (armed) ARMED_ICON_SCALE else 1f,
+    // D-397: the armed glyph MEASURES at ~2.5x the idle size (animated dp —
+    // layout-phase growth; the old 3x draw-phase scale clipped + blurred).
+    val glyphSize by animateDpAsState(
+        targetValue = if (armed) iconSize * ARMED_ICON_GROWTH else iconSize,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-        label = "twoStepDeleteIconScale",
+        label = "twoStepDeleteIconGlyphSize",
     )
     Box(
-        modifier = Modifier.size(iconSize),
+        modifier = Modifier.size(glyphSize),
         contentAlignment = Alignment.Center,
     ) {
         AnimatedContent(
@@ -704,14 +739,17 @@ private fun TwoStepDeleteIcon(
                 contentDescription = if (isArmed) armedContentDescription else idleContentDescription,
                 tint = if (isArmed) MaterialTheme.colorScheme.error
                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                // The 3x grow — see the KDoc above (D-389).
-                modifier = Modifier
-                    .size(iconSize)
-                    .scale(armedScale),
+                // D-397: NO draw-phase scale — the glyph's animated [glyphSize]
+                // IS the layout size, so it re-rasters crisply + never clips.
+                modifier = Modifier.size(glyphSize),
             )
         }
     }
 }
 
-/** D-389: the armed (confirm) glyph scale — 3x the idle size, per the device report. */
-private const val ARMED_ICON_SCALE = 3f
+/**
+ * D-389 → D-397: the armed (confirm) glyph growth — 2.5x the idle size, per
+ * the round-27 device re-spec ("2.5x would be a better option"). Applied as
+ * an animated Dp (layout phase), NOT a draw-phase scale.
+ */
+private const val ARMED_ICON_GROWTH = 2.5f
