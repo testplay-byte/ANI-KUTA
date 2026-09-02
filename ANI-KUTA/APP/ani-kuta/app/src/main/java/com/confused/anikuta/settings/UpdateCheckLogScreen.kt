@@ -687,10 +687,13 @@ class UpdateCheckLogViewModel(
                 UpdateMode.MANUAL -> null
                 UpdateMode.AUTO -> {
                     val workNext = queryWorkManagerNextRun()
+                    // Local binding — `latest.nextCheckAt` is a cross-module
+                    // public property, so the null-checked form can NOT smart
+                    // cast (Kotlin rule); the local can.
+                    val loggedNext = latest?.nextCheckAt
                     when {
                         workNext != null && workNext > 0L -> workNext
-                        latest?.nextCheckAt != null && latest.nextCheckAt > System.currentTimeMillis() ->
-                            latest.nextCheckAt
+                        loggedNext != null && loggedNext > System.currentTimeMillis() -> loggedNext
                         else -> System.currentTimeMillis() + interval * 3_600_000L
                     }
                 }

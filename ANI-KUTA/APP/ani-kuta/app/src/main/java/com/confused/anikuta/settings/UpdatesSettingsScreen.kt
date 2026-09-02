@@ -190,9 +190,13 @@ fun UpdatesSettingsScreen(
                                             color = if (checkNowRunning) MaterialTheme.colorScheme.onSurfaceVariant
                                             else MaterialTheme.colorScheme.onSurface,
                                         )
-                                        if (checkNowResult != null) {
+                                        // Local binding — `checkNowResult` is a remember-delegated
+                                        // property, so the null-checked form can NOT smart cast
+                                        // (Kotlin rule); the local can.
+                                        val result = checkNowResult
+                                        if (result != null) {
                                             Text(
-                                                text = checkNowResult,
+                                                text = result,
                                                 fontFamily = RobotoFamily,
                                                 fontSize = 13.sp,
                                                 color = MaterialTheme.colorScheme.primary,
