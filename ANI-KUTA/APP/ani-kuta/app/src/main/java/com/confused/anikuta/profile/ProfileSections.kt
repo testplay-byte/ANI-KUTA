@@ -1077,6 +1077,9 @@ fun GenreAnimeSheet(
     anime: List<RecentlyWatchedItem>,
     onDismiss: () -> Unit,
     onOpenAnime: (Int) -> Unit,
+    // Task 64 (round 24 — E): the scope the list was restricted to —
+    // "your library" (All) or the active category's name.
+    scopeLabel: String = "your library",
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val shuffledAnime = remember(anime) { anime.shuffled() }
@@ -1089,7 +1092,7 @@ fun GenreAnimeSheet(
             Spacer(Modifier.height(16.dp))
             Text(genre, fontFamily = RobotoFamily, fontSize = 20.sp,
                 fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
-            Text("${anime.size} anime in your library", fontFamily = RobotoFamily, fontSize = 13.sp,
+            Text("${anime.size} anime in $scopeLabel", fontFamily = RobotoFamily, fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
             Spacer(Modifier.height(12.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

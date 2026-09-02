@@ -243,6 +243,9 @@ fun ProfileScreen(
         GenreAnimeSheet(
             genre = selectedGenre,
             anime = state.genreAnime,
+            // Task 64 (round 24 — E): the sheet's subtitle reflects the active
+            // category filter ("12 anime in Watching" vs "…in your library").
+            scopeLabel = if (state.selectedGenreFilter == "All") "your library" else state.selectedGenreFilter,
             onDismiss = { viewModel.clearGenreSelection() },
             onOpenAnime = { anilistId ->
                 viewModel.clearGenreSelection()
@@ -298,9 +301,18 @@ private fun StatsTab(
         if (state.genreDistribution.isNotEmpty()) {
             item {
                 GenreRadarChart(
-                    genres = state.genreDistribution,
+                    // Task 64 (round 24 — E): the radar draws the FILTER-
+                    // restricted distribution; the chips section + the
+                    // section's visibility use the FULL distribution (the
+                    // section must never disappear because a filter's scope
+                    // is empty).
+                    genres = state.filteredGenreDistribution,
+                    allGenres = state.genreDistribution,
                     onGenreClick = { viewModel.onGenreClick(it) },
                     selectedGenre = state.selectedGenre,
+                    filterOptions = state.genreFilterOptions,
+                    selectedFilter = state.selectedGenreFilter,
+                    onFilterSelect = { viewModel.onGenreFilterSelect(it) },
                 )
             }
         }

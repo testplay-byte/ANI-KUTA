@@ -46,15 +46,37 @@ import kotlin.math.sin
  * - Clickable labels: tapping a genre label opens the anime sheet
  * - Up to 16 genres supported
  * - Horizontally scrollable legend below with highlight for selected genre
+ *
+ * Task 64 (round 24 — E, re-done after the round-23 revert): the section
+ * restructured per the device round — the "Genres" heading is BIGGER (11sp →
+ * 16sp, onSurface), a DEDICATED genre section (every genre of the WHOLE
+ * library, as chips) sits DIRECTLY BELOW the heading (not right of it), the
+ * category FILTER row (All + the categories that actually have entries)
+ * follows, and the radar canvas draws the filter-restricted distribution.
+ * The section's visibility keys on the FULL distribution — selecting a filter
+ * whose scope has no genre data can never make the section disappear (the
+ * radar swaps to a caption instead).
  */
 @Composable
 fun GenreRadarChart(
+    // The FILTER-restricted distribution — what the radar draws.
     genres: Map<String, Int>,
     onGenreClick: (String) -> Unit,
     selectedGenre: String? = null,
+    // Task 64 (round 24 — E): the FULL-library distribution — drives the
+    // dedicated genre section below the heading + the section's visibility.
+    // Defaults to [genres] so callers without a filter see identical values.
+    allGenres: Map<String, Int> = genres,
+    // Task 64 (round 24 — E): the category filter row — All + the user's
+    // categories that have ≥1 library entry (the VM never offers empty ones).
+    filterOptions: List<GenreFilterOption> = emptyList(),
+    selectedFilter: String = "All",
+    onFilterSelect: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    if (genres.isEmpty()) return
+    // Task 64: visibility keys on the FULL set — an empty filter scope must
+    // never hide the section (the round-24 device report).
+    if (allGenres.isEmpty()) return
 
     val topGenres = genres.entries.sortedByDescending { it.value }.take(16)
     val maxCount = topGenres.maxOf { it.value }.coerceAtLeast(1)
@@ -95,15 +117,102 @@ fun GenreRadarChart(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
+        // Task 64 (round 24 — E): the heading is BIGGER (11sp → 16sp,
+        // onSurface) — the round-24 device ask: "Make sure to give the Genrar
+        // heading a bigger size of text".
         Text(
             "Genres",
             fontFamily = RobotoFamily,
-            fontSize = 11.sp,
+            fontSize = 16.sp,
             fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
         )
 
+        // ── Task 64 (round 24 — E): the DEDICATED genre section — every genre
+        // of the WHOLE library, directly below the heading ("Below the Genrar
+        // heading I would like you to add our dedicated section to show all
+        // the Genras not on the right side but below it"). Stable across
+        // filter changes; tapping a chip opens the genre's sheet (scoped to
+        // the active filter on the VM side).
+        val allGenreEntries = remember(allGenres) {
+            allGenres.entries.sortedByDescending { it.value }
+        }
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(allGenreEntries.size) { index ->
+                val (genre, count) = allGenreEntries[index]
+                val isSelected = genre == selectedGenre
+                Surface(
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.pointerInput(genre) {
+                        detectTapGestures { onGenreClick(genre) }
+                    },
+                ) {
+                    Text(
+                        text = "$genre  $count",
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) androidx.compose.ui.graphics.Color.Black
+                                else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
+
+        // ── Task 64 (round 24 — E): the category FILTER row — "All" + the
+        // categories that actually have entries (the VM filters empty ones:
+        // "if the user does not have some categories then those Genrar
+        // categories will not show there"). Selected = primary-filled.
+        if (filterOptions.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(1 + filterOptions.size) { index ->
+                    if (index == 0) {
+                        GenreFilterChip(
+                            label = "All",
+                            isSelected = selectedFilter == "All",
+                            onClick = { onFilterSelect("All") },
+                        )
+                    } else {
+                        val option = filterOptions[index - 1]
+                        GenreFilterChip(
+                            label = "${option.name} (${option.count})",
+                            isSelected = selectedFilter == option.name,
+                            onClick = { onFilterSelect(option.name) },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (topGenres.isEmpty()) {
+            // Task 64 (round 24 — E): defensive — a filter whose scope has no
+            // genre data keeps the section alive with a caption where the
+            // radar would be (the section must NEVER disappear: "it disappears
+            // the whole general section because there was nothing to show").
+            Text(
+                "No genre data in this category",
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 24.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        } else {
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
             shape = RoundedCornerShape(12.dp),
@@ -251,36 +360,41 @@ fun GenreRadarChart(
                 }
             }
         }
-
-        // Legend
-        LazyRow(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(topGenres.size) { index ->
-                val (genre, count) = topGenres[index]
-                val isSelected = genre == selectedGenre
-                Surface(
-                    color = if (isSelected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.pointerInput(genre) {
-                        detectTapGestures { onGenreClick(genre) }
-                    },
-                ) {
-                    Text(
-                        text = "$genre  $count",
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isSelected) androidx.compose.ui.graphics.Color.Black
-                                else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    )
-                }
-            }
         }
+        // Task 64 (round 24 — E): the old below-canvas legend MOVED UP to the
+        // dedicated genre section directly under the heading (see above) —
+        // keeping both would duplicate the same chips.
+    }
+}
+
+/**
+ * Task 64 (round 24 — E): one pill in the genre-radar category FILTER row.
+ * Selected = primary-filled with black text; unselected = the muted
+ * surfaceVariant pill. No ripple (pointerInput), matching the genre chips.
+ */
+@Composable
+private fun GenreFilterChip(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.pointerInput(label) {
+            detectTapGestures { onClick() }
+        },
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+            color = if (isSelected) androidx.compose.ui.graphics.Color.Black
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }
 
