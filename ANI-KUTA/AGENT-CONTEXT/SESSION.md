@@ -82,3 +82,8 @@ ANI-KUTA/                        ← repo root (git)
 
 ---
 *This file is the quick-start. For everything else, see `navigation.md`.*
+
+## Session — Task 65 / round 25 (v0.4.13/78)
+- Baseline: v0.4.12/77, clean tree. The seven device findings of the v0.4.12 round implemented as A–G (see memory/progress.md + doc cloudstream-v2/16): the schedule-crash root fix (EXISTS semi-joins), the library list-mode jank fix (the per-row LazyRow removed), the downloads delete morph + slide-out, the heatmap lineHeight fix, the details metadata icon rows, the CS browse name-matching + phased loading, and the full update-notifications module rework (audible results channel, rich summaries, the next-check card, 12h time, covers + Details nav, the Settings/Debug entries).
+- CI: A+B GREEN (33653546839); the C–F batch failed on one file (raw ═ banner lines from my python surgery in DetailsScreen.kt — fixed); G pushed with the fix.
+- Next: CI green on G → tag v0.4.13 + release → the user's device round.

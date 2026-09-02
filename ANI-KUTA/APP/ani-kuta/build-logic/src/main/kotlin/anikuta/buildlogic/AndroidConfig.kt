@@ -201,8 +201,41 @@ object AndroidConfig {
     // (F) the watch-activity weekday-label clipping fix, and (G) the
     // update-check LIVE status notification + the content-update history
     // page (JSON file — NO database changes this round).
-    const val versionCode = 77
-    const val versionName = "0.4.12"
+    //
+    // Task 65 (round 25 — the seven device findings, doc cloudstream-v2/16):
+    // (A) the SCHEDULE duplicate-key crash — the getUpcomingSchedule family
+    // INNER JOINed library_item (one row PER CATEGORY) so an anime in two
+    // categories doubled every schedule row → identical LazyColumn keys →
+    // IllegalArgumentException; now EXISTS semi-joins + defensive dedupes
+    // (+ the UpdatesScreen keys include audioVariant — sub/dub rows collide
+    // by design); (B) the library LIST-mode scroll jank — DetailTagRow's
+    // per-row LazyRow (SubcomposeLayout + saveable state + gesture nodes per
+    // row for 2-5 fixed pills) replaced by a plain Row + horizontalScroll +
+    // the tag list remembered per (entry, config, theme) — the structural
+    // difference vs the smooth grid modes, 50-268ms frames + 16MB GC per
+    // fling in the user's logcat; (C) the downloads delete UX — the icon
+    // morph normalizes DeleteForever's edge-to-edge glyph (the 3x perceived
+    // jump) + the exit choreography (settle pulse → slide-out + fade → VM
+    // delete) + animateItem so the cards below glide up; (D) the heatmap
+    // weekday labels — the 8sp Text inherited bodyLarge's 24sp line box in a
+    // 14dp slot (the REAL residual clip); explicit lineHeight + a -1dp
+    // optical lift to the exact cell-row centers; (E) the details metadata
+    // stack — up to four icon rows (year → rating → status → episodes),
+    // hidden per-fact when unavailable, CS 0-10 scores normalized to %;
+    // (F) the CS browse category bleeding + PHASED loading — HomePageList
+    // NAME matching (providers that ignore MainPageRequest.name returned the
+    // whole home into every row), the progressive skeleton→per-shelf→final
+    // pipeline with shimmer rows + an N-of-M status line, and put() carries
+    // the display forward so background refreshes never re-arrange mid-view;
+    // (G) D-388 the update-notifications module rework — audible results
+    // channel, rich per-anime BigText notifications with next-check info +
+    // the cover as large icon + the history deep-link, the pinned next-check
+    // card (live countdown + WorkManager's real fire time + the due anime
+    // with covers + the how), 12h/device-time formatting, covers + Details
+    // navigation on every history row, the dedicated Settings→Updates row +
+    // check-now, and the Debug→Update Check History button.
+    const val versionCode = 78
+    const val versionName = "0.4.13"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

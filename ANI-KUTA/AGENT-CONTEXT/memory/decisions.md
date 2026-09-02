@@ -2763,3 +2763,27 @@ The library's write paths run on dispatchers.io (DispatcherProvider injected via
 - **Files:** LibraryViewModel.kt, LibraryScreen.kt.
 - **Status:** ✅ Implemented (Task 62 / round 22, v0.4.10/75).
 - **Date:** 2026-09-09.
+
+## D-381 (round 25): schedule/library_item is an EXISTS semi-join, never INNER JOIN
+`library_item` is one row per (main_id, category_id) — "which content is in the library" queries joined to it fan out once per category membership and duplicate rows downstream. All three schedule queries use EXISTS now; the VMs dedupe the display composite as belt-and-suspenders.
+
+## D-382 (round 25): DetailTagRow is a plain Row + horizontalScroll
+A nested LazyRow per list row (fixed 2–5 pills) costs SubcomposeLayout machinery + saveable state + gesture nodes per row — the structural jank source of the list mode. Lazy layouts are reserved for unbounded content.
+
+## D-383 (round 25): the schedule/updates list dedupes BEFORE enrichment
+Deduping raw entries (not display models) also halves the DB lookups for duplicated rows.
+
+## D-384 (round 25): the two-step delete = stable frame + animated morph + exit choreography
+TwoStepDeleteIcon normalizes the glyph footprints (0.65x armed) and morphs via AnimatedContent; deletion animates (settle pulse → slide-out + fade → VM delete) instead of vanishing; LazyColumn items use Modifier.animateItem().
+
+## D-385 (round 25): heatmap labels carry an explicit 10sp lineHeight + a −1dp optical lift
+The ambient bodyLarge 24sp line box was the residual clip; the lift aligns label centers to cell-row centers exactly.
+
+## D-386 (round 25): the details metadata is a vertical icon-row stack (max 4, per-fact nullable)
+CS 0–10 scores normalize to % (≤10 ⇒ ×10). Rows hide when the fact is null.
+
+## D-387 (round 25): the CS browse pipeline is PHASED (channelFlow) + name-matched list selection
+Categories skeleton (pre-merged, pre-network) → per-shelf sections as they land → canonical Complete (merge/cap/cache/display-arrangement unchanged). shelfLists() matches HomePageList.name to the requested shelf (single/all fallbacks). put() carries the previous display forward. The no-cache path shows shimmer + progress; stale-cache refreshes update silently.
+
+## D-388 (round 25): the update-notification module's channel split + the summary payload
+Progress feed = silent IMPORTANCE_LOW (as before); results = NEW IMPORTANCE_DEFAULT channel with sound + vibration. onFinish carries UpdateCheckSummary (per-anime lines + nextCheckAt + interval) — one payload feeds the notification, the JSON log, and the history page. UpdateCheckItemLog gained coverUrl (default null — legacy JSON decodes). The history's next-check card prefers WorkInfo.nextScheduleTimeMillis, falls back to the latest session's logged nextCheckAt, then now+interval. Tapping a results notification deep-links to the history via the open_update_history extra.
