@@ -331,16 +331,16 @@ class CloudstreamContentRepository(
         // concatenated items, deduped by url, re-capped, FIRST occurrence's
         // shelfIndex (subpage taps open that shelf — same name, same content
         // family). First-appearance order is preserved.
-        val sections = mergeSameTitleSections(sections)
+        val mergedSections = mergeSameTitleSections(sections)
         Logger.i(TAG) {
-            "browse: $providerName -> ${sections.size} section(s) in ${System.currentTimeMillis() - started}ms"
+            "browse: $providerName -> ${mergedSections.size} section(s) in ${System.currentTimeMillis() - started}ms"
         }
         // Task 48: every successful (non-empty) browse feeds the instant-open
         // cache — empty results never overwrite a good cached feed.
-        if (sections.isNotEmpty()) {
-            browseCache?.put(providerName, sections)
+        if (mergedSections.isNotEmpty()) {
+            browseCache?.put(providerName, mergedSections)
         }
-        sections
+        mergedSections
     }
 
     /**
