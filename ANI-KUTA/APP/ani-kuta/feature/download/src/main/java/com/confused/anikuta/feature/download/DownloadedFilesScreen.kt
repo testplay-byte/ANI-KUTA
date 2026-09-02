@@ -1,8 +1,18 @@
 package com.confused.anikuta.feature.download
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,7 +42,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,12 +52,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,6 +69,7 @@ import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.download.DownloadTask
+import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -157,6 +174,11 @@ fun DownloadedFilesScreen(
                             },
                             onDeleteAll = { viewModel.deleteAnime(animeKey.mainId) },
                             onNavigateToDetails = { onNavigateToDetails(animeKey.mainId) },
+                            // D-384 (round 25): placement/fade animation for card
+                            // ADD/REMOVE — after a delete-all slide-out the cards
+                            // below GLIDE up instead of jumping (the episode rows
+                            // slide out via their own graphicsLayer choreography).
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
@@ -191,6 +213,7 @@ private fun DownloadedAnimeCard(
     onDelete: (String) -> Unit,
     onDeleteAll: () -> Unit,
     onNavigateToDetails: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     // Task 61: collapsed by default — the round-21 spec ("by default have all
     // the downloaded episodes collapsed so they will not be shown directly").
@@ -209,8 +232,42 @@ private fun DownloadedAnimeCard(
         label = "downloadedChevronRotation",
     )
 
+    // D-384 (round 25 — delete-all exit choreography): the second tap on the
+    // armed delete-all button no longer removes the card instantly. Phase 1:
+    // a short settle pulse; phase 2: the WHOLE card slides out horizontally +
+    // fades; only then the VM delete fires (the data update removes the card;
+    // the LazyColumn's Modifier.animateItem() makes the cards below glide up).
+    var cardRemoving by remember { mutableStateOf(false) }
+    val cardAlpha = remember { Animatable(1f) }
+    val cardOffsetX = remember { Animatable(0f) }
+    val cardScale = remember { Animatable(1f) }
+    var cardWidthPx by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(cardRemoving) {
+        if (cardRemoving) {
+            // Phase 1 — the "something is happening" settle beat.
+            cardScale.animateTo(0.97f, tween(110, easing = FastOutSlowInEasing))
+            // Phase 2 — slide towards the END + fade, then hand off to the VM.
+            launch { cardAlpha.animateTo(0f, tween(240, easing = LinearEasing)) }
+            cardOffsetX.animateTo(
+                cardWidthPx.takeIf { it > 0f } ?: 1200f,
+                tween(240, easing = LinearOutSlowInEasing),
+            )
+            cardAlpha.snapTo(0f) // guarantee the terminal state
+            onDeleteAll()
+        }
+    }
+
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp)
+            .onSizeChanged { cardWidthPx = it.width.toFloat() }
+            .graphicsLayer {
+                translationX = cardOffsetX.value
+                alpha = cardAlpha.value
+                scaleX = cardScale.value
+                scaleY = cardScale.value
+            },
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
     ) {
@@ -221,7 +278,7 @@ private fun DownloadedAnimeCard(
             // Task 61: every header interaction disarms a pending delete-confirm.
             Row(
                 modifier = Modifier.fillMaxWidth()
-                    .clickable {
+                    .clickable(enabled = !cardRemoving) {
                         confirmDeleteKey = null
                         onNavigateToDetails()
                     }
@@ -296,8 +353,10 @@ private fun DownloadedAnimeCard(
                 // should show the expand and collapse button").
                 IconButton(
                     onClick = {
-                        confirmDeleteKey = null
-                        expanded = !expanded
+                        if (!cardRemoving) {
+                            confirmDeleteKey = null
+                            expanded = !expanded
+                        }
                     },
                     modifier = Modifier.size(36.dp),
                 ) {
@@ -310,24 +369,27 @@ private fun DownloadedAnimeCard(
                 }
                 // Task 61: the two-step delete-all — armed state morphs the icon
                 // (DeleteForever) + error tint; the second tap deletes.
+                // D-384 (round 25): the icon swap is an animated morph with a
+                // STABLE frame (see TwoStepDeleteIcon) and the confirm tap now
+                // starts the slide-out choreography instead of an instant delete.
                 IconButton(
                     onClick = {
-                        if (confirmDeleteKey == CONFIRM_DELETE_ALL) {
-                            confirmDeleteKey = null
-                            onDeleteAll()
-                        } else {
-                            confirmDeleteKey = CONFIRM_DELETE_ALL
+                        if (!cardRemoving) {
+                            if (confirmDeleteKey == CONFIRM_DELETE_ALL) {
+                                confirmDeleteKey = null
+                                cardRemoving = true
+                            } else {
+                                confirmDeleteKey = CONFIRM_DELETE_ALL
+                            }
                         }
                     },
                     modifier = Modifier.size(36.dp),
                 ) {
-                    val armed = confirmDeleteKey == CONFIRM_DELETE_ALL
-                    Icon(
-                        imageVector = if (armed) Icons.Filled.DeleteForever else Icons.Filled.Delete,
-                        contentDescription = if (armed) "Confirm delete all" else "Delete all",
-                        tint = if (armed) MaterialTheme.colorScheme.error
-                               else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
+                    TwoStepDeleteIcon(
+                        armed = confirmDeleteKey == CONFIRM_DELETE_ALL,
+                        iconSize = 20.dp,
+                        idleContentDescription = "Delete all",
+                        armedContentDescription = "Confirm delete all",
                     )
                 }
             }
@@ -374,6 +436,16 @@ private fun DownloadedAnimeCard(
  * (episode info + metadata chips) is the confirmed-good round-20 rendering,
  * byte-identical; the row click + the delete button's two-step state are the
  * round-21 changes.
+ *
+ * D-384 (round 25 — the delete UX rework):
+ *  - the delete icon now MORPHS between its two states inside a FIXED frame
+ *    (see [TwoStepDeleteIcon]) — the old instant glyph swap read as a ~3x
+ *    size jump because DeleteForever fills its viewport edge-to-edge while
+ *    the plain Delete glyph does not;
+ *  - confirming a delete runs an EXIT CHOREOGRAPHY instead of vanishing
+ *    instantly: a short settle pulse, then the row slides out horizontally
+ *    + fades, and only THEN the actual VM delete fires. The card's
+ *    animateContentSize smoothly closes the freed space afterwards.
  */
 @Composable
 private fun DownloadedEpisodeRow(
@@ -383,9 +455,38 @@ private fun DownloadedEpisodeRow(
     onPlayRow: () -> Unit,
     onDeleteConfirmed: () -> Unit,
 ) {
+    // D-384: the exit choreography state + drivers (graphicsLayer = draw
+    // phase only — zero recomposition per animation frame).
+    var removing by remember { mutableStateOf(false) }
+    val rowAlpha = remember { Animatable(1f) }
+    val rowOffsetX = remember { Animatable(0f) }
+    val rowScale = remember { Animatable(1f) }
+    var rowWidthPx by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(removing) {
+        if (removing) {
+            // Phase 1 — the settle beat (~110ms scale dip).
+            rowScale.animateTo(0.94f, tween(110, easing = FastOutSlowInEasing))
+            // Phase 2 — slide towards the END + fade, then hand off to the VM.
+            launch { rowAlpha.animateTo(0f, tween(240, easing = LinearEasing)) }
+            rowOffsetX.animateTo(
+                rowWidthPx.takeIf { it > 0f } ?: 1200f,
+                tween(240, easing = LinearOutSlowInEasing),
+            )
+            rowAlpha.snapTo(0f) // guarantee the terminal state
+            onDeleteConfirmed()
+        }
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth()
-            .clickable { onPlayRow() }
+            .onSizeChanged { rowWidthPx = it.width.toFloat() }
+            .graphicsLayer {
+                translationX = rowOffsetX.value
+                alpha = rowAlpha.value
+                scaleX = rowScale.value
+                scaleY = rowScale.value
+            }
+            .clickable(enabled = !removing) { onPlayRow() }
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -513,20 +614,79 @@ private fun DownloadedEpisodeRow(
         }
         // Task 61: the per-episode two-step delete — the FIRST tap arms (the
         // icon morphs to DeleteForever + error tint), the SECOND tap on the
-        // SAME button deletes; any other tap on the card disarms (handled by
-        // the card's confirmDeleteKey resets).
+        // SAME button starts the slide-out exit (D-384); any other tap on the
+        // card disarms (handled by the card's confirmDeleteKey resets).
         IconButton(
             onClick = {
-                if (armed) onDeleteConfirmed() else onArmDelete()
+                if (!removing) {
+                    if (armed) {
+                        removing = true
+                    } else {
+                        onArmDelete()
+                    }
+                }
             },
             modifier = Modifier.size(32.dp),
         ) {
+            TwoStepDeleteIcon(
+                armed = armed,
+                iconSize = 16.dp,
+                idleContentDescription = "Delete episode",
+                armedContentDescription = "Confirm delete episode",
+            )
+        }
+    }
+}
+
+/**
+ * D-384 (round 25): the two-step delete icon with a STABLE frame and an
+ * animated morph.
+ *
+ * Why this exists: the old code swapped [Icons.Filled.Delete] ↔
+ * [Icons.Filled.DeleteForever] instantly with no transition. The plain Delete
+ * glyph occupies only the middle ~60% of its 24dp viewport while DeleteForever
+ * fills it edge-to-edge, so the armed swap visually READ as a ~3x size jump
+ * (the round-25 device report). Two normalizations:
+ *  1. the armed glyph renders at 0.65x scale so both states occupy the same
+ *     visual footprint inside the fixed [iconSize] box;
+ *  2. the swap itself is an [AnimatedContent] scale+fade morph (~150ms), so
+ *     the state change reads as a deliberate transition, never a jump.
+ */
+@Composable
+private fun TwoStepDeleteIcon(
+    armed: Boolean,
+    iconSize: Dp,
+    idleContentDescription: String,
+    armedContentDescription: String,
+) {
+    Box(
+        modifier = Modifier.size(iconSize),
+        contentAlignment = Alignment.Center,
+    ) {
+        AnimatedContent(
+            targetState = armed,
+            transitionSpec = {
+                (fadeIn(tween(150)) + scaleIn(
+                    animationSpec = tween(150),
+                    initialScale = 0.6f,
+                )).togetherWith(
+                    fadeOut(tween(150)) + scaleOut(
+                        animationSpec = tween(150),
+                        targetScale = 0.6f,
+                    ),
+                )
+            },
+            label = "twoStepDeleteIconMorph",
+        ) { isArmed ->
             Icon(
-                imageVector = if (armed) Icons.Filled.DeleteForever else Icons.Filled.Delete,
-                contentDescription = if (armed) "Confirm delete episode" else "Delete episode",
-                tint = if (armed) MaterialTheme.colorScheme.error
+                imageVector = if (isArmed) Icons.Filled.DeleteForever else Icons.Filled.Delete,
+                contentDescription = if (isArmed) armedContentDescription else idleContentDescription,
+                tint = if (isArmed) MaterialTheme.colorScheme.error
                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp),
+                // The scale normalization — see the KDoc above.
+                modifier = Modifier
+                    .size(iconSize)
+                    .scale(if (isArmed) 0.65f else 1f),
             )
         }
     }
