@@ -706,18 +706,31 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
             Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp)) {
                 Row {
                     // Left: day markers — bottom padding accounts for the month-label row.
+                    //
+                    // Task 64 (round 24 — item 6, the weekday-label clipping fix): each
+                    // label slot is now ONE FULL ROW PITCH tall (cell + spacing) instead
+                    // of one CELL tall (12dp). The 8sp text's line height never fit the
+                    // old fixed box — its bottom clipped inside it (the device report:
+                    // "the bottom half of them gets cut off, maybe because there is not
+                    // enough area for them to be viewed"). With the pitch carried by the
+                    // slot height, the column's spacing drops to 0 and every slot's
+                    // CENTER still lands on its cell row's center (±1dp) — the grid
+                    // alignment is visually unchanged. (The month labels already got the
+                    // same taller-box treatment — see the comment below the cells.)
                     Column(
-                        modifier = Modifier.width(14.dp).padding(bottom = 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(cellSpacing),
+                        modifier = Modifier.width(14.dp).padding(bottom = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(0.dp),
                     ) {
                         dayMarkers.forEach { label ->
                             Box(
-                                modifier = Modifier.size(cellSize),
+                                modifier = Modifier.width(14.dp)
+                                    .height(cellSize + cellSpacing),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
                                     label, fontFamily = RobotoFamily, fontSize = 8.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    maxLines = 1,
                                 )
                             }
                         }
