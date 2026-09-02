@@ -34,14 +34,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Adjust
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle  // D-226: reverse auto-link match
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SearchOff  // D-226: reverse auto-link no-match
 import androidx.compose.material.icons.filled.Security  // D-209: Cloudflare error icon
 import androidx.compose.material3.CircularProgressIndicator
@@ -1941,25 +1945,15 @@ private fun DetailBanner(
                     }
                 }
                 Spacer(modifier = Modifier.height(2.dp))
-                // Meta row: score · year · status · episode count.
-                // CloudStream V2: the year next to the title (populated for both
-                // AniList entries and CS entries — the search-time seed covers
-                // providers whose load() omits year).
-                val metaParts = buildList {
-                    anime.averageScore?.let { add("\u2605 $it%") }
-                    anime.seasonYear?.let { add(it.toString()) }
-                    anime.status?.let { add(it.replace("_", " ").lowercase().replaceFirstChar { c -> c.uppercase() }) }
-                    anime.episodes?.let { add("$it eps") }
-                }
-                if (metaParts.isNotEmpty()) {
-                    Text(
-                        text = metaParts.joinToString(" \u00b7 "),
-                        fontFamily = RobotoFamily,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                // D-386 (round 25 — the details metadata rework): the meta info
+                // (rating · year · status · episode count) previously shared ONE
+                // 13sp dot-separated line squeezed into the narrow title column
+                // beside the cover — long values wrapped or truncated ("the
+                // space is limited"). Per the round-25 spec each fact is now
+                // its own icon row below the title, in this order: release
+                // year → rating → status → total episodes; unavailable facts
+                // are omitted entirely (max 4 rows). See [DetailsMetaColumn].
+                DetailsMetaColumn(anime)
             }
         }
     }
@@ -1967,6 +1961,114 @@ private fun DetailBanner(
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Action button — 40dp black-40%-alpha circle, 22dp white icon
+════════════════════════════════════════════════════════════════════════════════
+//  D-386 (round 25): the details-page metadata stack — up to FOUR icon rows
+//  under the series title (release year, rating, status, total episodes).
+//
+//  Spec (round-25 device report): "At the very top we could show the name of
+//  the series. Below it we can show the details of it, like its release year
+//  if it is available, then the rating, then the status, then the total
+//  episodes — at max four; if some info is not available then that section
+//  is not shown at all." (plus "appropriate SVG icons" — Material vector
+//  icons here, consistent with the rest of the app).
+//
+//  Each row = a 13dp icon + a 12sp label. Four rows ≈ 84dp, which fits the
+//  150dp cover-height budget of the banner's bottom row alongside a 2-line
+//  title — the banner stays balanced while every fact gets a full row.
+════════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun DetailsMetaColumn(anime: com.confused.anikuta.core.common.model.UnifiedAnime) {
+    val labelColor = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified }
+        ?: MaterialTheme.colorScheme.onSurfaceVariant
+    val iconColor = MaterialTheme.colorScheme.primary
+
+    // D-386: AniList's averageScore is 0–100, but the CloudStream path seeds
+    // the field with the provider's 0–10 score (search-time cachedExtras).
+    // A value ≤ 10 is almost certainly the 0–10 scale (a 0–100 AniList score
+    // under 10 is a sub-half-star outlier) — normalize so the "%" renders
+    // correctly on BOTH paths (the old line showed "8%" for an 8/10 CS score).
+    val scorePercent = anime.averageScore?.takeIf { it > 0 }?.let {
+        if (it <= 10) it * 10 else it
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        // 1 — release year (row hidden when unavailable).
+        anime.seasonYear?.let { year ->
+            DetailsMetaRow(
+                icon = Icons.Filled.CalendarMonth,
+                text = year.toString(),
+                iconColor = iconColor,
+                labelColor = labelColor,
+            )
+        }
+        // 2 — rating (row hidden when unavailable).
+        if (scorePercent != null) {
+            DetailsMetaRow(
+                icon = Icons.Filled.Star,
+                text = "$scorePercent%",
+                iconColor = iconColor,
+                labelColor = labelColor,
+            )
+        }
+        // 3 — release status (row hidden when unavailable) — the icon tells
+        // the state at a glance: live dot = RELEASING, check = FINISHED,
+        // clock = anything else (NOT_YET_RELEASED / CANCELLED / unknown).
+        anime.status?.takeIf { it.isNotBlank() }?.let { raw ->
+            val label = raw.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() }
+            val icon = when (raw.uppercase()) {
+                "RELEASING" -> Icons.Filled.Adjust
+                "FINISHED" -> Icons.Filled.CheckCircle
+                else -> Icons.Filled.Schedule
+            }
+            DetailsMetaRow(
+                icon = icon,
+                text = label,
+                iconColor = iconColor,
+                labelColor = labelColor,
+            )
+        }
+        // 4 — total episodes (row hidden when unavailable).
+        anime.episodes?.takeIf { it > 0 }?.let { count ->
+            DetailsMetaRow(
+                icon = Icons.Filled.Movie,
+                text = if (count == 1) "1 Episode" else "$count Episodes",
+                iconColor = iconColor,
+                labelColor = labelColor,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetailsMetaRow(
+    icon: ImageVector,
+    text: String,
+    iconColor: Color,
+    labelColor: Color,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null, // decorative — the label text carries the meaning
+            tint = iconColor,
+            modifier = Modifier.size(13.dp),
+        )
+        Text(
+            text = text,
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = labelColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
