@@ -74,6 +74,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -437,9 +438,12 @@ private fun OnboardingPrimaryCta(
                     scaleY = scale
                 }
                 .clip(RoundedCornerShape(50))
+                // (SolidColor wraps the neutral branch's Color so BOTH branches
+                // are Brushes — Kotlin can't overload-resolve a Color/Brush
+                // if-else against Modifier.background's two overloads.)
                 .background(
                     if (neutral) {
-                        MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                        SolidColor(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
                     } else {
                         Brush.linearGradient(listOf(accent, accentDark))
                     },
