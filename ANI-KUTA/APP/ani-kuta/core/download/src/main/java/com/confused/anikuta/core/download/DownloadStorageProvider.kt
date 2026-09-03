@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,6 +43,34 @@ class DownloadStorageProvider(
     private val preferences: DownloadPreferences,
     private val okHttpClient: OkHttpClient,
 ) {
+
+    /**
+     * D-401 (round 28): serializes EVERY tree mutation this provider performs
+     * (all `.data.json` writes — [writeDataJson] / [upsertEpisodeInDataJson] /
+     * [removeEpisodeFromDataJson] / [replaceEpisodesInDataJson] — plus the
+     * folder-level deletions [deleteContentFolder] and the disk sweep
+     * [deleteEpisodeFilesOnDisk]).
+     *
+     * ## Why it exists
+     * The round-28 device report caught the multi-episode delete leaving the
+     * `.data.json` STALE: `removeEpisodeFromDataJson` is a read-modify-write of
+     * ONE shared file, and NOTHING serialized the writers — a download
+     * completing (`upsert`), a scanner reconcile (`writeDataJson`) or a second
+     * in-flight delete could interleave between the READ and the WRITE, with
+     * last-writer-wins silently resurrecting entries the other path had just
+     * removed. [DownloadScanner] already carries its own mutex for exactly
+     * this hazard ("interleaved runs clobber each other's writes") — the
+     * storage layer now enforces the same guarantee for every caller at once.
+     *
+     * ## Lock-order safety (no cycles)
+     * Only two nesting orders exist in the codebase: the manager's
+     * `deleteMutex` → this `treeMutex`, and the scanner's `scanMutex` → this
+     * `treeMutex`. Nothing ever acquires those outer locks while holding
+     * `treeMutex`, so no deadlock is possible. Private helpers
+     * (`writeDataJsonRaw`, the remove-attempt ladder, `deleteFileByName`, …)
+     * assume the caller already holds the lock.
+     */
+    private val treeMutex = Mutex()
 
     /**
      * Returns the user-selected SAF root as a [DocumentFile], or `null` if:
@@ -300,7 +330,8 @@ class DownloadStorageProvider(
         content: DownloadContentInfo,
         folder: DocumentFile,
         index: Map<String, DocumentFile> = folder.listFiles().associateBy { it.name!! },
-    ): Unit = withContext(Dispatchers.IO) {
+    ): Unit = treeMutex.withLock {
+        withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val existing = readDataJsonIndexed(index)
         val updated = (existing ?: ContentDataJson(
@@ -340,6 +371,7 @@ class DownloadStorageProvider(
             updatedAt = now,
         )
         writeDataJsonRaw(updated, folder, index)
+        }
     }
 
     /**
@@ -365,7 +397,8 @@ class DownloadStorageProvider(
     suspend fun upsertEpisodeInDataJson(
         folder: DocumentFile,
         episode: DownloadedEpisodeInfo,
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): Boolean = treeMutex.withLock {
+        withContext(Dispatchers.IO) {
         val index = folder.listFiles().associateBy { it.name!! }
         val existing = readDataJsonIndexed(index) ?: run {
             DownloadLogger.w {
@@ -394,29 +427,43 @@ class DownloadStorageProvider(
                 "(added/updated ep ${episode.episodeNumber}, key=${episode.episodeKey})"
         }
         true
+        }
     }
 
     /**
-     * D-241 / D-392 (round 26): Removes a single episode (matched by
-     * [episodeKey]) from the `episodes` list of the `.data.json` for [folder],
-     * with a RETRY LADDER.
+     * D-241 / D-392 (round 26) / D-401 (round 28): Removes a single episode
+     * (matched by [episodeKey], with [episodeNumber] as the key-drift
+     * reconciliation fallback) from the `episodes` list of the `.data.json`
+     * for [folder], with a RETRY LADDER + STRICT verification.
      *
-     * Called by [DefaultDownloadManager.deleteDownloadedEpisode] AFTER the
-     * video file is deleted AND BEFORE the `downloaded_episode` DB row is
-     * removed — this keeps the on-disk `.data.json` in sync with the DB.
+     * ## D-401 (round 28): the call order is now DATA.JSON FIRST
+     * The round-28 device report showed the multi-episode delete leaving the
+     * `.data.json` stale: the round-27 flow called this AFTER the episode
+     * files were deleted — and a sibling deletion can invalidate SAF
+     * DocumentFile URIs, so the write itself ran inside the exact window
+     * where its target document was most likely stale. The manager now calls
+     * this BEFORE any file deletion (the user's explicit pipeline: "update
+     * the data.json file of that specific content and then delete that
+     * content properly afterwards") — the write lands while the tree is
+     * untouched, and the ladder below stays as defense-in-depth.
      *
-     * ## D-392: why the retry ladder exists
-     * The round-26 device report showed a delete where the video file WAS
-     * removed on disk but the `.data.json` still listed the episode afterwards
-     * (the single-shot write had no recovery path — a transient SAF failure or
-     * a stale document URI silently won). The ladder:
+     * ## D-401: the two silent-success holes are closed
+     *  - a key mismatch no longer returns "idempotent success" while the
+     *    entry stays on disk — [DeletionMatching.matchRemoval] falls back to
+     *    the episode number (the scanner's number-keyed rebuilds can drift
+     *    keys) and the reconciliation is logged at WARN;
+     *  - the write verification is now STRICT ([DeletionMatching.removalVerified]):
+     *    a NULL re-read is a FAILURE (the round-27 `!= null && …any{…}`
+     *    null-pass made a dead write look verified), and the re-read must
+     *    contain NONE of the removed entries by key OR number.
      *
-     *  - **Attempt 1** — the normal path: fresh `listFiles()` index → filter →
+     * ## D-392: why the retry ladder exists (kept as defense-in-depth)
+     *  - **Attempt 1** — the normal path: fresh `listFiles()` index → match →
      *    overwrite the existing `.data.json` document → verify by re-reading.
      *  - **Attempt 2** — identical, after a short settle pause. A sibling
-     *    deletion (the video file) can invalidate previously-resolved
-     *    `DocumentFile` URIs on some providers; the FRESH index each attempt
-     *    is the stale-URI recovery.
+     *    deletion can invalidate previously-resolved `DocumentFile` URIs on
+     *    some providers; the FRESH index each attempt is the stale-URI
+     *    recovery.
      *  - **Attempt 3 (nuclear)** — deletes the old `.data.json` document and
      *    re-creates it from scratch, then writes. This sidesteps ANY stream-
      *    write weirdness on the existing document (a provider refusing to
@@ -427,15 +474,22 @@ class DownloadStorageProvider(
      * decision in [DefaultDownloadManager] re-reads the file right after and
      * acts on the result.
      *
-     * Returns `true` on success (including the idempotent "key not present"
-     * case), `false` if the `.data.json` couldn't be read or written after
-     * ALL attempts (the caller logs but doesn't fail the delete — the DB row
-     * deletion still proceeds, so the episode is functionally deleted).
+     * Serialized by [treeMutex] — no other tree mutation (a download's
+     * upsert, a scanner reconcile, another delete) can interleave this
+     * read-modify-write.
+     *
+     * Returns `true` on success (including the VERIFIED "entry genuinely not
+     * present" case), `false` if the `.data.json` couldn't be read, written,
+     * or VERIFIED after ALL attempts (the caller logs but doesn't fail the
+     * delete — the DB row deletion still proceeds, so the episode is
+     * functionally deleted).
      */
     suspend fun removeEpisodeFromDataJson(
         folder: DocumentFile,
         episodeKey: String,
-    ): Boolean = withContext(Dispatchers.IO) {
+        episodeNumber: Double? = null,
+    ): Boolean = treeMutex.withLock {
+        withContext(Dispatchers.IO) {
         // R1-DATA-JSON-STILL: extensive logging to diagnose why .data.json
         // still contains the deleted episode after deleteDownloadedEpisode.
         DownloadLogger.i {
@@ -443,13 +497,14 @@ class DownloadStorageProvider(
                 "folder.uri=${folder.uri}, exists=${folder.exists()}, " +
                 "isDirectory=${folder.isDirectory}, canWrite=${folder.canWrite()}, " +
                 "episodeKey='$episodeKey' (len=${episodeKey.length}, " +
-                "utf8Bytes=${episodeKey.toByteArray(Charsets.UTF_8).size})"
+                "utf8Bytes=${episodeKey.toByteArray(Charsets.UTF_8).size}), " +
+                "episodeNumber=$episodeNumber"
         }
         var succeeded = false
         for (attempt in 1..DATA_JSON_WRITE_ATTEMPTS) {
             val nuclear = attempt == DATA_JSON_WRITE_ATTEMPTS
             succeeded = try {
-                removeEpisodeFromDataJsonAttempt(folder, episodeKey, attempt, nuclear)
+                removeEpisodeFromDataJsonAttempt(folder, episodeKey, episodeNumber, attempt, nuclear)
             } catch (e: Exception) {
                 DownloadLogger.e(e) {
                     "removeEpisodeFromDataJson — attempt $attempt/${DATA_JSON_WRITE_ATTEMPTS} " +
@@ -459,7 +514,7 @@ class DownloadStorageProvider(
             }
             if (succeeded) break
             // Settle pause between attempts — gives the SAF provider a moment
-            // to flush the sibling deletion that just happened.
+            // to flush any concurrent tree mutation.
             if (attempt < DATA_JSON_WRITE_ATTEMPTS) {
                 DownloadLogger.w {
                     "removeEpisodeFromDataJson — attempt $attempt failed — retrying " +
@@ -480,23 +535,30 @@ class DownloadStorageProvider(
             }
         }
         succeeded
+        }
     }
 
     /**
-     * D-392: ONE attempt of the remove-episode ladder (see
+     * D-392 / D-401: ONE attempt of the remove-episode ladder (see
      * [removeEpisodeFromDataJson]). Every attempt rebuilds its folder index
-     * FRESH via `listFiles()` — never trusts a pre-deletion snapshot.
+     * FRESH via `listFiles()` — never trusts a pre-mutation snapshot.
+     * Matching + verification are delegated to the unit-tested
+     * [DeletionMatching] (key match → number-drift reconciliation → strict
+     * re-read verification).
+     *
+     * The caller holds [treeMutex].
      */
     private suspend fun removeEpisodeFromDataJsonAttempt(
         folder: DocumentFile,
         episodeKey: String,
+        episodeNumber: Double?,
         attempt: Int,
         nuclear: Boolean,
     ): Boolean = withContext(Dispatchers.IO) {
         DownloadLogger.i {
             "removeEpisodeFromDataJson — attempt $attempt/$DATA_JSON_WRITE_ATTEMPTS" +
                 "${if (nuclear) " (NUCLEAR: delete + re-create)" else ""} " +
-                "for '${folder.name}', key='$episodeKey'"
+                "for '${folder.name}', key='$episodeKey', episodeNumber=$episodeNumber"
         }
         val rawList = try {
             folder.listFiles()
@@ -543,20 +605,40 @@ class DownloadStorageProvider(
             }
         }
         val before = existing.episodes.size
-        val newList = existing.episodes.filterNot { ep -> ep.episodeKey == episodeKey }
-        DownloadLogger.i {
-            "removeEpisodeFromDataJson — filterNot result: before=$before, " +
-                "after=${newList.size}, matchFound=${newList.size < before}"
-        }
-        if (newList.size == before) {
+        // D-401: the unit-tested match decision — key match first, then the
+        // episodeNumber fallback (key-drift reconciliation: a scanner rebuild
+        // can rewrite the stored key). The old filterNot-by-key + idempotent
+        // early-true was the first silent-success hole (the round-28 device
+        // report: "the data.json file was not updated").
+        val match = DeletionMatching.matchRemoval(existing.episodes, episodeKey, episodeNumber)
+        if (match.numberReconciled) {
             DownloadLogger.w {
-                "removeEpisodeFromDataJson — NO MATCH for episodeKey='$episodeKey' " +
-                    "in ${folder.name}'s .data.json. Returning true (idempotent) " +
-                    "BUT .data.json was NOT modified. This is the smoking gun if " +
-                    "the user reports the episode is still in .data.json."
+                "removeEpisodeFromDataJson — KEY DRIFT reconciled by episodeNumber: " +
+                    "episodeKey='$episodeKey' matched NO entry, but episodeNumber=" +
+                    "$episodeNumber matched ${match.removed.map { it.episodeKey }} — " +
+                    "the stored key(s) differ from the DB row's key (a scanner " +
+                    "number-keyed rebuild). Removing by number."
             }
-            return@withContext true // not an error — idempotent
         }
+        DownloadLogger.i {
+            "removeEpisodeFromDataJson — match result: before=$before, " +
+                "removing=${match.removed.size}, keyMatched=${match.keyMatched}, " +
+                "numberReconciled=${match.numberReconciled}"
+        }
+        if (match.removed.isEmpty()) {
+            // D-401: the read SUCCEEDED and NOTHING matches by key OR number —
+            // the entry is genuinely not in this list (an earlier delete or a
+            // scanner rebuild already removed it). This is a TRUE idempotent
+            // no-op: the file already agrees with the request as-is.
+            DownloadLogger.i {
+                "removeEpisodeFromDataJson — no entry matches episodeKey='$episodeKey' " +
+                    "or episodeNumber=$episodeNumber in ${folder.name}'s .data.json " +
+                    "(read OK, ${existing.episodes.size} entries) — idempotent no-op"
+            }
+            return@withContext true
+        }
+        val removedEntries = match.removed
+        val newList = existing.episodes.filterNot { it in removedEntries }
         val updated = existing.copy(
             episodes = newList,
             updatedAt = System.currentTimeMillis(),
@@ -598,17 +680,22 @@ class DownloadStorageProvider(
                 "episodes=${verifyExisting?.episodes?.size ?: "null"}, " +
                 "keys=${verifyExisting?.episodes?.map { it.episodeKey }}"
         }
-        if (verifyExisting != null && verifyExisting.episodes.any { it.episodeKey == episodeKey }) {
+        if (!DeletionMatching.removalVerified(verifyExisting, removedEntries)) {
             DownloadLogger.w {
-                "removeEpisodeFromDataJson — VERIFY FAILED: episodeKey='$episodeKey' " +
-                    "is STILL in .data.json after writeDataJsonRaw. " +
-                    "The write either went to the wrong file or was rolled back."
+                "removeEpisodeFromDataJson — VERIFY FAILED: " +
+                if (verifyExisting == null) {
+                    "the re-read is NULL (unreadable — the write cannot be proven)"
+                } else {
+                    "a removed entry (by key or number) is STILL in .data.json"
+                } +
+                    " for episodeKey='$episodeKey'. The write either went to the " +
+                    "wrong file, was rolled back, or cannot be confirmed."
             }
             return@withContext false
         }
         DownloadLogger.i {
             "removeEpisodeFromDataJson — ${folder.name} now has ${newList.size} episode(s) " +
-                "(removed $episodeKey) — VERIFIED"
+                "(removed ${removedEntries.map { it.episodeKey }}) — VERIFIED (strict)"
         }
         true
     }
@@ -644,7 +731,8 @@ class DownloadStorageProvider(
     suspend fun deleteContentFolder(
         folder: DocumentFile,
         expectedMainId: String? = null,
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): Boolean = treeMutex.withLock {
+        withContext(Dispatchers.IO) {
         DownloadLogger.i {
             "deleteContentFolder — ENTER folder.name='${folder.name}', " +
                 "uri=${folder.uri}, expectedMainId=$expectedMainId"
@@ -708,6 +796,7 @@ class DownloadStorageProvider(
                 "folder.delete()=$folderDeleted, childFailures=$childFailures"
         }
         folderDeleted || !folder.exists()
+        }
     }
 
     /**
@@ -775,7 +864,8 @@ class DownloadStorageProvider(
     suspend fun deleteEpisodeFilesOnDisk(
         folder: DocumentFile,
         episodeNumber: Float,
-    ): DiskSweepReport = withContext(Dispatchers.IO) {
+    ): DiskSweepReport = treeMutex.withLock {
+        withContext(Dispatchers.IO) {
         val targetToken = formatEpisodeNumber(episodeNumber)
         DownloadLogger.i {
             "deleteEpisodeFilesOnDisk — ENTER folder='${folder.name}', " +
@@ -844,6 +934,7 @@ class DownloadStorageProvider(
                 "survivors=${report.survivors}"
         }
         report
+        }
     }
 
     /**
@@ -979,7 +1070,8 @@ class DownloadStorageProvider(
     suspend fun replaceEpisodesInDataJson(
         folder: DocumentFile,
         episodes: List<DownloadedEpisodeInfo>,
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): Boolean = treeMutex.withLock {
+        withContext(Dispatchers.IO) {
         val index = folder.listFiles().associateBy { it.name!! }
         val existing = readDataJsonIndexed(index) ?: return@withContext false
         val updated = existing.copy(
@@ -992,6 +1084,7 @@ class DownloadStorageProvider(
             "replaceEpisodesInDataJson — ${folder.name} now has ${episodes.size} episode(s)"
         }
         true
+        }
     }
 
     // D-242: deriveEpNumPadded removed — episodeKey is now non-nullable + equals

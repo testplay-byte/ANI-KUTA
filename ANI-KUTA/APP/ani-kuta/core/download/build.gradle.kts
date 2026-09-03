@@ -24,4 +24,8 @@ dependencies {
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
     implementation(libs.koin.android)
+
+    // D-401 (round 28): core:download's first test source set — the pure
+    // deletion-pipeline decision logic (DeletionMatching) is unit-tested.
+    testImplementation(libs.junit)
 }
