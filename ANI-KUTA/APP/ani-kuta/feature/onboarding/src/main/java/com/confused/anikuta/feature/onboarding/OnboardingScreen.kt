@@ -208,7 +208,7 @@ fun OnboardingScreen(
                     ) togetherWith (
                     slideOutHorizontally(
                         animationSpec = tween(360, easing = Motion.EasingEmphasized),
-                        finalOffsetX = { -it / 4 * direction },
+                        targetOffsetX = { -it / 4 * direction },
                     ) + fadeOut(tween(240))
                     )
             },

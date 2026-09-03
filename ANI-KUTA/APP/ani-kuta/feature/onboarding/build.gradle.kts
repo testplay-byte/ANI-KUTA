@@ -11,6 +11,7 @@ dependencies {
     // feature:download precedent, no api/impl split): the only external
     // consumer is MainActivity, and the wizard has no cross-feature contracts.
     implementation(project(":core:download")) // DownloadPreferences (the SAF folder pref)
+    implementation(project(":core:preferences")) // the Preference<T> class (downloadFolderUri's return type — core:download's implementation dep is NOT transitive)
     implementation(project(":core:designsystem"))
     implementation(project(":core:common"))
     implementation(project(":core:navigation-api"))
