@@ -1,30 +1,27 @@
 package com.confused.anikuta.core.download
 
 /**
- * D-401 (round 28): the PURE decision logic of the episode-deletion
- * `.data.json` pipeline — which entries a delete removes, and whether a
- * post-write re-read PROVES the removal landed.
+ * D-401 (round 28) → D-404 (round 29): the PURE MATCHING logic of the
+ * episode-deletion pipeline — which entries a delete targets.
  *
- * Extracted from [DownloadStorageProvider.removeEpisodeFromDataJson] so the
- * two decisions that the round-28 device report hinged on are unit-tested
- * (core:download's first test source set) instead of only provable on a
- * device:
+ * Extracted from [DownloadStorageProvider] so the decision the round-28
+ * device report hinged on is unit-tested (core:download's first test source
+ * set) instead of only provable on a device:
  *
- *  1. MATCHING — the round-27 ladder matched entries STRICTLY by
- *     `episodeKey`; a `.data.json` rebuilt by the scanner (which merges by
- *     `episodeNumber`) can hold a key that the DB row's delete key doesn't
- *     match. The old code then returned "idempotent success" WITHOUT
- *     touching the file — one of the two silent-success holes that left
- *     stale entries behind. [matchRemoval] now falls back to
- *     `episodeNumber` (key-drift reconciliation) and REPORTS which path
- *     matched, so the caller can log the reconciliation loudly.
+ *  - MATCHING — the round-27 ladder matched entries STRICTLY by
+ *    `episodeKey`; a `.data.json` rebuilt by the scanner (which merges by
+ *    `episodeNumber`) can hold a key that the DB row's delete key doesn't
+ *    match. The old code then returned "idempotent success" WITHOUT
+ *    touching the file — one of the two silent-success holes that left
+ *    stale entries behind. [matchRemoval] falls back to `episodeNumber`
+ *    (key-drift reconciliation) and REPORTS which path matched, so the
+ *    caller can log the reconciliation loudly.
  *
- *  2. STRICT VERIFICATION — the round-27 verify treated a NULL re-read as
- *     VERIFIED (`verifyExisting != null && …any{…}`), so a write that went
- *     to a dead URI + a re-read that failed both counted as success — the
- *     second silent-success hole. [removalVerified] requires the re-read to
- *     be NON-NULL and to contain NONE of the removed entries (by key OR by
- *     number).
+ * D-404 note: the round-28 `removalVerified` (the strict post-write check)
+ * is SUPERSEDED by [DataJsonRepair.episodesEqual] — the exact-set equality
+ * the verified rewrite ladder uses — and was removed. The manager still
+ * uses [matchRemoval] for Phase-2a entry capture (selecting the URI-deletion
+ * targets).
  *
  * No Android, no SAF, no I/O — plain data-class decisions.
  */
@@ -76,28 +73,5 @@ object DeletionMatching {
             keyMatched = false,
             numberReconciled = byNumber.isNotEmpty(),
         )
-    }
-
-    /**
-     * Does the post-write re-read [reread] PROVE that [removed] is gone?
-     *
-     * STRICT (the round-28 fix): a NULL re-read is a FAILURE (the old
-     * `verifyExisting != null && …` null-pass made a dead write look
-     * verified). The re-read must be non-null and contain NONE of the
-     * removed entries — matched by key OR by episodeNumber (either
-     * identity still being present means the removal did not land).
-     */
-    fun removalVerified(
-        reread: ContentDataJson?,
-        removed: List<DownloadedEpisodeInfo>,
-    ): Boolean {
-        if (reread == null) return false
-        if (removed.isEmpty()) return true
-        return reread.episodes.none { existing ->
-            removed.any { gone ->
-                existing.episodeKey == gone.episodeKey ||
-                    existing.episodeNumber == gone.episodeNumber
-            }
-        }
     }
 }
