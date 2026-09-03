@@ -297,8 +297,64 @@ object AndroidConfig {
     // WorkManager one-shot fire time resolved live via the new per-anime
     // sr_main_<mainId> tag, rendered as a 4-line fact panel (Next release /
     // Learned delay / Calculated / Landed + drift).
-    const val versionCode = 80
-    const val versionName = "0.4.15"
+    //
+    // Task 68 (round 28 — the five v0.4.15 device findings + THE ONBOARDING
+    // WIZARD, doc cloudstream-v2/19): (A) D-399 the delete-button armed
+    // choreography is now ONE synchronized animation — the round-27 version
+    // ran THREE independent animations (a 150ms AnimatedContent glyph morph
+    // inside a 220ms size grow + the frame grow at each call site), and the
+    // morph finishing early made the grow read as a two-stage stutter; ONE
+    // armedProgress (260ms, Motion.EasingEmphasized) now drives the glyph
+    // size, the IconButton frame, AND a staggered overlap-free crossfade
+    // (the 2.5x layout-phase growth + crisp re-raster stay); (B) D-400
+    // tapping ANYWHERE outside the armed button now disarms it — the armed
+    // state is hoisted to the SCREEN level (one armed button in the whole
+    // list) + an ancestor pointerInput interceptor observes every pointer
+    // DOWN and disarms whenever the touch's window position is OUTSIDE the
+    // armed button's own reported window-space rect; (C) D-401 THE
+    // DATA.JSON-FIRST DELETION PIPELINE (the user's explicit spec: update
+    // the .data.json, THEN delete the content) — the round-27 order deleted
+    // the files BEFORE the .data.json write (the exact SAF stale-URI window),
+    // the 1-episode "success" was a false positive (the last-episode folder
+    // delete removed the whole .data.json so the entry-removal write never
+    // had to land), and NOTHING serialized concurrent deletes (two
+    // read-modify-writes resurrected each other's entries and BOTH computed
+    // dbRemaining>0 so neither fired the last-episode folder cleanup). Now:
+    // the phases run DB capture → locate → capture entry → UPDATE+VERIFY
+    // the .data.json FIRST (while the tree is untouched) → file deletes
+    // (captured URIs + the disk sweep) → series-folder cleanup → DB row LAST;
+    // DefaultDownloadManager.deleteMutex serializes every delete +
+    // DownloadStorageProvider.treeMutex serializes ALL tree mutations
+    // (.data.json write/upsert/remove/replace + folder delete + disk sweep);
+    // the two silent-success holes are closed via the unit-tested
+    // DeletionMatching (key → episodeNumber key-drift reconciliation;
+    // STRICT verification — a null re-read is a FAILURE); (D) D-402 the
+    // search top-bar reveal SIGN FIX — the round-27 latch read Compose's
+    // nested-scroll available.y as the scroll-position delta when it is the
+    // FINGER displacement (proven from the pinned material3 PullToRefresh
+    // source: positive y = "Swiping down" = the pull) — every reported
+    // symptom mapped 1:1 to the inversion; the branches swap to the standard
+    // app-bar semantics (finger up into the content collapses, finger down
+    // toward the top / the P2R pull reveals), a derivedStateOf at-top
+    // force-reveal guarantees the bar at the very top, and the decision is
+    // the unit-tested searchBarNextCollapsed; (E) D-403 THE ONBOARDING SETUP
+    // WIZARD — the new feature:onboarding module replaces the deleted
+    // every-launch FirstRunSetupDialog: a custom NON-Material animated
+    // welcome (the time-driven aurora canvas + particle field + the
+    // staggered ANI-KUTA wordmark + the gradient-glow CTA), a LIVE theme
+    // picker (8 curated cards mapping to ThemeMode/AccentPreset/amoled —
+    // the whole app re-themes as the user taps), the three verified +
+    // skippable permission steps (folder/notifications/battery — REAL
+    // system checks re-verified on every ON_RESUME, never "we asked once"
+    // flags) + a finish summary; AppPreferences.onboardingCompleted gates
+    // the start destination, and the no-download-folder gate (all FIVE
+    // download call sites) shows a clear error dialog with an inline picker
+    // that VERIFIES the pick and RETRIES the download automatically. The CI
+    // unit-test list now also runs :core:download, :feature:anime-search:impl
+    // and :feature:onboarding tests. The update-check history improvements
+    // are DEFERRED per the user ("let's work on it later").
+    const val versionCode = 81
+    const val versionName = "0.4.16"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

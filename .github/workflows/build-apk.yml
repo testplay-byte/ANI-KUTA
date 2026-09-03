@@ -72,8 +72,13 @@ jobs:
       # Task 54 (round 14): :feature:cs-watch:api carries the episode-metadata
       # parser parity locks (the watch-page's CsWatchKey wire format) and
       # :impl the episode-key locks.
+      # Task 68 (round 28): :core:download carries the deletion-pipeline
+      # decision locks (DeletionMatching — matchRemoval + the STRICT
+      # removalVerified), :feature:anime-search:impl the top-bar reveal
+      # policy locks (searchBarNextCollapsed), and :feature:onboarding the
+      # wizard step-machine locks.
       - name: Run unit tests (CloudStream modules)
-        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:common:testDebugUnitTest :core:cs-player:testDebugUnitTest :feature:cs-watch:api:testDebugUnitTest :feature:cs-watch:impl:testDebugUnitTest
+        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:common:testDebugUnitTest :core:cs-player:testDebugUnitTest :feature:cs-watch:api:testDebugUnitTest :feature:cs-watch:impl:testDebugUnitTest :core:download:testDebugUnitTest :feature:anime-search:impl:testDebugUnitTest :feature:onboarding:testDebugUnitTest
 
       - name: Build debug APK
         run: ./gradlew assembleDebug

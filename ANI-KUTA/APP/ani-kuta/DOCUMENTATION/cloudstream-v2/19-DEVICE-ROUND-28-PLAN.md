@@ -231,3 +231,20 @@ C. Item 4 (D-402) — the search reveal sign fix + policy tests.
 D. Item 5 (D-403) — the onboarding wizard + the no-folder gate + the
    FirstRunSetupDialog removal.
 E. Docs + version 0.4.16/81 + tag + release + 2 ntfy notifications.
+
+---
+
+## As-built addendum (post-implementation)
+
+- **Module structure amendment (Item 5):** the wizard shipped as a SINGLE
+  module (`feature:onboarding`, the `feature:download` precedent) rather
+  than the api/impl split sketched above — the only external consumer is
+  MainActivity, and the wizard has no cross-feature contracts. Everything
+  else follows the plan.
+- **CI amendment:** the workflow's unit-test allowlist (a fixed gradlew
+  task list — new test source sets do NOT run themselves) gained
+  `:core:download:testDebugUnitTest`, `:feature:anime-search:impl:testDebugUnitTest`
+  and `:feature:onboarding:testDebugUnitTest` in the same round.
+- **D-398** is retired-unused (a numbering gap from a plan revision).
+- Delivered per-item commits: C (0dc96161), A+B (1d69ddfe), D (5b0cd2bb),
+  E (64ec3536) — see memory/progress.md Task 68 for the outcome log.
