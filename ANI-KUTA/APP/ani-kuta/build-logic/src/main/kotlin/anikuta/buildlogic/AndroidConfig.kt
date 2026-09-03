@@ -401,8 +401,55 @@ object AndroidConfig {
     // runs, so "Start watching" lands on a fully materialized Browse.
     // (C) D-406 the wizard ⇄ app handoff crossfades (250ms emphasized) —
     // quick to enter, no visual cut from the animated canvas.
-    const val versionCode = 82
-    const val versionName = "0.4.17"
+    //
+    // Task 70 (round 30 — the v0.4.17 device findings, doc cloudstream-v2/21):
+    // the device round CONFIRMED the data.json deletion system FULLY RESOLVED
+    // (1-of-5 entry removal clean, repeated deletes clean, the last two
+    // deleting the whole folder — "fully satisfactory") — no deletion code
+    // touched this round. D-406 the wizard rework:
+    // (A) THE BUTTON-AT-THE-TOP BUG (structural): the permission + finish
+    // steps each emitted TWO root-level layouts (a fillMaxSize content
+    // Column, then a SEPARATE bottom-CTA Column after it) and AnimatedContent
+    // stacks root children at TopStart — the "Skip for now" / "Start
+    // watching" CTAs OVERLAPPED the top of the screen. Every step is now ONE
+    // root Column with the content weight(1f) and the CTA INSIDE it, pinned
+    // to the bottom.
+    // (B) THE WELCOME BACKGROUND STUTTER, fixed at the root: (1) the old
+    // engine's two infinite-transition phases RAN 0→2π then WRAPPED to 0
+    // while the blobs multiplied them by non-integer speeds — sin(2π×1.7)≠
+    // sin(0), so every silhouette SNAPPED and every center TELEPORTED on a
+    // fixed 11s/24s schedule (the "keeps resetting / jumps into frames");
+    // the new engine runs ONE MONOTONIC CLOCK (frame-nano deltas, clamped
+    // to 64ms so backgrounding PAUSES the art) — nothing wraps, ever. (2)
+    // the old draw pass allocated a fresh Path + Array + 8 Offsets per blob
+    // per frame (~50 objects/frame → GC churn → the "skipped frames"); the
+    // new pass pre-allocates every Path, reuses FloatArrays, and caches the
+    // radial brushes per (width, accent) — ZERO steady-state allocation, and
+    // the clock is read ONLY inside drawBehind (draw-phase invalidation,
+    // zero recompositions). The motion now matches the spec: shapes MORPH
+    // between organic blobs and rounded polygons (per-blob side counts,
+    // staged seamless cycles) and SPLIT — two halves born at the same
+    // center with the same shape, drifting apart on a precessing axis with
+    // wobble phases diverging only in proportion to the split, then merging
+    // back — no pop at either end.
+    // (C) THE THEME STEP: the Light/Dark toggle at the very top is an exact
+    // replica of the appearance page's SegmentedToggle with EXACTLY two
+    // options (no System — a SYSTEM pref initializes to the system's actual
+    // mode); the carousel below shows only the selected mode's themes (every
+    // choice now carries a mode bucket) as exact PalettePreviewCard replicas
+    // (128×198) with the CENTER CARD BIG and the side cards at 76% + faded
+    // alpha (a draw-phase graphicsLayer scale on the live scroll offset);
+    // mode flips apply the new bucket's default card in one shot so the app
+    // never flashes a mismatched accent during the 220ms settle debounce.
+    // (D) THE PERMISSION STEPS stripped of every description the report
+    // named; the big icon MORPHS into a check on grant (one clean line —
+    // "Folder verified" — no repetition, no folder tree); the folder
+    // re-pick is a FULL button; the combined Skip→Continue button sits at
+    // the BOTTOM. Also: the finish CTA at the bottom, the step progress
+    // numbering fixed (storage no longer duplicates the theme step's 1/5),
+    // the back button's 48dp touch target, and the AutoMirrored arrow.
+    const val versionCode = 83
+    const val versionName = "0.4.18"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.
