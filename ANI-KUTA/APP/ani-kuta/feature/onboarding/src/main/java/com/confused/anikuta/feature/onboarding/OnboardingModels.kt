@@ -42,15 +42,26 @@ internal enum class OnboardingStep(val isPermissionStep: Boolean) {
  * applies LIVE (ThemePreferences' mutable states recompose the whole app,
  * CORE_RULES §23 — picking a card here recolors the wizard itself).
  *
+ * D-406 (round 30): the step's mode toggle is now EXACTLY two options —
+ * Light / Dark (the report: "There are only two options: light mode or dark
+ * mode. Depending on the user's selection, below the appropriate options
+ * will be shown") — so every choice declares which mode bucket it belongs
+ * to ("light" | "dark") and the carousel shows only the current mode's
+ * themes.
+ *
  * @property id The opaque theme id (MainActivity's mapping key).
- * @property title The card title (e.g. "Midnight").
- * @property subtitle One-line description (e.g. "Dark · Lime").
+ * @property mode The mode bucket this theme belongs to: "light" or "dark".
+ * @property title The card label (e.g. "Midnight").
+ * @property subtitle One-line description (e.g. "Dark · Lime") — documentation
+ * only; the D-406 carousel card (the appearance-page replica) renders the
+ * title alone, like the settings' palette cards.
  * @property previewBackground The card's mini-preview background color.
- * @property previewAccent The mini-preview accent (title bar + dot).
+ * @property previewAccent The mini-preview accent (dot + bar + ring).
  * @property previewSurface The mini-preview surface (card swatch).
  */
 data class OnboardingThemeChoice(
     val id: String,
+    val mode: String,
     val title: String,
     val subtitle: String,
     val previewBackground: Color,

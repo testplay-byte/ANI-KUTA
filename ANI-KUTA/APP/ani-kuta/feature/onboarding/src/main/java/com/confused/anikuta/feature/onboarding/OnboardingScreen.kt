@@ -7,9 +7,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -42,7 +45,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Check
@@ -50,7 +53,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -77,6 +79,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -96,35 +99,39 @@ import org.koin.compose.koinInject
 import kotlin.math.abs
 
 /**
- * D-403 (round 28) → D-405 (round 29): the onboarding SETUP WIZARD — the
- * first-run destination that replaces the old every-launch
- * FirstRunSetupDialog.
+ * D-403 (round 28) → D-405 (round 29) → D-406 (round 30): the onboarding
+ * SETUP WIZARD — the first-run destination that replaces the old
+ * every-launch FirstRunSetupDialog.
  *
- * ## The round-29 rework (the v0.4.16 device report)
- *  - **WELCOME** — the background is now ANIMATED MORPHING BLOB SHAPES
- *    ([OnboardingBlobBackground] — the report: "some animated shapes in the
- *    background, some animated kind of blobs moving around, and other stuff
- *    like that, with some different colors") + a ROTATING TAGLINE
- *    ([RotatingTagline] — "it should be changing smoothly to other taglines")
- *    and the bottom "offline-first anime streaming" line is REMOVED.
- *  - **THEME** — a horizontal SNAP CAROUSEL ("I can scroll the themes right
- *    and left and the theme will be applied live") + a System/Light/Dark
- *    mode row ("the option to select the dark mode and light mode there
- *    too") + the note "You can further customize in the settings later."
- *  - **STORAGE / NOTIFICATIONS / BATTERY** — a big centered icon, one
- *    COMBINED bottom button ("Skip for now" while ungranted → "Continue"
- *    once granted — replacing the two separate buttons), and the Allow
- *    action DISAPPEARS once the state is verified (the report: "it still
- *    shows me the Allow Notification button, which is not good") — replaced
- *    by a granted state.
- *  - **FINISH** — a 2×2 summary grid + the version line (moved here from
- *    the welcome's removed footer).
+ * ## The round-30 rework (the v0.4.17 device report)
+ *  - **THE BUTTON-AT-THE-TOP BUG (structural)** — the permission + finish
+ *    steps each emitted TWO root-level layouts (a `fillMaxSize` content
+ *    Column, then a SEPARATE bottom-CTA Column AFTER it). AnimatedContent
+ *    places every root child at TopStart, so the "Skip for now" /
+ *    "Start watching" CTA OVERLAPPED THE TOP of the screen (the report:
+ *    "the Skip for Now option… was shown at the very top… the Start
+ *    Watching button is shown at the very top"). Every step is now ONE
+ *    root Column with the content `weight(1f)` and the CTA INSIDE it,
+ *    pinned to the bottom — where it always belonged.
+ *  - **THEME** — rebuilt per the report: a Light/Dark toggle at the very
+ *    top (EXACTLY two options — no System), the appropriate options shown
+ *    below for the selected mode, and the carousel is a replica of the
+ *    appearance page's palette cards with the CENTER CARD BIG and the
+ *    others smaller.
+ *  - **STORAGE / NOTIFICATIONS / BATTERY** — stripped of every excess
+ *    description (the report named them one by one); the big icon now
+ *    MORPHS into a check when the state verifies; the folder step's
+ *    "Change folder" affordance is a FULL button; the combined
+ *    Skip-for-now → Continue button lives at the bottom.
+ *  - **FINISH** — the summary the report called perfect, with the CTA
+ *    moved to the bottom.
+ *  - The step progress numbering is fixed (theme 1/5 … finish 5/5 — the
+ *    storage step used to show 1/5, a duplicate of the theme step).
  *
- * Everything else from round 28 is kept: REAL verification (folder resolves
- * + writable; permission actually granted; battery exemption actually set),
- * re-verification on every ON_RESUME, every permission SKIPPABLE (a skipped
- * folder surfaces as a clear "no download folder selected" error with an
- * inline picker at download time — the MainActivity-side gate), and no
+ * Everything the reports APPROVED is kept: REAL verification (folder
+ * resolves + writable; permission actually granted; battery exemption
+ * actually set), re-verification on every ON_RESUME, every permission
+ * SKIPPABLE, the rotating tagline, the staggered wordmark, and no
  * ViewModel (ephemeral UI + app-side persistence).
  */
 @Composable
@@ -232,38 +239,23 @@ fun OnboardingScreen(
                     onContinue = { stepIndex = 2 },
                 )
                 OnboardingStep.STORAGE -> OnboardingPermissionStep(
-                    stepNumber = 1,
+                    stepNumber = 2,
                     icon = Icons.Filled.Folder,
                     title = "Download folder",
-                    description = "Pick the folder where episodes are saved for offline playback.",
-                    whyItMatters = "You can skip this — when you tap Download without a folder "
-                        + "selected, the app will ask you to pick one right there and retry.",
                     actionLabel = "Choose folder",
                     onAction = { folderPicker.launch(null) },
                     statusGranted = folderValid,
                     grantedLabel = "Folder verified",
-                    notGrantedLabel = if (folderUri.isBlank()) {
-                        "No folder selected"
-                    } else {
-                        "Folder not accessible"
-                    },
-                    grantedDescription = "Your download folder is verified and ready — "
-                        + "episodes will be saved there.",
                     allowChange = true,
                     changeLabel = "Change folder",
                     onChange = { folderPicker.launch(null) },
-                    changeHint = "You can pick a different folder anytime later in "
-                        + "Settings → Downloads.",
                     onBack = { stepIndex-- },
                     onContinue = { stepIndex = 3 },
                 )
                 OnboardingStep.NOTIFICATIONS -> OnboardingPermissionStep(
-                    stepNumber = 2,
+                    stepNumber = 3,
                     icon = Icons.Filled.Notifications,
                     title = "Notifications",
-                    description = "Download progress alerts and new-episode updates.",
-                    whyItMatters = "Skippable — everything else works; you just won't see the "
-                        + "alerts.",
                     actionLabel = "Allow notifications",
                     onAction = {
                         // Below Android 13 the permission doesn't exist (auto-granted —
@@ -273,38 +265,24 @@ fun OnboardingScreen(
                         }
                     },
                     statusGranted = notificationsGranted,
-                    grantedLabel = "Permission granted",
-                    notGrantedLabel = "Not granted yet",
-                    grantedDescription = "Notifications are on — download progress and "
-                        + "new-episode alerts will come through.",
+                    grantedLabel = "Notifications enabled",
                     allowChange = false,
                     changeLabel = "",
                     onChange = {},
-                    changeHint = "You can change this anytime in the system notification "
-                        + "settings.",
                     onBack = { stepIndex-- },
                     onContinue = { stepIndex = 4 },
                 )
                 OnboardingStep.BATTERY -> OnboardingPermissionStep(
-                    stepNumber = 3,
+                    stepNumber = 4,
                     icon = Icons.Filled.BatteryChargingFull,
                     title = "Background usage",
-                    description = "Keeps update checks and delayed notifications reliable "
-                        + "when the app is closed.",
-                    whyItMatters = "Skippable — without it, background checks may be deferred "
-                        + "by battery optimization.",
                     actionLabel = "Allow background usage",
                     onAction = { OnboardingPermissions.requestBatteryExemption(context) },
                     statusGranted = batteryExempted,
-                    grantedLabel = "Exempted from optimization",
-                    notGrantedLabel = "Not exempted yet",
-                    grantedDescription = "Background usage is allowed — update checks and "
-                        + "delayed notifications stay reliable.",
+                    grantedLabel = "Background usage allowed",
                     allowChange = false,
                     changeLabel = "",
                     onChange = {},
-                    changeHint = "You can change this anytime in the system battery "
-                        + "optimization settings.",
                     onBack = { stepIndex-- },
                     onContinue = { stepIndex = 5 },
                 )
@@ -354,12 +332,14 @@ private fun OnboardingTopBar(
             ),
         ) {
             Icon(
-                imageVector = Icons.Filled.ArrowBack,
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "Back",
                 tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .clickable(onClick = onBack)
-                    .padding(8.dp)
+                    // 14dp + 20dp + 14dp = a 48dp touch target (the Material
+                    // accessibility minimum; the glyph stays 20dp).
+                    .padding(14.dp)
                     .size(20.dp),
             )
         }
@@ -492,6 +472,53 @@ private fun OnboardingPrimaryCta(
     }
 }
 
+/**
+ * D-406 (round 30): the full-width SECONDARY action — the folder step's
+ * granted state asked for "a full button to change the folder rather than
+ * just showing a simple text". A translucent pill with a hairline accent
+ * border and the accent label — the same height language as the primary
+ * CTA but clearly secondary, and a FULL button, not a text link.
+ */
+@Composable
+private fun OnboardingSecondaryCta(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                val scale = if (pressed) 0.97f else 1f
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(50))
+            .background(SolidColor(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                shape = RoundedCornerShape(50),
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+            ) { onClick() }
+            .padding(horizontal = 24.dp, vertical = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
 /** Draws the CTA's soft radial glow (the accent at low alpha, fading out). */
 private fun Modifier.drawGlowBehind(accent: Color): Modifier = drawBehind {
     drawOval(
@@ -501,66 +528,6 @@ private fun Modifier.drawGlowBehind(accent: Color): Modifier = drawBehind {
             radius = size.width * 0.55f,
         ),
     )
-}
-
-/** The transparent text-button used for secondary actions ("Change folder"). */
-@Composable
-private fun OnboardingTextButton(
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Text(
-        text = label,
-        fontFamily = RobotoFamily,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary,
-        textAlign = TextAlign.Center,
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-    )
-}
-
-/** The verified / not-yet status chip on the permission steps. */
-@Composable
-private fun OnboardingStatusChip(granted: Boolean, grantedLabel: String, notGrantedLabel: String) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = if (granted) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        },
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (granted) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(14.dp),
-                )
-                Spacer(Modifier.size(4.dp))
-            }
-            Text(
-                text = if (granted) grantedLabel else notGrantedLabel,
-                fontFamily = RobotoFamily,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (granted) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-        }
-    }
 }
 
 /**
@@ -580,45 +547,6 @@ private fun OnboardingGlassPanel(modifier: Modifier = Modifier, content: @Compos
         ),
     ) {
         content()
-    }
-}
-
-/** The step heading: the icon chip + the big title + the subtitle. */
-@Composable
-private fun StepHeading(icon: ImageVector, title: String, subtitle: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
-            )
-        }
-        Spacer(Modifier.size(14.dp))
-        Column {
-            Text(
-                text = title,
-                fontFamily = RobotoFamily,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.size(2.dp))
-            Text(
-                text = subtitle,
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }
 
@@ -654,8 +582,10 @@ private fun OnboardingWelcomeStep(
         wordmarkDone = true
     }
     Box(modifier = Modifier.fillMaxSize()) {
-        // D-405: the morphing-blob shape background (the round-29 rework of
-        // the radial-glow aurora + rising-particle field).
+        // D-406 (round 30): the flow-shape background — the continuous-clock
+        // engine (no phase wraps, zero per-frame allocations) with shapes
+        // that morph into polygons and split apart (see
+        // [OnboardingBlobBackground]).
         OnboardingBlobBackground(
             accent = accent,
             base = Color(0xFF0D0A14),
@@ -695,9 +625,6 @@ private fun OnboardingWelcomeStep(
                     initialOffsetY = { it / 4 },
                 ),
             ) {
-                // D-405: the bottom "v$appVersion · offline-first anime
-                // streaming" line is REMOVED per the device report — the
-                // version now lives on the finish step.
                 OnboardingPrimaryCta(
                     label = "Get started",
                     onClick = onGetStarted,
@@ -709,25 +636,33 @@ private fun OnboardingWelcomeStep(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 2 — the theme picker (a snap carousel, applies LIVE)
+// STEP 2 — the theme picker (mode toggle + the appearance-page carousel)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * D-405 (round 29): the theme step as a horizontal SNAP CAROUSEL — the
- * report: "it should be in a carousel kind of format, like I can scroll the
- * themes right and left and the theme will be applied live and such."
+ * D-406 (round 30): the theme step, rebuilt per the device report —
  *
- *  - a [LazyRow] with [rememberSnapFlingBehavior] — each card snaps to the
- *    CENTER (edge padding = (viewport − card)/2);
- *  - the theme applies LIVE when the centered card SETTLES (a 220ms
- *    debounced snapshotFlow — flinging past cards doesn't re-theme the app
- *    on every frame, only the card that lands);
- *  - tapping an off-center card animates the carousel to it (which applies
- *    it via the settle);
- *  - the System/Light/Dark MODE row ("the option to select the dark mode and
- *    light mode there too") applies the mode LIVE and independently of the
- *    carousel's accent/preset;
- *  - the note: "You can further customize in the settings later."
+ *  - **THE TOP**: a Light / Dark toggle with EXACTLY two options (the
+ *    report: "At the very top the user should be given the option to select
+ *    which theme he wants, light mode or dark mode… There are only two
+ *    options… no system or anything like that") — the exact SegmentedToggle
+ *    UI from the Appearance → General page. Depending on the selection, the
+ *    appropriate options are shown below: the carousel filters to the
+ *    selected mode's themes.
+ *  - **THE CAROUSEL**: the exact PalettePreviewCard UI from the appearance
+ *    page (preview background, accent dot, selected badge, card swatch with
+ *    the accent bar, bold label), arranged as a center-snapping carousel
+ *    where the main entry is BIGGER and the side ones smaller (a
+ *    draw-phase scale driven by the live scroll offset — buttery on any
+ *    refresh rate).
+ *  - Selection applies LIVE: the centered card's theme applies once the
+ *    carousel SETTLES (a 220ms debounced snapshotFlow — flinging past cards
+ *    doesn't re-theme the app per frame), and tapping an off-center card
+ *    animates the carousel to it.
+ *  - Switching the MODE applies the mode immediately; the carousel swaps to
+ *    the new mode's cards and lands on its first one (the settle then
+ *    applies that mode's default theme live — the highlight always equals
+ *    the truth).
  */
 @Composable
 private fun OnboardingThemeStep(
@@ -739,6 +674,15 @@ private fun OnboardingThemeStep(
     onBack: () -> Unit,
     onContinue: () -> Unit,
 ) {
+    // Exactly two buckets — anything unexpected reads as dark (the wizard's
+    // canonical look).
+    val isLight = selectedMode == "light"
+    // The appropriate options for the selected mode (defensive fallback:
+    // all choices if a bucket is somehow empty).
+    val modeChoices = remember(choices, isLight) {
+        choices.filter { (it.mode == "light") == isLight }.ifEmpty { choices }
+    }
+
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     // The card nearest the viewport's center — the carousel's "current" card.
@@ -752,22 +696,23 @@ private fun OnboardingThemeStep(
                 ?: 0
         }
     }
-    // The initial position: pre-scroll to the currently-selected theme.
-    val initialIndex = remember(choices, selectedId) {
-        choices.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
+    // The initial position: pre-scroll to the currently-selected theme (or
+    // the first card of a fresh mode bucket — the mode flip re-keys this).
+    val initialIndex = remember(modeChoices) {
+        modeChoices.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
     }
-    LaunchedEffect(initialIndex) {
+    LaunchedEffect(modeChoices) {
         listState.scrollToItem(initialIndex)
     }
     // LIVE application on settle: the centered card's theme applies once the
     // carousel stops on it (collectLatest cancels the pending apply when a
     // newer index lands first — a clean debounce).
-    LaunchedEffect(choices) {
+    LaunchedEffect(modeChoices) {
         snapshotFlow { centeredIndex }
             .distinctUntilChanged()
             .collectLatest { index ->
                 kotlinx.coroutines.delay(220)
-                choices.getOrNull(index)?.let { onSelected(it.id) }
+                modeChoices.getOrNull(index)?.let { onSelected(it.id) }
             }
     }
 
@@ -778,10 +723,19 @@ private fun OnboardingThemeStep(
     ) {
         OnboardingTopBar(stepPosition = 1, totalSteps = 5, onBack = onBack)
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-            StepHeading(
-                icon = Icons.Filled.Palette,
-                title = "Make it yours",
-                subtitle = "Swipe through the themes — each one applies live.",
+            Text(
+                text = "Make it yours",
+                fontFamily = RobotoFamily,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.size(12.dp))
+            // The Light / Dark toggle — the appearance page's segmented
+            // toggle, exactly two options.
+            OnboardingModeToggle(
+                selectedMode = selectedMode,
+                onModeSelected = onModeSelected,
             )
         }
         Spacer(Modifier.size(8.dp))
@@ -791,7 +745,7 @@ private fun OnboardingThemeStep(
                 .fillMaxWidth()
                 .weight(1f),
         ) {
-            val cardWidth = maxWidth * 0.72f
+            val cardWidth = 128.dp
             val edgePadding = (maxWidth - cardWidth) / 2
             LazyRow(
                 state = listState,
@@ -800,32 +754,50 @@ private fun OnboardingThemeStep(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                itemsIndexed(choices, key = { _, choice -> choice.id }) { index, choice ->
-                    OnboardingThemeCarouselCard(
-                        choice = choice,
-                        centered = index == centeredIndex,
-                        onClick = {
-                            if (index == centeredIndex) {
-                                // Tapping the centered card applies it directly.
-                                onSelected(choice.id)
-                            } else {
-                                // Tapping an off-center card animates to it —
-                                // the settle applies the theme.
-                                scope.launch { listState.animateScrollToItem(index) }
-                            }
-                        },
-                        modifier = Modifier.width(cardWidth),
-                    )
+                itemsIndexed(modeChoices, key = { _, choice -> choice.id }) { index, choice ->
+                    // The CENTERED card is big, the side cards smaller — a
+                    // draw-phase scale + alpha driven by the LIVE distance
+                    // from the viewport center (re-executed on scroll, never
+                    // recomposing).
+                    Box(
+                        modifier = Modifier
+                            .width(cardWidth)
+                            .graphicsLayer {
+                                val layout = listState.layoutInfo
+                                val info = layout.visibleItemsInfo
+                                    .firstOrNull { it.index == index }
+                                    ?: return@graphicsLayer
+                                val viewportCenter =
+                                    (layout.viewportStartOffset + layout.viewportEndOffset) / 2
+                                val distance =
+                                    abs(info.offset + info.size / 2 - viewportCenter)
+                                val fraction =
+                                    (distance / (cardWidth.toPx() * 1.15f)).coerceIn(0f, 1f)
+                                val scale = 1f - 0.24f * fraction
+                                scaleX = scale
+                                scaleY = scale
+                                alpha = 1f - 0.35f * fraction
+                            },
+                    ) {
+                        OnboardingPaletteCard(
+                            choice = choice,
+                            selected = choice.id == selectedId,
+                            onClick = {
+                                if (index == centeredIndex) {
+                                    // Tapping the centered card applies it directly.
+                                    onSelected(choice.id)
+                                } else {
+                                    // Tapping an off-center card animates to it —
+                                    // the settle applies the theme.
+                                    scope.launch { listState.animateScrollToItem(index) }
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-            // The appearance mode row — System / Light / Dark, applied live.
-            ThemeModeRow(
-                selectedMode = selectedMode,
-                onModeSelected = onModeSelected,
-            )
-            Spacer(Modifier.size(10.dp))
             Text(
                 text = "You can further customize in the settings later.",
                 fontFamily = RobotoFamily,
@@ -841,208 +813,182 @@ private fun OnboardingThemeStep(
     }
 }
 
-/** The System / Light / Dark segmented control (applies the mode LIVE). */
+/**
+ * D-406 (round 30): the Light / Dark mode toggle — an exact replica of the
+ * Appearance → General page's SegmentedToggle (surfaceVariant track at 12dp
+ * corners, 4dp inner padding, per-option animated pill at 8dp corners, 13sp
+ * ExtraBold when selected / Medium when not), with EXACTLY two options and
+ * no System (the report was explicit).
+ */
 @Composable
-private fun ThemeModeRow(
+private fun OnboardingModeToggle(
     selectedMode: String,
     onModeSelected: (String) -> Unit,
 ) {
     val options = listOf(
-        "system" to "System",
         "light" to "Light",
         "dark" to "Dark",
     )
-    Row(
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        options.forEach { (id, label) ->
-            val selected = id == selectedMode
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(50))
-                    .background(
-                        if (selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
-                        },
-                    )
-                    .border(
-                        width = 1.dp,
-                        color = if (selected) {
-                            Color.Transparent
-                        } else {
-                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        },
-                        shape = RoundedCornerShape(50),
-                    )
-                    .clickable { onModeSelected(id) }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (selected) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(4.dp),
+        ) {
+            options.forEach { (id, label) ->
+                val selected = id == selectedMode
+                val bg by animateColorAsState(
+                    targetValue = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        Color.Transparent
+                    },
+                    animationSpec = tween(180),
+                    label = "onboardingModeBg_$id",
+                )
+                val fg by animateColorAsState(
+                    targetValue = if (selected) {
                         MaterialTheme.colorScheme.onPrimary
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
+                    animationSpec = tween(180),
+                    label = "onboardingModeFg_$id",
                 )
+                Surface(
+                    color = bg,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onModeSelected(id) },
+                ) {
+                    Box(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = label,
+                            fontFamily = RobotoFamily,
+                            fontSize = 13.sp,
+                            fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
+                            color = fg,
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 /**
- * One LARGE carousel card — a miniature of the theme: a mock screen (hero
- * block with an accent gradient, list rows in the surface color, an accent
- * pill) rendered from the choice's preview colors, over the title/subtitle.
+ * D-406 (round 30): one carousel card — an exact replica of the appearance
+ * page's PalettePreviewCard (the report: "For the carousel I would like you
+ * to utilize the exact same UI which is being used in the appearance page"):
+ * the theme's own preview background, the accent dot, the selected badge
+ * (accent circle + white check), the surface card swatch with the accent
+ * bar, and the bold label — scaled up for the carousel's big main entry.
+ *
+ * The label color derives from the card's OWN preview background luminance
+ * (a light card must stay readable while the app itself is dark — the
+ * appearance page reads the current theme's onSurface because its previews
+ * always match the live theme; the wizard's cards deliberately don't).
  */
 @Composable
-private fun OnboardingThemeCarouselCard(
+private fun OnboardingPaletteCard(
     choice: OnboardingThemeChoice,
-    centered: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val borderColor = if (centered) {
-        MaterialTheme.colorScheme.primary
+    // Selection ring: animated accent-colored border (the appearance card's
+    // exact pattern).
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) choice.previewAccent else Color.Transparent,
+        animationSpec = tween(200),
+        label = "onboardingPaletteBorder",
+    )
+    val labelColor = if (choice.previewBackground.luminance() > 0.5f) {
+        Color(0xFF2A2438) // dark ink on the light previews
     } else {
-        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
+        Color(0xFFF4F0FF) // light ink on the dark previews
     }
-    Column(
+    Surface(
+        color = choice.previewBackground,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(if (selected) 2.dp else 0.dp, borderColor),
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .border(
-                width = if (centered) 2.dp else 1.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(20.dp),
-            )
-            .clickable(onClick = onClick)
-            .padding(12.dp),
+            .size(width = 128.dp, height = 198.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
     ) {
-        // The mock screen — a faithful miniature of the theme.
-        Box(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(230.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(choice.previewBackground),
+                .fillMaxSize()
+                .padding(10.dp),
         ) {
-            // The hero block (a surface card with an accent gradient sweep).
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 14.dp)
-                    .fillMaxWidth(0.86f)
-                    .height(96.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                choice.previewAccent.copy(alpha = 0.55f),
-                                choice.previewSurface,
-                            ),
-                        ),
-                    ),
+            // Top row: accent dot (left) + selected badge (right).
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                // A floating "play" chip in the accent.
                 Box(
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .size(26.dp)
+                        .size(16.dp)
                         .clip(CircleShape)
                         .background(choice.previewAccent),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        tint = Color.Black.copy(alpha = 0.75f),
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-            // The list rows (a browsing list in the surface color).
-            repeat(3) { row ->
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(
-                            start = 7.dp,
-                            bottom = 10.dp + (row * 34).dp,
+                )
+                if (selected) {
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(choice.previewAccent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = "Selected",
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp),
                         )
-                        .fillMaxWidth(0.86f),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(width = 40.dp, height = 24.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(choice.previewSurface),
-                    )
-                    Spacer(Modifier.size(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(10.dp)
-                            .clip(RoundedCornerShape(5.dp))
-                            .background(choice.previewSurface.copy(alpha = 0.85f)),
-                    )
+                    }
                 }
             }
-            // The accent pill (the "tag" language of the browse cards).
+            Spacer(modifier = Modifier.height(10.dp))
+            // Card preview block with an accent bar at the bottom (a "primary
+            // button") — the appearance card's exact composition.
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(8.dp)
-                    .size(width = 34.dp, height = 7.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(choice.previewAccent),
-            )
-            if (centered) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary,
+                    .fillMaxWidth()
+                    .height(88.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(choice.previewSurface),
+            ) {
+                Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .size(20.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Check,
-                        contentDescription = "Selected",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.padding(3.dp),
-                    )
-                }
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(22.dp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(choice.previewAccent),
+                )
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            // Label
+            Text(
+                text = choice.title,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = labelColor,
+                maxLines = 1,
+            )
         }
-        Spacer(Modifier.size(12.dp))
-        Text(
-            text = choice.title,
-            fontFamily = RobotoFamily,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = if (centered) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-        )
-        Spacer(Modifier.size(2.dp))
-        Text(
-            text = choice.subtitle,
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -1051,41 +997,45 @@ private fun OnboardingThemeCarouselCard(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * D-405 (round 29): the permission step v2 — the report's redesign:
- *  - a BIG icon top-center (the folder report: "show a full folder icon at
- *    the center top");
- *  - the action (Choose folder / Allow notifications / Allow background
- *    usage) lives in the glass panel WHILE UNGRANTED — once the state is
- *    VERIFIED the action button is REPLACED by a granted state (the report:
- *    "After the notification has been allowed it should not show the Allow
- *    Notification button");
- *  - ONE combined bottom button (the report: "the Continue and Skip for now
- *    buttons should be combined into a single button. If the user has not
- *    selected a folder then it will say Skip for now. If the user has
- *    selected the folder then it will say Continue") — "Skip for now" is
- *    neutral-styled while ungranted, morphing into the accent "Continue"
- *    once granted.
+ * D-406 (round 30): the permission step v3 — the round-30 report's redesign:
+ *
+ *  - **ONE ROOT COLUMN** — the round-29 version emitted the bottom CTA as a
+ *    SECOND root-level layout after the fillMaxSize content column, and
+ *    AnimatedContent stacked them at TopStart — the "Skip for Now option
+ *    was shown at the very top" bug. The CTA now lives INSIDE the single
+ *    root column, pinned to the bottom by the weighted content above.
+ *  - **NO EXCESS TEXT** — every description the report called out ("Pick
+ *    the folder where episodes are saved…", "Your download folder is
+ *    verified and ready…", "You can pick a different folder anytime later
+ *    in Settings → Downloads", the skip explanations) is gone: the step is
+ *    the big icon, the title, and the action.
+ *  - **THE GRANTED MOMENT** — the big step icon morphs into a check when
+ *    the state verifies, with ONE clean line ("Folder verified") — no
+ *    repetition, no folder tree, no status chip stacked above a panel that
+ *    says the same thing.
+ *  - **THE FULL CHANGE BUTTON** — the folder step's re-pick affordance is a
+ *    full-width button ([OnboardingSecondaryCta]), "rather than just
+ *    showing a simple text".
+ *  - **THE COMBINED BOTTOM BUTTON** — "Skip for now" (neutral) while
+ *    ungranted → "Continue" (accent) once granted — one button, one tap,
+ *    always at the BOTTOM.
  */
 @Composable
 private fun OnboardingPermissionStep(
     stepNumber: Int,
     icon: ImageVector,
     title: String,
-    description: String,
-    whyItMatters: String,
     actionLabel: String,
     onAction: () -> Unit,
     statusGranted: Boolean,
     grantedLabel: String,
-    notGrantedLabel: String,
-    grantedDescription: String,
     allowChange: Boolean,
     changeLabel: String,
     onChange: () -> Unit,
-    changeHint: String,
     onBack: () -> Unit,
     onContinue: () -> Unit,
 ) {
+    // ONE root column — the CTA is INSIDE it, at the bottom (D-406).
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1098,28 +1048,45 @@ private fun OnboardingPermissionStep(
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.size(8.dp))
-            // The big centered icon (D-405 — was a small left-aligned chip).
-            Box(
-                modifier = Modifier
-                    .size(92.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-                        shape = CircleShape,
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(42.dp),
-                )
+            Spacer(Modifier.weight(0.55f))
+            // The big centered icon — morphs into the check the moment the
+            // state verifies (the "done" moment, replacing every granted
+            // panel of rounds 28-29).
+            AnimatedContent(
+                targetState = statusGranted,
+                transitionSpec = {
+                    (
+                        scaleIn(
+                            animationSpec = tween(280, easing = Motion.EasingEmphasized),
+                            initialScale = 0.6f,
+                        ) + fadeIn(tween(280))
+                        ) togetherWith (
+                        scaleOut(animationSpec = tween(180)) + fadeOut(tween(180))
+                        )
+                },
+                label = "onboardingStepIcon_$stepNumber",
+            ) { granted ->
+                Box(
+                    modifier = Modifier
+                        .size(92.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                            shape = CircleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = if (granted) Icons.Filled.CheckCircle else icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(44.dp),
+                    )
+                }
             }
-            Spacer(Modifier.size(18.dp))
+            Spacer(Modifier.size(20.dp))
             Text(
                 text = title,
                 fontFamily = RobotoFamily,
@@ -1128,102 +1095,49 @@ private fun OnboardingPermissionStep(
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.size(6.dp))
-            Text(
-                text = description,
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.size(14.dp))
-            OnboardingStatusChip(
-                granted = statusGranted,
-                grantedLabel = grantedLabel,
-                notGrantedLabel = notGrantedLabel,
-            )
-            Spacer(Modifier.size(22.dp))
-            OnboardingGlassPanel(Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    if (!statusGranted) {
-                        // The action — ONLY while ungranted (D-405: the
-                        // round-28 version kept rendering the Allow button
-                        // after the state was already granted).
-                        OnboardingPrimaryCta(
-                            label = actionLabel,
-                            onClick = onAction,
-                        )
-                        Spacer(Modifier.size(12.dp))
-                        Text(
-                            text = whyItMatters,
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                    } else {
-                        // The granted state (D-405) — a clear "done" moment
-                        // instead of a dead action button.
-                        Icon(
-                            imageVector = Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(34.dp),
-                        )
-                        Spacer(Modifier.size(8.dp))
-                        Text(
-                            text = grantedLabel,
-                            fontFamily = RobotoFamily,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary,
-                            textAlign = TextAlign.Center,
-                        )
-                        Spacer(Modifier.size(4.dp))
-                        Text(
-                            text = grantedDescription,
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                        if (allowChange) {
-                            // The folder step keeps its "Change folder"
-                            // affordance (a re-pick is a real use case).
-                            Spacer(Modifier.size(6.dp))
-                            OnboardingTextButton(label = changeLabel, onClick = onChange)
-                        }
-                        Spacer(Modifier.size(6.dp))
-                        Text(
-                            text = changeHint,
-                            fontFamily = RobotoFamily,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                            textAlign = TextAlign.Center,
-                        )
-                    }
+            Spacer(Modifier.weight(0.45f))
+            if (!statusGranted) {
+                // The action — ONLY while ungranted (the round-28 version
+                // kept rendering the Allow button after the grant; the
+                // round-29 version kept the panel; this one is just the
+                // button).
+                OnboardingPrimaryCta(
+                    label = actionLabel,
+                    onClick = onAction,
+                )
+            } else {
+                // The granted state — ONE clean line under the morphed check
+                // (no repetition, no folder tree, no hints).
+                Text(
+                    text = grantedLabel,
+                    fontFamily = RobotoFamily,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center,
+                )
+                if (allowChange) {
+                    // The folder step's re-pick — a FULL button (D-406).
+                    Spacer(Modifier.size(16.dp))
+                    OnboardingSecondaryCta(
+                        label = changeLabel,
+                        onClick = onChange,
+                    )
                 }
             }
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.weight(0.8f))
         }
-    }
-    // The COMBINED bottom button (D-405), pinned to the screen's bottom by
-    // the weighted column above: "Skip for now" while ungranted →
-    // "Continue" once granted — one button, one tap, always proceeds.
-    Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-        OnboardingPrimaryCta(
-            label = if (statusGranted) "Continue" else "Skip for now",
-            onClick = onContinue,
-            neutral = !statusGranted,
-        )
-        Spacer(Modifier.height(24.dp))
+        // The COMBINED bottom button (D-405) — now INSIDE the root column,
+        // pinned to the bottom by the weighted content (D-406): "Skip for
+        // now" while ungranted → "Continue" once granted.
+        Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+            OnboardingPrimaryCta(
+                label = if (statusGranted) "Continue" else "Skip for now",
+                onClick = onContinue,
+                neutral = !statusGranted,
+            )
+            Spacer(Modifier.height(24.dp))
+        }
     }
 }
 
@@ -1232,10 +1146,12 @@ private fun OnboardingPermissionStep(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * D-405 (round 29): the finish step — a 2×2 grid of setup-summary cards
- * (each with its step icon + the granted/skipped state) instead of the flat
- * row list, plus the version line (relocated here from the welcome's
- * removed footer).
+ * D-405 (round 29) → D-406 (round 30): the finish step — the 2×2 grid of
+ * setup-summary cards the round-30 report called PERFECT ("the very last
+ * screen… is perfect. I don't have any issues with that screen"), with the
+ * ONE reported defect fixed: the Start-watching CTA is now inside the
+ * single root column at the BOTTOM (was a second root-level layout that
+ * AnimatedContent stacked at the top of the screen).
  */
 @Composable
 private fun OnboardingFinishStep(
@@ -1248,6 +1164,7 @@ private fun OnboardingFinishStep(
     onBack: () -> Unit,
     onFinish: () -> Unit,
 ) {
+    // ONE root column — the CTA is INSIDE it, at the bottom (D-406).
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1279,7 +1196,7 @@ private fun OnboardingFinishStep(
             Spacer(Modifier.size(18.dp))
             val themeName = themeChoices
                 .firstOrNull { it.id == selectedThemeId }?.title ?: "Custom"
-            // The 2×2 summary grid (D-405 — was a flat single-column list).
+            // The 2×2 summary grid (D-405).
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 SummaryCard(
                     icon = Icons.Filled.Palette,
@@ -1315,21 +1232,23 @@ private fun OnboardingFinishStep(
             }
             Spacer(Modifier.height(28.dp))
         }
-    }
-    // The CTA + version line, pinned to the bottom by the weighted column.
-    Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-        OnboardingPrimaryCta(label = "Start watching", onClick = onFinish)
-        Spacer(Modifier.size(10.dp))
-        // The version line — relocated from the welcome footer (D-405).
-        Text(
-            text = "ANI-KUTA v$appVersion",
-            fontFamily = RobotoFamily,
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(24.dp))
+        // The CTA + version line — pinned to the BOTTOM by the weighted
+        // column above (D-406: was a second root-level layout rendered at
+        // the TOP of the screen).
+        Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+            OnboardingPrimaryCta(label = "Start watching", onClick = onFinish)
+            Spacer(Modifier.size(10.dp))
+            // The version line — relocated from the welcome footer (D-405).
+            Text(
+                text = "ANI-KUTA v$appVersion",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(24.dp))
+        }
     }
 }
 

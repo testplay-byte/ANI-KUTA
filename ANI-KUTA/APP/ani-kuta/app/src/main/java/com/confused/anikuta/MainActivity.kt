@@ -562,10 +562,14 @@ fun AppRoot() {
     // A LIVE read (ThemePreferences' mutableStates recompose AppRoot) — the
     // wizard's selected card tracks the actual theme even if it changes.
     val onboardingSelectedThemeId = currentOnboardingThemeId(prefs = themePreferencesForOnboarding)
-    // D-405 (round 29): the wizard's System/Light/Dark mode row — a LIVE read
-    // of the current mode + the apply callback (the row is independent of the
-    // carousel's accent/preset: the mode applies on its own).
-    val onboardingSelectedThemeMode = currentOnboardingThemeMode(prefs = themePreferencesForOnboarding)
+    // D-405 → D-406 (round 30): the wizard's Light/Dark toggle — a LIVE read
+    // of the current mode (SYSTEM resolves to the system's actual mode, so
+    // the two-option toggle initializes honestly) + the apply callback (the
+    // mode applies on its own, independent of the carousel's preset).
+    val onboardingSelectedThemeMode = currentOnboardingThemeMode(
+        prefs = themePreferencesForOnboarding,
+        systemDark = isSystemInDarkTheme(),
+    )
 
     // D-405 (round 29): the BROWSE PRELOAD — while the user works through the
     // wizard, the entire Browse page (the 3 sections' data + every cover
@@ -897,13 +901,30 @@ fun AppRoot() {
                 },
                 selectedThemeMode = onboardingSelectedThemeMode,
                 onThemeModeSelected = { mode ->
-                    themePreferencesForOnboarding.setThemeMode(
-                        when (mode) {
-                            "light" -> ThemeMode.LIGHT
-                            "dark" -> ThemeMode.DARK
-                            else -> ThemeMode.SYSTEM
-                        },
-                    )
+                    // D-406 (round 30): the mode toggle. When the applied
+                    // theme belongs to the OTHER bucket, apply the new mode's
+                    // DEFAULT CARD in one shot (mode + preset together) so the
+                    // app never flashes a mismatched accent for the ~220ms it
+                    // takes the carousel's settle to land on the same card —
+                    // the wizard then re-scrolls to that card and the settle
+                    // is a no-op (the highlight always equals the truth).
+                    // Same-bucket taps (and unmapped states) just set the
+                    // mode.
+                    val currentCard = onboardingChoices
+                        .firstOrNull { it.id == onboardingSelectedThemeId }
+                    if (currentCard != null && currentCard.mode != mode) {
+                        onboardingChoices.firstOrNull { it.mode == mode }?.let { default ->
+                            applyOnboardingThemeById(themePreferencesForOnboarding, default.id)
+                        }
+                    } else {
+                        themePreferencesForOnboarding.setThemeMode(
+                            when (mode) {
+                                "light" -> ThemeMode.LIGHT
+                                "dark" -> ThemeMode.DARK
+                                else -> ThemeMode.SYSTEM
+                            },
+                        )
+                    }
                 },
                 appVersion = remember {
                     runCatching {
@@ -2432,16 +2453,20 @@ private fun buildWatchKeyFromCacheEntry(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * D-403 → D-405 (round 29): the wizard's curated quick-theme CAROUSEL cards
- * (7 — the round-28 "system" card is gone; the System/Light/Dark MODE ROW
- * covers it now). The ids map to (ThemeMode, AccentPreset, amoled) in
- * [applyOnboardingThemeById]; the preview colors sample the app's
- * design-system palette (Color.kt) so each card's mock screen is a faithful
- * miniature of the real theme.
+ * D-403 → D-405 → D-406 (round 30): the wizard's curated quick-theme
+ * CAROUSEL cards. D-406: every choice now carries its MODE bucket
+ * ("light" | "dark") — the theme step's Light/Dark toggle (exactly two
+ * options, no System) filters the carousel to the selected mode's themes
+ * (the report: "Depending on the user's selection, below the appropriate
+ * options will be shown"). The ids map to (ThemeMode, AccentPreset,
+ * amoled) in [applyOnboardingThemeById]; the preview colors sample the
+ * app's design-system palette (Color.kt) so each card is a faithful
+ * miniature of the real theme (the appearance page's palette-card UI).
  */
 private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
     OnboardingThemeChoice(
         id = "midnight",
+        mode = "dark",
         title = "Midnight",
         subtitle = "Dark · Lime",
         previewBackground = Color(0xFF14111F),
@@ -2450,6 +2475,7 @@ private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
     ),
     OnboardingThemeChoice(
         id = "daylight",
+        mode = "light",
         title = "Daylight",
         subtitle = "Light · Lime",
         previewBackground = Color(0xFFFAF9F6),
@@ -2458,6 +2484,7 @@ private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
     ),
     OnboardingThemeChoice(
         id = "amoled",
+        mode = "dark",
         title = "AMOLED",
         subtitle = "Pure black · Violet",
         previewBackground = Color(0xFF000000),
@@ -2466,6 +2493,7 @@ private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
     ),
     OnboardingThemeChoice(
         id = "dusk",
+        mode = "dark",
         title = "Dusk",
         subtitle = "Dark · Coral",
         previewBackground = Color(0xFF14111F),
@@ -2474,6 +2502,7 @@ private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
     ),
     OnboardingThemeChoice(
         id = "night",
+        mode = "dark",
         title = "Night",
         subtitle = "Dark · Violet",
         previewBackground = Color(0xFF171226),
@@ -2482,6 +2511,7 @@ private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
     ),
     OnboardingThemeChoice(
         id = "teal",
+        mode = "light",
         title = "Teal Mist",
         subtitle = "Light · Teal",
         previewBackground = Color(0xFFFAF9F6),
@@ -2490,6 +2520,7 @@ private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
     ),
     OnboardingThemeChoice(
         id = "coral_light",
+        mode = "light",
         title = "Coral Day",
         subtitle = "Light · Coral",
         previewBackground = Color(0xFFFAF9F6),
@@ -2567,13 +2598,19 @@ private fun currentOnboardingThemeId(prefs: ThemePreferences): String = when {
 }
 
 /**
- * D-405 (round 29): the LIVE mode for the wizard's System/Light/Dark row —
- * "system" | "light" | "dark" (ThemeMode mapped to the row's ids).
+ * D-405 → D-406 (round 30): the LIVE mode for the wizard's Light/Dark
+ * toggle — exactly two options, so SYSTEM resolves to the system's ACTUAL
+ * mode ([isSystemInDarkTheme], read at the call site in composition): the
+ * toggle initializes to what the user is effectively looking at, and the
+ * first tap makes the choice explicit. Returns "light" | "dark".
  */
-private fun currentOnboardingThemeMode(prefs: ThemePreferences): String = when (prefs.themeMode.value) {
+private fun currentOnboardingThemeMode(
+    prefs: ThemePreferences,
+    systemDark: Boolean,
+): String = when (prefs.themeMode.value) {
     ThemeMode.LIGHT -> "light"
     ThemeMode.DARK -> "dark"
-    else -> "system"
+    else -> if (systemDark) "dark" else "light"
 }
 
 /**
