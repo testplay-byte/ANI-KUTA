@@ -72,6 +72,8 @@ dependencies {
     implementation(project(":feature:extensions-settings:api"))
     implementation(project(":feature:extensions-settings:impl"))
     implementation(project(":feature:download"))
+    // D-403 (round 28): the onboarding setup wizard — the first-run destination.
+    implementation(project(":feature:onboarding"))
     implementation(project(":feature:watch:api"))
     implementation(project(":feature:watch:impl"))
     // CloudStream V2 (task 52): the dedicated CS watch screen — runs on the

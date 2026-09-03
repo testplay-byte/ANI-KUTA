@@ -50,6 +50,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -83,6 +84,9 @@ import com.confused.anikuta.feature.animelibrary.LocalLibrarySelectionMode
 import com.confused.anikuta.feature.animesearch.AnimeSearchKey
 import com.confused.anikuta.feature.animesearch.SearchScreen
 import com.confused.anikuta.feature.download.DownloadsKey
+import com.confused.anikuta.feature.onboarding.OnboardingKey
+import com.confused.anikuta.feature.onboarding.OnboardingScreen
+import com.confused.anikuta.feature.onboarding.OnboardingThemeChoice
 import com.confused.anikuta.feature.download.DownloadsScreen
 import com.confused.anikuta.feature.download.DownloadedFilesKey
 import com.confused.anikuta.feature.download.DownloadedFilesScreen
@@ -451,6 +455,90 @@ fun AppRoot() {
     // watch screen's episode list only shows downloaded episodes (often just 1).
     val dataCacheRepository = koinInject<com.confused.anikuta.core.datacache.DataCacheRepository>()
 
+    // ── D-403 (round 28): the NO-DOWNLOAD-FOLDER GATE ──────────────────────────────────────
+    // The wizard's STORAGE step is SKIPPABLE by design ("It's up to him… it
+    // would only affect the downloading functionality"). This is the other
+    // half of that contract: a download started with NO (or a dead) folder
+    // no longer fails deep in the publish pipeline with a generic error — it
+    // shows a clear "No download folder selected" dialog right here, with an
+    // inline folder picker that RETRIES the download automatically once a
+    // valid folder is chosen.
+    var pendingDownloadRetry by remember {
+        androidx.compose.runtime.mutableStateOf<(() -> Unit)?>(null)
+    }
+    val noFolderPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            runCatching {
+                appContext.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            }
+            downloadPreferences.downloadFolderUri.set(uri.toString())
+            // Auto-retry the download that triggered the gate — but only if
+            // the picked folder actually resolves + is writable (a real
+            // verification, not a "we asked once" flag).
+            val retry = pendingDownloadRetry
+            pendingDownloadRetry = null
+            if (retry != null && isDownloadFolderReady(appContext, downloadPreferences)) {
+                retry()
+            }
+        } else {
+            pendingDownloadRetry = null
+        }
+    }
+    val gateDownload: (() -> Unit) -> Unit = { action ->
+        if (isDownloadFolderReady(appContext, downloadPreferences)) {
+            action()
+        } else {
+            pendingDownloadRetry = action
+        }
+    }
+    if (pendingDownloadRetry != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingDownloadRetry = null },
+            title = {
+                androidx.compose.material3.Text(
+                    text = "No download folder selected",
+                    fontFamily = RobotoFamily,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            },
+            text = {
+                androidx.compose.material3.Text(
+                    text = "Downloads need a folder to save episodes in. Pick one now " +
+                        "and your download will start automatically.",
+                    fontFamily = RobotoFamily,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.Button(
+                    onClick = { noFolderPickerLauncher.launch(null) },
+                ) {
+                    androidx.compose.material3.Text(
+                        text = "Select folder",
+                        fontFamily = RobotoFamily,
+                    )
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { pendingDownloadRetry = null },
+                ) {
+                    androidx.compose.material3.Text(
+                        text = "Cancel",
+                        fontFamily = RobotoFamily,
+                    )
+                }
+            },
+        )
+    }
+
     // ── App update manager ──
     // Injected once at the AppRoot level — shared between the startup check
     // (LaunchedEffect below), the page-gated UpdateBottomSheet overlay, and
@@ -462,16 +550,27 @@ fun AppRoot() {
     // an ANR risk). rememberCoroutineScope is tied to the composition — cancelled on dispose.
     val appScope = rememberCoroutineScope()
 
-    // D.CRASH-FIX: First-run setup dialog — prompts for POST_NOTIFICATIONS permission
-    // + download folder selection on every launch until both are granted.
-    FirstRunSetupDialog(preferences = downloadPreferences)
+    // D-403 (round 28): the ONBOARDING WIZARD replaces the old every-launch
+    // FirstRunSetupDialog (deleted this round) — a dedicated first-run flow
+    // with the animated welcome, the live theme picker, and the verified +
+    // skippable permission steps. The completion flag is never reset: the
+    // wizard is a once-per-install experience.
+    // D-403: the wizard's theme mapping uses the app-side ThemePreferences
+    // (it lives in :app — the feature module only sees display data + ids).
+    val themePreferencesForOnboarding = koinInject<ThemePreferences>()
+    val onboardingChoices = remember { buildOnboardingThemeChoices() }
+    // A LIVE read (ThemePreferences' mutableStates recompose AppRoot) — the
+    // wizard's selected card tracks the actual theme even if it changes.
+    val onboardingSelectedThemeId = currentOnboardingThemeId(prefs = themePreferencesForOnboarding)
 
     val backstack = remember {
         // D-282: startTab is already sanitized to "browse"/"library" — the old
         // "search"/"more" mappings are intentionally gone (cold start never
         // restores onto those sections).
-        val initialKey = when (startTab) {
-            "library" -> AnimeLibraryKeyImpl
+        // D-403: the first run starts in the WIZARD, not a tab.
+        val initialKey: NavKey = when {
+            !appPreferences.onboardingCompleted -> OnboardingKey
+            startTab == "library" -> AnimeLibraryKeyImpl
             else -> AnimeBrowseKey
         }
         androidx.compose.runtime.mutableStateListOf<NavKey>(initialKey)
@@ -529,14 +628,18 @@ fun AppRoot() {
     // pass — it requires a separate PostInstallSuccessSheet composable. Tracked
     // as a follow-up.
     LaunchedEffect(Unit) {
-        try {
-            appUpdateManager.cleanupOldDownloads()
-            appUpdateManager.clearUpdateState()
-            if (appUpdateManager.shouldCheckForUpdate()) {
-                appUpdateManager.checkForUpdate()
+        // D-403: no update sheet / notification during the first-run wizard —
+        // the setup flow owns the screen until it completes.
+        if (appPreferences.onboardingCompleted) {
+            try {
+                appUpdateManager.cleanupOldDownloads()
+                appUpdateManager.clearUpdateState()
+                if (appUpdateManager.shouldCheckForUpdate()) {
+                    appUpdateManager.checkForUpdate()
+                }
+            } catch (e: Exception) {
+                Logger.w("Anikuta:AppRoot", e) { "startup update check failed" }
             }
-        } catch (e: Exception) {
-            Logger.w("Anikuta:AppRoot", e) { "startup update check failed" }
         }
     }
 
@@ -744,6 +847,29 @@ fun AppRoot() {
                         currentKey::class.simpleName ?: "screen",
                     ) {
                         when (currentKey) {
+            // D-403 (round 28): the first-run setup wizard. Finishing sets the
+            // once-per-install flag + lands on the sanitized start tab; the
+            // theme selection applies LIVE via ThemePreferences' mutable
+            // states (the whole app re-themes as the user taps a card).
+            com.confused.anikuta.feature.onboarding.OnboardingKey -> OnboardingScreen(
+                themeChoices = onboardingChoices,
+                selectedThemeId = onboardingSelectedThemeId,
+                onThemeSelected = { id ->
+                    applyOnboardingThemeById(themePreferencesForOnboarding, id)
+                },
+                appVersion = remember {
+                    runCatching {
+                        appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+                    }.getOrNull() ?: "unknown"
+                },
+                onFinished = {
+                    appPreferences.onboardingCompleted = true
+                    backstack.clear()
+                    backstack.add(
+                        if (startTab == "library") AnimeLibraryKeyImpl else AnimeBrowseKey,
+                    )
+                },
+            )
             is AnimeBrowseKey -> BrowseScreen(
                 onNavigate = { navKey ->
                     // D-272: route Details navigations through the ad gate;
@@ -802,24 +928,30 @@ fun AppRoot() {
                             csResolveDownloadMode = true
                         },
                         onDownloadEpisode = { episode ->
-                            handleDownloadEpisode(
-                                detailsKey = currentKey,
-                                episode = episode,
-                                orchestrator = orchestrator,
-                                contentRepository = contentRepository,
-                            )
+                            // D-403: the no-folder gate (retry-after-pick).
+                            gateDownload {
+                                handleDownloadEpisode(
+                                    detailsKey = currentKey,
+                                    episode = episode,
+                                    orchestrator = orchestrator,
+                                    contentRepository = contentRepository,
+                                )
+                            }
                         },
                         onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr, audioLabel ->
-                            handleDownloadSpecificVideo(
-                                detailsKey = currentKey,
-                                episode = episode,
-                                video = video,
-                                serverName = serverName,
-                                sourceIdStr = sourceIdStr,
-                                audioLabel = audioLabel,
-                                orchestrator = orchestrator,
-                                contentRepository = contentRepository,
-                            )
+                            // D-403: the no-folder gate (retry-after-pick).
+                            gateDownload {
+                                handleDownloadSpecificVideo(
+                                    detailsKey = currentKey,
+                                    episode = episode,
+                                    video = video,
+                                    serverName = serverName,
+                                    sourceIdStr = sourceIdStr,
+                                    audioLabel = audioLabel,
+                                    orchestrator = orchestrator,
+                                    contentRepository = contentRepository,
+                                )
+                            }
                         },
                         // D-209: Cloudflare manual solver.
                         onOpenCloudflareWebView = { url, sourceName ->
@@ -870,24 +1002,30 @@ fun AppRoot() {
                             csResolveDownloadMode = true
                         },
                         onDownloadEpisode = { episode ->
-                            handleDownloadEpisode(
-                                detailsKey = currentKey,
-                                episode = episode,
-                                orchestrator = orchestrator,
-                                contentRepository = contentRepository,
-                            )
+                            // D-403: the no-folder gate (retry-after-pick).
+                            gateDownload {
+                                handleDownloadEpisode(
+                                    detailsKey = currentKey,
+                                    episode = episode,
+                                    orchestrator = orchestrator,
+                                    contentRepository = contentRepository,
+                                )
+                            }
                         },
                         onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr, audioLabel ->
-                            handleDownloadSpecificVideo(
-                                detailsKey = currentKey,
-                                episode = episode,
-                                video = video,
-                                serverName = serverName,
-                                sourceIdStr = sourceIdStr,
-                                audioLabel = audioLabel,
-                                orchestrator = orchestrator,
-                                contentRepository = contentRepository,
-                            )
+                            // D-403: the no-folder gate (retry-after-pick).
+                            gateDownload {
+                                handleDownloadSpecificVideo(
+                                    detailsKey = currentKey,
+                                    episode = episode,
+                                    video = video,
+                                    serverName = serverName,
+                                    sourceIdStr = sourceIdStr,
+                                    audioLabel = audioLabel,
+                                    orchestrator = orchestrator,
+                                    contentRepository = contentRepository,
+                                )
+                            }
                         },
                         // D-209: Cloudflare manual solver.
                         onOpenCloudflareWebView = { url, sourceName ->
@@ -1402,13 +1540,17 @@ fun AppRoot() {
                 },
                 onDownload = if (csResolveDownloadMode) {
                     { key, link, subtitles ->
-                        handleCsDownloadPick(
-                            key = key,
-                            link = link,
-                            subtitles = subtitles,
-                            contentRepository = contentRepository,
-                            downloadManager = downloadManager,
-                        )
+                        // D-403: the no-folder gate (retry-after-pick) — the
+                        // CS download path gets the same early, clear error.
+                        gateDownload {
+                            handleCsDownloadPick(
+                                key = key,
+                                link = link,
+                                subtitles = subtitles,
+                                contentRepository = contentRepository,
+                                downloadManager = downloadManager,
+                            )
+                        }
                         csResolveRequest = null
                         csResolveDownloadMode = false
                     }
@@ -2235,4 +2377,172 @@ private fun buildWatchKeyFromCacheEntry(
         episodeMetadataSerialized = "",
         startPosition = 0L, // WP-B3 falls back to the watch-progress store lookup.
     )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D-403 (round 28): the onboarding wizard's app-side wiring
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * D-403: the wizard's curated quick-theme cards. The ids map to
+ * (ThemeMode, AccentPreset, amoled) in [applyOnboardingThemeById]; the
+ * preview colors sample the app's design-system palette (Color.kt) so each
+ * card is a faithful miniature of the real theme.
+ */
+private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
+    OnboardingThemeChoice(
+        id = "system",
+        title = "System",
+        subtitle = "Follows your device",
+        previewBackground = Color(0xFF14111F),
+        previewAccent = Color(0xFFB1F256),
+        previewSurface = Color(0xFF3D3656),
+    ),
+    OnboardingThemeChoice(
+        id = "midnight",
+        title = "Midnight",
+        subtitle = "Dark · Lime",
+        previewBackground = Color(0xFF14111F),
+        previewAccent = Color(0xFFB1F256),
+        previewSurface = Color(0xFF3D3656),
+    ),
+    OnboardingThemeChoice(
+        id = "daylight",
+        title = "Daylight",
+        subtitle = "Light · Lime",
+        previewBackground = Color(0xFFFAF9F6),
+        previewAccent = Color(0xFF5A8C1A),
+        previewSurface = Color(0xFFECE9E2),
+    ),
+    OnboardingThemeChoice(
+        id = "amoled",
+        title = "AMOLED",
+        subtitle = "Pure black · Violet",
+        previewBackground = Color(0xFF000000),
+        previewAccent = Color(0xFF9C27B0),
+        previewSurface = Color(0xFF1A1A1F),
+    ),
+    OnboardingThemeChoice(
+        id = "dusk",
+        title = "Dusk",
+        subtitle = "Dark · Coral",
+        previewBackground = Color(0xFF14111F),
+        previewAccent = Color(0xFFFF7043),
+        previewSurface = Color(0xFF3D3656),
+    ),
+    OnboardingThemeChoice(
+        id = "night",
+        title = "Night",
+        subtitle = "Dark · Violet",
+        previewBackground = Color(0xFF171226),
+        previewAccent = Color(0xFF9C27B0),
+        previewSurface = Color(0xFF3D3656),
+    ),
+    OnboardingThemeChoice(
+        id = "teal",
+        title = "Teal Mist",
+        subtitle = "Light · Teal",
+        previewBackground = Color(0xFFFAF9F6),
+        previewAccent = Color(0xFF009688),
+        previewSurface = Color(0xFFECE9E2),
+    ),
+    OnboardingThemeChoice(
+        id = "coral_light",
+        title = "Coral Day",
+        subtitle = "Light · Coral",
+        previewBackground = Color(0xFFFAF9F6),
+        previewAccent = Color(0xFFFF7043),
+        previewSurface = Color(0xFFECE9E2),
+    ),
+)
+
+/**
+ * D-403: maps a wizard theme-card id to the actual (ThemeMode, AccentPreset,
+ * amoled) triple and applies it LIVE — ThemePreferences' mutable states
+ * recompose MainActivity's AnikutaTheme wrapper, so the whole app (including
+ * the wizard itself) re-themes the instant a card is tapped.
+ */
+private fun applyOnboardingThemeById(prefs: ThemePreferences, id: String) {
+    when (id) {
+        "system" -> {
+            prefs.setThemeMode(ThemeMode.SYSTEM)
+            prefs.setAccentPreset(AccentPreset.LIME)
+            prefs.setAmoled(false)
+        }
+        "midnight" -> {
+            prefs.setThemeMode(ThemeMode.DARK)
+            prefs.setAccentPreset(AccentPreset.LIME)
+            prefs.setAmoled(false)
+        }
+        "daylight" -> {
+            prefs.setThemeMode(ThemeMode.LIGHT)
+            prefs.setAccentPreset(AccentPreset.LIME)
+            prefs.setAmoled(false)
+        }
+        "amoled" -> {
+            prefs.setThemeMode(ThemeMode.DARK)
+            prefs.setAccentPreset(AccentPreset.VIOLET)
+            prefs.setAmoled(true)
+        }
+        "dusk" -> {
+            prefs.setThemeMode(ThemeMode.DARK)
+            prefs.setAccentPreset(AccentPreset.CORAL)
+            prefs.setAmoled(false)
+        }
+        "night" -> {
+            prefs.setThemeMode(ThemeMode.DARK)
+            prefs.setAccentPreset(AccentPreset.VIOLET)
+            prefs.setAmoled(false)
+        }
+        "teal" -> {
+            prefs.setThemeMode(ThemeMode.LIGHT)
+            prefs.setAccentPreset(AccentPreset.TEAL)
+            prefs.setAmoled(false)
+        }
+        "coral_light" -> {
+            prefs.setThemeMode(ThemeMode.LIGHT)
+            prefs.setAccentPreset(AccentPreset.CORAL)
+            prefs.setAmoled(false)
+        }
+    }
+}
+
+/**
+ * D-403: the best-effort reverse mapping — which wizard card is selected for
+ * the CURRENT theme (used to pre-highlight the right card). Unmapped
+ * combinations fall to the closest mode/accent card.
+ */
+private fun currentOnboardingThemeId(prefs: ThemePreferences): String = when {
+    prefs.themeMode.value == ThemeMode.SYSTEM -> "system"
+    prefs.amoled.value -> "amoled"
+    prefs.themeMode.value == ThemeMode.LIGHT -> when (prefs.accentPreset.value) {
+        AccentPreset.TEAL -> "teal"
+        AccentPreset.CORAL -> "coral_light"
+        else -> "daylight"
+    }
+    else -> when (prefs.accentPreset.value) {
+        AccentPreset.CORAL -> "dusk"
+        AccentPreset.VIOLET -> "night"
+        else -> "midnight"
+    }
+}
+
+/**
+ * D-403: the download-folder readiness check behind the no-folder gate —
+ * the same 3-way semantics as DownloadStorageProvider.getRootFolder (unset
+ * URI / unparseable / permission-revoked), surfaced at TAP time instead of
+ * at publish time. Main-thread-safe: `DocumentFile.fromTreeUri` +
+ * `canWrite` are local operations for tree URIs (no provider round-trip).
+ */
+private fun isDownloadFolderReady(
+    context: android.content.Context,
+    preferences: com.confused.anikuta.core.download.DownloadPreferences,
+): Boolean {
+    val uriStr = preferences.downloadFolderUri.get()
+    if (uriStr.isBlank()) return false
+    val uri = runCatching { android.net.Uri.parse(uriStr) }.getOrNull() ?: return false
+    val tree = runCatching {
+        androidx.documentfile.provider.DocumentFile.fromTreeUri(context, uri)
+    }.getOrNull() ?: return false
+    return tree.canWrite()
 }

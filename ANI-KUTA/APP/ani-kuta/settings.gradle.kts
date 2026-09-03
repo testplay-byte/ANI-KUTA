@@ -71,6 +71,7 @@ include(":feature:anime-search:impl")
 include(":feature:extensions-settings:api")
 include(":feature:extensions-settings:impl")
 include(":feature:download")
+include(":feature:onboarding")  // D-403 (round 28): the first-run setup wizard (single module — the feature:download precedent)
 include(":feature:watch:api")
 include(":feature:watch:impl")
 include(":feature:cs-watch:api")  // CloudStream V2 (task 52): CS watch nav key — the aniyomi :feature:watch stays untouched
