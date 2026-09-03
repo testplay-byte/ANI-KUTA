@@ -1,20 +1,15 @@
 package com.confused.anikuta.feature.download
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,9 +49,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.download.DownloadTask
 import kotlinx.coroutines.launch
@@ -107,7 +109,60 @@ fun DownloadedFilesScreen(
 
     val downloaded = state.downloaded
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // D-400 (round 28): the armed delete state — hoisted from the card to the
+    // SCREEN level. The round-27 state was per-card: taps on the SAME card
+    // disarmed it, but taps on OTHER cards, the header, or blank screen areas
+    // hit nothing that reset it — the round-28 device report ("if I tapped
+    // anywhere OUTSIDE the delete button when it is in a bigger size, it
+    // apparently does not go away to its original state"). One armed button
+    // in the whole list at a time; the interceptor below disarms it on ANY
+    // touch that isn't on the armed button itself.
+    var armedDelete by remember { mutableStateOf<ArmedDelete?>(null) }
+    // D-400: the armed button's frame rect in WINDOW space (reported by the
+    // armed button's own onGloballyPositioned — only the armed button
+    // reports, so sibling relayouts can't clobber it).
+    var armedButtonBounds by remember { mutableStateOf<Rect?>(null) }
+    // D-400: the interceptor's own coordinates (window-space conversion of
+    // the touch point).
+    var contentCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val onDisarm: () -> Unit = {
+        armedDelete = null
+        armedButtonBounds = null
+    }
+    val onArm: (cardId: String, targetKey: String) -> Unit = { cardId, targetKey ->
+        armedDelete = ArmedDelete(cardId, targetKey)
+        armedButtonBounds = null // the newly-armed button reports its bounds as it lays out
+    }
+
+    // D-400: the ANCESTOR INTERCEPTOR — the standard Compose pattern for
+    // "tap outside dismisses". A pointerInput on the content root observes
+    // EVERY pointer DOWN that passes through the tree (children keep
+    // priority: it consumes nothing, it only watches). A DOWN whose window
+    // position is OUTSIDE the armed button's rect disarms the armed state —
+    // other rows, other cards, the back header, blank space, even the start
+    // of a scroll. A DOWN INSIDE the armed button's rect stays silent, so
+    // the button's own clickable handles the confirm tap.
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { contentCoordinates = it }
+            .pointerInput(armedDelete) {
+                if (armedDelete == null) return@pointerInput
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val bounds = armedButtonBounds
+                    val coords = contentCoordinates
+                    val outside = if (bounds == null || coords == null) {
+                        true // no bounds known yet — any tap disarms
+                    } else {
+                        val touch = coords.positionInWindow() + down.position
+                        touch.x < bounds.left || touch.x > bounds.right ||
+                            touch.y < bounds.top || touch.y > bounds.bottom
+                    }
+                    if (outside) onDisarm()
+                }
+            },
+    ) {
         CollapsingHeader(
             title = "Downloaded",
             collapsed = collapsed,
@@ -167,6 +222,13 @@ fun DownloadedFilesScreen(
                         DownloadedAnimeCard(
                             animeKey = animeKey,
                             episodes = episodes,
+                            cardId = "downloaded_${animeKey.contentId}",
+                            armedDelete = armedDelete,
+                            onArmDelete = { targetKey ->
+                                onArm("downloaded_${animeKey.contentId}", targetKey)
+                            },
+                            onDisarmDelete = onDisarm,
+                            onArmedButtonBoundsChanged = { bounds -> armedButtonBounds = bounds },
                             onPlay = { episodeKey ->
                                 onPlayEpisode(animeKey.mainId, episodeKey)
                             },
@@ -210,6 +272,12 @@ private const val CONFIRM_DELETE_ALL = "__delete_all__"
 private fun DownloadedAnimeCard(
     animeKey: DownloadedAnimeKey,
     episodes: List<DownloadTask>,
+    // D-400: the screen-level armed-delete wiring (see DownloadedFilesScreen).
+    cardId: String,
+    armedDelete: ArmedDelete?,
+    onArmDelete: (String) -> Unit,
+    onDisarmDelete: () -> Unit,
+    onArmedButtonBoundsChanged: (Rect?) -> Unit,
     onPlay: (String) -> Unit,
     onDelete: (String) -> Unit,
     onDeleteAll: () -> Unit,
@@ -219,10 +287,12 @@ private fun DownloadedAnimeCard(
     // Task 61: collapsed by default — the round-21 spec ("by default have all
     // the downloaded episodes collapsed so they will not be shown directly").
     var expanded by remember { mutableStateOf(false) }
-    // Task 61: the two-step delete state — the episodeKey (or the
-    // [CONFIRM_DELETE_ALL] marker) whose delete button is armed; null = all
-    // default. Any outside interaction clears it.
-    var confirmDeleteKey by remember { mutableStateOf<String?>(null) }
+    // D-400: the armed state now lives at the SCREEN level (this card's slice:
+    // armedDelete?.takeIf { it.cardId == cardId }) — tapping ANYWHERE outside
+    // the armed button (any card, the header, blank space) disarms it via the
+    // screen's ancestor interceptor. The in-card guards below route through
+    // [onDisarmDelete] so same-card interactions behave exactly as before.
+    val cardArmedTarget: String? = armedDelete?.takeIf { it.cardId == cardId }?.targetKey
     val sortedEpisodes = remember(episodes) {
         episodes.sortedBy { it.episode.episodeNumber }
     }
@@ -280,7 +350,7 @@ private fun DownloadedAnimeCard(
             Row(
                 modifier = Modifier.fillMaxWidth()
                     .clickable(enabled = !cardRemoving) {
-                        confirmDeleteKey = null
+                        onDisarmDelete()
                         onNavigateToDetails()
                     }
                     .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -295,7 +365,7 @@ private fun DownloadedAnimeCard(
                             .size(width = 44.dp, height = 62.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .clickable {
-                                confirmDeleteKey = null
+                                onDisarmDelete()
                                 onNavigateToDetails()
                             },
                     )
@@ -305,7 +375,7 @@ private fun DownloadedAnimeCard(
                     modifier = Modifier
                         .weight(1f)
                         .clickable {
-                            confirmDeleteKey = null
+                            onDisarmDelete()
                             onNavigateToDetails()
                         },
                 ) {
@@ -355,7 +425,7 @@ private fun DownloadedAnimeCard(
                 IconButton(
                     onClick = {
                         if (!cardRemoving) {
-                            confirmDeleteKey = null
+                            onDisarmDelete()
                             expanded = !expanded
                         }
                     },
@@ -370,34 +440,49 @@ private fun DownloadedAnimeCard(
                 }
                 // Task 61: the two-step delete-all — armed state morphs the icon
                 // (DeleteForever) + error tint; the second tap deletes.
-                // D-384 (round 25): the icon swap is an animated morph with a
-                // STABLE frame (see TwoStepDeleteIcon) and the confirm tap now
-                // starts the slide-out choreography instead of an instant delete.
-                // D-397 (round 27): the frame now GROWS with the armed glyph
-                // (36dp → 56dp, layout-phase) — same clip/resolution fix as the
-                // per-episode button; the header is tall (the 62dp cover row),
-                // so the bigger frame fits without shifting the header height.
-                val deleteAllFrameSize by animateDpAsState(
-                    targetValue = if (confirmDeleteKey == CONFIRM_DELETE_ALL) 56.dp else 36.dp,
-                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                    label = "deleteAllFrameSize",
+                // D-384 (round 25): the confirm tap starts the slide-out
+                // choreography instead of an instant delete.
+                // D-397 (round 27): the frame grows with the armed glyph in the
+                // LAYOUT phase (36dp → 56dp) — nothing clips, crisp re-raster.
+                // D-399 (round 28): ONE animation progress now drives the frame
+                // AND the glyph AND the crossfade (the round-27 version ran the
+                // glyph morph at 150ms and the size grow at 220ms — the morph
+                // finished early and the grow read as a two-stage stutter, "the
+                // animation was kind of not smooth").
+                // D-400: the armed button reports its WINDOW-space bounds so
+                // the screen-level interceptor knows which taps belong to it.
+                val deleteAllArmed = cardArmedTarget == CONFIRM_DELETE_ALL
+                val deleteAllArmedProgress by animateFloatAsState(
+                    targetValue = if (deleteAllArmed) 1f else 0f,
+                    animationSpec = tween(
+                        durationMillis = DELETE_ARM_DURATION_MS,
+                        easing = Motion.EasingEmphasized,
+                    ),
+                    label = "deleteAllArmedProgress",
                 )
+                val deleteAllFrameSize = 36.dp + 20.dp * deleteAllArmedProgress
                 IconButton(
                     onClick = {
                         if (!cardRemoving) {
-                            if (confirmDeleteKey == CONFIRM_DELETE_ALL) {
-                                confirmDeleteKey = null
+                            if (deleteAllArmed) {
+                                onDisarmDelete()
                                 cardRemoving = true
                             } else {
-                                confirmDeleteKey = CONFIRM_DELETE_ALL
+                                onArmDelete(CONFIRM_DELETE_ALL)
                             }
                         }
                     },
-                    modifier = Modifier.size(deleteAllFrameSize),
+                    modifier = Modifier
+                        .size(deleteAllFrameSize)
+                        .onGloballyPositioned { coordinates ->
+                            if (deleteAllArmed) {
+                                onArmedButtonBoundsChanged(coordinates.boundsInWindow())
+                            }
+                        },
                 ) {
                     TwoStepDeleteIcon(
-                        armed = confirmDeleteKey == CONFIRM_DELETE_ALL,
-                        iconSize = 20.dp,
+                        armedProgress = deleteAllArmedProgress,
+                        idleIconSize = 20.dp,
                         idleContentDescription = "Delete all",
                         armedContentDescription = "Confirm delete all",
                     )
@@ -430,20 +515,18 @@ private fun DownloadedAnimeCard(
                     key(task.episode.episodeKey) {
                         DownloadedEpisodeRow(
                             task = task,
-                            armed = confirmDeleteKey == task.episode.episodeKey,
-                            onArmDelete = {
-                                // Arming another episode's button disarms any other.
-                                confirmDeleteKey =
-                                    if (confirmDeleteKey == task.episode.episodeKey) null
-                                    else task.episode.episodeKey
-                            },
+                            armed = cardArmedTarget == task.episode.episodeKey,
+                            // D-400: arming routes to the SCREEN-level state —
+                            // arming one button implicitly disarms any other.
+                            onArmDelete = { onArmDelete(task.episode.episodeKey) },
+                            onArmedButtonBoundsChanged = onArmedButtonBoundsChanged,
                             onPlayRow = {
                                 // Task 61: tapping the row plays AND disarms.
-                                confirmDeleteKey = null
+                                onDisarmDelete()
                                 onPlay(task.episode.episodeKey)
                             },
                             onDeleteConfirmed = {
-                                confirmDeleteKey = null
+                                onDisarmDelete()
                                 onDelete(task.episode.episodeKey)
                             },
                         )
@@ -475,6 +558,8 @@ private fun DownloadedEpisodeRow(
     task: DownloadTask,
     armed: Boolean,
     onArmDelete: () -> Unit,
+    // D-400: forwards the armed button's window-space bounds to the screen.
+    onArmedButtonBoundsChanged: (Rect?) -> Unit,
     onPlayRow: () -> Unit,
     onDeleteConfirmed: () -> Unit,
 ) {
@@ -638,17 +723,28 @@ private fun DownloadedEpisodeRow(
         // Task 61: the per-episode two-step delete — the FIRST tap arms (the
         // icon morphs to DeleteForever + error tint + GROWS 2.5x, D-397), the
         // SECOND tap on the SAME button starts the slide-out exit (D-384); any
-        // other tap on the card disarms (handled by the card's confirmDeleteKey
-        // resets).
+        // other tap ANYWHERE outside the button disarms (D-400 — the screen's
+        // ancestor interceptor + the card's own guards).
         // D-397: the button FRAME animates with the glyph (32dp → 48dp) — the
         // growth is a real LAYOUT change, so the glyph never clips against the
         // card bounds + re-rasters crisply (the draw-phase 3x scale of round 26
         // cut the glyph's top/left/right off and blurred it).
-        val deleteFrameSize by animateDpAsState(
-            targetValue = if (armed) 48.dp else 32.dp,
-            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-            label = "episodeDeleteFrameSize",
+        // D-399 (round 28): ONE animation progress drives the frame AND the
+        // glyph AND the crossfade — the round-27 version ran THREE independent
+        // animations (a 150ms glyph morph inside a 220ms size grow, plus the
+        // frame at each call site); the morph finishing early made the grow
+        // read as a stutter ("the animation was kind of not smooth").
+        // D-400: the armed button reports its WINDOW-space bounds so the
+        // screen-level interceptor knows which taps belong to it.
+        val armedProgress by animateFloatAsState(
+            targetValue = if (armed) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = DELETE_ARM_DURATION_MS,
+                easing = Motion.EasingEmphasized,
+            ),
+            label = "episodeDeleteArmedProgress",
         )
+        val deleteFrameSize = 32.dp + 16.dp * armedProgress
         IconButton(
             onClick = {
                 if (!removing) {
@@ -659,11 +755,17 @@ private fun DownloadedEpisodeRow(
                     }
                 }
             },
-            modifier = Modifier.size(deleteFrameSize),
+            modifier = Modifier
+                .size(deleteFrameSize)
+                .onGloballyPositioned { coordinates ->
+                    if (armed) {
+                        onArmedButtonBoundsChanged(coordinates.boundsInWindow())
+                    }
+                },
         ) {
             TwoStepDeleteIcon(
-                armed = armed,
-                iconSize = 16.dp,
+                armedProgress = armedProgress,
+                idleIconSize = 16.dp,
                 idleContentDescription = "Delete episode",
                 armedContentDescription = "Confirm delete episode",
             )
@@ -672,76 +774,82 @@ private fun DownloadedEpisodeRow(
 }
 
 /**
- * D-389 → D-397 (round 27): the two-step delete icon — the armed (confirm)
- * state GROWS the glyph to ~2.5x its idle size, IN THE LAYOUT PHASE.
+ * D-389 → D-397 → D-399 (round 28): the two-step delete icon — ONE
+ * animation progress drives the whole armed-state choreography.
  *
- * Round-25 history (D-384): the plain [Icons.Filled.Delete] →
- * [Icons.Filled.DeleteForever] swap was normalized with a 0.65x armed scale
- * so both glyphs occupied the same footprint. The round-26 device report
- * flagged that as WRONG ("the user expects the armed state to be BIG") —
- * D-389 grew it 3x. The round-27 device report then caught THREE problems
- * with that 3x implementation:
- *  1. the top/left/right of the grown glyph were CUT OFF — the 3x
- *     draw-phase `Modifier.scale` painted a 48dp glyph out of a 16dp layout
- *     box, and the card's rounded [Surface] CLIPS to its own bounds;
- *  2. the glyph's RESOLUTION degraded — the scaled layer rasterizes at the
- *     small size and gets stretched at draw time;
- *  3. 3x was simply TOO BIG — the user re-specced it to 2.5x.
+ * ## The 2.5x growth (D-389 → D-397, kept)
+ * The armed (confirm) glyph MEASURES at 2.5x the idle size, animated as a
+ * real Dp (layout phase) — the round-26 draw-phase `Modifier.scale(3f)`
+ * clipped the glyph against the card Surface + stretched the rasterized
+ * layer (the round-27 device report), and 3x overshot the 2.5x re-spec. The
+ * CALLER animates the IconButton frame on the SAME progress (32→48dp per
+ * episode row, 36→56dp delete-all) so the row/header cede the width and
+ * the vector re-rasters crisply at its final size.
  *
- * D-397's fix — grow in the LAYOUT phase, not the draw phase:
- *  - [animateDpAsState] animates the glyph's dp size 16dp → 40dp (2.5x) and
- *    the CALLER animates the [IconButton] frame with it (32dp → 48dp per
- *    episode row, 36dp → 56dp for the delete-all header). Because the
- *    growth is real MEASURED size, the layout makes room for the glyph —
- *    nothing can clip it (the row/header simply cede the width), and the
- *    VECTOR path renders at its final size — pixel-crisp at any scale;
- *  - the [AnimatedContent] fade+scale morph (150ms) still handles the glyph
- *    identity swap (Delete ↔ DeleteForever) so the transition never "pops";
- *    its subtle 0.6x→1x scale is cosmetic only, unrelated to the growth;
- *  - the error tint (armed) + [Icons.Filled.DeleteForever] identity keep the
- *    "this is the dangerous state" signal the two-step flow needs.
+ * ## D-399 (round 28): why the progress drives everything
+ * The round-27 version ran THREE independent animations: a 150ms
+ * `AnimatedContent` glyph morph, a 220ms glyph-size grow, and a 220ms frame
+ * grow at each call site. The morph finished EARLY — the DeleteForever
+ * glyph landed small and then kept growing — which read as a two-stage
+ * stutter ("the animation was kind of not smooth", the round-28 device
+ * report). Now the caller computes ONE `armedProgress` (0f → 1f, 260ms on
+ * the app's emphasized easing) and this icon derives from it:
+ *  - glyphSize: `idleIconSize + idleIconSize * (ARMED_ICON_GROWTH - 1) * p`;
+ *  - the identity swap: a staggered, overlap-free crossfade — the idle
+ *    glyph fades OUT over p ∈ [0, 0.625] and the armed glyph fades IN over
+ *    p ∈ [0.375, 1] (a [CROSSFADE_STRETCH]-wide window inside the grow, so
+ *    the swap happens mid-grow and never pops);
+ *  - the armed glyph rides a subtle 0.7 → 1.0 scale pop for the "grows"
+ *    feel.
+ * No AnimatedContent — nothing to fall out of sync.
+ *
+ * @param armedProgress 0f = idle, 1f = fully armed — the SAME progress the
+ *   caller uses for its IconButton frame size.
+ * @param idleIconSize the glyph's idle size (16dp per episode row, 20dp
+ *   delete-all); the armed size is 2.5x this.
  */
 @Composable
 private fun TwoStepDeleteIcon(
-    armed: Boolean,
-    iconSize: Dp,
+    armedProgress: Float,
+    idleIconSize: Dp,
     idleContentDescription: String,
     armedContentDescription: String,
 ) {
-    // D-397: the armed glyph MEASURES at ~2.5x the idle size (animated dp —
-    // layout-phase growth; the old 3x draw-phase scale clipped + blurred).
-    val glyphSize by animateDpAsState(
-        targetValue = if (armed) iconSize * ARMED_ICON_GROWTH else iconSize,
-        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-        label = "twoStepDeleteIconGlyphSize",
-    )
+    // D-399: derive EVERYTHING from the single progress — the glyph size,
+    // the crossfade alphas, and the armed pop scale.
+    val glyphSize = idleIconSize + idleIconSize * (ARMED_ICON_GROWTH - 1f) * armedProgress
+    // Staggered, overlap-free crossfade inside the grow (see the doc above).
+    val idleAlpha = (1f - armedProgress * CROSSFADE_STRETCH).coerceIn(0f, 1f)
+    val armedAlpha = ((armedProgress - (1f / CROSSFADE_STRETCH)) * CROSSFADE_STRETCH).coerceIn(0f, 1f)
     Box(
         modifier = Modifier.size(glyphSize),
         contentAlignment = Alignment.Center,
     ) {
-        AnimatedContent(
-            targetState = armed,
-            transitionSpec = {
-                (fadeIn(tween(150)) + scaleIn(
-                    animationSpec = tween(150),
-                    initialScale = 0.6f,
-                )).togetherWith(
-                    fadeOut(tween(150)) + scaleOut(
-                        animationSpec = tween(150),
-                        targetScale = 0.6f,
-                    ),
-                )
-            },
-            label = "twoStepDeleteIconMorph",
-        ) { isArmed ->
+        // The armed (confirm) glyph — rendered only while visible.
+        if (armedAlpha > 0f) {
             Icon(
-                imageVector = if (isArmed) Icons.Filled.DeleteForever else Icons.Filled.Delete,
-                contentDescription = if (isArmed) armedContentDescription else idleContentDescription,
-                tint = if (isArmed) MaterialTheme.colorScheme.error
-                       else MaterialTheme.colorScheme.onSurfaceVariant,
-                // D-397: NO draw-phase scale — the glyph's animated [glyphSize]
-                // IS the layout size, so it re-rasters crisply + never clips.
-                modifier = Modifier.size(glyphSize),
+                imageVector = Icons.Filled.DeleteForever,
+                contentDescription = armedContentDescription,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .size(glyphSize)
+                    .graphicsLayer {
+                        alpha = armedAlpha
+                        val pop = ARMED_POP_BASE + (1f - ARMED_POP_BASE) * armedProgress
+                        scaleX = pop
+                        scaleY = pop
+                    },
+            )
+        }
+        // The idle glyph — rendered only while visible.
+        if (idleAlpha > 0f) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = idleContentDescription,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(glyphSize)
+                    .graphicsLayer { alpha = idleAlpha },
             )
         }
     }
@@ -753,3 +861,37 @@ private fun TwoStepDeleteIcon(
  * an animated Dp (layout phase), NOT a draw-phase scale.
  */
 private const val ARMED_ICON_GROWTH = 2.5f
+
+/**
+ * D-399 (round 28): the armed-state choreography duration (ms) — ONE
+ * progress, ONE duration, the app's emphasized easing
+ * ([Motion.EasingEmphasized] — the same curve the shared-element navigation
+ * uses). 260ms reads as deliberate without lagging the confirm.
+ */
+private const val DELETE_ARM_DURATION_MS = 260
+
+/**
+ * D-399 (round 28): the crossfade window stretch — the glyph identity swap
+ * occupies the middle [1/CROSSFADE_STRETCH ≡ 0.625] of the grow: the idle
+ * glyph is gone by p=0.625, the armed glyph fully in from p=0.375, so the
+ * two never overlap (no double-image) and the swap lands mid-grow.
+ */
+private const val CROSSFADE_STRETCH = 1.6f
+
+/**
+ * D-399 (round 28): the armed glyph's starting scale for the "pop" — it
+ * rides 0.7 → 1.0 across the progress on top of the 2.5x layout grow.
+ */
+private const val ARMED_POP_BASE = 0.7f
+
+/**
+ * D-400 (round 28): the SCREEN-level armed-delete target — which card
+ * ([cardId], the LazyColumn item key) + which button ([targetKey] = the
+ * episodeKey, or [CONFIRM_DELETE_ALL]). One armed button in the whole list
+ * at a time; hoisted so the screen's ancestor interceptor can disarm it on
+ * ANY outside tap.
+ */
+private data class ArmedDelete(
+    val cardId: String,
+    val targetKey: String,
+)
