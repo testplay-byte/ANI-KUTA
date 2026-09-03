@@ -41,4 +41,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     debugImplementation(libs.androidx.ui.tooling)
+
+    // D-402 (round 28): the feature module's first test source set — the
+    // top-bar reveal policy (searchBarNextCollapsed) is unit-tested.
+    testImplementation(libs.junit)
 }

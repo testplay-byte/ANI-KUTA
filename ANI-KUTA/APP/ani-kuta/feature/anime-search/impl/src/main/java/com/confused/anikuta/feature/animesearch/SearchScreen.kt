@@ -56,6 +56,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -175,33 +176,68 @@ fun SearchScreen(
     // its own scroll state drives the top-bar collapse + blur overlay.
     val browseListState = rememberLazyListState()
 
-    // D-395 (round 27): the top-bar reveal LATCH — a nested-scroll connection
-    // on the content Box, replacing the old derived `collapsed` expression
-    // that OR-ed all three scroll states' offsets. That expression had two
-    // device-visible bugs (the round-27 report: "when I scrolled to the very
-    // top, it did not show me the options again"):
-    //  1. STALE CROSS-MODE SIGNAL — the Idle column's [scrollState] object
-    //     SURVIVES mode switches (it is remembered at the screen level), so a
-    //     recents column scrolled away once latched `collapsed=true` in EVERY
-    //     later mode (browse/grid), no matter how far up the user scrolled;
-    //  2. TOP-ONLY REVEAL — the bar only re-expanded at the literal top
-    //     (offset ≤ 20px); an upward gesture that stopped mid-list left the
-    //     options hidden ("the animation did not play").
-    // The latch implements the standard app-bar pattern instead: any
-    // downward scroll delta COLLAPSES the bar, any upward delta REVEALS it
-    // (the horizontal rows' sideways scrolls produce dy≈0 and never trip
-    // it), and content-mode transitions re-reveal — fresh content means a
-    // fresh context. The threshold absorbs sub-pixel/jitter noise.
+    // D-395 (round 27) → D-402 (round 28): the top-bar reveal LATCH — a
+    // nested-scroll connection on the content Box. The round-27 version
+    // replaced the old derived `collapsed` expression (which OR-ed all three
+    // scroll states' offsets) but got the SIGN of Compose's nested-scroll
+    // delta EXACTLY BACKWARDS: in Compose, `available.y > 0` is the FINGER
+    // moving DOWN (the content dragged toward the TOP — and the material3
+    // PullToRefresh grows its indicator on POSITIVE y, its own source
+    // comments call it "Swiping down"), NOT "viewing content below". The
+    // round-28 device report caught the inverted behavior 1:1: "If I try to
+    // scroll down [finger down], then it apparently hides. If I scroll up
+    // with my finger from bottom to up [finger up], then it shows. If I try
+    // to scroll to the very top again from the bottom, then it gets hidden
+    // again. You have reversed the working and the functionalities."
+    //
+    // The CORRECTED standard app-bar semantics (all delegated to the
+    // unit-tested [searchBarNextCollapsed] — see its doc for the full
+    // gesture table):
+    //  - finger UP (dy < 0, scrolling DOWN into the content) → COLLAPSE;
+    //  - finger DOWN (dy > 0, scrolling toward the top / the P2R pull)
+    //    → REVEAL;
+    //  - at the very top of the ACTIVE mode's scroll state → ALWAYS visible;
+    //  - |dy| ≤ threshold → dead zone (horizontal rows' sideways scrolls
+    //    produce dy≈0 and never trip it);
+    //  - content-mode transitions re-reveal — fresh content means a fresh
+    //    context.
     var collapsed by remember { mutableStateOf(false) }
+
+    // D-402: the at-top force-reveal — derived from the ACTIVE mode's scroll
+    // state (the other two states' objects SURVIVE mode switches with stale
+    // offsets, so only the active one counts; static states count as "top").
+    // At the very top the full bar is ALWAYS visible — the round-28 report:
+    // "If I try to scroll to the very top again from the bottom, then it
+    // gets hidden again."
+    val contentAtTop by remember {
+        derivedStateOf {
+            when (uiState) {
+                is SearchUiState.Idle -> scrollState.value == 0
+                is SearchUiState.Success,
+                is SearchUiState.ExtensionSuccess,
+                -> gridState.firstVisibleItemIndex == 0 &&
+                    gridState.firstVisibleItemScrollOffset == 0
+                is SearchUiState.ExtensionBrowseLoading,
+                is SearchUiState.ExtensionBrowseSuccess,
+                -> browseListState.firstVisibleItemIndex == 0 &&
+                    browseListState.firstVisibleItemScrollOffset == 0
+                else -> true // Loading / Empty / Error / prompt cards — static content
+            }
+        }
+    }
+    LaunchedEffect(contentAtTop) {
+        if (contentAtTop) collapsed = false
+    }
+
     val topBarRevealConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val dy = available.y
-                if (dy > SEARCH_BAR_DELTA_THRESHOLD_PX) {
-                    collapsed = true // scrolling down the content → hide the options
-                } else if (dy < -SEARCH_BAR_DELTA_THRESHOLD_PX) {
-                    collapsed = false // scrolling up → bring them back
-                }
+                val next = searchBarNextCollapsed(
+                    current = collapsed,
+                    dy = available.y,
+                    atTop = contentAtTop,
+                )
+                if (next != collapsed) collapsed = next
                 return Offset.Zero // observe only — never consume
             }
         }
@@ -615,6 +651,46 @@ private class RecentsHeaderData(
  * to ignore sub-pixel jitter from the horizontal rows' incidental dy noise.
  */
 private const val SEARCH_BAR_DELTA_THRESHOLD_PX = 8f
+
+/**
+ * D-402 (round 28): the PURE top-bar reveal decision — extracted so the
+ * gesture semantics are unit-tested (SearchBarRevealPolicyTest) instead of
+ * only provable on a device.
+ *
+ * ## Compose nested-scroll sign convention (the round-27 bug)
+ * `available.y` in [NestedScrollConnection.onPreScroll] is the FINGER /
+ * content displacement, NOT the scroll-position delta:
+ *  - `dy > 0` = finger moves DOWN = the content drags toward the TOP (and
+ *    the material3 PullToRefresh indicator grows on positive y — its source
+ *    comments label the branch "Swiping down");
+ *  - `dy < 0` = finger moves UP = scrolling DOWN into the content.
+ *
+ * ## The standard app-bar semantics this encodes
+ * | Finger | dy | Mode's scroll position | Result |
+ * |--------|----|------------------------|--------|
+ * | UP (into the content) | < -t | anywhere | COLLAPSED |
+ * | DOWN (toward the top) | > +t | anywhere | VISIBLE |
+ * | DOWN (the P2R pull) | > +t | at top | VISIBLE |
+ * | — | — | at the very top | VISIBLE (always) |
+ * | — | |dy| ≤ t | anywhere | unchanged (dead zone) |
+ *
+ * @param current the current collapsed state.
+ * @param dy the pre-scroll delta's y component (the finger displacement).
+ * @param atTop whether the ACTIVE mode's scroll state is at the very top.
+ * @param threshold the dead-zone threshold in px.
+ * @return the next collapsed state.
+ */
+internal fun searchBarNextCollapsed(
+    current: Boolean,
+    dy: Float,
+    atTop: Boolean,
+    threshold: Float = SEARCH_BAR_DELTA_THRESHOLD_PX,
+): Boolean = when {
+    atTop -> false // the very top ALWAYS shows the full bar (D-402)
+    dy > threshold -> false // finger DOWN (toward the top / P2R pull) → reveal
+    dy < -threshold -> true // finger UP (into the content) → collapse
+    else -> current // dead zone — keep
+}
 
 /**
  * Task 61 (round 21): the approach-bottom threshold — the load-more fires
