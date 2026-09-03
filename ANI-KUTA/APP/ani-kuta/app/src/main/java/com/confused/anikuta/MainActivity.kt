@@ -838,6 +838,17 @@ fun AppRoot() {
                 transitionSpec = {
                     val detailsInvolved =
                         targetState is AnimeDetailsKey || initialState is AnimeDetailsKey
+                    // D-406 (round 29): the wizard ⇄ app HANDOFF — a quick
+                    // emphasized crossfade. The Browse data + covers are
+                    // preloaded during the wizard (BrowsePreloader), so the
+                    // incoming screen renders content immediately — the short
+                    // fade keeps the handoff as FAST as the old instant swap
+                    // while smoothing the visual cut from the wizard's
+                    // animated canvas to the app (the "overall experience
+                    // not that smooth" report item).
+                    val onboardingHandoff =
+                        targetState is com.confused.anikuta.feature.onboarding.OnboardingKey ||
+                            initialState is com.confused.anikuta.feature.onboarding.OnboardingKey
                     if (detailsInvolved) {
                         // D-324/D-327: the crossfade runs 450ms emphasized;
                         // the cover's bounds morph runs 600ms on the SAME
@@ -855,6 +866,9 @@ fun AppRoot() {
                                 easing = Motion.EasingEmphasized,
                             ),
                         )
+                    } else if (onboardingHandoff) {
+                        fadeIn(tween(250, easing = Motion.EasingEmphasized)) togetherWith
+                            fadeOut(tween(180, easing = Motion.EasingEmphasized))
                     } else {
                         // Instant switch — identical to the pre-D-320 behavior
                         // (androidx.compose.animation has no snap() ContentTransform).

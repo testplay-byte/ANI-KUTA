@@ -119,3 +119,34 @@ Wizard step transitions + Browse entry path reviewed; findings + polish applied
 
 ## Release
 0.4.17 / build 82, CI green, tag + Release APK, docs/progress/SESSION, ntfy.
+
+---
+
+## AS-BUILT (delivered in this round)
+
+- **A → commit 135241df (D-404):** exactly per plan (A1–A6). The "wt" fix covers copyFile + the cover write; the
+  byte-length check lives in writeDataJsonRaw; salvage is wired into readDataJsonIndexed with a `salvage: Boolean`
+  default-true param (the verified ladder's re-read passes false — the file itself must be CLEAN); the manager's
+  Phase 2b rebuilds from DB rows and writes via `rewriteDataJsonEpisodes` (the new 3-attempt ladder replacing
+  `removeEpisodeFromDataJson`, which is deleted along with `DeletionMatching.removalVerified` — superseded by
+  `DataJsonRepair.episodesEqual`); `findContentFolderByTitle` guards against same-title-different-mainId folders and
+  is wired into BOTH the per-episode and the delete-all locate (delete-all's rows hoisted above the locate for the
+  title). DataJsonRepairTest: 17 tests (salvage, rebuild incl. the exact device scenarios, strict equality);
+  DeletionMatchingTest slimmed to matchRemoval. CI round 1 caught exactly one bug — a test expectation that encoded
+  the author's own misunderstanding (the fresh entry's episodeUrl fallback is the KEY itself, not a fixture URL);
+  fixed.
+- **B → commit fdfcf0bc (D-405):** the welcome is rebuilt on `OnboardingBlobBackground` (5 morphing blobs, 8 wobble
+  points each, closed Catmull-style cubic paths, Lissajous center drifts, radial-gradient fills + 3 rotating outline
+  shapes — one drawBehind pass); `RotatingTagline` (AnimatedContent fade+slide, 3.6s cadence); the footer line is
+  removed (version moved to the finish step); the theme step is a `LazyRow` + `rememberSnapFlingBehavior` carousel
+  (centered-card derivedStateOf, 220ms collectLatest debounce on the live apply, tap-to-snap, initial scroll to the
+  current theme) + the System/Light/Dark `ThemeModeRow` + the settings note; the permission steps use a 92dp centered
+  icon, a granted state replacing the action button (folder keeps "Change folder"), and ONE combined bottom button
+  (neutral "Skip for now" → accent "Continue", pinned by a weighted column); the finish step is a 2×2 SummaryCard
+  grid. MainActivity: the "system" card is absorbed into the mode row (7 cards), `currentOnboardingThemeMode` added,
+  the screen call passes mode + callback. **B9:** the new `BrowsePreloader` (app module) mirrors BrowseViewModel's
+  cache-first section loads + enqueues every cover at 128×192dp / hero posters at 84×126dp (SectionPreloader's
+  memory-cache contract); AppRoot launches it under a once-captured `shouldPreloadBrowse` remember flag (finishing
+  the wizard mid-warmup never cancels it).
+- **C → D-406:** the wizard⇄app handoff crossfades (250ms/180ms emphasized) — a third branch in the appNav
+  transitionSpec; everything else stays instant exactly as before.

@@ -353,8 +353,56 @@ object AndroidConfig {
     // unit-test list now also runs :core:download, :feature:anime-search:impl
     // and :feature:onboarding tests. The update-check history improvements
     // are DEFERRED per the user ("let's work on it later").
-    const val versionCode = 81
-    const val versionName = "0.4.16"
+    //
+    // Task 69 (round 29 — the v0.4.16 device findings, doc cloudstream-v2/20):
+    // (A) D-404 THE data.json DELETION INTEGRITY SYSTEM — the root cause
+    // behind EVERY "data.json not updated / corrupted" report since round 25
+    // was ONE primitive: openOutputStream(uri, "w") does NOT truncate on AOSP
+    // ExternalStorageProvider (FileSystemProvider.openDocument →
+    // ParcelFileDescriptor.parseMode("w") = MODE_WRITE_ONLY, no
+    // MODE_TRUNCATE) — every write that SHRANK the .data.json left
+    // new-json-head + old-json-tail = the user's "corrupted" file, which then
+    // made findContentFolder (which only matches PARSEABLE jsons) skip the
+    // folder and the LAST-episode delete skip every disk phase; the 1-episode
+    // case always looked clean only because the folder-delete path proceeds
+    // on unreadable json. The fix: every SAF write now opens "wt" (truncate)
+    // + a post-write byte-length check; readDataJsonIndexed SALVAGES a
+    // corrupted file (the string/escape-aware balanced-brace
+    // DataJsonRepair.salvageCompleteJsonHead recovers the complete head —
+    // the app self-heals the exact file v0.4.16 left on disk); the delete
+    // flow REBUILDS the .data.json from DB TRUTH (rows-for-anime minus the
+    // deleted row, metadata enriched from the existing entries — no matching,
+    // no key drift, no ghosts) via the VERIFIED rewrite ladder
+    // (rewriteDataJsonEpisodes: truncating write → strict re-read with
+    // salvage DISABLED + exact (key,number) set equality → retry → nuclear
+    // delete+recreate); findContentFolderByTitle locates folders whose json
+    // is destroyed beyond salvage (the title fallback — delete-all + the
+    // per-episode path), and DeletionMatching.matchRemoval stays for the
+    // URI-delete entry capture. Unit-tested in DataJsonRepairTest (the
+    // salvage table, the rebuild table incl. the exact device scenarios, the
+    // strict equality table).
+    // (B) D-405 THE ONBOARDING WIZARD v2 — the welcome background is now
+    // five large MORPHING ORGANIC BLOB shapes (8 wobble control points each,
+    // closed Catmull-style cubic paths, soft radial fills, Lissajous center
+    // drifts, richer jewel colors) + a rotating outline-geometry layer (the
+    // report: "animated shapes… blobs moving around… with some different
+    // colors"); the "offline-first anime streaming" bottom line is REMOVED
+    // (the version moved to the finish step); the tagline smoothly ROTATES
+    // ("Your anime. Your rules." / "Your content. Your rules." / "I don't
+    // make any promises." / "Don't expect anything." / "It is what it is.");
+    // the theme step is a horizontal SNAP CAROUSEL with LIVE application on
+    // settle + the System/Light/Dark mode row + the "further customize in
+    // the settings later" note; the permission steps get a big centered icon,
+    // ONE combined bottom button ("Skip for now" → "Continue" once granted),
+    // and the Allow action DISAPPEARS once verified (replaced by a granted
+    // state — the folder step keeps "Change folder"); the finish step is a
+    // 2×2 summary grid; and the BROWSE PRELOADER warms the 3 sections' data
+    // + every cover into Coil at the exact render sizes WHILE the wizard
+    // runs, so "Start watching" lands on a fully materialized Browse.
+    // (C) D-406 the wizard ⇄ app handoff crossfades (250ms emphasized) —
+    // quick to enter, no visual cut from the animated canvas.
+    const val versionCode = 82
+    const val versionName = "0.4.17"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.
