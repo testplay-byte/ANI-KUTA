@@ -562,6 +562,30 @@ fun AppRoot() {
     // A LIVE read (ThemePreferences' mutableStates recompose AppRoot) — the
     // wizard's selected card tracks the actual theme even if it changes.
     val onboardingSelectedThemeId = currentOnboardingThemeId(prefs = themePreferencesForOnboarding)
+    // D-405 (round 29): the wizard's System/Light/Dark mode row — a LIVE read
+    // of the current mode + the apply callback (the row is independent of the
+    // carousel's accent/preset: the mode applies on its own).
+    val onboardingSelectedThemeMode = currentOnboardingThemeMode(prefs = themePreferencesForOnboarding)
+
+    // D-405 (round 29): the BROWSE PRELOAD — while the user works through the
+    // wizard, the entire Browse page (the 3 sections' data + every cover
+    // image at the exact render sizes) warms up in the background, so "Start
+    // watching" lands on a fully materialized Browse screen. The flag is
+    // captured ONCE (remember) — finishing the wizard mid-preload does NOT
+    // cancel the warm-up (a plain `if (!onboardingCompleted)` around the
+    // effect would dispose it the moment the flag flips and kill the fetch).
+    // Soft-failures never affect the Browse screen's own loading path.
+    val shouldPreloadBrowse = remember { !appPreferences.onboardingCompleted }
+    if (shouldPreloadBrowse) {
+        val anilistApiForPreload = koinInject<com.confused.anikuta.core.anilist.api.AniListApi>()
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            BrowsePreloader.preload(
+                context = appContext,
+                anilistApi = anilistApiForPreload,
+                dataCacheRepository = dataCacheRepository,
+            )
+        }
+    }
 
     val backstack = remember {
         // D-282: startTab is already sanitized to "browse"/"library" — the old
@@ -856,6 +880,16 @@ fun AppRoot() {
                 selectedThemeId = onboardingSelectedThemeId,
                 onThemeSelected = { id ->
                     applyOnboardingThemeById(themePreferencesForOnboarding, id)
+                },
+                selectedThemeMode = onboardingSelectedThemeMode,
+                onThemeModeSelected = { mode ->
+                    themePreferencesForOnboarding.setThemeMode(
+                        when (mode) {
+                            "light" -> ThemeMode.LIGHT
+                            "dark" -> ThemeMode.DARK
+                            else -> ThemeMode.SYSTEM
+                        },
+                    )
                 },
                 appVersion = remember {
                     runCatching {
@@ -2384,20 +2418,14 @@ private fun buildWatchKeyFromCacheEntry(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * D-403: the wizard's curated quick-theme cards. The ids map to
- * (ThemeMode, AccentPreset, amoled) in [applyOnboardingThemeById]; the
- * preview colors sample the app's design-system palette (Color.kt) so each
- * card is a faithful miniature of the real theme.
+ * D-403 → D-405 (round 29): the wizard's curated quick-theme CAROUSEL cards
+ * (7 — the round-28 "system" card is gone; the System/Light/Dark MODE ROW
+ * covers it now). The ids map to (ThemeMode, AccentPreset, amoled) in
+ * [applyOnboardingThemeById]; the preview colors sample the app's
+ * design-system palette (Color.kt) so each card's mock screen is a faithful
+ * miniature of the real theme.
  */
 private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
-    OnboardingThemeChoice(
-        id = "system",
-        title = "System",
-        subtitle = "Follows your device",
-        previewBackground = Color(0xFF14111F),
-        previewAccent = Color(0xFFB1F256),
-        previewSurface = Color(0xFF3D3656),
-    ),
     OnboardingThemeChoice(
         id = "midnight",
         title = "Midnight",
@@ -2464,11 +2492,6 @@ private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
  */
 private fun applyOnboardingThemeById(prefs: ThemePreferences, id: String) {
     when (id) {
-        "system" -> {
-            prefs.setThemeMode(ThemeMode.SYSTEM)
-            prefs.setAccentPreset(AccentPreset.LIME)
-            prefs.setAmoled(false)
-        }
         "midnight" -> {
             prefs.setThemeMode(ThemeMode.DARK)
             prefs.setAccentPreset(AccentPreset.LIME)
@@ -2508,12 +2531,14 @@ private fun applyOnboardingThemeById(prefs: ThemePreferences, id: String) {
 }
 
 /**
- * D-403: the best-effort reverse mapping — which wizard card is selected for
- * the CURRENT theme (used to pre-highlight the right card). Unmapped
- * combinations fall to the closest mode/accent card.
+ * D-403 → D-405 (round 29): the best-effort reverse mapping — which wizard
+ * card best represents the CURRENT theme (used to seed the carousel's
+ * initial position). D-405: SYSTEM no longer maps to a dedicated card (the
+ * mode row owns it) — it resolves by ACCENT like the dark branch, since the
+ * carousel's cards are accent/preset identities. Unmapped combinations fall
+ * to the closest mode/accent card.
  */
 private fun currentOnboardingThemeId(prefs: ThemePreferences): String = when {
-    prefs.themeMode.value == ThemeMode.SYSTEM -> "system"
     prefs.amoled.value -> "amoled"
     prefs.themeMode.value == ThemeMode.LIGHT -> when (prefs.accentPreset.value) {
         AccentPreset.TEAL -> "teal"
@@ -2525,6 +2550,16 @@ private fun currentOnboardingThemeId(prefs: ThemePreferences): String = when {
         AccentPreset.VIOLET -> "night"
         else -> "midnight"
     }
+}
+
+/**
+ * D-405 (round 29): the LIVE mode for the wizard's System/Light/Dark row —
+ * "system" | "light" | "dark" (ThemeMode mapped to the row's ids).
+ */
+private fun currentOnboardingThemeMode(prefs: ThemePreferences): String = when (prefs.themeMode.value) {
+    ThemeMode.LIGHT -> "light"
+    ThemeMode.DARK -> "dark"
+    else -> "system"
 }
 
 /**

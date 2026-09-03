@@ -176,7 +176,9 @@ class DataJsonRepairTest {
         val e = rebuilt.single()
         assertEquals("k2", e.episodeKey)
         assertEquals("content://new/k2", e.videoUri)
-        assertEquals("https://example.com/k2", e.episodeUrl) // fresh fallback = the key
+        // The fresh fallback for episodeUrl is the KEY itself — in real life
+        // the key IS SEpisode.url, so this preserves a sensible value.
+        assertEquals("k2", e.episodeUrl)
         assertEquals("720p", e.quality)
     }
 
