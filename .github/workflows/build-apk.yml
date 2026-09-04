@@ -18,11 +18,11 @@ name: Build APK
 
 on:
   push:
-    # NOTE: 'test-feature/**' is a BRANCH-ONLY edit for the
-    # test-feature/video-cache-new-download work branch — remove this pattern
-    # before merging to main (same precedent as the TEST_BETA_FEATURE edit).
     # 'streaming/**' — the CloudStream V2 work line (streaming/CLOUDSTREAM-V2).
-    branches: [ main, 'feature/**', 'functionality/**', 'test-feature/**', 'streaming/**' ]
+    # 'release/**' — the publishable release line (release/1.1.1 = v1.1.1).
+    # (test-feature/** was removed at the main merge, per the standing note —
+    # that branch line was merged into main back at v0.2.63.)
+    branches: [ main, 'feature/**', 'functionality/**', 'release/**', 'streaming/**' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
