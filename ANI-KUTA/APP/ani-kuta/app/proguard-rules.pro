@@ -104,3 +104,8 @@
 -dontwarn org.jetbrains.annotations.**
 -dontwarn javax.annotation.**
 -dontwarn com.google.errorprone.annotations.**
+# jackson-databind references the desktop-JVM-only java.beans.* classes
+# (Java7SupportImpl — a code path that can never execute on Android; CI
+# round 2's minifyReleaseWithR8 failure). The standard -dontwarn treatment
+# used by every Android app shipping jackson.
+-dontwarn java.beans.**
