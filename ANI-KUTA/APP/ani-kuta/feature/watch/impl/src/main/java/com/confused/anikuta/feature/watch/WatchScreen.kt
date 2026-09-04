@@ -1071,8 +1071,14 @@ fun WatchScreen(
             downloadManager.getDownloadedEpisodeUri(currentMainId, ep.url)
         } else null
 
-        if (offlineUri != null) {
+        if (currentMainId != null && offlineUri != null) {
             // ── Offline playback path (downloaded episode) ──
+            // The non-null binding of the (String?) main id — the branch
+            // condition proves it, and the explicit local keeps the
+            // `resolveSubtitleTracks(mainId: String, …)` call inside the
+            // scope.launch lambda off smart-cast propagation entirely.
+            val downloadedMainId: String = currentMainId
+
             Logger.i(TAG) { "Episode switch — episode is DOWNLOADED, playing offline (fd://)" }
             // Video caching: offline playback never goes through the proxy.
             currentCacheId = null
@@ -1110,7 +1116,7 @@ fun WatchScreen(
                             kotlinx.coroutines.Dispatchers.IO,
                         ) {
                             downloadManager.resolveSubtitleTracks(
-                                mainId = currentMainId,
+                                mainId = downloadedMainId,
                                 episodeNumber = ep.episodeNumber.toInt(),
                             )
                         }
