@@ -1283,7 +1283,7 @@ class DownloadStorageProvider(
                         val bare = name.removePrefix(".")
                         val ext = bare.substringAfterLast('.', "").lowercase()
                         if (ext !in SUBTITLE_EXTENSIONS) continue
-                        val isEpisodeMatch = bare.startsWith("subtitle_E$epNumPadded_")
+                        val isEpisodeMatch = bare.startsWith("subtitle_E${epNumPadded}_")
                         if (isEpisodeMatch) {
                             results.add(file.uri.toString())
                             DownloadLogger.i {
