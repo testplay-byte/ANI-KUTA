@@ -50,6 +50,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -83,12 +84,16 @@ import com.confused.anikuta.feature.animelibrary.LocalLibrarySelectionMode
 import com.confused.anikuta.feature.animesearch.AnimeSearchKey
 import com.confused.anikuta.feature.animesearch.SearchScreen
 import com.confused.anikuta.feature.download.DownloadsKey
+import com.confused.anikuta.feature.onboarding.OnboardingKey
+import com.confused.anikuta.feature.onboarding.OnboardingScreen
+import com.confused.anikuta.feature.onboarding.OnboardingThemeChoice
 import com.confused.anikuta.feature.download.DownloadsScreen
 import com.confused.anikuta.feature.download.DownloadedFilesKey
 import com.confused.anikuta.feature.download.DownloadedFilesScreen
 import com.confused.anikuta.feature.download.DownloadSettingsKey
 import com.confused.anikuta.feature.download.DownloadSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsKey
+import com.confused.anikuta.feature.extensionssettings.CloudstreamPluginDetailKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionDetailKey
 import com.confused.anikuta.feature.extensionssettings.SourcePreferencesKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsScreen
@@ -98,6 +103,7 @@ import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsScreen
 import com.confused.anikuta.feature.watch.WatchKey
+import com.confused.anikuta.feature.cswatch.api.CsWatchKey
 import com.confused.anikuta.feature.watch.WatchScreen
 import com.confused.anikuta.download.DownloadOrchestrator
 import com.confused.anikuta.download.EnqueueResult
@@ -122,9 +128,26 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import com.confused.anikuta.core.preferences.AppPreferences
+import com.lagradost.cloudstream3.CommonActivity
 import org.koin.compose.koinInject
 
-class MainActivity : androidx.fragment.app.FragmentActivity() {
+/**
+ * CloudStream V2 (Task 51): MainActivity extends AppCompatActivity (was
+ * FragmentActivity).
+ *
+ * WHY: CloudStream plugins receive the Activity as their load() Context (the
+ * documented upstream pattern — plugins stash `context as AppCompatActivity`
+ * for settings dialogs; the MovieBoxProvider device report on the reference
+ * branch was exactly this cast failing). Upstream CloudStream's own
+ * MainActivity is an AppCompatActivity, so this makes the host environment
+ * match the plugin contract exactly.
+ *
+ * AppCompatActivity is a FragmentActivity subclass — every fragment API the
+ * app used is unchanged. The manifest theme was switched to an AppCompat
+ * descendant in the same commit (visual attributes are pinned explicitly, so
+ * rendering is identical).
+ */
+class MainActivity : androidx.appcompat.app.AppCompatActivity() {
 
     // D-222: OAuth redirect flags — observed by AppRoot to auto-navigate to Trackers
     // after a successful AniList login + show a snackbar.
@@ -137,6 +160,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     @androidx.compose.material3.ExperimentalMaterial3Api
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // CloudStream V2: publish the live Activity to the CloudStream compat
+        // layer — the plugin loader awaits it (activity-gated first load) and
+        // passes it to Plugin.load(context); the WebView challenge solver reads
+        // it when a context is needed. Held via WeakReference inside
+        // CommonActivity (no leak beyond the activity itself).
+        CommonActivity.setActivityInstance(this)
         enableEdgeToEdge(
             statusBarStyle = androidx.activity.SystemBarStyle.auto(
                 android.graphics.Color.TRANSPARENT,
@@ -186,6 +215,16 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleAniListOAuthRedirect(intent)
+    }
+
+    // CloudStream V2: clear the compat-layer activity holder on destroy so
+    // plugins and the WebView solver never hold a dead Activity reference.
+    // Identity-guarded: a replacement instance may already have registered
+    // itself (recreation edge cases) — only clear when the holder still points
+    // at THIS instance.
+    override fun onDestroy() {
+        if (CommonActivity.activity === this) CommonActivity.setActivityInstance(null)
+        super.onDestroy()
     }
 
     /**
@@ -271,6 +310,11 @@ object UpdatesSettingsKey : NavKey
 @Serializable
 object UpdateCategoriesKey : NavKey
 
+// Task 64 (round 24): the update-check history page (Settings → Updates →
+// "Update check history") — every check session from the JSON log store.
+@Serializable
+object UpdateCheckLogKey : NavKey
+
 @Serializable
 object AppearanceKey : NavKey
 
@@ -289,6 +333,11 @@ object PlayerSettingsKey : NavKey
 // Video caching settings (test-feature/video-cache-new-download branch).
 @Serializable
 object VideoCachingKey : NavKey
+
+// Task 57 (round 17): dedicated Debug page — debug-bubble toggle (debug builds
+// only) + CloudStream resolve-list source details / copy button (release too).
+@Serializable
+object DebugSettingsKey : NavKey
 
 // About & Updates screen — hosts the app-update UI (version, auto-check toggle,
 // manual check, downloaded APK list). The UpdateBottomSheet overlay is rendered
@@ -343,12 +392,17 @@ private val allowedUpdateSheetKeys = setOf(
     AppearanceKey::class,
     AppearanceGeneralKey::class,
     DetailsPageSettingsKey::class,
+    DebugSettingsKey::class,
     EpisodeSettingsKey::class,
+    UpdateCheckLogKey::class,
     PlayerSettingsKey::class,
     VideoCachingKey::class,
     ProfileKey::class,
     com.confused.anikuta.feature.updates.UpdatesKey::class,
     com.confused.anikuta.feature.animehistory.HistoryKey::class,
+    // Task 61 (round 21): the category subpages — content-grid pages (no
+    // bottom sheets of their own), same as Browse.
+    com.confused.anikuta.feature.animesearch.CsCategoryKey::class,
 )
 
 /**
@@ -401,6 +455,90 @@ fun AppRoot() {
     // watch screen's episode list only shows downloaded episodes (often just 1).
     val dataCacheRepository = koinInject<com.confused.anikuta.core.datacache.DataCacheRepository>()
 
+    // ── D-403 (round 28): the NO-DOWNLOAD-FOLDER GATE ──────────────────────────────────────
+    // The wizard's STORAGE step is SKIPPABLE by design ("It's up to him… it
+    // would only affect the downloading functionality"). This is the other
+    // half of that contract: a download started with NO (or a dead) folder
+    // no longer fails deep in the publish pipeline with a generic error — it
+    // shows a clear "No download folder selected" dialog right here, with an
+    // inline folder picker that RETRIES the download automatically once a
+    // valid folder is chosen.
+    var pendingDownloadRetry by remember {
+        androidx.compose.runtime.mutableStateOf<(() -> Unit)?>(null)
+    }
+    val noFolderPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            runCatching {
+                appContext.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            }
+            downloadPreferences.downloadFolderUri.set(uri.toString())
+            // Auto-retry the download that triggered the gate — but only if
+            // the picked folder actually resolves + is writable (a real
+            // verification, not a "we asked once" flag).
+            val retry = pendingDownloadRetry
+            pendingDownloadRetry = null
+            if (retry != null && isDownloadFolderReady(appContext, downloadPreferences)) {
+                retry()
+            }
+        } else {
+            pendingDownloadRetry = null
+        }
+    }
+    val gateDownload: (() -> Unit) -> Unit = { action ->
+        if (isDownloadFolderReady(appContext, downloadPreferences)) {
+            action()
+        } else {
+            pendingDownloadRetry = action
+        }
+    }
+    if (pendingDownloadRetry != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingDownloadRetry = null },
+            title = {
+                androidx.compose.material3.Text(
+                    text = "No download folder selected",
+                    fontFamily = RobotoFamily,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            },
+            text = {
+                androidx.compose.material3.Text(
+                    text = "Downloads need a folder to save episodes in. Pick one now " +
+                        "and your download will start automatically.",
+                    fontFamily = RobotoFamily,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.Button(
+                    onClick = { noFolderPickerLauncher.launch(null) },
+                ) {
+                    androidx.compose.material3.Text(
+                        text = "Select folder",
+                        fontFamily = RobotoFamily,
+                    )
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { pendingDownloadRetry = null },
+                ) {
+                    androidx.compose.material3.Text(
+                        text = "Cancel",
+                        fontFamily = RobotoFamily,
+                    )
+                }
+            },
+        )
+    }
+
     // ── App update manager ──
     // Injected once at the AppRoot level — shared between the startup check
     // (LaunchedEffect below), the page-gated UpdateBottomSheet overlay, and
@@ -412,16 +550,55 @@ fun AppRoot() {
     // an ANR risk). rememberCoroutineScope is tied to the composition — cancelled on dispose.
     val appScope = rememberCoroutineScope()
 
-    // D.CRASH-FIX: First-run setup dialog — prompts for POST_NOTIFICATIONS permission
-    // + download folder selection on every launch until both are granted.
-    FirstRunSetupDialog(preferences = downloadPreferences)
+    // D-403 (round 28): the ONBOARDING WIZARD replaces the old every-launch
+    // FirstRunSetupDialog (deleted this round) — a dedicated first-run flow
+    // with the animated welcome, the live theme picker, and the verified +
+    // skippable permission steps. The completion flag is never reset: the
+    // wizard is a once-per-install experience.
+    // D-403: the wizard's theme mapping uses the app-side ThemePreferences
+    // (it lives in :app — the feature module only sees display data + ids).
+    val themePreferencesForOnboarding = koinInject<ThemePreferences>()
+    val onboardingChoices = remember { buildOnboardingThemeChoices() }
+    // A LIVE read (ThemePreferences' mutableStates recompose AppRoot) — the
+    // wizard's selected card tracks the actual theme even if it changes.
+    val onboardingSelectedThemeId = currentOnboardingThemeId(prefs = themePreferencesForOnboarding)
+    // D-405 → D-406 (round 30): the wizard's Light/Dark toggle — a LIVE read
+    // of the current mode (SYSTEM resolves to the system's actual mode, so
+    // the two-option toggle initializes honestly) + the apply callback (the
+    // mode applies on its own, independent of the carousel's preset).
+    val onboardingSelectedThemeMode = currentOnboardingThemeMode(
+        prefs = themePreferencesForOnboarding,
+        systemDark = isSystemInDarkTheme(),
+    )
+
+    // D-405 (round 29): the BROWSE PRELOAD — while the user works through the
+    // wizard, the entire Browse page (the 3 sections' data + every cover
+    // image at the exact render sizes) warms up in the background, so "Start
+    // watching" lands on a fully materialized Browse screen. The flag is
+    // captured ONCE (remember) — finishing the wizard mid-preload does NOT
+    // cancel the warm-up (a plain `if (!onboardingCompleted)` around the
+    // effect would dispose it the moment the flag flips and kill the fetch).
+    // Soft-failures never affect the Browse screen's own loading path.
+    val shouldPreloadBrowse = remember { !appPreferences.onboardingCompleted }
+    if (shouldPreloadBrowse) {
+        val anilistApiForPreload = koinInject<com.confused.anikuta.core.anilist.api.AniListApi>()
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            BrowsePreloader.preload(
+                context = appContext,
+                anilistApi = anilistApiForPreload,
+                dataCacheRepository = dataCacheRepository,
+            )
+        }
+    }
 
     val backstack = remember {
         // D-282: startTab is already sanitized to "browse"/"library" — the old
         // "search"/"more" mappings are intentionally gone (cold start never
         // restores onto those sections).
-        val initialKey = when (startTab) {
-            "library" -> AnimeLibraryKeyImpl
+        // D-403: the first run starts in the WIZARD, not a tab.
+        val initialKey: NavKey = when {
+            !appPreferences.onboardingCompleted -> OnboardingKey
+            startTab == "library" -> AnimeLibraryKeyImpl
             else -> AnimeBrowseKey
         }
         androidx.compose.runtime.mutableStateListOf<NavKey>(initialKey)
@@ -479,25 +656,96 @@ fun AppRoot() {
     // pass — it requires a separate PostInstallSuccessSheet composable. Tracked
     // as a follow-up.
     LaunchedEffect(Unit) {
-        try {
-            appUpdateManager.cleanupOldDownloads()
-            appUpdateManager.clearUpdateState()
-            if (appUpdateManager.shouldCheckForUpdate()) {
-                appUpdateManager.checkForUpdate()
+        // D-403: no update sheet / notification during the first-run wizard —
+        // the setup flow owns the screen until it completes.
+        if (appPreferences.onboardingCompleted) {
+            try {
+                appUpdateManager.cleanupOldDownloads()
+                appUpdateManager.clearUpdateState()
+                if (appUpdateManager.shouldCheckForUpdate()) {
+                    appUpdateManager.checkForUpdate()
+                }
+            } catch (e: Exception) {
+                Logger.w("Anikuta:AppRoot", e) { "startup update check failed" }
             }
-        } catch (e: Exception) {
-            Logger.w("Anikuta:AppRoot", e) { "startup update check failed" }
         }
+    }
+
+    // ── Task 58 (round 18 — the plugin-share receiver's hand-off) ──────────
+    // A successful import in PluginImportActivity writes a pending-navigation
+    // note (SharedPreferences — survives process death). Consume it here on
+    // cold start AND on every ON_RESUME (the import activity runs OUTSIDE the
+    // main task — the user returns to whatever they were doing, and the note
+    // routes them when they next see the app).
+    // Task 59 (round 19): the note now routes to the EXTENSIONS page (the
+    // round-18 flow pushed the plugin's detail page; the user's spec: after
+    // Add, the 1.5s "Plugin added" confirmation hands off to the extensions
+    // page — PluginImportActivity launches us HERE and this consumer lands
+    // the user on the list).
+    // Task 60 (round 20): the push carries initialTab = "cloudstream" — a
+    // CLOUDSTREAM plugin import lands on the CLOUDSTREAM section, not the
+    // aniyomi tab (the user: "I added the cloud streaming plugin or extension
+    // so it should lead me to the cloud stream section by default").
+    fun checkPendingCsPluginNav() {
+        val pendingName = com.confused.anikuta.pluginimport.PendingCsPluginNav.consume(appContext)
+        if (pendingName != null) {
+            Logger.i("Anikuta:AppRoot") { "pending CS plugin import → extensions page (cloudstream tab): $pendingName" }
+            // Task 62 (round 22 — the post-import CRASH fix): the ON_RESUME
+            // observer below captures THIS local function from the composition
+            // where it registered, so its `currentKey` val goes STALE (it
+            // keeps the value from that old composition). When the user
+            // returned from PluginImportActivity while ALREADY sitting on the
+            // extensions page, the stale guard passed and a SECOND
+            // ExtensionsSettingsKey was pushed on top of the first → the
+            // AnimatedContent transition then composed BOTH
+            // SaveableStateProviders under the SAME class-name key →
+            // "Key ExtensionsSettingsKey was used multiple times" crash.
+            //
+            // The fix: read the LIVE backstack INSIDE the function (the list
+            // reference is stable across recompositions — only the captured
+            // `currentKey` val was stale) and NEVER stack a duplicate. An
+            // ExtensionsSettingsKey that already exists anywhere in the
+            // backstack is REVEALED (everything above it is popped) instead.
+            val existingIndex = backstack.indexOfLast { it is ExtensionsSettingsKey }
+            if (existingIndex >= 0) {
+                while (backstack.size > existingIndex + 1) {
+                    backstack.removeAt(backstack.lastIndex)
+                }
+            } else {
+                backstack.add(ExtensionsSettingsKey(initialTab = "cloudstream"))
+            }
+        }
+    }
+    LaunchedEffect(Unit) { checkPendingCsPluginNav() }
+    val csPluginNavLifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(csPluginNavLifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                checkPendingCsPluginNav()
+            }
+        }
+        csPluginNavLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { csPluginNavLifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // D-193 Phase 7: Handle notification tap deep-link — if the app was opened
     // from a notification, navigate to the details page for the tapped anime.
+    // D-388 (round 25): the check-RESULTS notification deep-links to the update
+    // check history page instead (its "open_update_history" extra).
     val context = androidx.compose.ui.platform.LocalContext.current
     val notifMainId = remember {
         val intent = (context as? android.app.Activity)?.intent
         intent?.getStringExtra("notification_main_id")
     }
-    LaunchedEffect(notifMainId) {
+    val notifOpenHistory = remember {
+        val intent = (context as? android.app.Activity)?.intent
+        intent?.getBooleanExtra("open_update_history", false) == true
+    }
+    LaunchedEffect(notifMainId, notifOpenHistory) {
+        if (notifOpenHistory && backstack.size == 1) {
+            backstack.add(UpdateCheckLogKey)
+            (context as? android.app.Activity)?.intent?.removeExtra("open_update_history")
+        }
         if (!notifMainId.isNullOrBlank() && backstack.size == 1) {
             // Look up the content to determine whether it has an AniList ID or is extension-only.
             val content = contentRepository.getMainEntryByMainId(notifMainId)
@@ -539,6 +787,17 @@ fun AppRoot() {
     // so the bubble — a sibling of the nav content in this Box — is inside the
     // provider's subtree and can read the context (D-162 C1 fix).
     var debugContext by remember { androidx.compose.runtime.mutableStateOf<com.confused.anikuta.core.debugapi.DebugContext?>(null) }
+
+    // Task 53 / RC-6: the CS resolve-sheet request — set by a CloudStream
+    // episode tap on the details page; the sheet (an overlay sibling of the
+    // nav content) resolves streams over the details page and hands off to
+    // the watch screen on selection (the AnymeX entry pattern).
+    var csResolveRequest by remember { androidx.compose.runtime.mutableStateOf<com.confused.anikuta.feature.cswatch.api.CsWatchKey?>(null) }
+
+    // Task 58 (round 18 — downloads): the SAME sheet, in DOWNLOAD mode — set
+    // by the details page's download button on a CS-bridged episode; a pick
+    // enqueues through the CS-aware download path instead of playing.
+    var csResolveDownloadMode by remember { androidx.compose.runtime.mutableStateOf(false) }
 
     androidx.compose.runtime.CompositionLocalProvider(
         LocalLibrarySelectionMode provides librarySelectionMode,
@@ -583,6 +842,17 @@ fun AppRoot() {
                 transitionSpec = {
                     val detailsInvolved =
                         targetState is AnimeDetailsKey || initialState is AnimeDetailsKey
+                    // D-406 (round 29): the wizard ⇄ app HANDOFF — a quick
+                    // emphasized crossfade. The Browse data + covers are
+                    // preloaded during the wizard (BrowsePreloader), so the
+                    // incoming screen renders content immediately — the short
+                    // fade keeps the handoff as FAST as the old instant swap
+                    // while smoothing the visual cut from the wizard's
+                    // animated canvas to the app (the "overall experience
+                    // not that smooth" report item).
+                    val onboardingHandoff =
+                        targetState is com.confused.anikuta.feature.onboarding.OnboardingKey ||
+                            initialState is com.confused.anikuta.feature.onboarding.OnboardingKey
                     if (detailsInvolved) {
                         // D-324/D-327: the crossfade runs 450ms emphasized;
                         // the cover's bounds morph runs 600ms on the SAME
@@ -600,6 +870,9 @@ fun AppRoot() {
                                 easing = Motion.EasingEmphasized,
                             ),
                         )
+                    } else if (onboardingHandoff) {
+                        fadeIn(tween(250, easing = Motion.EasingEmphasized)) togetherWith
+                            fadeOut(tween(180, easing = Motion.EasingEmphasized))
                     } else {
                         // Instant switch — identical to the pre-D-320 behavior
                         // (androidx.compose.animation has no snap() ContentTransform).
@@ -616,6 +889,56 @@ fun AppRoot() {
                         currentKey::class.simpleName ?: "screen",
                     ) {
                         when (currentKey) {
+            // D-403 (round 28): the first-run setup wizard. Finishing sets the
+            // once-per-install flag + lands on the sanitized start tab; the
+            // theme selection applies LIVE via ThemePreferences' mutable
+            // states (the whole app re-themes as the user taps a card).
+            com.confused.anikuta.feature.onboarding.OnboardingKey -> OnboardingScreen(
+                themeChoices = onboardingChoices,
+                selectedThemeId = onboardingSelectedThemeId,
+                onThemeSelected = { id ->
+                    applyOnboardingThemeById(themePreferencesForOnboarding, id)
+                },
+                selectedThemeMode = onboardingSelectedThemeMode,
+                onThemeModeSelected = { mode ->
+                    // D-406 (round 30): the mode toggle. When the applied
+                    // theme belongs to the OTHER bucket, apply the new mode's
+                    // DEFAULT CARD in one shot (mode + preset together) so the
+                    // app never flashes a mismatched accent for the ~220ms it
+                    // takes the carousel's settle to land on the same card —
+                    // the wizard then re-scrolls to that card and the settle
+                    // is a no-op (the highlight always equals the truth).
+                    // Same-bucket taps (and unmapped states) just set the
+                    // mode.
+                    val currentCard = onboardingChoices
+                        .firstOrNull { it.id == onboardingSelectedThemeId }
+                    if (currentCard != null && currentCard.mode != mode) {
+                        onboardingChoices.firstOrNull { it.mode == mode }?.let { default ->
+                            applyOnboardingThemeById(themePreferencesForOnboarding, default.id)
+                        }
+                    } else {
+                        themePreferencesForOnboarding.setThemeMode(
+                            when (mode) {
+                                "light" -> ThemeMode.LIGHT
+                                "dark" -> ThemeMode.DARK
+                                else -> ThemeMode.SYSTEM
+                            },
+                        )
+                    }
+                },
+                appVersion = remember {
+                    runCatching {
+                        appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+                    }.getOrNull() ?: "unknown"
+                },
+                onFinished = {
+                    appPreferences.onboardingCompleted = true
+                    backstack.clear()
+                    backstack.add(
+                        if (startTab == "library") AnimeLibraryKeyImpl else AnimeBrowseKey,
+                    )
+                },
+            )
             is AnimeBrowseKey -> BrowseScreen(
                 onNavigate = { navKey ->
                     // D-272: route Details navigations through the ad gate;
@@ -637,25 +960,67 @@ fun AppRoot() {
                         onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
                             backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
                         },
-                        onDownloadEpisode = { episode ->
-                            handleDownloadEpisode(
-                                detailsKey = currentKey,
-                                episode = episode,
-                                orchestrator = orchestrator,
-                                contentRepository = contentRepository,
+                        // Task 52: CloudStream episodes → the resolve sheet
+                        // (Task 53 / RC-6): the details page stays visible under
+                        // an AnymeX-style bottom sheet; the selected stream + the
+                        // full pre-resolved list hand off to the CS watch screen.
+                        // The aniyomi watch stack is untouched by this branch.
+                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                            csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+                                providerName = providerName,
+                                animeTitle = animeTitle,
+                                episodeData = episodeData,
+                                episodeNumber = epNum,
+                                episodeTitle = epTitle,
+                                episodeListSerialized = epList,
+                                mainId = mainId,
+                                sourceId = sourceId,
+                                episodeMetadataSerialized = epMeta,
                             )
                         },
-                        onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr, audioLabel ->
-                            handleDownloadSpecificVideo(
-                                detailsKey = currentKey,
-                                episode = episode,
-                                video = video,
-                                serverName = serverName,
-                                sourceIdStr = sourceIdStr,
-                                audioLabel = audioLabel,
-                                orchestrator = orchestrator,
-                                contentRepository = contentRepository,
+                        // Task 58 (round 18 — downloads): the details page's
+                        // download button on a CS-bridged episode — the SAME
+                        // sheet in DOWNLOAD mode; a pick enqueues via
+                        // handleCsDownloadPick (no player, no navigation).
+                        onDownloadCsEpisode = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                            csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+                                providerName = providerName,
+                                animeTitle = animeTitle,
+                                episodeData = episodeData,
+                                episodeNumber = epNum,
+                                episodeTitle = epTitle,
+                                episodeListSerialized = epList,
+                                mainId = mainId,
+                                sourceId = sourceId,
+                                episodeMetadataSerialized = epMeta,
                             )
+                            csResolveDownloadMode = true
+                        },
+                        onDownloadEpisode = { episode ->
+                            // D-403: the no-folder gate (retry-after-pick).
+                            gateDownload {
+                                handleDownloadEpisode(
+                                    detailsKey = currentKey,
+                                    episode = episode,
+                                    orchestrator = orchestrator,
+                                    contentRepository = contentRepository,
+                                )
+                            }
+                        },
+                        onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr, audioLabel ->
+                            // D-403: the no-folder gate (retry-after-pick).
+                            gateDownload {
+                                handleDownloadSpecificVideo(
+                                    detailsKey = currentKey,
+                                    episode = episode,
+                                    video = video,
+                                    serverName = serverName,
+                                    sourceIdStr = sourceIdStr,
+                                    audioLabel = audioLabel,
+                                    orchestrator = orchestrator,
+                                    contentRepository = contentRepository,
+                                )
+                            }
                         },
                         // D-209: Cloudflare manual solver.
                         onOpenCloudflareWebView = { url, sourceName ->
@@ -672,25 +1037,64 @@ fun AppRoot() {
                         onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
                             backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
                         },
-                        onDownloadEpisode = { episode ->
-                            handleDownloadEpisode(
-                                detailsKey = currentKey,
-                                episode = episode,
-                                orchestrator = orchestrator,
-                                contentRepository = contentRepository,
+                        // Task 52: CloudStream episodes → the resolve sheet
+                        // (Task 53 / RC-6, AnymeX entry pattern).
+                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                            csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+                                providerName = providerName,
+                                animeTitle = animeTitle,
+                                episodeData = episodeData,
+                                episodeNumber = epNum,
+                                episodeTitle = epTitle,
+                                episodeListSerialized = epList,
+                                mainId = mainId,
+                                sourceId = sourceId,
+                                episodeMetadataSerialized = epMeta,
                             )
                         },
-                        onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr, audioLabel ->
-                            handleDownloadSpecificVideo(
-                                detailsKey = currentKey,
-                                episode = episode,
-                                video = video,
-                                serverName = serverName,
-                                sourceIdStr = sourceIdStr,
-                                audioLabel = audioLabel,
-                                orchestrator = orchestrator,
-                                contentRepository = contentRepository,
+                        // Task 58 (round 18 — downloads): the details page's
+                        // download button on a CS-bridged episode — the SAME
+                        // sheet in DOWNLOAD mode; a pick enqueues via
+                        // handleCsDownloadPick (no player, no navigation).
+                        onDownloadCsEpisode = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                            csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+                                providerName = providerName,
+                                animeTitle = animeTitle,
+                                episodeData = episodeData,
+                                episodeNumber = epNum,
+                                episodeTitle = epTitle,
+                                episodeListSerialized = epList,
+                                mainId = mainId,
+                                sourceId = sourceId,
+                                episodeMetadataSerialized = epMeta,
                             )
+                            csResolveDownloadMode = true
+                        },
+                        onDownloadEpisode = { episode ->
+                            // D-403: the no-folder gate (retry-after-pick).
+                            gateDownload {
+                                handleDownloadEpisode(
+                                    detailsKey = currentKey,
+                                    episode = episode,
+                                    orchestrator = orchestrator,
+                                    contentRepository = contentRepository,
+                                )
+                            }
+                        },
+                        onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr, audioLabel ->
+                            // D-403: the no-folder gate (retry-after-pick).
+                            gateDownload {
+                                handleDownloadSpecificVideo(
+                                    detailsKey = currentKey,
+                                    episode = episode,
+                                    video = video,
+                                    serverName = serverName,
+                                    sourceIdStr = sourceIdStr,
+                                    audioLabel = audioLabel,
+                                    orchestrator = orchestrator,
+                                    contentRepository = contentRepository,
+                                )
+                            }
                         },
                         // D-209: Cloudflare manual solver.
                         onOpenCloudflareWebView = { url, sourceName ->
@@ -748,26 +1152,72 @@ fun AppRoot() {
                         )
                     )
                 },
-                onNavigateToExtensionAnime = { sourceId, animeUrl, title, thumbnailUrl ->
+                onNavigateToExtensionAnime = { sourceId, sourceKey, animeUrl, title, thumbnailUrl, year ->
+                    // CloudStream V2: CS results open the EXACT SAME details
+                    // screen as aniyomi results — the source bridge (registered
+                    // in ExtensionManager under the stable CS id) makes the
+                    // standard DetailsScreen resolve details/episodes through
+                    // the provider. year = the search-time seed for the Year row.
+                    // (sourceKey rides along for grid identity + the future
+                    // playback port; navigation itself only needs the id.)
                     navigateToDetails(
                         AnimeDetailsKey.Extension(
                             sourceId,
                             animeUrl,
                             title,
                             thumbnailUrl,
+                            year = year,
                             transitionKey = searchCoverKey(thumbnailUrl),
                         )
                     )
                 },
                 // D-209: Cloudflare manual solver — launched from the Search error card.
-                onOpenCloudflareWebView = { url, sourceName ->
+                onOpenCloudflareWebView = { url, sourceName, userAgent ->
+                    // CloudStream V2: CS providers must solve with the CS client's
+                    // pinned UA (cf_clearance is UA-bound) — the search error card
+                    // passes it through.
                     appContext.startActivity(
                         com.confused.anikuta.webview.CloudflareWebViewActivity.newIntent(
-                            context = appContext, url = url, sourceName = sourceName,
+                            context = appContext, url = url, sourceName = sourceName, userAgent = userAgent,
                         ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
                 },
+                // Task 61 (round 21 — the category subpages): tapping a CloudStream
+                // section's TITLE opens that category's own page.
+                onNavigateToCategory = { providerName, sectionTitle, sectionIndex ->
+                    backstack.add(
+                        com.confused.anikuta.feature.animesearch.CsCategoryKey(
+                            providerName = providerName,
+                            sectionTitle = sectionTitle,
+                            shelfIndex = sectionIndex,
+                        )
+                    )
+                },
             )
+            // Task 61 (round 21 — the category subpages): one provider shelf as
+            // its own page — the category heading + a full grid + the same
+            // approach-bottom pagination as the search page.
+            is com.confused.anikuta.feature.animesearch.CsCategoryKey -> {
+                val categoryKey = currentKey as com.confused.anikuta.feature.animesearch.CsCategoryKey
+                com.confused.anikuta.feature.animesearch.CsCategoryScreen(
+                    providerName = categoryKey.providerName,
+                    sectionTitle = categoryKey.sectionTitle,
+                    shelfIndex = categoryKey.shelfIndex,
+                    onBack = pop,
+                    onNavigateToExtensionAnime = { anime ->
+                        navigateToDetails(
+                            AnimeDetailsKey.Extension(
+                                anime.sourceId,
+                                anime.url,
+                                anime.title,
+                                anime.thumbnailUrl,
+                                year = anime.year,
+                                transitionKey = searchCoverKey(anime.thumbnailUrl),
+                            )
+                        )
+                    },
+                )
+            }
             is MoreKey -> MoreScreen(
                 onOpenSettings = { backstack.add(SettingsKey) },
                 onOpenDownloads = { backstack.add(DownloadsKey) },
@@ -837,12 +1287,36 @@ fun AppRoot() {
             )
             is SettingsKey -> SettingsScreen(
                 onOpenAppearance = { backstack.add(AppearanceKey) },
-                onOpenExtensions = { backstack.add(ExtensionsSettingsKey) },
+                onOpenExtensions = { backstack.add(ExtensionsSettingsKey()) },
                 onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
-                onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
+                // D-388 (round 25): the UPDATES page is its own Settings row now
+                // (episode update checks, schedule, check-now, history).
+                onOpenUpdates = { backstack.add(UpdatesSettingsKey) },
+                // D-388: Notifications points to the ALERTS page (master
+                // toggle, per-anime config, test) — not the updates page.
+                onOpenNotifications = { backstack.add(NotificationsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onOpenVideoCaching = { backstack.add(VideoCachingKey) },
+                onOpenDebug = { backstack.add(DebugSettingsKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
+                onBack = pop,
+            )
+            // Task 57 (round 17): the dedicated Debug page — bubble toggle
+            // (debug builds) + resolve-list source details / copy button
+            // (release-available, defaults OFF).
+            // Task 64 (round 24): the ConsoleLogsKey branch is gone with the
+            // console-logging family (Settings → Developer tools → Console
+            // logs row removed too).
+            is DebugSettingsKey -> com.confused.anikuta.settings.DebugSettingsScreen(
+                onBack = pop,
+                // D-388 (round 25): the dedicated Update Check History button.
+                onOpenUpdateCheckHistory = { backstack.add(UpdateCheckLogKey) },
+            )
+            // CloudStream V2: the plugin detail page — resolves the plugin across
+            // Trusted/Untrusted/Failed/Available and shows metadata + live
+            // providers + state actions (trust/untrust/install/uninstall/retry).
+            is CloudstreamPluginDetailKey -> com.confused.anikuta.feature.extensionssettings.CloudstreamPluginDetailScreen(
+                internalName = currentKey.internalName,
                 onBack = pop,
             )
             // D-220: Trackers page.
@@ -865,8 +1339,38 @@ fun AppRoot() {
             is UpdatesSettingsKey -> UpdatesSettingsScreen(
                 onOpenNotifications = { backstack.add(NotificationsKey) },
                 onOpenCategories = { backstack.add(UpdateCategoriesKey) },
+                // Task 64 (round 24): the content-update history page.
+                onOpenCheckLog = { backstack.add(UpdateCheckLogKey) },
             )
             is UpdateCategoriesKey -> UpdateCategoriesScreen(onBack = pop)
+            // Task 64 (round 24): the update-check history — every check
+            // session (when it ran, what it checked, per-content outcomes,
+            // the engine's next actions) from the JSON log store.
+            is UpdateCheckLogKey -> com.confused.anikuta.settings.UpdateCheckLogScreen(
+                onBack = pop,
+                // D-388 (round 25): every history row navigates to the anime's
+                // Details page (the canonical mainId bridge — same as the
+                // Updates/History tabs).
+                onNavigateToDetails = { mainId ->
+                    val content = contentRepository.getMainEntryByMainId(mainId)
+                    if (content != null) {
+                        val details = contentRepository.getContentDetails(mainId)
+                        val anilistId = details?.anilistId
+                        if (anilistId != null) {
+                            navigateToDetails(AnimeDetailsKey.AniList(anilistId))
+                        } else {
+                            if (details != null) {
+                                navigateToDetails(AnimeDetailsKey.Extension(
+                                    details.sourceId ?: 0L,
+                                    details.animeUrl ?: content.animeUrl ?: "",
+                                    content.title,
+                                    details.extThumbnailUrl,
+                                ))
+                            }
+                        }
+                    }
+                },
+            )
             is NotificationsKey -> NotificationsSettingsScreen(
                 onBack = pop,
                 onOpenLibrary = { backstack.add(NotificationsLibraryKey) },
@@ -878,6 +1382,11 @@ fun AppRoot() {
                 onBack = pop,
                 onOpenRepoSettings = { backstack.add(ExtensionRepoSettingsKey) },
                 onOpenExtensionDetail = { backstack.add(ExtensionDetailKey(it)) },
+                // CloudStream V2: the CS plugin detail page (trust/uninstall/retry hub).
+                onOpenCloudstreamPluginDetail = { backstack.add(CloudstreamPluginDetailKey(it)) },
+                // Task 60: the tab the key asked for (the plugin-import hand-off
+                // pushes "cloudstream"; the branch smart-casts currentKey).
+                initialTab = currentKey.initialTab,
             )
             is ExtensionRepoSettingsKey -> ExtensionRepoSettingsScreen(
                 onBack = pop,
@@ -945,6 +1454,13 @@ fun AppRoot() {
             )
             is WatchKey -> WatchScreen(
                 watchKey = currentKey,
+                onBack = pop,
+            )
+            // Task 52 (round 12): the DEDICATED CloudStream watch screen — loadLinks
+            // resolution + Media3 ExoPlayer, fully parallel to the MPV watch stack
+            // above (zero shared code; same WatchProgressStore contract).
+            is CsWatchKey -> com.confused.anikuta.feature.cswatch.impl.CsWatchScreen(
+                key = currentKey,
                 onBack = pop,
             )
             is com.confused.anikuta.feature.updates.UpdatesKey -> {
@@ -1044,6 +1560,17 @@ fun AppRoot() {
                     if (route == "browse" || route == "library") {
                         appPreferences.lastTab = route
                     }
+                    // Task 62 (round 22 — the search randomization TRIGGER):
+                    // leaving the SEARCH root tab is the ONLY "leave the search
+                    // page" event that may re-randomize the CloudStream
+                    // sections on the next entry (a subpage push stays inside
+                    // the tab — returning from a category subpage or a details
+                    // page must NOT re-shuffle; the round-22 device spec:
+                    // "the randomization should only happen if I leave the
+                    // search page and then come back to the search page").
+                    if (route != "search" && currentKey is AnimeSearchKey) {
+                        com.confused.anikuta.feature.animesearch.SearchTabExitSignal.markTabExit()
+                    }
                     backstack.clear()
                     when (route) {
                         "browse" -> backstack.add(AnimeBrowseKey)
@@ -1061,6 +1588,44 @@ fun AppRoot() {
         // DebugBubbleHost is a no-op in release builds (release source set).
         // In debug builds it renders the draggable squircle bubble.
         DebugBubbleHost()
+
+        // ── Task 53 / RC-6: the CS resolve sheet (AnymeX entry pattern) ──
+        // Overlay sibling of the nav content: the details page stays visible
+        // underneath while streams resolve in this bottom sheet; a selection
+        // seeds the CS watch ViewModel + pushes the watch screen (instant
+        // playback, no re-resolve). Dismissal cancels the resolution.
+        // Task 58 (round 18): in DOWNLOAD mode a pick hands the resolved link
+        // to the CS download enqueue path instead (no seeding, no navigation).
+        csResolveRequest?.let { csKey ->
+            com.confused.anikuta.feature.cswatch.impl.CsResolveSheet(
+                key = csKey,
+                onDismiss = {
+                    csResolveRequest = null
+                    csResolveDownloadMode = false
+                },
+                onPlay = { playedKey ->
+                    backstack.add(playedKey)
+                    csResolveRequest = null
+                },
+                onDownload = if (csResolveDownloadMode) {
+                    { key, link, subtitles ->
+                        // D-403: the no-folder gate (retry-after-pick) — the
+                        // CS download path gets the same early, clear error.
+                        gateDownload {
+                            handleCsDownloadPick(
+                                key = key,
+                                link = link,
+                                subtitles = subtitles,
+                                contentRepository = contentRepository,
+                                downloadManager = downloadManager,
+                            )
+                        }
+                        csResolveRequest = null
+                        csResolveDownloadMode = false
+                    }
+                } else null,
+            )
+        }
 
         // ── App update bottom sheet (page-gated) ──
         // Rendered as an overlay from AppRoot (NOT pushed onto the backstack) so
@@ -1185,6 +1750,20 @@ private fun handleDownloadEpisode(
                 org.koin.core.context.GlobalContext.get()
                     .get<com.confused.anikuta.data.extension.manager.ExtensionManager>()
                     .getSource(it) as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+            }
+
+            // Task 58 (round 18 — downloads): CS-bridged sources can't go
+            // through the classic auto path (VideoResolver.resolve → the
+            // bridge's getVideoList throws by design). The details page
+            // routes CS episode downloads to the CS resolve sheet; this guard
+            // is defense in depth for any other caller.
+            if (source != null && source.isCloudStreamBridged) {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "handleDownloadEpisode — CS-bridged source ${source.name} hit the classic " +
+                        "auto path; redirecting to the picker guidance"
+                }
+                showDownloadToast("CloudStream downloads pick the stream first — use the episode's download button")
+                return@launch
             }
 
             // 4. Enqueue.
@@ -1398,6 +1977,104 @@ private fun handleDownloadSpecificVideo(
 }
 
 /**
+ * Task 58 (round 18 — the CS downloads port): enqueues a download for an
+ * ALREADY-RESOLVED CloudStream link picked in the CS resolve sheet's download
+ * mode. The engine is source-agnostic — this handler only builds the
+ * content/episode identity (mirroring [handleDownloadSpecificVideo]'s lookup,
+ * but keyed on the CsWatchKey's OWN mainId — no detailsKey round-trip) and
+ * hands [com.confused.anikuta.download.CsDownloadRequestBuilder]'s request to
+ * the SAME [com.confused.anikuta.core.download.DownloadManager] the aniyomi
+ * path uses: queue, foreground service, HTTP/HLS fetchers, SAF storage,
+ * notifications + the downloads screen all just work, and the episode row's
+ * download-state chips ride the (mainId | episodeKey) identity for free.
+ */
+private fun handleCsDownloadPick(
+    key: com.confused.anikuta.feature.cswatch.api.CsWatchKey,
+    link: com.confused.anikuta.core.csplayer.CsVideoLink,
+    subtitles: List<com.confused.anikuta.core.csplayer.CsSubtitle>,
+    contentRepository: com.confused.anikuta.core.content.ContentRepository,
+    downloadManager: com.confused.anikuta.core.download.DownloadManager,
+) {
+    com.confused.anikuta.core.common.Logger.i("MainActivity") {
+        "handleCsDownloadPick — START: episode=${key.episodeData.take(48)}, " +
+            "link=${link.displayLabel}, audio=${link.audioLabel}, subs=${subtitles.size}"
+    }
+    val scope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+    )
+    scope.launch {
+        try {
+            // The CS watch key carries the content identity directly (the
+            // details page built it from its own state) — no AnimeDetailsKey
+            // round-trip needed.
+            if (key.mainId.isBlank()) {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "handleCsDownloadPick — blank mainId (content not saved?)"
+                }
+                showDownloadToast("Save the anime to your library first, then download")
+                return@launch
+            }
+            val content = contentRepository.getMainEntryByMainId(key.mainId) ?: run {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "handleCsDownloadPick — no content for mainId=${key.mainId.take(8)}"
+                }
+                showDownloadToast("Download failed: content entry missing")
+                return@launch
+            }
+            val details = contentRepository.getContentDetails(key.mainId)
+            val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
+            val contentInfo = com.confused.anikuta.core.download.DownloadContentInfo(
+                mainId = content.mainId,
+                contentId = content.contentId,
+                title = content.title,
+                coverUrl = coverUrl,
+                coverColor = null,
+                contentFormat = content.contentFormat,
+                contentType = content.contentType,
+                description = details?.dataSynopsis ?: details?.extDescription,
+                dataSourceId = content.dataSourceId,
+                systemId = content.systemId,
+                extensionRepoId = content.extensionRepoId,
+                extensionId = content.extensionId ?: details?.extensionIdLong,
+                // key.sourceId is the CS bridge's synthetic id — authoritative
+                // (same D-210 logic as the aniyomi path's sourceIdStr).
+                sourceId = key.sourceId.takeIf { it != 0L } ?: content.sourceId ?: details?.sourceId,
+                animeUrl = content.animeUrl ?: details?.animeUrl,
+                displaySource = content.displaySource,
+                anilistId = details?.anilistId,
+            )
+            val episodeInfo = com.confused.anikuta.core.download.DownloadEpisodeInfo(
+                // episodeKey = the CS data handle = SEpisode.url — the SAME key
+                // the details page's download-state chips + the downloaded-
+                // episode playback lookup use (byte-identical identity).
+                episodeKey = key.episodeData,
+                episodeNumber = key.episodeNumber,
+                name = key.episodeTitle.ifBlank { "Episode ${key.episodeNumber.toInt()}" },
+                description = null,
+            )
+            val request = com.confused.anikuta.download.CsDownloadRequestBuilder.build(
+                content = contentInfo,
+                episode = episodeInfo,
+                link = link,
+                subtitles = subtitles,
+                sourceId = key.sourceId.takeIf { it != 0L },
+            )
+            val taskId = downloadManager.enqueueDownload(request)
+            com.confused.anikuta.core.common.Logger.i("MainActivity") {
+                "handleCsDownloadPick — enqueued taskId=$taskId " +
+                    "(${link.qualityLabel}, ${link.name}, ${link.audioLabel})"
+            }
+            showDownloadToast("Download queued: ${link.qualityLabel} · ${link.name}")
+        } catch (e: Exception) {
+            com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
+                "handleCsDownloadPick — exception"
+            }
+            showDownloadToast("Download failed: ${e.message}")
+        }
+    }
+}
+
+/**
  * Shows a toast on the main thread (safe to call from Dispatchers.IO).
  * D.FIX: Toast.makeText requires Looper.prepare() on the calling thread —
  * this helper posts to the main looper to avoid the NullPointerException.
@@ -1413,40 +2090,13 @@ private fun showDownloadToast(message: String) {
 }
 
 /**
- * Extracts a human-readable language label from a downloaded subtitle's
- * `content://` URI by parsing the on-disk filename.
- *
- * D-FIX-SUB: the download storage names subtitle files
- * `.subtitle_E{num}_{lang}_{index}.{ext}` (e.g. `.subtitle_E00001_english_0.srt`).
- * This extracts the `{lang}` segment + title-cases it ("english" → "English") so
- * the offline subtitle picker shows "English" / "Japanese" instead of "Subtitle 1".
- *
- * Falls back to `"Subtitle {index+1}"` for:
- * - Legacy filenames (`.subtitle_E{num}_{index}.{ext}` — pre-fix, no lang segment).
- * - URIs whose last path segment doesn't match the expected pattern.
- * - A `lang` segment of `"unknown"` (written when the track had no language).
- *
- * @param uri The subtitle `content://` URI.
- * @param index The 0-based track index (for the fallback label).
+ * D-407 (round 31): REMOVED — `extractSubtitleLangFromUri` +
+ * `scanSubtitleFilesOnDisk` were MainActivity-private copies of logic that
+ * now lives ONCE in `:core:download` (`DownloadedSubtitleLabels.labelForUri`
+ * + `DownloadStorageProvider.findSubtitleFilesForEpisode`, fronted by
+ * `DownloadManager.resolveSubtitleTracks`). Three call sites, one
+ * implementation, zero drift.
  */
-private fun extractSubtitleLangFromUri(uri: String, index: Int): String {
-    val fileName = android.net.Uri.parse(uri).lastPathSegment ?: return "Subtitle ${index + 1}"
-    // Expected: .subtitle_E{num}_{lang}_{index}.{ext}
-    // Strip the leading ".subtitle_E" prefix + the "E{num}_" episode segment.
-    if (!fileName.startsWith("subtitle_E") && !fileName.startsWith(".subtitle_E")) return "Subtitle ${index + 1}"
-    val withoutExt = fileName.substringBeforeLast('.')
-    // withoutExt = ".subtitle_E00001_english_0" → split by '_' → [".subtitle", "E00001", "english", "0"]
-    val segments = withoutExt.split('_')
-    // Need at least 4 segments for the new format (prefix, enum, lang, index).
-    // Legacy format has 3 segments (prefix, enum, index) → no lang → fallback.
-    if (segments.size < 4) return "Subtitle ${index + 1}"
-    val lang = segments[segments.size - 2] // second-to-last segment
-    if (lang.isBlank() || lang == "unknown") return "Subtitle ${index + 1}"
-    // Title-case: "english" → "English", "espanol-latino" → "Espanol Latino".
-    return lang.split('-').joinToString(" ") { word ->
-        word.replaceFirstChar { it.titlecase() }
-    }
-}
 
 @Composable
 private fun SelectionActionBar(
@@ -1646,27 +2296,24 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
         }
     } else ""
 
-    // Pass local subtitle URIs from the downloaded episode.
-    val subtitleUris = downloaded?.subtitleUris ?: emptyList()
-    Logger.i("Anikuta:MainActivity") {
-        "Downloads→Watch: downloaded=${downloaded != null}, " +
-            "downloaded.subtitleUris.size=${subtitleUris.size}, " +
-            "uris=${subtitleUris.joinToString("; ") { it.take(60) }}"
+    // D-407 (round 31): the SHARED subtitle resolution — the same ONE answer
+    // the details-page hand-off and the in-player episode switch get (DB
+    // `subtitleUris` first, the dedicated subtitles/ folder's canonical disk
+    // scan as the fallback, labels derived from the filenames). The old
+    // inline copy (DB list + scanSubtitleFilesOnDisk +
+    // extractSubtitleLangFromUri) is deleted — one implementation in
+    // `:core:download`, three call sites, zero drift.
+    val resolvedSubs = downloadManager.resolveSubtitleTracks(
+        mainId = mainId,
+        episodeNumber = downloaded?.episode?.episodeNumber?.toInt() ?: 0,
+    )
+    val subtitleTracksStr = resolvedSubs.joinToString("\n") {
+        "${it.uri}$delim${it.label}"
     }
-    // Fallback: if subtitleUris is empty, scan the content folder's subtitles/ subfolder.
-    // D-151-fix: was `runBlocking { ... }` (ANR risk) — now runs naturally on Dispatchers.IO.
-    val effectiveSubUris = if (subtitleUris.isNotEmpty()) {
-        subtitleUris
-    } else {
-        Logger.w("Anikuta:MainActivity") { "Downloads→Watch: subtitleUris empty in DB — trying disk scan" }
-        scanSubtitleFilesOnDisk(mainId, downloaded?.episode?.episodeNumber?.toInt() ?: 0)
-    }
-    val subtitleTracksStr = effectiveSubUris.mapIndexed { index, uri ->
-        val langLabel = extractSubtitleLangFromUri(uri, index)
-        "$uri${delim}$langLabel"
-    }.joinToString("\n")
     Logger.i("Anikuta:MainActivity") {
-        "Downloads→Watch: passing ${effectiveSubUris.size} local subtitle track(s), subtitleTracksStr.length=${subtitleTracksStr.length}"
+        "Downloads→Watch: resolver returned ${resolvedSubs.size} subtitle track(s) " +
+            "[labels=${resolvedSubs.map { it.label }}], " +
+            "subtitleTracksStr.length=${subtitleTracksStr.length}"
     }
 
     // Look up the sourceId so the watch screen can re-resolve non-downloaded episodes.
@@ -1692,48 +2339,10 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
 }
 
 /**
- * Fallback: scans the SAF storage for subtitle files for a specific episode.
- * Used when the downloaded_episode DB table doesn't have subtitleUris populated.
- *
- * Searches the content folder's "subtitles" subfolder (new) + the root (legacy)
- * for files matching the episode number pattern.
+ * D-407 (round 31): REMOVED — see the note where the old label helper lived;
+ * the disk scan is now `DownloadStorageProvider.findSubtitleFilesForEpisode`
+ * (behind `DownloadManager.resolveSubtitleTracks`).
  */
-private suspend fun scanSubtitleFilesOnDisk(mainId: String, episodeNumber: Int): List<String> {
-    if (episodeNumber <= 0) return emptyList()
-    val epNumPadded = String.format("%05d", episodeNumber)
-    val results = mutableListOf<String>()
-
-    try {
-        val koin = org.koin.core.context.GlobalContext.get()
-        val storage = koin.get<com.confused.anikuta.core.download.DownloadStorageProvider>()
-
-        val contentDir = storage.findContentFolder(mainId) ?: return emptyList()
-
-        val subtitlesDir = contentDir.listFiles().firstOrNull { it.name == "subtitles" && it.isDirectory }
-        val searchDirs = if (subtitlesDir != null) listOf(subtitlesDir, contentDir) else listOf(contentDir)
-
-        for (dir in searchDirs) {
-            for (file in dir.listFiles()) {
-                if (!file.isFile) continue
-                val name = file.name ?: continue
-                if ((name.startsWith("subtitle_E${epNumPadded}_") || name.startsWith(".subtitle_E${epNumPadded}_")) &&
-                    (name.endsWith(".srt") || name.endsWith(".vtt") || name.endsWith(".ass") || name.endsWith(".ssa"))
-                ) {
-                    results.add(file.uri.toString())
-                    com.confused.anikuta.core.common.Logger.i("Anikuta:MainActivity") {
-                        "scanSubtitleFilesOnDisk — found: ${name.take(60)}"
-                    }
-                }
-            }
-        }
-    } catch (e: Exception) {
-        com.confused.anikuta.core.common.Logger.w("Anikuta:MainActivity") {
-            "scanSubtitleFilesOnDisk failed: ${e.message}"
-        }
-    }
-
-    return results
-}
 
 /**
  * Tap-to-play from the Video Caching settings screen (session-2):
@@ -1769,4 +2378,189 @@ private fun buildWatchKeyFromCacheEntry(
         episodeMetadataSerialized = "",
         startPosition = 0L, // WP-B3 falls back to the watch-progress store lookup.
     )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D-403 (round 28): the onboarding wizard's app-side wiring
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * D-403 → D-405 → D-406 (round 30): the wizard's curated quick-theme
+ * CAROUSEL cards. D-406: every choice now carries its MODE bucket
+ * ("light" | "dark") — the theme step's Light/Dark toggle (exactly two
+ * options, no System) filters the carousel to the selected mode's themes
+ * (the report: "Depending on the user's selection, below the appropriate
+ * options will be shown"). The ids map to (ThemeMode, AccentPreset,
+ * amoled) in [applyOnboardingThemeById]; the preview colors sample the
+ * app's design-system palette (Color.kt) so each card is a faithful
+ * miniature of the real theme (the appearance page's palette-card UI).
+ */
+private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
+    OnboardingThemeChoice(
+        id = "midnight",
+        mode = "dark",
+        title = "Midnight",
+        subtitle = "Dark · Lime",
+        previewBackground = Color(0xFF14111F),
+        previewAccent = Color(0xFFB1F256),
+        previewSurface = Color(0xFF3D3656),
+    ),
+    OnboardingThemeChoice(
+        id = "daylight",
+        mode = "light",
+        title = "Daylight",
+        subtitle = "Light · Lime",
+        previewBackground = Color(0xFFFAF9F6),
+        previewAccent = Color(0xFF5A8C1A),
+        previewSurface = Color(0xFFECE9E2),
+    ),
+    OnboardingThemeChoice(
+        id = "amoled",
+        mode = "dark",
+        title = "AMOLED",
+        subtitle = "Pure black · Violet",
+        previewBackground = Color(0xFF000000),
+        previewAccent = Color(0xFF9C27B0),
+        previewSurface = Color(0xFF1A1A1F),
+    ),
+    OnboardingThemeChoice(
+        id = "dusk",
+        mode = "dark",
+        title = "Dusk",
+        subtitle = "Dark · Coral",
+        previewBackground = Color(0xFF14111F),
+        previewAccent = Color(0xFFFF7043),
+        previewSurface = Color(0xFF3D3656),
+    ),
+    OnboardingThemeChoice(
+        id = "night",
+        mode = "dark",
+        title = "Night",
+        subtitle = "Dark · Violet",
+        previewBackground = Color(0xFF171226),
+        previewAccent = Color(0xFF9C27B0),
+        previewSurface = Color(0xFF3D3656),
+    ),
+    OnboardingThemeChoice(
+        id = "teal",
+        mode = "light",
+        title = "Teal Mist",
+        subtitle = "Light · Teal",
+        previewBackground = Color(0xFFFAF9F6),
+        previewAccent = Color(0xFF009688),
+        previewSurface = Color(0xFFECE9E2),
+    ),
+    OnboardingThemeChoice(
+        id = "coral_light",
+        mode = "light",
+        title = "Coral Day",
+        subtitle = "Light · Coral",
+        previewBackground = Color(0xFFFAF9F6),
+        previewAccent = Color(0xFFFF7043),
+        previewSurface = Color(0xFFECE9E2),
+    ),
+)
+
+/**
+ * D-403: maps a wizard theme-card id to the actual (ThemeMode, AccentPreset,
+ * amoled) triple and applies it LIVE — ThemePreferences' mutable states
+ * recompose MainActivity's AnikutaTheme wrapper, so the whole app (including
+ * the wizard itself) re-themes the instant a card is tapped.
+ */
+private fun applyOnboardingThemeById(prefs: ThemePreferences, id: String) {
+    when (id) {
+        "midnight" -> {
+            prefs.setThemeMode(ThemeMode.DARK)
+            prefs.setAccentPreset(AccentPreset.LIME)
+            prefs.setAmoled(false)
+        }
+        "daylight" -> {
+            prefs.setThemeMode(ThemeMode.LIGHT)
+            prefs.setAccentPreset(AccentPreset.LIME)
+            prefs.setAmoled(false)
+        }
+        "amoled" -> {
+            prefs.setThemeMode(ThemeMode.DARK)
+            prefs.setAccentPreset(AccentPreset.VIOLET)
+            prefs.setAmoled(true)
+        }
+        "dusk" -> {
+            prefs.setThemeMode(ThemeMode.DARK)
+            prefs.setAccentPreset(AccentPreset.CORAL)
+            prefs.setAmoled(false)
+        }
+        "night" -> {
+            prefs.setThemeMode(ThemeMode.DARK)
+            prefs.setAccentPreset(AccentPreset.VIOLET)
+            prefs.setAmoled(false)
+        }
+        "teal" -> {
+            prefs.setThemeMode(ThemeMode.LIGHT)
+            prefs.setAccentPreset(AccentPreset.TEAL)
+            prefs.setAmoled(false)
+        }
+        "coral_light" -> {
+            prefs.setThemeMode(ThemeMode.LIGHT)
+            prefs.setAccentPreset(AccentPreset.CORAL)
+            prefs.setAmoled(false)
+        }
+    }
+}
+
+/**
+ * D-403 → D-405 (round 29): the best-effort reverse mapping — which wizard
+ * card best represents the CURRENT theme (used to seed the carousel's
+ * initial position). D-405: SYSTEM no longer maps to a dedicated card (the
+ * mode row owns it) — it resolves by ACCENT like the dark branch, since the
+ * carousel's cards are accent/preset identities. Unmapped combinations fall
+ * to the closest mode/accent card.
+ */
+private fun currentOnboardingThemeId(prefs: ThemePreferences): String = when {
+    prefs.amoled.value -> "amoled"
+    prefs.themeMode.value == ThemeMode.LIGHT -> when (prefs.accentPreset.value) {
+        AccentPreset.TEAL -> "teal"
+        AccentPreset.CORAL -> "coral_light"
+        else -> "daylight"
+    }
+    else -> when (prefs.accentPreset.value) {
+        AccentPreset.CORAL -> "dusk"
+        AccentPreset.VIOLET -> "night"
+        else -> "midnight"
+    }
+}
+
+/**
+ * D-405 → D-406 (round 30): the LIVE mode for the wizard's Light/Dark
+ * toggle — exactly two options, so SYSTEM resolves to the system's ACTUAL
+ * mode ([isSystemInDarkTheme], read at the call site in composition): the
+ * toggle initializes to what the user is effectively looking at, and the
+ * first tap makes the choice explicit. Returns "light" | "dark".
+ */
+private fun currentOnboardingThemeMode(
+    prefs: ThemePreferences,
+    systemDark: Boolean,
+): String = when (prefs.themeMode.value) {
+    ThemeMode.LIGHT -> "light"
+    ThemeMode.DARK -> "dark"
+    else -> if (systemDark) "dark" else "light"
+}
+
+/**
+ * D-403: the download-folder readiness check behind the no-folder gate —
+ * the same 3-way semantics as DownloadStorageProvider.getRootFolder (unset
+ * URI / unparseable / permission-revoked), surfaced at TAP time instead of
+ * at publish time. Main-thread-safe: `DocumentFile.fromTreeUri` +
+ * `canWrite` are local operations for tree URIs (no provider round-trip).
+ */
+private fun isDownloadFolderReady(
+    context: android.content.Context,
+    preferences: com.confused.anikuta.core.download.DownloadPreferences,
+): Boolean {
+    val uriStr = preferences.downloadFolderUri.get()
+    if (uriStr.isBlank()) return false
+    val uri = runCatching { android.net.Uri.parse(uriStr) }.getOrNull() ?: return false
+    val tree = runCatching {
+        androidx.documentfile.provider.DocumentFile.fromTreeUri(context, uri)
+    }.getOrNull() ?: return false
+    return tree.canWrite()
 }

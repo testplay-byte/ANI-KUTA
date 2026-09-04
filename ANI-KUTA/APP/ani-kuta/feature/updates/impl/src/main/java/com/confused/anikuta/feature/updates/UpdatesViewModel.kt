@@ -45,7 +45,13 @@ class UpdatesViewModel(
 
     val state: StateFlow<UpdatesUiState> = updateStore.observeAllUpdates(100)
         .map { updates ->
+            // D-381: dedupe on the display composite (mainId + episodeNumber +
+            // audioVariant) as a second guard — the screen keys use the same
+            // composite, so a collision here would have been a duplicate-key
+            // crash there. First row wins (newest — observeAllUpdates orders
+            // by discovered_at DESC).
             val enriched = updates.mapNotNull { update -> enrichUpdate(update) }
+                .distinctBy { "${it.mainId}:${it.episodeNumber}:${it.audioVariant}" }
             val newUpdates = enriched.filter { !it.acknowledged }
             val earlierUpdates = enriched.filter { it.acknowledged }
             UpdatesUiState.Loaded(newUpdates = newUpdates, earlierUpdates = earlierUpdates)
@@ -108,13 +114,14 @@ class UpdatesViewModel(
                     null // AUTO mode — check all due anime
                 }
 
-                val count = updateEngine.checkDueAnime(filterMainIds)
+                val count = updateEngine.checkDueAnime(filterMainIds, trigger = "manual")
                 Logger.i(TAG) { "checkForUpdates — $count new episode(s) found" }
 
-                // D-193 v2: also schedule smart-release checks for anime airing within ±1h,
-                // so a manual Check Now still sets up the smart-polling chain.
+                // D-193 v2 + D-391 (round 26): also (re-)schedule the smart-release
+                // one-shots for every known future airing, so a manual Check Now
+                // still sets up the smart-polling chain.
                 try {
-                    smartReleaseScheduler?.scheduleImminentChecks()
+                    smartReleaseScheduler?.scheduleUpcomingChecks()
                 } catch (e: Exception) {
                     Logger.w(TAG) { "Smart-release scheduling failed (non-fatal): ${e.message}" }
                 }

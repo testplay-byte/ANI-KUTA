@@ -311,9 +311,61 @@ class DownloadStore(private val database: AnikutaDatabase) {
     fun getDownloadedVideoUri(mainId: String, episodeKey: String): String? =
         episodeQueries.getDownloadedEpisode(mainId, episodeKey).executeAsOneOrNull()?.video_uri
 
+    /**
+     * D-407 (round 31): the FULL downloaded-episode row for (mainId,
+     * episodeKey) — used by the manual subtitle import (it needs the episode
+     * number, the title, and the existing subtitleUris to append to).
+     * Returns `null` when the episode is not downloaded.
+     */
+    fun getDownloadedEpisodeRow(mainId: String, episodeKey: String): DownloadedEpisode? =
+        episodeQueries.getDownloadedEpisode(mainId, episodeKey).executeAsOneOrNull()
+            ?.toDownloadedEpisode()
+
+    /**
+     * D-407 (round 31): replaces the row's `subtitle_uris` JSON with [uris]
+     * (the manual subtitle import appends the new URI and writes the FULL
+     * list back — read-modify-write serialized by the caller).
+     */
+    fun updateDownloadedSubtitleUris(mainId: String, episodeKey: String, uris: List<String>) {
+        episodeQueries.updateSubtitleUris(
+            main_id = mainId,
+            episode_key = episodeKey,
+            subtitle_uris = encodeStringList(uris),
+        )
+    }
+
     /** Deletes a single downloaded episode row. */
     fun deleteDownloadedEpisode(mainId: String, episodeKey: String) {
         episodeQueries.deleteDownloadedEpisode(mainId, episodeKey)
+    }
+
+    /**
+     * D-392 (round 26): the number of `downloaded_episode` rows an anime has.
+     *
+     * Used by [DefaultDownloadManager.deleteDownloadedEpisode]'s series-folder
+     * cleanup decision — "was this the LAST downloaded episode?" needs the DB's
+     * answer BEFORE the row itself is deleted (the caller subtracts the row in
+     * flight).
+     */
+    fun getDownloadedEpisodeCountForAnime(mainId: String): Int =
+        episodeQueries.getDownloadedEpisodeCount(mainId).executeAsOne().toInt()
+
+    /**
+     * D-392 (round 26): deletes EVERY `downloaded_episode` row for [mainId].
+     *
+     * The series-folder sweep — called after the whole content folder was
+     * removed on disk. Any row still standing for this anime points INTO a
+     * folder that no longer exists; out-of-sync rows must never survive the
+     * folder (otherwise the app would show phantom downloads that fail on
+     * play and confuse the next folder scan).
+     *
+     * @return the number of rows that existed before the sweep (0 = nothing
+     *         to sweep — the DB was already clean).
+     */
+    fun deleteDownloadedEpisodesByMainId(mainId: String): Int {
+        val before = episodeQueries.getDownloadedEpisodeCount(mainId).executeAsOne().toInt()
+        episodeQueries.deleteDownloadedEpisodesByMainId(mainId)
+        return before
     }
 
     /**

@@ -19,6 +19,9 @@ dependencies {
     implementation(project(":core:source-api"))
     implementation(project(":core:activity-tracker"))  // D-192: activity tracking
     implementation(project(":data:extension"))
+    // Session 3 (CloudStream execution phase 1): provider browse/search through
+    // CloudstreamContentRepository + the persisted NSFW gate on AppPreferences.
+    implementation(project(":data:cloudstream"))
 
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)
@@ -38,4 +41,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     debugImplementation(libs.androidx.ui.tooling)
+
+    // D-402 (round 28): the feature module's first test source set — the
+    // top-bar reveal policy (searchBarNextCollapsed) is unit-tested.
+    testImplementation(libs.junit)
 }

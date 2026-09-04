@@ -5,7 +5,7 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.data.extension.api.AnimeExtensionApi
 import com.confused.anikuta.data.extension.installer.ExtensionInstallReceiver
 import com.confused.anikuta.data.extension.installer.ExtensionInstaller
-import com.confused.anikuta.data.extension.installer.InstallStep
+import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.extension.loader.ExtensionLoader
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import com.confused.anikuta.data.extension.model.LoadResult
@@ -73,6 +73,29 @@ class ExtensionManager(
 
     private val _sources = MutableStateFlow<Map<Long, AnimeSource>>(emptyMap())
     val sources: StateFlow<Map<Long, AnimeSource>> = _sources.asStateFlow()
+
+    /**
+     * Task 45: sources contributed by ANOTHER ecosystem (the CloudStream
+     * bridge). Kept separate so [loadAll]'s full rebuild never wipes them and
+     * enable/disable paths (which copy the live map) never lose them.
+     */
+    @Volatile
+    private var externalSources: Map<Long, AnimeSource> = emptyMap()
+
+    /**
+     * Task 45: publishes sources contributed by another ecosystem (CloudStream
+     * providers bridged as AnimeSource). Merged into [sources]; replaces any
+     * previously-published external set (a provider that disappeared — plugin
+     * untrusted/uninstalled — drops out on the next call with it absent).
+     */
+    fun setExternalSources(sources: Map<Long, AnimeSource>) {
+        val previousKeys = externalSources.keys
+        externalSources = sources
+        // Rebuild from the live map: keep everything EXCEPT the previous external
+        // keys, then add the new external set — vanished providers drop out.
+        _sources.value = (_sources.value - previousKeys) + sources
+        Logger.i(TAG) { "External sources updated: ${sources.size} bridged source(s) merged" }
+    }
 
     /**
      * Per-package install state (CORE_RULES §23 — live updates).
@@ -162,7 +185,9 @@ class ExtensionManager(
         _installedExtensions.value = trusted
         _untrustedExtensions.value = untrusted
         _erroredExtensions.value = errored
-        _sources.value = sourceMap
+        // Task 45: full rebuild — re-merge the external (CloudStream bridge)
+        // sources so they survive every aniyomi reload.
+        _sources.value = sourceMap + externalSources
 
         // Clear install states for extensions that have now appeared (installed or untrusted).
         val seenPkgs = trusted.map { it.pkgName } + untrusted.map { it.pkgName }

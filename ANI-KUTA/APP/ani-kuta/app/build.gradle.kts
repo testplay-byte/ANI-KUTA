@@ -58,6 +58,7 @@ dependencies {
 
     // Data modules
     implementation(project(":data:extension"))
+    implementation(project(":data:cloudstream"))  // CloudStream V2: extension system runtime
 
     // Feature modules (impl — the app wires them)
     implementation(project(":feature:anime-browse:api"))
@@ -71,8 +72,19 @@ dependencies {
     implementation(project(":feature:extensions-settings:api"))
     implementation(project(":feature:extensions-settings:impl"))
     implementation(project(":feature:download"))
+    // D-403 (round 28): the onboarding setup wizard — the first-run destination.
+    implementation(project(":feature:onboarding"))
     implementation(project(":feature:watch:api"))
     implementation(project(":feature:watch:impl"))
+    // CloudStream V2 (task 52): the dedicated CS watch screen — runs on the
+    // Media3 engine (:core:cs-player), never touches the MPV watch stack.
+    implementation(project(":feature:cs-watch:api"))
+    implementation(project(":feature:cs-watch:impl"))
+    // Task 58 (round 18 — downloads): the CS link models (CsVideoLink/
+    // CsSubtitle) for the download-request builder + the resolve sheet's
+    // download-mode callback (:feature:cs-watch:impl declares cs-player as
+    // `implementation`, so it isn't transitively visible here).
+    implementation(project(":core:cs-player"))
     implementation(project(":feature:anime-history:api"))
     implementation(project(":feature:anime-history:impl"))
     implementation(project(":feature:updates:api"))
@@ -92,6 +104,12 @@ dependencies {
     // AndroidX
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    // CloudStream V2: AppCompat — MainActivity extends AppCompatActivity so
+    // CloudStream plugins receive an AppCompatActivity as their load() Context
+    // (the documented plugin pattern stashes it for settings dialogs). Also
+    // puts androidx.appcompat.* on the runtime classpath for plugin dexes that
+    // reference it (parent-first resolution against the host).
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)

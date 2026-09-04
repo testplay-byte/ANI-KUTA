@@ -34,14 +34,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Adjust
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle  // D-226: reverse auto-link match
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SearchOff  // D-226: reverse auto-link no-match
 import androidx.compose.material.icons.filled.Security  // D-209: Cloudflare error icon
 import androidx.compose.material3.CircularProgressIndicator
@@ -138,6 +142,20 @@ fun DetailsScreen(
     detailsKey: AnimeDetailsKey,
     onBack: () -> Unit,
     onNavigateToWatch: (mainId: String, videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
+    // Task 52 (round 12 — the playback port): CloudStream episode taps route
+    // here INSTEAD of the classic resolver/watch pipeline. Primitives (not
+    // CsWatchKey) to keep :feature:anime-details free of feature-to-feature
+    // deps — MainActivity builds the key. Args: providerName, animeTitle,
+    // episodeData (the CS data handle), episodeNumber, episodeTitle,
+    // episodeListSerialized, mainId, sourceId, episodeMetadataSerialized
+    // (task 54 / round 14 — the CS watch page's per-episode metadata, same
+    // wire format as the aniyomi watch key's field).
+    onNavigateToCsWatch: (String, String, String, Float, String, String, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
+    // Task 58 (round 18 — downloads): the CS download entry. SAME 9-arg
+    // context as [onNavigateToCsWatch] (provider/title/handle/number/name/
+    // list/mainId/sourceId/metadata) — the host opens the CS resolve sheet in
+    // DOWNLOAD mode; a pick enqueues through the CS-aware download path.
+    onDownloadCsEpisode: (String, String, String, Float, String, String, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
     // D-209: Cloudflare manual solver — launched from the episode error card.
@@ -151,6 +169,10 @@ fun DetailsScreen(
     val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
     // D-231: Episode list preferences (filters, sort, grouping).
     val episodeListPrefs = koinInject<com.confused.anikuta.core.preferences.EpisodeListPreferences>()
+    // D-407 (round 31): the scope for the downloaded-episode subtitle
+    // resolution (a suspend call — DB/disk — launched from the episode tap;
+    // the navigation fires from the coroutine when it completes).
+    val detailsScope = androidx.compose.runtime.rememberCoroutineScope()
 
     // D-227: Reset ALL per-anime state when LEAVING the Details screen.
     // Because the ViewModel is Activity-scoped (same instance reused across
@@ -173,6 +195,7 @@ fun DetailsScreen(
                 animeUrl = detailsKey.animeUrl,
                 title = detailsKey.title,
                 thumbnailUrl = detailsKey.thumbnailUrl,
+                year = detailsKey.year,
             )
         }
     }
@@ -266,6 +289,17 @@ fun DetailsScreen(
     val seasonTagInNumber by episodeListPrefs.seasonTagInNumber.changes.collectAsState(
         initial = episodeListPrefs.seasonTagInNumber.get(),
     )
+
+    // Task 55 (round 15): the sub/dub display mode for series whose episode
+    // rows carry "(Sub)"/"(Dub)" tags (bridged CloudStream sources).
+    // SEPARATE (default) keeps the rows apart + a Sub | Dub switcher; COMBINED
+    // merges sibling rows (the resolve flow then resolves BOTH flavors).
+    val subDubMode by episodeListPrefs.subDubMode.changes.collectAsState(
+        initial = episodeListPrefs.subDubMode.get(),
+    )
+    var subDubFlavor by androidx.compose.runtime.saveable.rememberSaveable {
+        mutableStateOf("SUB")
+    }
 
     // D-307/D-308/D-312/D-317: Season analysis on the RAW episode list — one
     // pass produces the groups (selector + settings sheet), the per-episode
@@ -524,25 +558,6 @@ fun DetailsScreen(
             },
         )
     }
-    // Phase 3: Auto-play from Continue Watching — if autoPlayEpisode is set on the key,
-    // auto-trigger the episode click when episodes are loaded. Uses the Phase 2
-    // auto-resolve flow (pendingAutoPlay → tryAutoSelect → navigate to watch).
-    LaunchedEffect(episodeState, autoPlayEpisode, hasAutoPlayed) {
-        if (autoPlayEpisode == null || hasAutoPlayed) return@LaunchedEffect
-        val episodes = (episodeState as? EpisodeState.Loaded)?.episodes
-        if (episodes.isNullOrEmpty()) return@LaunchedEffect
-        val targetEp = episodes.find { it.episode_number.toInt() == autoPlayEpisode }
-        if (targetEp != null) {
-            hasAutoPlayed = true
-            Logger.i("Anikuta:Feature:Details") {
-                "Auto-play from Continue Watching: triggering episode $autoPlayEpisode"
-            }
-            currentEpisode = targetEp
-            resolverDownloadMode = false
-            viewModel.resolveEpisode(targetEp)
-            pendingAutoPlay = true
-        }
-    }
 
     // DB-7: provide debug context for the Current Screen tab.
     // Shows the anime's mainId, resolver state, + relevant DB rows.
@@ -594,12 +609,16 @@ fun DetailsScreen(
 
     // D-230: Hoist onEpisodeClick to screen level so both the Success branch's
     // items() AND the EpisodeSearchSheet (outside MaterialTheme) can use it.
-    val onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = onEpisodeClick@{ episode ->
+    // R12-REVIEW F4: [fromAutoPlay] preserves the continue-watching autoplay's
+    // ORIGINAL semantics when it routes through here — autoplay always
+    // auto-navigates (the isAutoSelectEnabled gate is a tap-time preference)
+    // and skips the downloaded-file branch (the old flow resolved ONLINE).
+    val onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode, Boolean) -> Unit = onEpisodeClick@{ episode, fromAutoPlay ->
         currentEpisode = episode
         resolverDownloadMode = false
         val stateKey = viewModel.episodeDownloadStateKey(episode)
         val downloadState = stateKey?.let { downloadStates[it] }
-        if (downloadState is EpisodeDownloadState.Downloaded) {
+        if (!fromAutoPlay && downloadState is EpisodeDownloadState.Downloaded) {
             val mainId = viewModel.currentMainId
             if (mainId != null) {
                 val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
@@ -618,33 +637,161 @@ fun DetailsScreen(
                         metadata = episodeMetadata,
                         currentScanlator = episode.scanlator,
                     )
-                    onNavigateToWatch(
-                        mainId ?: "",
-                        localUri,
-                        anime?.displayName ?: "Downloaded",
-                        "Downloaded",
-                        episode.url,
-                        episode.episode_number,
-                        episode.name,
-                        epListStr,
-                        "", // no headers for local file
-                        "", // no resolvedVideosKey
-                        effectiveLinkedSource?.sourceId ?: 0L,
-                        "", // no subtitle tracks (they're on disk)
-                        "", // no audio tracks
-                        epMetaStr,
-                    )
+                    // D-407 (round 31): resolve the episode's DOWNLOADED
+                    // subtitles (DB first, the dedicated subtitles/ folder's
+                    // canonical scan as the fallback) and hand them to the
+                    // player in the SAME "uri<US>lang" serialization the
+                    // streamed path uses — this was THE round-31 bug: the
+                    // branch passed "" ("no subtitle tracks (they're on
+                    // disk)") and the player never looked at the disk, so
+                    // downloaded episodes' subtitles never appeared in the
+                    // selector. The resolution is suspend (DB/disk) — the
+                    // navigation fires from the coroutine.
+                    detailsScope.launch {
+                        val subtitleTracks = kotlinx.coroutines.withContext(
+                            kotlinx.coroutines.Dispatchers.IO,
+                        ) {
+                            downloadManager.resolveSubtitleTracks(
+                                mainId = mainId,
+                                episodeNumber = episode.episode_number.toInt(),
+                            )
+                        }
+                        Logger.i("Anikuta:Feature:Details") {
+                            "onEpisodeClick — resolved ${subtitleTracks.size} downloaded " +
+                                "subtitle track(s) for E${episode.episode_number.toInt()}"
+                        }
+                        val subtitleTracksStr = subtitleTracks
+                            .joinToString("\n") { "${it.uri}${delim}${it.label}" }
+                        onNavigateToWatch(
+                            mainId ?: "",
+                            localUri,
+                            anime?.displayName ?: "Downloaded",
+                            "Downloaded",
+                            episode.url,
+                            episode.episode_number,
+                            episode.name,
+                            epListStr,
+                            "", // no headers for local file
+                            "", // no resolvedVideosKey
+                            effectiveLinkedSource?.sourceId ?: 0L,
+                            subtitleTracksStr, // D-407: the downloaded subs, serialized
+                            "", // no audio tracks
+                            epMetaStr,
+                        )
+                    }
                     return@onEpisodeClick
                 }
             }
         }
         // Not downloaded — resolve + try auto-play (Phase 2).
+        // CloudStream V2 (task 52): bridged CS sources route to the DEDICATED
+        // CS watch screen — loadLinks resolution + the Media3 player live
+        // there. The classic resolver path (below) is aniyomi-only.
+        if (viewModel.isLinkedSourceCloudStream()) {
+            val anime = (state as? DetailsState.Success)?.anime
+            val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+            val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+                "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+            } ?: ""
+            // Task 54 (round 14): per-episode metadata for the CS watch page
+            // (title/thumbnail/air date/description/sub-dub). Same builder as
+            // the aniyomi hand-off — one format, both watch stacks consume it.
+            // Task 56 (F3a): the TITLE fields are tag-stripped — the CS watch
+            // page's pill carries the flavor, the title never repeats it. The
+            // scanlator field rides the raw episodes (the flavor signal).
+            val csMetaStr = buildEpisodeMetadataSerialized(
+                episodes = (episodeState as? EpisodeState.Loaded)?.episodes
+                    ?.map { e ->
+                        eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
+                            copyFrom(e)
+                            name = stripSubDubTag(e.name)
+                        }
+                    } ?: emptyList(),
+                metadata = episodeMetadata,
+                currentScanlator = episode.scanlator,
+            )
+            Logger.i("Anikuta:Feature:Details") {
+                "onEpisodeClick — CloudStream source: routing to the CS player " +
+                    "(EP ${episode.episode_number}, provider=${effectiveLinkedSource?.sourceName})"
+            }
+            onNavigateToCsWatch(
+                effectiveLinkedSource?.sourceName ?: "",
+                anime?.displayName ?: "",
+                episode.url, // the CS data handle
+                episode.episode_number,
+                stripSubDubTag(episode.name),
+                epListStr,
+                viewModel.currentMainId ?: "",
+                effectiveLinkedSource?.sourceId ?: 0L,
+                csMetaStr,
+            )
+            return@onEpisodeClick
+        }
         viewModel.clearResolver()
         viewModel.resolveEpisode(episode)
-        if (viewModel.isAutoSelectEnabled()) {
+        if (fromAutoPlay || viewModel.isAutoSelectEnabled()) {
             pendingAutoPlay = true
         } else {
             showResolverSheet = true
+        }
+    }
+
+    // Task 58 (round 18 — the downloads port): the CS download entry —
+    // builds the SAME 9-arg context the play path hands to
+    // [onNavigateToCsWatch] (one format, both consumers) and routes it to
+    // [onDownloadCsEpisode]: the host opens the CS resolve sheet in DOWNLOAD
+    // mode and the picked link enqueues through the source-agnostic engine.
+    val routeToCsDownload: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = { episode ->
+        val anime = (state as? DetailsState.Success)?.anime
+        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+        val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+            "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+        } ?: ""
+        // Same tag-stripped metadata the play path builds (F3a) — the pill
+        // carries the flavor, the title never repeats it.
+        val csMetaStr = buildEpisodeMetadataSerialized(
+            episodes = (episodeState as? EpisodeState.Loaded)?.episodes
+                ?.map { e ->
+                    eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
+                        copyFrom(e)
+                        name = stripSubDubTag(e.name)
+                    }
+                } ?: emptyList(),
+            metadata = episodeMetadata,
+            currentScanlator = episode.scanlator,
+        )
+        Logger.i("Anikuta:Feature:Details") {
+            "onDownloadEpisode — CloudStream source: routing to the CS download " +
+                "picker (EP ${episode.episode_number}, provider=${effectiveLinkedSource?.sourceName})"
+        }
+        onDownloadCsEpisode(
+            effectiveLinkedSource?.sourceName ?: "",
+            anime?.displayName ?: "",
+            episode.url, // the CS data handle
+            episode.episode_number,
+            stripSubDubTag(episode.name),
+            epListStr,
+            viewModel.currentMainId ?: "",
+            effectiveLinkedSource?.sourceId ?: 0L,
+            csMetaStr,
+        )
+    }
+
+    // Phase 3: Auto-play from Continue Watching — if autoPlayEpisode is set on
+    // the key, fire the hoisted click handler once episodes load (declared
+    // AFTER onEpisodeClick so the effect can reference it; declaration order in
+    // composition is irrelevant to effect timing).
+    LaunchedEffect(episodeState, autoPlayEpisode, hasAutoPlayed, onEpisodeClick) {
+        if (autoPlayEpisode == null || hasAutoPlayed) return@LaunchedEffect
+        val episodes = (episodeState as? EpisodeState.Loaded)?.episodes
+        if (episodes.isNullOrEmpty()) return@LaunchedEffect
+        val targetEp = episodes.find { it.episode_number.toInt() == autoPlayEpisode }
+        if (targetEp != null) {
+            hasAutoPlayed = true
+            Logger.i("Anikuta:Feature:Details") {
+                "Auto-play from Continue Watching: triggering episode $autoPlayEpisode"
+            }
+            onEpisodeClick(targetEp, true)
         }
     }
 
@@ -863,6 +1010,59 @@ fun DetailsScreen(
                             else -> processedEpisodes
                         }
 
+                        // Task 55 (round 15): the sub/dub display modes (bridged
+                        // CloudStream lists carrying "(Sub)"/"(Dub)" tags).
+                        //  - COMBINED: sibling rows merge into one (tag stripped;
+                        //    the primary Sub handle rides the row — the CS resolve
+                        //    flow re-finds the sibling + resolves BOTH flavors);
+                        //  - SEPARATE: the selected flavor's rows only (the Sub |
+                        //    Dub chip row renders above the list when both exist).
+                        // GATED on a CloudStream-bridged source: the feature is
+                        // CS-scoped by spec, so aniyomi extension lists are a
+                        // GUARANTEED no-op (ADDITIVE-ONLY invariant — some aniyomi
+                        // exts use scanlator/name conventions that would otherwise
+                        // trigger the filter chips on the legacy stack).
+                        val subDubTagged = viewModel.isLinkedSourceCloudStream() &&
+                            episodesToShow.orEmpty().any { subDubEpisodeTag(it) != null }
+                        val subDubBothFlavors = subDubTagged && run {
+                            val tags = episodesToShow.orEmpty().mapNotNull { subDubEpisodeTag(it) }.toSet()
+                            "SUB" in tags && "DUB" in tags
+                        }
+                        val displayEpisodes = when {
+                            !subDubTagged -> episodesToShow
+                            subDubMode == "COMBINED" -> episodesToShow?.let(::mergeSubDubEpisodeRows)
+                            // Single-flavor lists (DUB-only etc.) render unfiltered —
+                            // no switcher exists to change the flavor, and filtering
+                            // would blank the list (review finding round-15 R2).
+                            subDubBothFlavors -> episodesToShow?.filter {
+                                subDubEpisodeTag(it) == subDubFlavor || subDubEpisodeTag(it) == null
+                            }
+                            else -> episodesToShow
+                        }
+                        val showSubDubSwitcher = subDubMode != "COMBINED" && subDubBothFlavors
+
+                        // Task 56 (round 16 — F3): the RENDERED rows for CS
+                        // sub/dub lists carry per-flavor ORDINALS + tag-stripped
+                        // names. The Dub list restarts at "EP 1" (the raw numbers
+                        // globally continue — the normalizer's uniqueness contract
+                        // — and they keep their identity roles: progress, cache,
+                        // metadata, the CS hand-off). The name never repeats the
+                        // flavor the switcher + audio pill already show. Identity
+                        // fields (url/episode_number/scanlator) ride the copies
+                        // untouched, so clicks, downloads and watched-state keys
+                        // are byte-identical to the pre-display rows.
+                        val subDubOrdinals = if (subDubTagged) {
+                            subDubFlavorOrdinals(episodesToShow.orEmpty())
+                        } else emptyMap()
+                        val subDubDisplayEpisodes = if (subDubTagged) {
+                            displayEpisodes.orEmpty().map { ep ->
+                                eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
+                                    copyFrom(ep)
+                                    name = stripSubDubTag(ep.name)
+                                }
+                            }
+                        } else displayEpisodes.orEmpty()
+
                         item {
                             EpisodesSection(
                                 linkedSource = effectiveLinkedSource,
@@ -874,13 +1074,24 @@ fun DetailsScreen(
                                 onOpenSourcePicker = { showManualSearch = true },
                                 onOpenCloudflareWebView = onOpenCloudflareWebView,
                                 onUnlinkSource = { viewModel.unlinkSource() },
-                                onEpisodeClick = onEpisodeClick,
+                                onEpisodeClick = { ep -> onEpisodeClick(ep, false) },
                                 downloadStates = downloadStates,
                                 onDownloadEpisode = { episode ->
                                     currentEpisode = episode
-                                    resolverDownloadMode = true
-                                    viewModel.resolveEpisode(episode)
-                                    showResolverSheet = true
+                                    // Task 58 (round 18 — downloads): CS-bridged
+                                    // episodes route to the CS resolve sheet in
+                                    // DOWNLOAD mode — the classic resolver path
+                                    // can't resolve bridge sources (getVideoList
+                                    // throws by design). Aniyomi sources keep the
+                                    // resolver-sheet download flow unchanged.
+                                    if (viewModel.isLinkedSourceCloudStream()) {
+                                        resolverDownloadMode = false
+                                        routeToCsDownload(episode)
+                                    } else {
+                                        resolverDownloadMode = true
+                                        viewModel.resolveEpisode(episode)
+                                        showResolverSheet = true
+                                    }
                                 },
                                 onPauseEpisodeDownload = { episode ->
                                     viewModel.pauseEpisodeDownload(episode)
@@ -974,7 +1185,17 @@ fun DetailsScreen(
                             }
                             // D-232: Group switcher is now INLINE in the EpisodesSection
                             // header (between "Episodes" text and source pill), not here.
-                            items(episodesToShow, key = { it.url }) { episode ->
+                            // Task 55: the Sub/Dub switcher chips (SEPARATE mode,
+                            // both flavors) — the SeasonSelectorRow chip language.
+                            if (showSubDubSwitcher) {
+                                item(key = "subdub-switcher") {
+                                    SubDubSelectorRow(
+                                        selected = subDubFlavor,
+                                        onSelect = { subDubFlavor = it },
+                                    )
+                                }
+                            }
+                            items(subDubDisplayEpisodes, key = { it.url }) { episode ->
                                 val epNum = episode.episode_number.toInt()
                                 val metadata = episodeMetadata[epNum]
                                 // D-317: contextual episode tag.
@@ -1008,28 +1229,69 @@ fun DetailsScreen(
                                     }
                                     else -> null
                                 }
+                                // Task 56 (F3b): CS sub/dub rows with no season tag
+                                // show the per-flavor ORDINAL — "EP 1" on the Dub
+                                // list's first row instead of the continuing raw
+                                // number. Season tags (when active) stay authoritative.
+                                val effectiveEpisodeTag = episodeTag
+                                    ?: subDubOrdinals[episode.url]?.let {
+                                        EpisodeTag(season = null, number = it.toString())
+                                    }
                                 val stateKey = viewModel.episodeDownloadStateKey(episode)
                                 val downloadState = stateKey?.let { downloadStates[it] }
                                     ?: EpisodeDownloadState.NotDownloaded
                                 val mainId = viewModel.currentMainId
-                                val epKey = if (mainId != null) "$mainId|${String.format("%05d", epNum)}" else null
+                                // Task 57 (round 17 — P1): the watched-progress
+                                // key is the flavor ORDINAL for tagged CS lists
+                                // (sub-5 ↔ dub-5 = ONE episode → ONE row → ONE
+                                // toggle — watching sub 80% shows on the dub
+                                // row). Untagged lists keep the raw number
+                                // (byte-identical aniyomi behavior). The key
+                                // FORMAT is unchanged — only the number source.
+                                val identityNum = if (subDubTagged) {
+                                    subDubOrdinals[episode.url] ?: epNum
+                                } else epNum
+                                val epKey = if (mainId != null) "$mainId|${String.format("%05d", identityNum)}" else null
                                 val progress = epKey?.let { watchProgress[it] }
                                 val isWatched = progress?.isWatched ?: false
                                 Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
                                     EpisodeRow(
                                         episode = episode,
                                         metadata = metadata,
-                                        episodeTag = episodeTag,
-                                        onClick = { onEpisodeClick(episode) },
+                                        episodeTag = effectiveEpisodeTag,
+                                        onClick = { onEpisodeClick(episode, false) },
                                         downloadState = downloadState,
                                         fallbackCoverUrl = anime.coverUrl,
-                                        onDownload = { currentEpisode = episode; resolverDownloadMode = true; viewModel.resolveEpisode(episode); showResolverSheet = true },
+                                        // Task 59 (round 19 — the downloads wiring
+                                        // fix): the row-level download button takes
+                                        // the SAME gated branch the (dead)
+                                        // EpisodesSection.onDownloadEpisode param
+                                        // got in round 18 — v0.4.6 shipped with this
+                                        // lambda still hardcoded to the CLASSIC
+                                        // resolver path, so tapping download on a
+                                        // CS-bridged episode hit the CS-guard error
+                                        // ("Failed to resolve videos…") instead of
+                                        // opening the CS source picker.
+                                        // CS-bridged → the CS resolve sheet in
+                                        // DOWNLOAD mode (routeToCsDownload); the
+                                        // classic aniyomi flow is otherwise unchanged.
+                                        onDownload = {
+                                            currentEpisode = episode
+                                            if (viewModel.isLinkedSourceCloudStream()) {
+                                                resolverDownloadMode = false
+                                                routeToCsDownload(episode)
+                                            } else {
+                                                resolverDownloadMode = true
+                                                viewModel.resolveEpisode(episode)
+                                                showResolverSheet = true
+                                            }
+                                        },
                                         onPause = { viewModel.pauseEpisodeDownload(episode) },
                                         onResume = { viewModel.resumeEpisodeDownload(episode) },
                                         onCancel = { viewModel.cancelEpisodeDownload(episode) },
                                         onRetry = { viewModel.retryEpisodeDownload(episode) },
                                         onDelete = { viewModel.deleteDownloadedEpisode(episode) },
-                                        onPlayDownloaded = { onEpisodeClick(episode) },
+                                        onPlayDownloaded = { onEpisodeClick(episode, false) },
                                         isWatched = isWatched,
                                         progressFraction = progress?.progressFraction ?: 0f,
                                         onToggleWatched = { epKey?.let { viewModel.toggleWatched(it) } },
@@ -1124,6 +1386,10 @@ fun DetailsScreen(
             resolverState = resolverState,
             episodeNumber = currentEpisode?.episode_number ?: 0f,
             downloadMode = resolverDownloadMode,
+            // Task 58 (round 18): the debug report's context (Settings → Debug
+            // options → Copy button ON → the sheet header's report action).
+            sourceName = effectiveLinkedSource?.sourceName ?: "",
+            animeTitle = (state as? DetailsState.Success)?.anime?.displayName ?: "",
             // D-210: "Open in WebView" on the resolver Error state — opens the
             // source's episode page in a WebView so the user can solve Cloudflare
             // or browse the source manually. Null if no source is linked.
@@ -1275,7 +1541,7 @@ fun DetailsScreen(
             onEpisodeClick = { episode ->
                 showEpisodeSearch = false
                 episodeSearchQuery = ""
-                onEpisodeClick(episode)
+                onEpisodeClick(episode, false)
             },
             onDismiss = {
                 showEpisodeSearch = false
@@ -1709,29 +1975,131 @@ private fun DetailBanner(
                     }
                 }
                 Spacer(modifier = Modifier.height(2.dp))
-                // Meta row: score · status · episode count
-                val metaParts = buildList {
-                    anime.averageScore?.let { add("\u2605 $it%") }
-                    anime.status?.let { add(it.replace("_", " ").lowercase().replaceFirstChar { c -> c.uppercase() }) }
-                    anime.episodes?.let { add("$it eps") }
-                }
-                if (metaParts.isNotEmpty()) {
-                    Text(
-                        text = metaParts.joinToString(" \u00b7 "),
-                        fontFamily = RobotoFamily,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                // D-386 (round 25 — the details metadata rework): the meta info
+                // (rating · year · status · episode count) previously shared ONE
+                // 13sp dot-separated line squeezed into the narrow title column
+                // beside the cover — long values wrapped or truncated ("the
+                // space is limited"). Per the round-25 spec each fact is now
+                // its own icon row below the title, in this order: release
+                // year → rating → status → total episodes; unavailable facts
+                // are omitted entirely (max 4 rows). See [DetailsMetaColumn].
+                DetailsMetaColumn(anime)
             }
         }
     }
 }
 
+// ════════════════════════════════════════════════════════════════════════════════
+//  D-386 (round 25): the details-page metadata stack — up to FOUR icon rows
+//  under the series title (release year, rating, status, total episodes).
+//
+//  Spec (round-25 device report): "At the very top we could show the name of
+//  the series. Below it we can show the details of it, like its release year
+//  if it is available, then the rating, then the status, then the total
+//  episodes — at max four; if some info is not available then that section
+//  is not shown at all." (plus "appropriate SVG icons" — Material vector
+//  icons here, consistent with the rest of the app).
+//
+//  Each row = a 13dp icon + a 12sp label. Four rows ≈ 84dp, which fits the
+//  150dp cover-height budget of the banner's bottom row alongside a 2-line
+//  title — the banner stays balanced while every fact gets a full row.
+// ════════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun DetailsMetaColumn(anime: com.confused.anikuta.core.common.model.UnifiedAnime) {
+    val labelColor = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified }
+        ?: MaterialTheme.colorScheme.onSurfaceVariant
+    val iconColor = MaterialTheme.colorScheme.primary
+
+    // D-386: AniList's averageScore is 0–100, but the CloudStream path seeds
+    // the field with the provider's 0–10 score (search-time cachedExtras).
+    // A value ≤ 10 is almost certainly the 0–10 scale (a 0–100 AniList score
+    // under 10 is a sub-half-star outlier) — normalize so the "%" renders
+    // correctly on BOTH paths (the old line showed "8%" for an 8/10 CS score).
+    val scorePercent = anime.averageScore?.takeIf { it > 0 }?.let {
+        if (it <= 10) it * 10 else it
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        // 1 — release year (row hidden when unavailable).
+        anime.seasonYear?.let { year ->
+            DetailsMetaRow(
+                icon = Icons.Filled.CalendarMonth,
+                text = year.toString(),
+                iconColor = iconColor,
+                labelColor = labelColor,
+            )
+        }
+        // 2 — rating (row hidden when unavailable).
+        if (scorePercent != null) {
+            DetailsMetaRow(
+                icon = Icons.Filled.Star,
+                text = "$scorePercent%",
+                iconColor = iconColor,
+                labelColor = labelColor,
+            )
+        }
+        // 3 — release status (row hidden when unavailable) — the icon tells
+        // the state at a glance: live dot = RELEASING, check = FINISHED,
+        // clock = anything else (NOT_YET_RELEASED / CANCELLED / unknown).
+        anime.status?.takeIf { it.isNotBlank() }?.let { raw ->
+            val label = raw.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() }
+            val icon = when (raw.uppercase()) {
+                "RELEASING" -> Icons.Filled.Adjust
+                "FINISHED" -> Icons.Filled.CheckCircle
+                else -> Icons.Filled.Schedule
+            }
+            DetailsMetaRow(
+                icon = icon,
+                text = label,
+                iconColor = iconColor,
+                labelColor = labelColor,
+            )
+        }
+        // 4 — total episodes (row hidden when unavailable).
+        anime.episodes?.takeIf { it > 0 }?.let { count ->
+            DetailsMetaRow(
+                icon = Icons.Filled.Movie,
+                text = if (count == 1) "1 Episode" else "$count Episodes",
+                iconColor = iconColor,
+                labelColor = labelColor,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetailsMetaRow(
+    icon: ImageVector,
+    text: String,
+    iconColor: Color,
+    labelColor: Color,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null, // decorative — the label text carries the meaning
+            tint = iconColor,
+            modifier = Modifier.size(13.dp),
+        )
+        Text(
+            text = text,
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = labelColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 //  Action button — 40dp black-40%-alpha circle, 22dp white icon
-// ════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun ActionButton(
@@ -3070,8 +3438,10 @@ private fun EpisodeRow(
                         modifier = Modifier.size(40.dp),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
+                            // Task 56: the disc shows the same number the EP tag
+                            // would — the per-flavor ordinal for CS sub/dub rows.
                             Text(
-                                text = epNumText,
+                                text = episodeTag?.number ?: epNumText,
                                 fontFamily = RobotoFamily,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -3628,6 +3998,165 @@ private fun StarRatingBar(
                         if (i == currentStars) onRate(0) else onRate(i)
                     },
             )
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Task 55 (round 15): sub/dub episode display helpers
+//  (bridged CloudStream lists whose rows carry "(Sub)"/"(Dub)" tags)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The sub/dub tag of an episode row: the bridge appends " (Sub)"/" (Dub)" to
+ * the NAME and mirrors it in `scanlator`. Null = a neutral row (dual-audio
+ * shared handle — never merged).
+ */
+private fun subDubEpisodeTag(ep: eu.kanade.tachiyomi.animesource.model.SEpisode): String? {
+    val name = ep.name?.trim()?.uppercase() ?: ""
+    if (name.endsWith("(SUB)")) return "SUB"
+    if (name.endsWith("(DUB)")) return "DUB"
+    // The bridge mirrors its exact label ("Sub"/"Dub") into scanlator —
+    // matching ONLY those keeps aniyomi scanlator conventions (SUBBED/
+    // DUBBED group tags etc.) out of the CS-scoped feature (review R3).
+    return when (ep.scanlator?.trim()?.uppercase()) {
+        "SUB" -> "SUB"
+        "DUB" -> "DUB"
+        else -> null
+    }
+}
+
+/**
+ * Strips the trailing tag from an episode name (COMBINED display).
+ */
+private fun stripSubDubTag(name: String?): String {
+    val n = name?.trim() ?: return ""
+    val upper = n.uppercase()
+    return if (upper.endsWith("(SUB)") || upper.endsWith("(DUB)")) n.dropLast(6).trim() else n
+}
+
+/**
+ * Task 56 (round 16 — F3b): per-flavor display ordinals, the SEpisode twin
+ * of CsSubDubSiblings.flavorOrdinals (anime-details cannot import
+ * feature:cs-watch:api — the replication rule). Keyed by the row's url.
+ *
+ * WHY: the details pipeline guarantees globally-unique episode numbers
+ * (EpisodeListNormalizer renumbers duplicates 1..N in list order — sub
+ * first), so the second flavor's rows always CONTINUE (dub 13–24 for a
+ * 12+12 show) and number-equality pairing never matches. Ordinals renumber
+ * each flavor 1..N by (episode_number, list position) — display + pairing
+ * ONLY; the raw numbers keep their identity roles (watch progress, the
+ * episode cache, metadata maps, the CS hand-off).
+ */
+private fun subDubFlavorOrdinals(
+    episodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
+): Map<String, Int> {
+    val ordinals = HashMap<String, Int>()
+    listOf("SUB", "DUB").forEach { flavor ->
+        val rows = episodes.withIndex()
+            .filter { subDubEpisodeTag(it.value) == flavor }
+            .sortedWith(compareBy({ (i, ep) -> ep.episode_number }, { (i, _) -> i }))
+        rows.forEachIndexed { ordinal, (_, ep) ->
+            ordinals[ep.url] = ordinal + 1
+        }
+    }
+    return ordinals
+}
+
+/**
+ * COMBINED display: merges sub/dub sibling rows (same flavor ORDINAL,
+ * opposite tags) into ONE row — the tag stripped, the Sub row's handle kept
+ * (the CS resolve flow re-finds the sibling and resolves BOTH flavors; the
+ * user picks via the sheet's audio chips).
+ *
+ * Task 56: pairing runs on ordinals (F4) — a 12+12 show merges into 12 rows
+ * even though the dub rows carry continuing numbers (13–24).
+ */
+private fun mergeSubDubEpisodeRows(
+    episodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
+): List<eu.kanade.tachiyomi.animesource.model.SEpisode> {
+    if (episodes.none { subDubEpisodeTag(it) != null }) return episodes
+    val ordinals = subDubFlavorOrdinals(episodes)
+    val out = mutableListOf<eu.kanade.tachiyomi.animesource.model.SEpisode>()
+    val usedUrls = mutableSetOf<String>()
+    episodes.forEach { ep ->
+        if (ep.url in usedUrls) return@forEach
+        val tag = subDubEpisodeTag(ep)
+        if (tag == null) {
+            out += ep
+            usedUrls += ep.url
+            return@forEach
+        }
+        val ordinal = ordinals[ep.url]
+        val sibling = episodes.firstOrNull { other ->
+            other.url != ep.url &&
+                subDubEpisodeTag(other)?.let { it != tag } == true &&
+                ordinals[other.url] == ordinal
+        }
+        if (sibling == null) {
+            out += ep
+            usedUrls += ep.url
+        } else {
+            usedUrls += sibling.url
+            val primary = if (tag == "SUB") ep else sibling
+            usedUrls += primary.url
+            // Merge the metadata-bearing fields of the primary + strip the tag.
+            // Task 57 (round 17 — P2): scanlator = "Sub/Dub" — the merged row's
+            // flavor signal. EpisodeRow consumes scanlator ONLY through
+            // parseAudioAvailability (it never renders the raw string), and
+            // "Sub/Dub" contains both words → the existing SUB·DUB audio pill
+            // renders. Round 16 nulled it and the pill vanished. The value is
+            // tag-neutral for subDubEpisodeTag ("SUB/DUB" ≠ the exact "SUB"/
+            // "DUB" labels), so the merged row never re-merges or re-filters.
+            out += eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
+                url = primary.url
+                name = stripSubDubTag(primary.name)
+                episode_number = primary.episode_number
+                scanlator = "Sub/Dub"
+                date_upload = primary.date_upload
+                preview_url = primary.preview_url
+                summary = primary.summary
+                fillermark = primary.fillermark
+            }
+        }
+    }
+    return out
+}
+
+/**
+ * The Sub | Dub chip row (SEPARATE mode) — the SeasonSelectorRow chip
+ * language, fixed two options.
+ */
+@Composable
+private fun SubDubSelectorRow(
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        listOf("SUB" to "Sub", "DUB" to "Dub").forEach { (value, label) ->
+            val isSelected = selected == value
+            Surface(
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(50),
+                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+                modifier = Modifier.clickable { onSelect(value) },
+            ) {
+                Text(
+                    text = label,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
         }
     }
 }

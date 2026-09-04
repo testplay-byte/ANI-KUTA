@@ -52,6 +52,11 @@ class UpdateEngine(
     private val notificationSender: NotificationSender? = null,
     // D-193 Phase 6: update preferences for sub/dub checking toggles.
     private val updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences? = null,
+    // Task 64 (round 24): LIVE progress notification (the notification-bar
+    // status while a check runs) + the check-history logger. Both nullable —
+    // tests stay untouched.
+    private val progressNotifier: UpdateProgressNotifier? = null,
+    private val checkLogger: UpdateCheckLogger? = null,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Updates"
@@ -79,8 +84,53 @@ class UpdateEngine(
      * D-193 Phase 4:
      * - Accepts an optional `filterMainIds` for manual mode (only check selected categories).
      * - Emits [CheckProgress] via [checkProgress] SharedFlow for live-progress UI.
+     *
+     * Task 64 (round 24): [trigger] labels the history/notification ("periodic"
+     * for the WorkManager run); the check now reports LIVE progress through
+     * [progressNotifier] (a real-time notification per content item) and logs
+     * the completed session — per-content outcomes + the engine's next
+     * actions — to [checkLogger] (the content-update history page's data).
      */
-    suspend fun checkDueAnime(filterMainIds: Set<String>? = null): Int = withContext(Dispatchers.IO) {
+    suspend fun checkDueAnime(
+        filterMainIds: Set<String>? = null,
+        trigger: String = "periodic",
+    ): Int = withContext(Dispatchers.IO) {
+        val startedAt = System.currentTimeMillis()
+        val sessionId = java.util.UUID.randomUUID().toString()
+        try {
+            val checked = runCheck(filterMainIds, trigger, sessionId, startedAt)
+            checked
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            // Task 64: a mid-run crash still notifies + still lands in the
+            // history (with the reason) — the user is never left in the blind.
+            runCatching { progressNotifier?.onFailed("${t::class.java.simpleName}: ${t.message}") }
+            runCatching {
+                checkLogger?.logSession(
+                    UpdateCheckLogEntry(
+                        id = sessionId,
+                        startedAt = startedAt,
+                        finishedAt = System.currentTimeMillis(),
+                        trigger = trigger,
+                        totalChecked = 0,
+                        totalNewEpisodes = 0,
+                        success = false,
+                        error = "${t::class.java.simpleName}: ${t.message}",
+                        items = emptyList(),
+                    )
+                )
+            }
+            throw t
+        }
+    }
+
+    /** The body of [checkDueAnime] — see its KDoc. */
+    private suspend fun runCheck(
+        filterMainIds: Set<String>?,
+        trigger: String,
+        sessionId: String,
+        startedAt: Long,
+    ): Int {
         val now = System.currentTimeMillis()
         var dueAnime = updateStore.getDueAnime(now)
 
@@ -105,13 +155,37 @@ class UpdateEngine(
         if (dueAnime.isEmpty()) {
             Logger.i(TAG) { "checkDueAnime — no anime due for check" }
             _checkProgress.tryEmit(CheckProgress(0, 0, "", "", null))
-            return@withContext 0
+            // Task 64: an empty run still finishes the notification + lands in
+            // the history ("when the app actually checked" — even when idle).
+            // D-388: the summary payload (next-check info included).
+            val summary = buildSummary(trigger, 0, 0, emptyList(), startedAt)
+            runCatching { progressNotifier?.onFinish(summary) }
+            runCatching {
+                checkLogger?.logSession(
+                    UpdateCheckLogEntry(
+                        id = sessionId,
+                        startedAt = startedAt,
+                        finishedAt = System.currentTimeMillis(),
+                        trigger = trigger,
+                        totalChecked = 0,
+                        totalNewEpisodes = 0,
+                        success = true,
+                        items = emptyList(),
+                        nextCheckAt = summary.nextCheckAt,
+                    )
+                )
+            }
+            return 0
         }
 
         Logger.i(TAG) { "checkDueAnime — ${dueAnime.size} anime due for check (filter=${filterMainIds?.size ?: "all"})" }
+        // Task 64: the LIVE start marker — the notification appears the moment
+        // the check begins, with the queue size.
+        runCatching { progressNotifier?.onCheckStart(trigger, dueAnime.size) }
         var totalNew = 0
         var current = 0
         val total = dueAnime.size
+        val itemLogs = java.util.Collections.synchronizedList(ArrayList<UpdateCheckItemLog>(total))
 
         // T7: check up to MAX_CONCURRENT in parallel.
         coroutineScope {
@@ -127,36 +201,178 @@ class UpdateEngine(
                     synchronized(this@UpdateEngine) {
                         current++
                         _checkProgress.tryEmit(CheckProgress(current, total, state.mainId, title, coverUrl))
+                        // Task 64: the LIVE per-content notification update —
+                        // the content's NAME while it is being checked.
+                        runCatching { progressNotifier?.onProgress(current, total, title) }
                     }
 
-                    val newCount = checkSingleAnime(state, now)
-                    synchronized(this@UpdateEngine) { totalNew += newCount }
+                    val result = checkSingleAnime(state, now)
+                    // D-396 (round 27): the smart-schedule record for this
+                    // item — captured from the SAME state the engine just
+                    // acted on, so the history can show "what it calculated,
+                    // what it landed, the delay" per series. The formula
+                    // mirrors [SmartReleaseScheduler.scheduleUpcomingChecks]
+                    // (airing + the per-anime learned/expected offset, same
+                    // default + clamp) — kept in sync deliberately.
+                    val nextAiringAt = state.nextAiringAt
+                    val learnedOffsetMs = state.learnedOffsetMs
+                    val expectedCheckAt = nextAiringAt?.let { airingAt ->
+                        if (airingAt > now) {
+                            val offset = (learnedOffsetMs ?: 10L * 60 * 1000)
+                                .coerceIn(0L, 24L * 60 * 60 * 1000)
+                            airingAt + offset
+                        } else {
+                            null // past airing — no future one-shot to calculate
+                        }
+                    }
+                    synchronized(this@UpdateEngine) {
+                        totalNew += result.newEpisodes
+                        itemLogs.add(
+                            UpdateCheckItemLog(
+                                title = title,
+                                mainId = state.mainId,
+                                outcome = result.outcome,
+                                newEpisodes = result.newEpisodes,
+                                detail = result.detail,
+                                nextAction = result.nextAction,
+                                // D-388 (round 25): the cover captured at check
+                                // time — the history rows + the notification's
+                                // large icon render it.
+                                coverUrl = coverUrl,
+                                // D-396 (round 27): the schedule math.
+                                nextAiringEpisode = state.nextAiringEpisode,
+                                nextAiringAt = nextAiringAt,
+                                learnedOffsetMs = learnedOffsetMs,
+                                expectedCheckAt = expectedCheckAt,
+                            )
+                        )
+                    }
                 }
             }.awaitAll()
         }
 
         // D-193 Phase 4: emit terminal progress.
         _checkProgress.tryEmit(CheckProgress(total, total, "", "", null))
+        // Task 64 + D-388 (round 25): the finish markers — the notification now
+        // gets the full SUMMARY (per-anime lines + the next-check info: "what
+        // it will do next"), and the history entry records nextCheckAt for its
+        // pinned next-check card.
+        val finishedAt = System.currentTimeMillis()
+        val cappedItems = itemLogs.take(MAX_CHECK_LOG_ITEMS)
+        val summary = buildSummary(trigger, total, totalNew, cappedItems, startedAt, finishedAt)
+        runCatching { progressNotifier?.onFinish(summary) }
+        runCatching {
+            checkLogger?.logSession(
+                UpdateCheckLogEntry(
+                    id = sessionId,
+                    startedAt = startedAt,
+                    finishedAt = finishedAt,
+                    trigger = trigger,
+                    totalChecked = total,
+                    totalNewEpisodes = totalNew,
+                    success = true,
+                    items = cappedItems,
+                    nextCheckAt = summary.nextCheckAt,
+                )
+            )
+        }
 
         Logger.i(TAG) { "checkDueAnime — complete. $totalNew new episode(s) found." }
-        totalNew
+        return totalNew
     }
 
     /**
-     * Checks a single anime for new episodes. Returns the number of new episodes found.
+     * D-388 (round 25) → D-391 (round 26): builds the finish payload shared by
+     * the results notification and the history. The next-check projection:
+     * - AUTO → the EARLIEST of (a) the next smart-release check — the next
+     *   ACTUAL expected episode release (airing + learned delay) — and (b) the
+     *   configured periodic interval. The round-26 device report caught (b)
+     *   alone being flat-out wrong: a countdown of "23h" while the next real
+     *   release was 18h away. The history page refines this further with
+     *   WorkManager's real fire times (both the periodic job AND the
+     *   smart-release one-shots);
+     * - MANUAL/OFF (or unknown prefs) → null ("next check is up to you").
      */
-    private suspend fun checkSingleAnime(state: AnimeUpdateState, now: Long): Int {
+    private fun buildSummary(
+        trigger: String,
+        totalChecked: Int,
+        totalNew: Int,
+        items: List<UpdateCheckItemLog>,
+        startedAt: Long,
+        finishedAt: Long = System.currentTimeMillis(),
+    ): UpdateCheckSummary {
+        val mode = updatePreferences?.getMode()
+        val interval = updatePreferences?.getIntervalHours()
+        val nextCheckAt = when (mode) {
+            com.confused.anikuta.core.preferences.UpdateMode.AUTO -> {
+                val intervalNext = finishedAt + (interval ?: 24L) * 3_600_000L
+                val smartNext = earliestUpcomingReleaseCheck(finishedAt)
+                if (smartNext != null && smartNext < intervalNext) smartNext else intervalNext
+            }
+            else -> null
+        }
+        return UpdateCheckSummary(
+            trigger = trigger,
+            totalChecked = totalChecked,
+            totalNewEpisodes = totalNew,
+            items = items,
+            nextCheckAt = nextCheckAt,
+            intervalHours = interval,
+            startedAt = startedAt,
+            finishedAt = finishedAt,
+        )
+    }
+
+    /**
+     * D-391 (round 26): the earliest upcoming smart-release check target —
+     * `next_airing_at + learned offset` over every auto-update-enabled anime
+     * with a FUTURE airing (the one-shots [SmartReleaseScheduler] schedules).
+     * Mirrors [SmartReleaseScheduler.scheduleUpcomingChecks]'s computation so
+     * the notification's "next check" line matches what actually fires.
+     * Null when no anime has a known future airing.
+     */
+    private fun earliestUpcomingReleaseCheck(now: Long): Long? {
+        return runCatching {
+            updateStore.getAutoUpdateEnabledAnime()
+                .mapNotNull { state ->
+                    val airingAt = state.nextAiringAt ?: return@mapNotNull null
+                    if (airingAt <= now) return@mapNotNull null
+                    // Same default + clamp as SmartReleaseScheduler.
+                    val offset = (state.learnedOffsetMs ?: 10L * 60 * 1000)
+                        .coerceIn(0L, 24L * 60 * 60 * 1000)
+                    airingAt + offset
+                }
+                .minOrNull()
+        }.getOrNull()
+    }
+
+    /**
+     * Checks a single anime for new episodes. Returns a [CheckItemResult] —
+     * the new-episode count PLUS the outcome/detail/next-action strings the
+     * check history records (Task 64).
+     */
+    private suspend fun checkSingleAnime(state: AnimeUpdateState, now: Long): CheckItemResult {
         val mainId = state.mainId
         val content = contentRepository.getMainEntryByMainId(mainId)
         if (content == null) {
             Logger.w(TAG) { "checkSingleAnime — content not found: mainId=$mainId (skipping)" }
-            return 0
+            return CheckItemResult(
+                newEpisodes = 0,
+                outcome = "skipped",
+                detail = "Content row missing from the library",
+                nextAction = "Not re-scheduled (check again on next run)",
+            )
         }
 
         val sourceId = content.sourceId
         if (sourceId == null) {
             Logger.w(TAG) { "checkSingleAnime — no sourceId: mainId=$mainId (skipping)" }
-            return 0
+            return CheckItemResult(
+                newEpisodes = 0,
+                outcome = "skipped",
+                detail = "No extension source linked to this content",
+                nextAction = "Not re-scheduled (link a source on the details page)",
+            )
         }
 
         // Get the source from ExtensionManager.
@@ -180,7 +396,17 @@ class UpdateEngine(
                 )
                 Logger.w(TAG) { "checkSingleAnime — source unavailable ($failures/$MAX_FAILURES): mainId=$mainId" }
             }
-            return 0
+            return CheckItemResult(
+                newEpisodes = 0,
+                outcome = "source-unavailable",
+                detail = "Extension source not loaded (uninstalled or untrusted) — " +
+                    "$failures/$MAX_FAILURES consecutive failures",
+                nextAction = if (failures >= MAX_FAILURES) {
+                    "Auto-update DISABLED for this anime"
+                } else {
+                    "Re-check in 24h"
+                },
+            )
         }
 
         // Fetch the episode list.
@@ -208,7 +434,13 @@ class UpdateEngine(
                     lastCheckedDubAt = state.lastCheckedDubAt,
                 )
                 Logger.d(TAG) { "checkSingleAnime — no new episodes: mainId=$mainId lastKnown=$lastKnown max=$maxEpisodeNumber nextCheck=${backoffStep}h backoff" }
-                0
+                CheckItemResult(
+                    newEpisodes = 0,
+                    outcome = "no-new-episodes",
+                    detail = "Latest episode $maxEpisodeNumber (last known $lastKnown)",
+                    nextAction = "Re-check in ${BACKOFF_STEPS[backoffStep] / 3_600_000}h " +
+                        "(backoff step ${backoffStep + 1}/${BACKOFF_STEPS.size})",
+                )
             } else {
                 // D-193 Phase 6: Variant-aware new-episode detection.
                 // Partition episodes by audio variant (sub/dub/unknown).
@@ -302,7 +534,16 @@ class UpdateEngine(
                     lastCheckedDubAt = now,
                 )
                 Logger.i(TAG) { "checkSingleAnime — $inserted new episode(s): mainId=$mainId sub=$lastKnownSub→$newMaxSub dub=$lastKnownDub→$newMaxDub" }
-                inserted
+                CheckItemResult(
+                    newEpisodes = inserted,
+                    outcome = if (inserted > 0) "new-episodes" else "no-new-episodes",
+                    detail = "SUB $lastKnownSub → $newMaxSub, DUB $lastKnownDub → $newMaxDub",
+                    nextAction = if (state.nextAiringAt != null) {
+                        "Re-check 1h after the next airing"
+                    } else {
+                        "Re-check in 24h"
+                    },
+                )
             }
         } catch (e: Exception) {
             Logger.e(TAG, e) { "checkSingleAnime — fetch failed: mainId=$mainId sourceId=$sourceId: ${e.message}" }
@@ -321,7 +562,16 @@ class UpdateEngine(
                     lastCheckedDubAt = state.lastCheckedDubAt,
                 )
             }
-            0
+            CheckItemResult(
+                newEpisodes = 0,
+                outcome = "failed",
+                detail = "${e::class.java.simpleName}: ${e.message ?: "unknown error"}",
+                nextAction = if (failures >= MAX_FAILURES) {
+                    "Auto-update DISABLED for this anime"
+                } else {
+                    "Re-check in 24h ($failures/$MAX_FAILURES failures)"
+                },
+            )
         }
     }
 

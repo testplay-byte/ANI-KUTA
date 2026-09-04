@@ -18,10 +18,11 @@ name: Build APK
 
 on:
   push:
-    # NOTE: 'test-feature/**' is a BRANCH-ONLY edit for the
-    # test-feature/video-cache-new-download work branch — remove this pattern
-    # before merging to main (same precedent as the TEST_BETA_FEATURE edit).
-    branches: [ main, 'feature/**', 'functionality/**', 'test-feature/**' ]
+    # 'streaming/**' — the CloudStream V2 work line (streaming/CLOUDSTREAM-V2).
+    # 'release/**' — the publishable release line (release/1.1.1 = v1.1.1).
+    # (test-feature/** was removed at the main merge, per the standing note —
+    # that branch line was merged into main back at v0.2.63.)
+    branches: [ main, 'feature/**', 'functionality/**', 'release/**', 'streaming/**' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -60,6 +61,24 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      # CloudStream V2: unit tests gate every push — cloudstream-api carries
+      # the plugin binary-compat surface (CompatSurfaceTest etc.),
+      # data:cloudstream the repo-parsing + episode-mapping locks, and
+      # core:common the ring-buffer logging lock. Tests run BEFORE
+      # assembleDebug so a red test fails the build fast.
+      # Task 52 (round 12): :core:cs-player carries the playback-port locks
+      # (mime/quality mapping, subtitle mime detection, track selection).
+      # Task 54 (round 14): :feature:cs-watch:api carries the episode-metadata
+      # parser parity locks (the watch-page's CsWatchKey wire format) and
+      # :impl the episode-key locks.
+      # Task 68 (round 28): :core:download carries the deletion-pipeline
+      # decision locks (DeletionMatching — matchRemoval + the STRICT
+      # removalVerified), :feature:anime-search:impl the top-bar reveal
+      # policy locks (searchBarNextCollapsed), and :feature:onboarding the
+      # wizard step-machine locks.
+      - name: Run unit tests (CloudStream modules)
+        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:common:testDebugUnitTest :core:cs-player:testDebugUnitTest :feature:cs-watch:api:testDebugUnitTest :feature:cs-watch:impl:testDebugUnitTest :core:download:testDebugUnitTest :feature:anime-search:impl:testDebugUnitTest :feature:onboarding:testDebugUnitTest
 
       - name: Build debug APK
         run: ./gradlew assembleDebug

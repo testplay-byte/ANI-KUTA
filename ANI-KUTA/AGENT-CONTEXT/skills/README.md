@@ -8,6 +8,7 @@
 |------|---------|
 | `ponytail.md` | Lazy senior dev: simplest solution that works. YAGNI, stdlib-first, root-cause fixes. |
 | `subagent-review.md` | How to use sub-agents to find flaws in plans. |
+| `long-task-execution.md` | The research→plan→phase→review→close method for multi-file, high-risk tasks (the R11/R12 playbook). |
 
 ## Rules for Creating a New Skill
 

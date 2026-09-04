@@ -38,6 +38,15 @@ interface AdsRepository {
 
     /** Records that an ad was just completed (starts a fresh cooldown window). */
     fun recordAdShown(timestampMs: Long = System.currentTimeMillis())
+
+    /**
+     * D-407 (round 31): consumes the ONE-PER-INSTALL first-open grace if it
+     * is still available. Returns `true` when the grace was available (and is
+     * NOW consumed — the caller proceeds without an ad, and records NO
+     * cooldown); `false` when it was already consumed (the normal system
+     * applies). Persisted — survives cold starts + process death.
+     */
+    fun consumeFirstOpenGrace(): Boolean
 }
 
 /**
@@ -83,6 +92,16 @@ class AdsRepositoryImpl(
             "Ad recorded at $timestampMs — cooldown active for ${config.smartLink.cooldownMs}ms " +
                 "(until ${timestampMs + config.smartLink.cooldownMs})"
         }
+    }
+
+    override fun consumeFirstOpenGrace(): Boolean {
+        if (preferences.firstOpenGraceConsumed) {
+            Logger.d(TAG) { "first-open grace already consumed — normal ad system applies" }
+            return false
+        }
+        preferences.firstOpenGraceConsumed = true
+        Logger.i(TAG) { "first-open grace CONSUMED — the first gated navigation is ad-free" }
+        return true
     }
 
     private companion object {

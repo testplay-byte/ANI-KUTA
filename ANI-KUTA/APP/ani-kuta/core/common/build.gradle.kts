@@ -12,4 +12,6 @@ dependencies {
     // D-312: SeasonDetector promoted to its own module — core/common keeps
     // consuming it via EpisodeTitleParser.
     implementation(project(":core:seasons"))
+    // Task 49 (console logging tool): RingLogBufferTest runs on the JVM.
+    testImplementation(libs.junit)
 }

@@ -27,7 +27,7 @@ class AniListDetailsProvider(
     }
 
     override suspend fun fetchFromExtension(
-        sourceId: Long, animeUrl: String, title: String, thumbnailUrl: String?,
+        sourceId: Long, animeUrl: String, title: String, thumbnailUrl: String?, year: Int?,
     ): UnifiedAnime? = null
 
     /**

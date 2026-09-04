@@ -66,14 +66,84 @@ interface DownloadManager {
     /** Gets the content:// URI for a downloaded episode (null if not downloaded). */
     fun getDownloadedEpisodeUri(mainId: String, episodeKey: String): String?
 
-    /** Deletes a downloaded episode (file + DB row). */
+    /**
+     * Deletes a downloaded episode (video + subtitles + `.data.json` entry +
+     * DB row). If it was the LAST downloaded episode of the anime, the whole
+     * series folder is removed too (D-392 — see
+     * [DefaultDownloadManager.maybeDeleteSeriesFolder]).
+     */
     suspend fun deleteDownloadedEpisode(mainId: String, episodeKey: String)
+
+    /**
+     * D-392 (round 26): deletes EVERY downloaded episode of an anime at once —
+     * the "delete all" action. Removes the whole series folder (with the
+     * identity-checked safety ladder) + sweeps every `downloaded_episode` DB
+     * row for the anime. Falls back to a per-episode
+     * [deleteDownloadedEpisode] loop when the folder can't be located (or its
+     * deletion fails) so the DB is always left consistent.
+     */
+    suspend fun deleteDownloadedAnime(mainId: String)
 
     /**
      * Requests a rescan of the download folder (reinstall recognition).
      * Runs on Dispatchers.IO. Called from AnikutaApp.onCreate.
      */
     suspend fun requestFolderRescan()
+
+    /**
+     * D-407 → D-408 (round 32): resolves the SUBTITLE TRACKS for a DOWNLOADED
+     * episode — the ONE shared answer every playback path uses (the
+     * details-page hand-off, the downloads-page hand-off, the in-player
+     * episode switch, and the subtitle sheet's "Available in storage"
+     * listing), so they can never disagree.
+     *
+     * A LAYERED chain (round 32) — a single broken link can never yield an
+     * empty answer: (0) a stale in-memory cache is reloaded from the DB once;
+     * (1) the DB row's `subtitleUris`; when empty, the disk chain — (2) the
+     * episode's OWN video file location (the most direct truth, immune to
+     * `.data.json` corruption + mainId drift), (3) the mainId manifest walk,
+     * (4) the title fallback. Each track carries a human-readable label
+     * derived from its on-disk filename ("English", "My Custom Subs", …) —
+     * see [DownloadedSubtitleLabels.labelForUri].
+     *
+     * @param mainId The content's mainId.
+     * @param episodeNumber The episode number (1-based; drives the file
+     *   pattern + the DB row match).
+     * @return the resolved tracks (empty when the episode has no subtitles on
+     *   disk or is not downloaded).
+     */
+    suspend fun resolveSubtitleTracks(mainId: String, episodeNumber: Int): List<ResolvedSubtitleTrack>
+
+    /**
+     * D-407 → D-408 (round 32): imports ONE manually-picked subtitle file into a
+     * downloaded episode's dedicated `subtitles/` folder — the persistence
+     * half of the player's "Add subtitle file" flow.
+     *
+     * D-408: a DEDUP phase precedes the copy — when the picked file already IS
+     * one of the episode's subtitle files (same document or same file name),
+     * NO copy is made and the existing track is returned (picking a file from
+     * the series' own subtitles/ folder must not create a `_manual_` duplicate).
+     *
+     * Writes `subtitle_E{num:5}_manual_{name}.{ext}` via SAF, APPENDS the new
+     * URI to the DB row's `subtitleUris` AND the folder's `.data.json`
+     * episodes entry (the durable source of truth — the scanner rebuilds the
+     * DB from it across reinstalls), then refreshes the in-memory cache.
+     *
+     * @param mainId The content's mainId.
+     * @param episodeKey The episode's key (`SEpisode.url`).
+     * @param source The picked file's `content://` URI (the SAF picker).
+     * @param displayName The picked file's display name (drives the on-disk
+     *   filename + the returned label).
+     * @return the persisted (or dedup-matched existing) track (URI + label),
+     *   or `null` on failure (no DB row, unsupported extension, folder/IO
+     *   failure — logged).
+     */
+    suspend fun importManualSubtitle(
+        mainId: String,
+        episodeKey: String,
+        source: android.net.Uri,
+        displayName: String?,
+    ): ResolvedSubtitleTrack?
 }
 
 /** Placeholder typealias — D.2 replaces this with the real sealed interface. */

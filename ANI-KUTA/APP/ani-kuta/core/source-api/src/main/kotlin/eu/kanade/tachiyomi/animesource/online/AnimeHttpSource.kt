@@ -62,6 +62,23 @@ abstract class AnimeHttpSource : AnimeCatalogueSource {
     open val versionId = 1
 
     /**
+     * CloudStream V2 (Task 51): true when this source is a CloudStream
+     * provider bridged through the data/cloudstream bridge.
+     *
+     * The two extension ecosystems stay SEPARATE by construction (the round-11
+     * rebuild's prime directive): UI layers use this marker to section source
+     * pickers (Aniyomi / CloudStream) and to route ecosystem-specific behavior
+     * WITHOUT instanceof checks against bridge classes — this module cannot
+     * depend on data/cloudstream, so the marker is an additive open val every
+     * classic source inherits as false.
+     *
+     * Playback note: on this branch video resolution is NOT wired for bridged
+     * sources (deliberately out of scope until the playback port); the bridge
+     * itself throws an honest "not yet" from the video-list entry point.
+     */
+    open val isCloudStreamBridged: Boolean get() = false
+
+    /**
      * ID of the source. By default it uses a generated id using the first 16 characters (64 bits)
      * of the MD5 of the string `"${name.lowercase()}/$lang/$versionId"`.
      *

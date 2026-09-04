@@ -34,6 +34,10 @@ class ProfileViewModel(
 
     companion object {
         private const val TAG = "Anikuta:Feature:Profile"
+
+        /** Task 64 (round 24 — E): the persisted genre-radar filter ("All" or
+         *  a category name; remembered across visits). */
+        private const val KEY_GENRE_FILTER = "profile_genre_filter"
     }
 
     private val _state = MutableStateFlow(ProfileUiState())
@@ -51,6 +55,36 @@ class ProfileViewModel(
                 val libraryItems = database.libraryQueries.getAllLibraryItems().executeAsList()
                 val totalAnime = libraryItems.map { it.main_id }.distinct().size
                 val libraryMainIds = libraryItems.map { it.main_id }.toSet()
+
+                // ── Task 64 (round 24 — the genre radar category filter) ──────
+                // Per-category mainId sets (the filter's scope) + the options
+                // list. ONLY categories that actually have entries become
+                // options — the round-24 device report: "If the user does not
+                // have some categories then those Genre categories will not
+                // show there… if the user has nothing in his default category
+                // then the default category will not show." A persisted
+                // selection whose category is gone/empty reverts to "All"
+                // (and the revert is persisted, so it sticks).
+                val itemsByCategory = mutableMapOf<Long, MutableSet<String>>()
+                for (item in libraryItems) {
+                    itemsByCategory.getOrPut(item.category_id) { mutableSetOf() }.add(item.main_id)
+                }
+                val categories = contentRepository.getAllCategories()
+                val genreFilterOptions = categories
+                    .filter { (itemsByCategory[it.id]?.size ?: 0) > 0 }
+                    .map { GenreFilterOption(name = it.name, count = itemsByCategory[it.id]!!.size) }
+                val savedGenreFilter = preferenceStore.getString(KEY_GENRE_FILTER, "All")
+                val selectedGenreFilter = if (
+                    savedGenreFilter == "All" ||
+                    genreFilterOptions.any { it.name == savedGenreFilter }
+                ) {
+                    savedGenreFilter
+                } else {
+                    // The persisted category is gone or emptied — revert to All
+                    // (persisted so it survives the next visit too).
+                    preferenceStore.putString(KEY_GENRE_FILTER, "All")
+                    "All"
+                }
 
                 // Watch progress
                 val allProgress = database.watchQueries.getAllWatchProgress().executeAsList().map { row ->
@@ -95,6 +129,25 @@ class ProfileViewModel(
                 genreRepository.backfillGenresFromExistingData(database)
                 val genreCounts = genreRepository.getLibraryGenreCounts(libraryMainIds)
                 val genreDistribution = genreCounts.associate { it.first to it.second }
+                // Task 64 (round 24): the filter-restricted distribution (what
+                // the RADAR draws). "All" shows the full library; a category
+                // restricts to its mainIds. When the restriction yields nothing
+                // the section STAYS (the chips + heading render from the full
+                // distribution; the radar swaps to an empty-caption) — the
+                // round-24 report: "it disappears the whole general section
+                // because there was nothing to show… The whole general section
+                // disappeared in of itself" — that must never happen.
+                val filteredGenreDistribution = if (selectedGenreFilter == "All") {
+                    genreDistribution
+                } else {
+                    val filterCategoryId = categories.firstOrNull { it.name == selectedGenreFilter }?.id
+                    val scopeIds = filterCategoryId?.let { itemsByCategory[it] } ?: emptySet()
+                    if (scopeIds.isEmpty()) {
+                        genreDistribution
+                    } else {
+                        genreRepository.getLibraryGenreCounts(scopeIds).associate { it.first to it.second }
+                    }
+                }
 
                 // Current streak
                 val currentStreak = calculateCurrentStreak(countedProgress)
@@ -201,6 +254,9 @@ class ProfileViewModel(
                     avgRatingFormatted = avgRatingFormatted,
                     currentStreak = currentStreak,
                     genreDistribution = genreDistribution,
+                    filteredGenreDistribution = filteredGenreDistribution,
+                    genreFilterOptions = genreFilterOptions,
+                    selectedGenreFilter = selectedGenreFilter,
                     watchFlowByDay = watchFlowByDay.toList(),
                     watchFlowDetail = watchFlowDetail,
                     timeDna = timeDna,
@@ -337,7 +393,23 @@ class ProfileViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val libraryItems = database.libraryQueries.getAllLibraryItems().executeAsList()
             val libraryMainIds = libraryItems.map { it.main_id }.toSet()
-            val genreAnime = libraryMainIds.mapNotNull { mid ->
+            // Task 64 (round 24 — E): the genre sheet respects the active
+            // category filter — the sheet lists the anime of that genre WITHIN
+            // the selected category's scope ("All" = the whole library).
+            val activeFilter = _state.value.selectedGenreFilter
+            val scopeMainIds = if (activeFilter == "All") {
+                libraryMainIds
+            } else {
+                val filterCategoryIds = contentRepository.getAllCategories()
+                    .filter { it.name == activeFilter }
+                    .mapNotNull { it.id }
+                    .toSet()
+                libraryItems
+                    .filter { it.category_id in filterCategoryIds }
+                    .map { it.main_id }
+                    .toSet()
+            }
+            val genreAnime = scopeMainIds.mapNotNull { mid ->
                 val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
                 // D-198: getAniListDetail → getContentDetails; only include AniList-linked rows.
                 val details = contentRepository.getContentDetails(mid) ?: return@mapNotNull null
@@ -355,6 +427,50 @@ class ProfileViewModel(
                 } else null
             }
             _state.value = _state.value.copy(selectedGenre = genre, genreAnime = genreAnime)
+        }
+    }
+
+    /**
+     * Task 64 (round 24 — E): select the genre-radar category filter.
+     *
+     * Persists the choice (remembered across visits — "profile_genre_filter").
+     * A name that is no longer a non-empty category (shouldn't be reachable —
+     * the chips only offer non-empty categories — but defensive) falls back
+     * to "All". The radar's distribution re-derives from the category's
+     * current mainIds; the chips section + section visibility NEVER change
+     * (they render from the FULL library distribution).
+     */
+    fun onGenreFilterSelect(filter: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val effective = if (
+                filter == "All" ||
+                _state.value.genreFilterOptions.any { it.name == filter }
+            ) filter else "All"
+            preferenceStore.putString(KEY_GENRE_FILTER, effective)
+
+            val libraryItems = database.libraryQueries.getAllLibraryItems().executeAsList()
+            val fullDistribution = _state.value.genreDistribution
+            val filtered = if (effective == "All") {
+                fullDistribution
+            } else {
+                val filterCategoryIds = contentRepository.getAllCategories()
+                    .filter { it.name == effective }
+                    .mapNotNull { it.id }
+                    .toSet()
+                val scopeIds = libraryItems
+                    .filter { it.category_id in filterCategoryIds }
+                    .map { it.main_id }
+                    .toSet()
+                if (scopeIds.isEmpty()) {
+                    fullDistribution
+                } else {
+                    genreRepository.getLibraryGenreCounts(scopeIds).associate { it.first to it.second }
+                }
+            }
+            _state.value = _state.value.copy(
+                selectedGenreFilter = effective,
+                filteredGenreDistribution = filtered,
+            )
         }
     }
 
@@ -386,7 +502,17 @@ data class ProfileUiState(
     val watchTimeFormatted: String = "0m",
     val avgRatingFormatted: String = "—",
     val currentStreak: Int = 0,
+    /** The FULL-library genre distribution — drives the genre chips section
+     *  + the section's visibility (Task 64: the section must NEVER disappear
+     *  because a filter's scope is empty). */
     val genreDistribution: Map<String, Int> = emptyMap(),
+    /** The filter-restricted distribution — what the RADAR draws (Task 64). */
+    val filteredGenreDistribution: Map<String, Int> = emptyMap(),
+    /** The genre-radar category filter options — ONLY categories with ≥1
+     *  library entry (Task 64: empty categories never render). */
+    val genreFilterOptions: List<GenreFilterOption> = emptyList(),
+    /** The active genre-radar filter ("All" or a category name; Task 64). */
+    val selectedGenreFilter: String = "All",
     val watchFlowByDay: List<Int> = listOf(0, 0, 0, 0, 0, 0, 0),
     val watchFlowDetail: List<DayWatchSummary> = emptyList(),
     val timeDna: TimeDnaData? = null,
@@ -396,6 +522,15 @@ data class ProfileUiState(
     val recentlyWatched: List<RecentlyWatchedItem> = emptyList(),
     val selectedGenre: String? = null,
     val genreAnime: List<RecentlyWatchedItem> = emptyList(),
+)
+
+/**
+ * Task 64 (round 24 — E): one selectable option in the genre-radar category
+ * filter row — a library category that has at least one entry.
+ */
+data class GenreFilterOption(
+    val name: String,
+    val count: Int,
 )
 
 data class TimeDnaData(

@@ -3,6 +3,8 @@ package com.confused.anikuta.core.ads
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import com.confused.anikuta.core.common.Logger
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,6 +75,12 @@ import kotlinx.coroutines.flow.asStateFlow
 class AdsCoordinator(
     private val repository: AdsRepository,
     private val lifecycleObserver: AppLifecycleObserver,
+    /**
+     * Task 61 (round 21): the APPLICATION context — for the offline gate
+     * (ConnectivityManager). Injected via Koin's `androidContext()`; never
+     * used for UI (the interstitial gets an Activity context from its host).
+     */
+    private val appContext: Context,
 ) {
 
     private val _state = MutableStateFlow<AdGateState>(AdGateState.Idle)
@@ -103,11 +111,39 @@ class AdsCoordinator(
             return true
         }
 
+        // D-407 (round 31) — the FIRST-OPEN GRACE: "For the very first time
+        // the user opens up the application and clicks on any of the
+        // contents, he should not be shown the advertisement pop-up…
+        // afterwards the normal advertisement system will work." One
+        // ad-free gated navigation per install (persisted); no interstitial,
+        // and CRUCIALLY no cooldown recorded — the NEXT eligible navigation
+        // is judged by the normal cooldown gate (last==0 → ad due → shown).
+        if (repository.consumeFirstOpenGrace()) {
+            Logger.i(TAG) { "first-open grace — proceeding without ad (one per install)" }
+            proceed()
+            return true
+        }
+
         // In cooldown → proceed immediately, no ad shown.
         if (repository.isInCooldown()) {
             Logger.i(TAG) {
                 "in cooldown — proceeding without ad (${repository.remainingCooldownMs()}ms remaining)"
             }
+            proceed()
+            return true
+        }
+
+        // Task 61 (round 21 — the offline gate): the ad is DUE but there is no
+        // usable network — the smart link NEEDS a browser + the internet, so
+        // the popup would only strand the user (a browser error page, then the
+        // "Try again" loop). Per the user's spec: "When the user is not
+        // connected to the internet, it will not show this pop-up even though
+        // the ad time is there… it will wait for the next time the user has
+        // internet." So: proceed immediately, and CRUCIALLY do NOT record the
+        // ad (no cooldown starts) — it stays due and fires on the next
+        // ONLINE gated navigation.
+        if (!isOnline()) {
+            Logger.i(TAG) { "offline — ad deferred (no usable network); proceeding without ad, no cooldown recorded" }
             proceed()
             return true
         }
@@ -191,6 +227,24 @@ class AdsCoordinator(
     }
 
     // ── internals ─────────────────────────────────────────────────────────────
+
+    /**
+     * Task 61 (round 21): the honest "has internet" check — an active network
+     * with INTERNET capability that the system has VALIDATED (a probe
+     * succeeded). A network with INTERNET but no VALIDATION is typically a
+     * captive portal / not actually connected — treated as OFFLINE (the smart
+     * link would fail there). Any ConnectivityManager lookup failure also
+     * reads as offline (never show the popup on a broken system state).
+     */
+    private fun isOnline(): Boolean {
+        val connectivityManager =
+            appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return false
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
 
     /**
      * Opens the smart-link URL in the user's browser + flips to [AdGateState.AdInProgress].

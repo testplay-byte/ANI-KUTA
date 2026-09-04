@@ -227,7 +227,13 @@ fun UpdatesScreen(
                                     }
                                     if (s.newUpdates.isNotEmpty()) {
                                         item(key = "header_new") { UpdatesSectionHeader("New") }
-                                        items(s.newUpdates, key = { "new_${it.mainId}_${it.episodeNumber}" }) { update ->
+                                        // D-381: audio_variant is part of the key — episode_update
+                                        // deliberately stores SUB and DUB of the same episode as two
+                                        // rows (idx_episode_update_unique = main_id + episode_key +
+                                        // audio_variant), so a key without the variant collides →
+                                        // duplicate LazyColumn key crash. The VM also dedupes as a
+                                        // second guard.
+                                        items(s.newUpdates, key = { "new_${it.mainId}_${it.episodeNumber}_${it.audioVariant}" }) { update ->
                                             UpdateRow(
                                                 update = update,
                                                 onClick = {
@@ -239,7 +245,7 @@ fun UpdatesScreen(
                                     }
                                     if (s.earlierUpdates.isNotEmpty()) {
                                         item(key = "header_earlier") { UpdatesSectionHeader("Earlier") }
-                                        items(s.earlierUpdates, key = { "earlier_${it.mainId}_${it.episodeNumber}" }) { update ->
+                                        items(s.earlierUpdates, key = { "earlier_${it.mainId}_${it.episodeNumber}_${it.audioVariant}" }) { update ->
                                             UpdateRow(
                                                 update = update,
                                                 onClick = {

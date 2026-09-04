@@ -279,6 +279,71 @@ class DetailsViewModel(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    // ── Task 57 (round 17 — P1): linked sub/dub progress identity ──────────
+
+    /**
+     * (identity number → key) per episode — the SHARED progress identity of
+     * CS sub/dub lists: when the linked source is CloudStream-bridged AND the
+     * list carries sub/dub tags, the identity is the per-flavor ORDINAL
+     * (sub-5 ↔ dub-5 are ONE episode — one progress row, one toggle, Task 57
+     * P1); every other list (all aniyomi lists) keeps the raw episode_number.
+     * The key format is the app-wide builder: "$mid|%05d" (byte-identical to
+     * the other builders).
+     */
+    private fun csEpisodeIdentities(mid: String, episodes: List<SEpisode>): List<Pair<Int, String>> {
+        val ordinals = if (isLinkedSourceCloudStream() && episodes.any { csSubDubEpisodeTag(it) != null }) {
+            csSubDubFlavorOrdinals(episodes)
+        } else emptyMap()
+        return episodes.map { ep ->
+            val n = ordinals[ep.url] ?: ep.episode_number.toInt()
+            n to "$mid|${String.format("%05d", n)}"
+        }
+    }
+
+    /**
+     * The DISTINCT progress keys of [csEpisodeIdentities] — a sub+dub pair
+     * collapses to ONE key; untagged rows keep their raw-number keys.
+     */
+    private fun csProgressKeys(mid: String, episodes: List<SEpisode>): List<String> =
+        csEpisodeIdentities(mid, episodes).map { it.second }.distinct()
+
+    /**
+     * Task 57 (P1): the sub/dub tag of an episode row — DetailsScreen's
+     * subDubEpisodeTag replicated (BOTH faces of the details feature must key
+     * the identity the SAME way, or the rows and the series ops diverge):
+     * the trailing " (Sub)"/" (Dub)" NAME tag, else the bridge's exact
+     * "Sub"/"Dub" scanlator label. Null = a neutral row.
+     */
+    private fun csSubDubEpisodeTag(ep: SEpisode): String? {
+        val name = ep.name?.trim()?.uppercase() ?: ""
+        if (name.endsWith("(SUB)")) return "SUB"
+        if (name.endsWith("(DUB)")) return "DUB"
+        return when (ep.scanlator?.trim()?.uppercase()) {
+            "SUB" -> "SUB"
+            "DUB" -> "DUB"
+            else -> null
+        }
+    }
+
+    /**
+     * Task 57 (P1): per-flavor ordinals — each tagged flavor renumbered 1..N
+     * by (episode_number, list position), keyed by ep.url. DetailsScreen's
+     * subDubFlavorOrdinals replicated for the VM's key builders (the ordinal
+     * identity must match the screen's row keys byte-for-byte).
+     */
+    private fun csSubDubFlavorOrdinals(episodes: List<SEpisode>): Map<String, Int> {
+        val ordinals = HashMap<String, Int>()
+        listOf("SUB", "DUB").forEach { flavor ->
+            val rows = episodes.withIndex()
+                .filter { csSubDubEpisodeTag(it.value) == flavor }
+                .sortedWith(compareBy({ (i, ep) -> ep.episode_number }, { (i, _) -> i }))
+            rows.forEachIndexed { ordinal, (_, ep) ->
+                ordinals[ep.url] = ordinal + 1
+            }
+        }
+        return ordinals
+    }
+
     /** Phase WP: Toggle the watched state of an episode (swipe-to-toggle). */
     fun toggleWatched(episodeKey: String) {
         viewModelScope.launch {
@@ -613,23 +678,26 @@ class DetailsViewModel(
             runCatching {
                 val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes
                 if (!episodes.isNullOrEmpty()) {
+                    // Task 57 (P1): the unmark/mark ranges run on the IDENTITY
+                    // number — CS sub/dub lists collapse sub+dub rows to the
+                    // shared ordinal (ONE key per episode).
+                    val identities = csEpisodeIdentities(mid, episodes)
                     val oldProgress = current.progress
                     if (clampedProgress < oldProgress) {
                         // Progress decreased — unmark episodes (clampedProgress+1)..oldProgress.
                         // We do this by deleting watch progress for those episodes.
-                        for (ep in episodes) {
-                            val n = ep.episode_number.toInt()
-                            if (n in (clampedProgress + 1)..oldProgress) {
-                                val key = "$mid|${String.format("%05d", n)}"
-                                watchProgressStore.delete(key)
-                            }
-                        }
+                        identities
+                            .filter { it.first in (clampedProgress + 1)..oldProgress }
+                            .map { it.second }
+                            .distinct()
+                            .forEach { key -> watchProgressStore.delete(key) }
                         Logger.i(TAG) { "updateTrackProgress — unmarked episodes ${clampedProgress + 1}..$oldProgress" }
                     } else if (clampedProgress > oldProgress) {
                         // Progress increased — mark episodes (oldProgress+1)..clampedProgress as watched.
-                        val keysToMark = episodes
-                            .filter { it.episode_number.toInt() in (oldProgress + 1)..clampedProgress }
-                            .map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+                        val keysToMark = identities
+                            .filter { it.first in (oldProgress + 1)..clampedProgress }
+                            .map { it.second }
+                            .distinct()
                         if (keysToMark.isNotEmpty()) {
                             watchProgressStore.markAllWatched(mid, keysToMark)
                             Logger.i(TAG) { "updateTrackProgress — marked episodes ${oldProgress + 1}..$clampedProgress" }
@@ -783,9 +851,12 @@ class DetailsViewModel(
         viewModelScope.launch {
             runCatching {
                 val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes ?: return@runCatching
-                val keysToMark = episodes
-                    .filter { it.episode_number.toInt() <= upToEpisode }
-                    .map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+                // Task 57 (P1): the filter runs on the IDENTITY number — the
+                // CS sub/dub ordinal (sub-5/dub-5 count ONCE).
+                val keysToMark = csEpisodeIdentities(mid, episodes)
+                    .filter { it.first <= upToEpisode }
+                    .map { it.second }
+                    .distinct()
                 watchProgressStore.markAllWatched(mid, keysToMark)
                 Logger.i(TAG) { "markAllPreviousWatched — marked ${keysToMark.size} episodes (1..$upToEpisode)" }
 
@@ -821,7 +892,8 @@ class DetailsViewModel(
         viewModelScope.launch {
             runCatching {
                 val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes ?: return@runCatching
-                val keysToMark = episodes.map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+                // Task 57 (P1): ALL identity keys — sub+dub pairs collapse to one.
+                val keysToMark = csProgressKeys(mid, episodes)
                 watchProgressStore.markAllWatched(mid, keysToMark)
                 Logger.i(TAG) { "markSeriesAsWatched — marked all ${keysToMark.size} episodes" }
 
@@ -1530,6 +1602,9 @@ class DetailsViewModel(
             try {
                 val enriched = extensionProvider.fetchFromExtension(
                     sourceId, animeUrl, anime.displayName, anime.coverUrl,
+                    // Task 47: re-seed the currently displayed year so a refresh
+                    // never drops the Year row when the source's load() omits it.
+                    anime.seasonYear,
                 )
                     if (enriched != null) {
                         if (metaGen == loadGeneration) {
@@ -1665,12 +1740,16 @@ class DetailsViewModel(
         val isCompleted = entry.status == com.confused.anikuta.core.trackerapi.TrackStatus.COMPLETED
         val remoteProgress = entry.progress
 
+        // Task 57 (P1): the ranges run on the IDENTITY number (the CS sub/dub
+        // ordinal — sub-5/dub-5 count once); the key format is unchanged.
+        val identities = csEpisodeIdentities(mid, episodes)
         val keysToMark: List<String> = if (isCompleted) {
-            episodes.map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+            identities.map { it.second }.distinct()
         } else if (remoteProgress > 0) {
-            episodes
-                .filter { it.episode_number.toInt() in 1..remoteProgress }
-                .map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+            identities
+                .filter { it.first in 1..remoteProgress }
+                .map { it.second }
+                .distinct()
         } else {
             emptyList()
         }
@@ -1705,7 +1784,7 @@ class DetailsViewModel(
 
     // ── Load from Extension (Phase A + Phase B auto-link) ──
 
-    fun loadFromExtension(sourceId: Long, animeUrl: String, title: String, thumbnailUrl: String?) {
+    fun loadFromExtension(sourceId: Long, animeUrl: String, title: String, thumbnailUrl: String?, year: Int? = null) {
         currentAnimeId = 0 // No AniList ID yet — will be set by auto-link if it matches.
         // D-192 Phase 5: Increment generation — async blocks from previous loads will be discarded.
         loadGeneration++
@@ -1771,9 +1850,14 @@ class DetailsViewModel(
                     // Doesn't block the user — they see the cached data immediately.
                     viewModelScope.launch {
                         try {
+                            // Task 47: seed the cached year so the refresh (whose
+                            // load() may omit year) keeps the Year row instead of
+                            // silently dropping it on remerge.
+                            val seedYear = year ?: cachedDetails.extExtras.year
                             val refreshed = extensionProvider.fetchFromExtension(
                                 sourceId, animeUrl, title,
                                 cachedDetails.extThumbnailUrl ?: thumbnailUrl,
+                                seedYear,
                             )
                             // D-313: stale guard — this coroutine can outlive the screen
                             // (network fetch); never remerge old data over a new anime.
@@ -1813,7 +1897,7 @@ class DetailsViewModel(
                     }
                 }
                 // Use the ExtensionDetailsProvider to fetch full details.
-                val unifiedAnime = extensionProvider.fetchFromExtension(sourceId, animeUrl, title, effectiveThumbnailUrl)
+                val unifiedAnime = extensionProvider.fetchFromExtension(sourceId, animeUrl, title, effectiveThumbnailUrl, year)
 
                 // D-313 (review round): stale guard — this network fetch can
                 // outlive the screen (user navigated away / opened another anime).
@@ -1880,6 +1964,10 @@ class DetailsViewModel(
             // D-198: getExtensionDetail → getContentDetails; build extensionBase from ext_* axis.
             val details = contentRepository.getContentDetails(existingContent.mainId)
             if (details != null && details.hasExtensionLink) {
+                // Task 47: year + score now persist in extExtraJson — restore
+                // them so the cache-first reopen keeps the Year/Score rows
+                // (the silent background refresh re-fetches live data after).
+                val cachedExtras = details.extExtras
                 extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
                     title = existingContent.title,
                     description = details.extDescription,
@@ -1892,6 +1980,8 @@ class DetailsViewModel(
                     sourceName = null,
                     animeUrl = details.animeUrl,
                     entryMode = com.confused.anikuta.core.common.model.EntryMode.EXTENSION,
+                    seasonYear = cachedExtras.year,
+                    averageScore = cachedExtras.score,
                 )
             } else {
                 extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
@@ -2057,6 +2147,12 @@ class DetailsViewModel(
                             extAuthor = unifiedAnime.author,
                             extArtist = unifiedAnime.artist,
                             extThumbnailUrl = unifiedAnime.coverUrl,
+                            // Task 47: persist year + score in the additive
+                            // extras JSON so cache-first reopens keep them.
+                            extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
+                                year = unifiedAnime.seasonYear,
+                                score = unifiedAnime.averageScore,
+                            ).toJson(),
                             extUpdatedAt = System.currentTimeMillis(),
                         )
                         contentResolver.linkExtensionToExisting(
@@ -2114,6 +2210,12 @@ class DetailsViewModel(
                         extAuthor = unifiedAnime.author,
                         extArtist = unifiedAnime.artist,
                         extThumbnailUrl = unifiedAnime.coverUrl,
+                        // Task 47: persist year + score in the additive
+                        // extras JSON so cache-first reopens keep them.
+                        extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
+                            year = unifiedAnime.seasonYear,
+                            score = unifiedAnime.averageScore,
+                        ).toJson(),
                         extUpdatedAt = System.currentTimeMillis(),
                     ),
                 )
@@ -2823,8 +2925,11 @@ class DetailsViewModel(
                         // D-313 (review round): stale guard — the enrichment
                         // fetch can outlive the screen.
                         val enrichGen = loadGeneration
+                        // Task 47: re-seed the displayed year (see refresh path).
+                        val seedYear = (_state.value as? DetailsState.Success)?.anime?.seasonYear
                         val enriched = extensionProvider.fetchFromExtension(
                             sourceId, animeUrl, sAnime.title, null,
+                            seedYear,
                         )
                         if (enriched != null && enrichGen == loadGeneration) {
                             extensionBase = enriched
@@ -2935,8 +3040,11 @@ class DetailsViewModel(
             // Fetch the full details via getAnimeDetails to enrich extensionBase.
             viewModelScope.launch {
                 try {
+                    // Task 47: re-seed the displayed year (see refresh path).
+                    val seedYear = (_state.value as? DetailsState.Success)?.anime?.seasonYear
                     val enriched = extensionProvider.fetchFromExtension(
                         source.id, sAnime.url, sAnime.title, sAnime.thumbnail_url,
+                        seedYear,
                     )
                     if (enriched != null) {
                         extensionBase = enriched
@@ -3459,12 +3567,37 @@ class DetailsViewModel(
             } else null
         }
         if (linked == null) {
+            // Task 49 (R9-A FM-13): the silent return left the already-open
+            // resolver sheet in Idle ("No resolution in progress") — the user
+            // tapped an episode and NOTHING happened. Surface an honest error.
             Logger.w(TAG) { "Cannot resolve — no source linked and no extension sourceId" }
+            _resolverState.value = ResolverState.Error(
+                "No playable source is linked to this entry — refresh the page or re-link it to a source",
+            )
             return
         }
         val source = extensionManager.getSource(linked.sourceId) as? AnimeHttpSource ?: run {
             Logger.w(TAG) { "Source ${linked.sourceId} not found or not an AnimeHttpSource" }
             _resolverState.value = ResolverState.Error("Source not available")
+            return
+        }
+
+        // CloudStream V2 (task 52 — the playback port): the details screen now
+        // ROUTES CS episode taps to the dedicated CS watch screen BEFORE this
+        // resolver path (see DetailsScreen.onEpisodeClick), and since Task 58
+        // the episode-DOWNLOAD path routes CS episodes to the CS resolve sheet
+        // in download mode too (DetailsScreen.onDownloadEpisode). This
+        // short-circuit remains as defense in depth: if a CS episode still
+        // reaches the classic resolver, it gets an honest message instead of
+        // the classic resolver swallowing the bridge boundary into "No videos
+        // available" (main's VideoResolver catches every Throwable from
+        // getVideoList).
+        if (source.isCloudStreamBridged) {
+            Logger.i(TAG) { "CS playback boundary: episode tap for ${source.name} — streaming opens in the CloudStream player" }
+            _resolverState.value = ResolverState.Error(
+                "CloudStream episodes play in the CloudStream player (tap the episode) — " +
+                    "downloads open the CloudStream source picker",
+            )
             return
         }
 
@@ -3508,6 +3641,19 @@ class DetailsViewModel(
     fun clearResolver() {
         _resolverState.value = ResolverState.Idle
         _resolvedVideosKey.value = ""
+    }
+
+    /**
+     * Task 52 (round 12 — the playback port): true when the CURRENTLY linked
+     * source is a bridged CloudStream provider. The details screen routes CS
+     * episode taps to the dedicated CS watch screen using this check — the
+     * classic aniyomi resolver path is never entered for CS content.
+     */
+    fun isLinkedSourceCloudStream(): Boolean {
+        val linkedId = _linkedSource.value?.sourceId
+            ?: (_state.value as? DetailsState.Success)?.anime?.sourceId
+            ?: return false
+        return (extensionManager.getSource(linkedId) as? AnimeHttpSource)?.isCloudStreamBridged == true
     }
 
     /**

@@ -7,6 +7,7 @@ import com.confused.anikuta.core.activitytracker.activityTrackerModule
 import com.confused.anikuta.core.ads.di.adsModule  // D-272: smart-link ad system
 import com.confused.anikuta.core.anilist.di.anilistModule
 import com.confused.anikuta.core.appupdate.di.appUpdateModule
+import com.confused.anikuta.core.common.LogLevel
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.database.DatabaseDriverFactory
@@ -26,6 +27,10 @@ import com.confused.anikuta.core.trackeranilist.trackerAniListModule
 import com.confused.anikuta.core.videoresolver.videoResolverModule
 import com.confused.anikuta.core.watchprogress.watchProgressModule
 import com.confused.anikuta.data.extension.extensionModule
+import com.confused.anikuta.data.extension.manager.ExtensionManager
+import com.confused.anikuta.data.cloudstream.di.cloudstreamModule
+import com.confused.anikuta.feature.cswatch.impl.di.csWatchModule
+import com.confused.anikuta.data.cloudstream.content.CloudstreamSourceRegistry
 import com.confused.anikuta.feature.animebrowse.di.browseModule
 import com.confused.anikuta.feature.animedetails.di.detailsModule
 import com.confused.anikuta.feature.animelibrary.di.libraryModule
@@ -41,6 +46,8 @@ import com.confused.anikuta.feature.download.di.downloadFeatureModule
 import com.confused.anikuta.settings.ThemePreferences
 import com.confused.anikuta.settings.NotificationsSettingsViewModel
 import com.confused.anikuta.settings.NotificationsLibraryViewModel
+import com.confused.anikuta.settings.UpdateCheckLogViewModel
+import com.confused.anikuta.settings.UpdateCheckLogStore
 import com.confused.anikuta.settings.VideoCachingViewModel
 import com.confused.anikuta.profile.ProfileViewModel
 import eu.kanade.tachiyomi.animesource.ExtensionAppHolder
@@ -49,6 +56,9 @@ import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.koin.core.qualifier.named
 import org.koin.core.module.dsl.viewModelOf
@@ -59,7 +69,18 @@ import uy.kohesive.injekt.api.addSingletonFactory
 import uy.kohesive.injekt.api.fullType
 import java.util.UUID
 
-class AnikutaApp : Application(), androidx.work.Configuration.Provider {
+/**
+ * Task 44: extends CloudStreamApp (was Application) — the CloudStream compat
+ * layer's app holder. super.onCreate() publishes this instance as
+ * CloudStreamApp.context, which (a) plugins using getKey/setKey resolve and
+ * (b) the Cloudflare challenge solver uses as its fallback WebView context.
+ * CloudStreamApp adds nothing else to Application behavior.
+ */
+class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
+    androidx.work.Configuration.Provider {
+
+    /** App-lifetime scope for background wiring (Task 45: the CS source bridge). */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
@@ -71,8 +92,15 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             com.confused.anikuta.error.AnikutaCrashHandler(this)
         )
 
-        // CORE_RULES §20: Logger init with :app's BuildConfig.DEBUG
-        Logger.setEnabled(BuildConfig.DEBUG)
+        // Task 49 (round 9) → Task 64 (round 24): the console capture
+        // (Logger.setAppender(RingLogBuffer) + the com.lagradost.api.Log
+        // sink forwarding into the ring) is REMOVED — the in-app console
+        // logging tool is gone per the round-24 device instruction ("remove
+        // the console logs only"). The Logger itself stays (logcat-only now);
+        // min level still bounds the overhead: DEBUG lines only in debug
+        // builds, INFO+ in release (decision D-362).
+        Logger.setEnabled(true)
+        Logger.setMinLevel(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.INFO)
 
         // ── Extension compat setup (BEFORE Koin, BEFORE any extension loads) ──
         // Extensions use Injekt (a service locator) to resolve NetworkHelper,
@@ -114,6 +142,8 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 appUpdateModule,
                 adsModule,  // D-272: smart-link ad system
                 extensionModule,
+                cloudstreamModule,  // Task 41: CloudStream extension system (doc 23)
+                csWatchModule,  // Task 52 (round 12): the CS watch screen (playback port)
                 playerModule,
                 videoResolverModule,
                 downloadModule,
@@ -133,13 +163,28 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             modules(debugKoinModules())
         }
 
-        // DB-4: wire debug-only integrations (Logger appender → DebugLogBuffer).
-        // No-op in release builds (initDebugIntegrations() is a no-op there).
-        // Must run AFTER Koin starts so DebugLogBuffer is resolvable.
+        // Task 64 (round 24): initDebugIntegrations() (the Logger appender →
+        // DebugLogBuffer composite wiring) is REMOVED with the console family.
+        // The debug-bubble Koin modules above stay (its Screen/Database/Network/
+        // App-info tabs are untouched).
+
+        // Task 45: the CloudStream→aniyomi SOURCE BRIDGE — every trusted CloudStream
+        // provider is published as an AnimeSource into ExtensionManager, so a
+        // CloudStream result opens the STANDARD details screen (same page as
+        // aniyomi extensions; the user's round-4 directive — no custom CS page).
+        // Trust/untrust/install/uninstall flow through manager.installed → the
+        // registry re-emits → the bridged sources appear/disappear live.
         try {
-            initDebugIntegrations()
+            val csRegistry = org.koin.core.context.GlobalContext.get().get<CloudstreamSourceRegistry>()
+            val extensionManager = org.koin.core.context.GlobalContext.get().get<ExtensionManager>()
+            appScope.launch {
+                csRegistry.sources.collect { bridged ->
+                    extensionManager.setExternalSources(bridged)
+                }
+            }
+            Logger.i("AnikutaApp") { "CloudStream source bridge wired into ExtensionManager" }
         } catch (e: Exception) {
-            Logger.e("AnikutaApp", e) { "Failed to init debug integrations" }
+            Logger.e("AnikutaApp", e) { "Failed to wire CloudStream source bridge" }
         }
 
         // Seed lookup tables + Default library category (idempotent — INSERT OR IGNORE).
@@ -211,6 +256,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
         } catch (e: Exception) {
             Logger.w("AnikutaApp") { "Failed to start playback cache: ${e.message}" }
         }
+
     }
 
     // Phase UP: Configuration.Provider for WorkManager (disables default initializer).
@@ -263,6 +309,18 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 }
             }
 
+            // Task 64 (round 24): the update-check LIVE progress notification +
+            // the content-update history store (JSON file — NOT the database,
+            // this round's constraint). The engine picks both up through its
+            // nullable constructor seams (see UpdatesModule).
+            single<com.confused.anikuta.core.updates.UpdateProgressNotifier> {
+                com.confused.anikuta.notifications.UpdateProgressNotifierImpl(androidContext())
+            }
+            single { UpdateCheckLogStore(androidContext()) }
+            single<com.confused.anikuta.core.updates.UpdateCheckLogger> {
+                get<com.confused.anikuta.settings.UpdateCheckLogStore>()
+            }
+
             // Session ID (for activity tracking — new per process restart)
             single(named("sessionId")) { UUID.randomUUID().toString() }
 
@@ -279,9 +337,12 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             single { com.confused.anikuta.core.preferences.SettingsRepository(get()) }
             // D-193 Phase 3: UpdatePreferences for the updates settings
             single { com.confused.anikuta.core.preferences.UpdatePreferences(get()) }
+            // Task 57 (round 17): Debug page prefs (resolve-list source details + copy button).
+            single { com.confused.anikuta.core.preferences.DebugPreferences(get()) }
 
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)
+            viewModelOf(::UpdateCheckLogViewModel)
             viewModelOf(::NotificationsLibraryViewModel)
             viewModelOf(::VideoCachingViewModel) // Video caching settings (test-feature branch)
             viewModelOf(::ProfileViewModel) // Profile page

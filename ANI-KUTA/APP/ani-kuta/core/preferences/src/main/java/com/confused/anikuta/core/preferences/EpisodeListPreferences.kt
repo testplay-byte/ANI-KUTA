@@ -180,6 +180,26 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         KEY_SHOW_NEXT_EPISODE, true, BooleanSerializer,
     )
 
+    // ════════════════════════════════════════════════════════════════════════
+    //  8. Sub/Dub episode display (Task 55 / round 15)
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Task 55: how episodes of series that emit BOTH (Sub) and (Dub) rows
+     * (some CloudStream extensions) are displayed. Only affects lists that
+     * actually carry tagged rows — aniyomi lists are a no-op.
+     *
+     * - `"SEPARATE"` (default = current look): sub and dub rows stay distinct;
+     *     a Sub | Dub chip switcher appears above the episode list when both
+     *     flavors exist.
+     * - `"COMBINED"`: sibling rows merge into ONE row per episode (the tag is
+     *     stripped); tapping it resolves BOTH variants — the resolve sheet's
+     *     audio-version chips (SUB/DUB) let the user pick the stream.
+     */
+    val subDubMode = store.preference(
+        KEY_SUB_DUB_MODE, "SEPARATE", StringSerializer,
+    )
+
     /**
      * D-233: Reset all filters to their defaults (downloaded=OFF, watched=OFF,
      * audio=BOTH). Called when the user taps "Reset filters" on the empty-state.
@@ -202,5 +222,6 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_ORGANIZE_BY_SEASONS = "pref_episode_list_organize_by_seasons"
         private const val KEY_ORGANIZE_MODE = "pref_episode_list_organize_mode"
         private const val KEY_SEASON_TAG_IN_NUMBER = "pref_episode_list_season_tag_in_number"
+        private const val KEY_SUB_DUB_MODE = "pref_episode_list_sub_dub_mode"
     }
 }

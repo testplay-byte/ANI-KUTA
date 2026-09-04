@@ -1,0 +1,731 @@
+package com.confused.anikuta.feature.cswatch.impl
+
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.pm.ActivityInfo
+import android.view.ViewGroup
+import android.view.WindowManager
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.ui.PlayerView
+import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.csplayer.CsCue
+import com.confused.anikuta.core.csplayer.CsEngineEvent
+import com.confused.anikuta.core.csplayer.CsLanguageNames
+import com.confused.anikuta.core.csplayer.CsPlayerEngine
+import com.confused.anikuta.core.csplayer.CsSubtitle
+import com.confused.anikuta.core.csplayer.CsSubtitleStyle
+import com.confused.anikuta.core.csplayer.CsVideoTrack
+import com.confused.anikuta.core.preferences.PlayerPreferences
+import com.confused.anikuta.feature.cswatch.api.CsWatchKey
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.qualifier.named
+
+private const val TAG = "Anikuta:CS:Watch"
+
+/** The watch page's display mode (the aniyomi screen's PlayerMode, replicated). */
+private enum class CsPlayerMode { MINIMIZED, FULLSCREEN }
+
+/**
+ * The CloudStream watch screen (task 52 / round 12; task 54 / round 14).
+ *
+ * Architecture (doc cloudstream-v2/02-PLAYBACK-PLAN.md §1): the screen
+ * composable owns the Media3 engine + player view + lifecycle effects (the
+ * ADR-025 player carve-out — same exemption the MPV watch screen uses);
+ * [CsWatchViewModel] owns resolution state, link selection and watch progress.
+ * It shares ZERO code with the aniyomi :feature:watch — visual parity via the
+ * same design tokens, behavioral parity via the same WatchProgressStore.
+ *
+ * Task 54 (round 14 — watch-page parity): the screen is now a real two-mode
+ * watch PAGE like the aniyomi WatchScreen:
+ *  - MINIMIZED (portrait, default): [CsWatchPage] — pill top bar + 16:9
+ *    rounded player + "Currently playing" description + episode list below;
+ *  - FULLSCREEN (landscape, edge-to-edge): [CsFullscreenControls] in the
+ *    aniyomi player's visual language (lock, frosted action row, canvas
+ *    seekbar, speed sheet).
+ * The RESOLVING / FAILED / NO_LINKS phases render INSIDE the 16:9 player box
+ * in minimized mode (the page content stays reachable underneath).
+ */
+@Composable
+fun CsWatchScreen(
+    key: CsWatchKey,
+    onBack: () -> Unit,
+    viewModel: CsWatchViewModel = koinViewModel(),
+) {
+    val context = LocalContext.current
+
+    val uiState by viewModel.uiState.collectAsState()
+
+    // The playback OkHttp client = the CS runtime's plugin client (registered
+    // by :data:cloudstream's DI — keeps com.lagradost.* out of this module).
+    val playbackClient = koinInject<OkHttpClient>(named("cloudstreamPlayback"))
+
+    // ── Engine lifecycle (main thread — ExoPlayer's threading rule) ──────────
+    // Task 55: the preferred subtitle languages ride the engine constructor
+    // (MPV slang parity — the engine stays preference-free itself).
+    val playerPreferences = koinInject<PlayerPreferences>()
+    val engine = remember {
+        CsPlayerEngine(
+            context = context.applicationContext,
+            baseClient = playbackClient,
+            preferredSubtitleLanguages = { playerPreferences.preferredSubtitleLanguages },
+        )
+    }
+    val engineState by engine.state.collectAsState()
+
+    // Task 57 (P1): the linked sub/dub progress map — the watch page's rows
+    // dim watched episodes + draw the thin resume bar from this (sub-5 and
+    // dub-5 hit the SAME entry — the ordinal identity).
+    val progressByEpisodeKey by viewModel.episodeProgress.collectAsState()
+
+    // ── Task 57 (round 17): the OVERLAY subtitle system ─────────────────────
+    // Provider (sidecar) subtitles render through OUR fetcher + parser +
+    // Compose overlay — the engine never re-prepares for a subtitle (the
+    // v0.4.4 round's "needs reload" + reload-crash findings). Embedded
+    // container tracks stay on the engine's live track selection.
+    val subtitleFetcher = remember { CsSubtitleFetcher(playbackClient) }
+    val fetchScope = rememberCoroutineScope()
+    var overlaySub by remember { mutableStateOf<CsSubtitle?>(null) }
+    var overlayCues by remember { mutableStateOf<List<CsCue>>(emptyList()) }
+    var overlayLoadingId by remember { mutableStateOf<String?>(null) }
+    var overlayFailedId by remember { mutableStateOf<String?>(null) }
+    var overlayFailedReason by remember { mutableStateOf<String?>(null) }
+    /** The engine's selected EMBEDDED text-track id (sheet highlight; declared
+     *  here — the auto-select effect below reads it before the sheet block). */
+    var selectedSubId by remember { mutableStateOf<String?>(null) }
+
+    /** Selects (or clears) the overlay provider subtitle — fetch + parse, NO reload. */
+    fun selectOverlaySub(sub: CsSubtitle?) {
+        if (sub == null) {
+            overlaySub = null
+            overlayCues = emptyList()
+            overlayLoadingId = null
+            overlayFailedId = null
+            overlayFailedReason = null
+            return
+        }
+        if (overlaySub?.id == sub.id && overlayFailedId != sub.id) return // already selected (a FAILED pick re-taps to retry)
+        overlaySub = sub
+        overlayCues = emptyList()
+        overlayFailedId = null
+        overlayFailedReason = null
+        overlayLoadingId = sub.id
+        fetchScope.launch {
+            when (val outcome = subtitleFetcher.fetch(sub)) {
+                is CsSubtitleFetcher.FetchOutcome.Ready -> {
+                    if (overlaySub?.id == sub.id) {
+                        overlayCues = outcome.cues
+                        overlayLoadingId = null
+                    }
+                }
+                is CsSubtitleFetcher.FetchOutcome.Failed -> {
+                    if (overlaySub?.id == sub.id) {
+                        overlayCues = emptyList()
+                        overlayLoadingId = null
+                        overlayFailedId = sub.id
+                        overlayFailedReason = outcome.reason
+                    }
+                }
+            }
+        }
+    }
+
+    // A new episode's resolution resets the overlay selection (the resolver's
+    // subtitle list belongs to the episode).
+    LaunchedEffect(uiState.engineResetTick) {
+        if (uiState.engineResetTick > 0) selectOverlaySub(null)
+    }
+
+    // Task 57: MPV `slang` parity — once per resolved episode, when nothing is
+    // selected yet, auto-select the preferred-language provider subtitle.
+    // Provider subs WIN over embedded (round-15 rule: better timed) — the
+    // engine's text tracks are disabled so its own auto-select (fired at
+    // READY) can't stack an embedded track on top of the overlay.
+    LaunchedEffect(uiState.currentLink?.url, uiState.resolveCompleted) {
+        if (!uiState.resolveCompleted) return@LaunchedEffect
+        if (overlaySub != null || selectedSubId != null) return@LaunchedEffect
+        val preferred = playerPreferences.preferredSubtitleLanguages
+        val match = uiState.subtitles.firstOrNull { sub ->
+            CsLanguageNames.matchesPreferred(sub.languageTag ?: sub.name, preferred)
+        } ?: return@LaunchedEffect
+        Logger.i(TAG) { "auto-selecting preferred provider subtitle: ${match.displayName}" }
+        engine.selectTextTrack(null) // the overlay owns subtitles now (also stops the engine's auto-select)
+        selectOverlaySub(match)
+    }
+
+    // The single PlayerView, re-parented between the minimized player box and
+    // the fullscreen surface (the aniyomi screen's PlayerSurface pattern).
+    var playerView by remember { mutableStateOf<PlayerView?>(null) }
+
+    /** F3: engine position belongs to the CURRENT episode only when the loaded
+     *  URL matches the state's current link — otherwise a switch is in flight
+     *  and saving would write episode N-1's progress under episode N's key. */
+    fun engineBelongsToCurrentLink(st: com.confused.anikuta.core.csplayer.CsEngineState): Boolean =
+        st.currentLinkUrl != null && st.currentLinkUrl == viewModel.uiState.value.currentLink?.url
+
+    DisposableEffect(engine) {
+        onDispose {
+            // Final progress save on exit (the ticker only fires every 10 s) —
+            // ONLY when the engine still plays the current link (F3: during an
+            // episode switch the engine holds the OLD episode's position while
+            // the VM already points at the new one).
+            val st = engine.state.value
+            if (st.durationMs > 0 && st.positionMs > 0 && engineBelongsToCurrentLink(st)) {
+                viewModel.saveProgress(st.positionMs, st.durationMs)
+            }
+            engine.release()
+        }
+    }
+
+    LaunchedEffect(key) { viewModel.initialize(key) }
+
+    // ── Display mode + window choreography (the aniyomi screen's pattern) ────
+    var playerMode by remember { mutableStateOf(CsPlayerMode.MINIMIZED) }
+    var controlsLocked by remember { mutableStateOf(false) }
+
+    // Keep-screen-on while the screen is alive.
+    DisposableEffect(Unit) {
+        val window = (context as? android.app.Activity)?.window
+        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    // Immersive/orientation per mode. Only fullscreen flips
+    // setDecorFitsSystemWindows (the aniyomi screen's double-top-padding
+    // lesson — minimized NEVER sets it back to true). Dispose restores the
+    // app-wide edge-to-edge defaults (no leaked orientation, no hidden bars).
+    DisposableEffect(playerMode) {
+        val window = (context as? android.app.Activity)?.window
+        if (window != null) {
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            if (playerMode == CsPlayerMode.FULLSCREEN) {
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+                controller.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                (context as? android.app.Activity)?.requestedOrientation =
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            } else {
+                // MINIMIZED: show the bars; do NOT flip DecorFitsSystemWindows.
+                controller.show(WindowInsetsCompat.Type.systemBars())
+                (context as? android.app.Activity)?.requestedOrientation =
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            }
+        }
+        onDispose {
+            val w = (context as? android.app.Activity)?.window ?: return@onDispose
+            WindowCompat.setDecorFitsSystemWindows(w, false)
+            WindowInsetsControllerCompat(w, w.decorView).show(WindowInsetsCompat.Type.systemBars())
+            (context as? android.app.Activity)?.requestedOrientation =
+                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    // Back: fullscreen → minimized; minimized → leave the screen.
+    BackHandler(enabled = playerMode == CsPlayerMode.FULLSCREEN) {
+        playerMode = CsPlayerMode.MINIMIZED
+    }
+    BackHandler(enabled = playerMode == CsPlayerMode.MINIMIZED) {
+        onBack()
+    }
+
+    // Task 53 / RC-3 + R13-REVIEW F3: a NEW episode's resolution start
+    // hard-resets the engine — whatever was loaded stops and clears, so nothing
+    // stale can play under the resolving overlay regardless of any race.
+    // Declared ABOVE the play trigger: on frames where a seed's reset tick and
+    // its play request land together, effects run in declaration order —
+    // reset-then-start. (Declared below, the same frame would start-then-reset
+    // and wipe the fresh media.)
+    LaunchedEffect(uiState.engineResetTick) {
+        if (uiState.engineResetTick > 0) {
+            engine.reset()
+        }
+    }
+
+    // ── The play trigger: VM says "load this" → engine loads it ──────────────
+    // Task 53 / RC-3: the body reads the LIVE StateFlow (viewModel.uiState.value),
+    // NOT the composed snapshot — the collectAsState State object lags the
+    // StateFlow by one dispatch, and an initialize()-reset landing between
+    // composition and this coroutine used to make it replay the PREVIOUS
+    // episode's link. The generation lock makes that class of race a logged
+    // no-op: a play request only touches the engine while its generation
+    // still matches the CURRENT resolution attempt.
+    LaunchedEffect(uiState.playRequestId) {
+        val live = viewModel.uiState.value
+        val link = live.playLink
+        if (live.playRequestId <= 0 || link == null) {
+            Logger.d(TAG) { "play trigger: no active request (id=${live.playRequestId}) — idle" }
+            return@LaunchedEffect
+        }
+        if (live.playGeneration != live.resolveGeneration) {
+            Logger.w(TAG) {
+                "play trigger: REJECTED stale request id=${live.playRequestId} " +
+                    "gen=${live.playGeneration} != current=${live.resolveGeneration} " +
+                    "link=${link.displayLabel.take(40)}"
+            }
+            return@LaunchedEffect
+        }
+        Logger.i(TAG) {
+            "play trigger: ACCEPT id=${live.playRequestId} gen=${live.playGeneration} " +
+                "resume=${live.playIsResume} keepPosition=${live.playKeepPosition} " +
+                "link=${link.displayLabel}"
+        }
+        when {
+            // Resume (fresh episode with progress, or same-key re-entry): seek.
+            live.playIsResume -> engine.start(link, live.playStartPositionMs)
+            // Same-episode link switch (quality/source change, error fallback):
+            // keep the position (R12-REVIEW F2). Task 57: no subtitle reattach —
+            // provider subs render through the overlay (no reloads, ever).
+            live.playKeepPosition -> engine.switchLink(link)
+            // A NEW episode's first link: FRESH start — never inherit the
+            // previous episode's position (F2: auto-advance cascade).
+            else -> engine.start(link, 0L)
+        }
+    }
+
+    // ── Engine events → VM decisions ─────────────────────────────────────────
+    LaunchedEffect(engine) {
+        engine.events.collect { event ->
+            when (event) {
+                is CsEngineEvent.PlaybackError -> {
+                    // F5: the event carries the URL it belongs to — stale errors
+                    // (a link already switched away from) are rejected by the VM.
+                    val reason = event.error.httpCode?.let { "HTTP $it" } ?: event.error.kind.name.lowercase()
+                    Logger.w(TAG) {
+                        "engine error → fallback (url=${event.linkUrl?.take(64)}, reason=$reason)"
+                    }
+                    viewModel.onEngineError(event.linkUrl, reason)
+                }
+                CsEngineEvent.Ended -> {
+                    val st = engine.state.value
+                    viewModel.saveProgress(st.positionMs, st.durationMs)
+                    if (!viewModel.onEpisodeEnded()) {
+                        Logger.i(TAG) { "episode ended — no next episode" }
+                    }
+                }
+            }
+        }
+    }
+
+    // R12-REVIEW F3-adjacent: an episode switch leaves the OLD episode playing
+    // under the resolving overlay — pause it the moment the phase changes.
+    LaunchedEffect(uiState.phase) {
+        if (uiState.phase != CsWatchViewModel.Phase.PLAYING) {
+            engine.pause()
+        }
+    }
+
+    // ── Periodic progress persistence (the aniyomi screen's 10 s cadence) ────
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(10_000L)
+            val st = engine.state.value
+            if (st.durationMs > 0 && st.positionMs > 0 &&
+                viewModel.uiState.value.phase == CsWatchViewModel.Phase.PLAYING &&
+                engineBelongsToCurrentLink(st)
+            ) {
+                viewModel.saveProgress(st.positionMs, st.durationMs)
+            }
+        }
+    }
+
+    // ── Controls auto-hide (5s minimized / 4s fullscreen — the aniyomi timing) ─
+    var controlsVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(controlsVisible, engineState.isPlaying, playerMode) {
+        if (controlsVisible && engineState.isPlaying) {
+            delay(if (playerMode == CsPlayerMode.FULLSCREEN) 4_000L else 5_000L)
+            controlsVisible = false
+        }
+    }
+    // Mode switches always reveal the controls (fresh reveal in fullscreen;
+    // the minimized page re-shows its player controls).
+    LaunchedEffect(playerMode) {
+        controlsVisible = true
+        controlsLocked = false
+    }
+
+    // ── Sheets ────────────────────────────────────────────────────────────────
+    var showLinksSheet by remember { mutableStateOf(false) }
+    var showSubsSheet by remember { mutableStateOf(false) }
+    var showSubsSettingsSheet by remember { mutableStateOf(false) }
+    var showEpisodesSheet by remember { mutableStateOf(false) }
+    var showSpeedSheet by remember { mutableStateOf(false) }
+
+    // ── Task 58 (round 18): the LIVE subtitle style snapshot ─────────────────
+    // The v0.4.5 device round's finding: while PAUSED, slider changes did not
+    // re-render the overlay — the style was read NON-reactively inside the
+    // overlay slot (a plain SharedPreferences read), and the overlay only
+    // recomposed when engineState emitted a DISTINCT value (the 100 ms ticker's
+    // positionMs stops changing while paused → StateFlow equality-dedup → no
+    // emission → no recomposition → no fresh style read). While PLAYING the
+    // position ticks re-read the prefs every 100 ms, which is why it "worked
+    // while playing only".
+    //
+    // The fix: hoist the style into Compose state. The settings sheet writes
+    // the prefs on EVERY change and fires onApplySettings — that callback now
+    // refreshes this state FIRST, so the overlay recomposes IMMEDIATELY,
+    // paused or not. Opening the sheet also re-syncs (any external pref
+    // changes, e.g. the aniyomi player's sheet, get picked up).
+    var liveSubtitleStyle by remember {
+        mutableStateOf(currentSubtitleStyle(playerPreferences))
+    }
+    // Task 58: opening the sheet re-syncs the snapshot — external pref
+    // writers (e.g. the aniyomi player's sheet) get picked up even when no
+    // CS-side change fires onApplySettings.
+    LaunchedEffect(showSubsSettingsSheet) {
+        if (showSubsSettingsSheet) {
+            liveSubtitleStyle = currentSubtitleStyle(playerPreferences)
+        }
+    }
+    // Track snapshots for the sheets (refreshed when opened).
+    var videoTracks by remember { mutableStateOf<List<CsVideoTrack>>(emptyList()) }
+    var selectedTrackLabel by remember { mutableStateOf<String?>(null) }
+    var textTracks by remember { mutableStateOf<List<com.confused.anikuta.core.csplayer.CsTextTrack>>(emptyList()) }
+    // Task 53 / RC-7: embedded audio tracks (DASH multi-audio) for the subs sheet.
+    var audioTracks by remember { mutableStateOf<List<com.confused.anikuta.core.csplayer.CsAudioTrackInfo>>(emptyList()) }
+    var selectedAudioId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(showLinksSheet, uiState.currentLink?.url, engineState.bufferState) {
+        if (showLinksSheet) {
+            videoTracks = engine.videoTracks()
+            val selected = videoTracks.firstOrNull { track ->
+                runCatching {
+                    engine.player.currentTracks.groups.getOrNull(track.groupIndex)
+                        ?.isSelected == true
+                }.getOrDefault(false)
+            }
+            selectedTrackLabel = selected?.label
+        }
+    }
+    LaunchedEffect(showSubsSheet, engineState.bufferState) {
+        if (showSubsSheet) {
+            textTracks = engine.textTracks()
+            selectedSubId = engine.selectedTextTrackId()
+            audioTracks = engine.audioTracks()
+            selectedAudioId = audioTracks.firstOrNull {
+                runCatching {
+                    engine.player.currentTracks.groups.getOrNull(it.groupIndex)?.isSelected == true
+                }.getOrDefault(false)
+            }?.id
+        }
+    }
+
+    fun seekRelative(seconds: Int) {
+        // Task 57 (P7): reads the LIVE engine state (the composed snapshot lags
+        // up to 100 ms — double-tap back used to compound the lag); a live
+        // stream (duration unset) never clamps (0..0 would pin the needle).
+        val st = engine.state.value
+        val target = st.positionMs + seconds * 1000L
+        engine.seekTo(if (st.durationMs > 0) target.coerceIn(0L, st.durationMs) else target)
+    }
+
+    // The shared player surface (re-parents between modes). Task 55: the
+    // subtitle STYLE (the shared PlayerPreferences values) applies at creation
+    // so styled subs show from the first frame.
+    val playerSurface: @Composable (Modifier) -> Unit = { modifier ->
+        CsPlayerSurface(
+            playerView = playerView,
+            engine = engine,
+            onCreate = { view ->
+                playerView = view
+                engine.applySubtitleStyle(view, currentSubtitleStyle(playerPreferences))
+            },
+            modifier = modifier,
+        )
+    }
+
+    // Task 57: OUR subtitle overlay — the fetched provider cues rendered in
+    // Compose on top of the video, UNDER the controls (both display modes).
+    // Task 58: the style rides the hoisted [liveSubtitleStyle] state — live
+    // restyling while paused AND while playing (see its declaration block).
+    val subtitleOverlay: @Composable () -> Unit = {
+        CsSubtitleOverlay(
+            cues = overlayCues,
+            positionMs = engineState.positionMs,
+            style = liveSubtitleStyle,
+        )
+    }
+
+    // The phase overlays + controls — one content slot for whichever box the
+    // player currently lives in (the 16:9 page box or the fullscreen surface).
+    val playerOverlay: @Composable () -> Unit = {
+        when (uiState.phase) {
+            CsWatchViewModel.Phase.RESOLVING -> CsResolvingOverlay(
+                animeTitle = uiState.animeTitle,
+                episodeNumber = uiState.episodeNumber,
+                providerName = uiState.providerName,
+            )
+
+            CsWatchViewModel.Phase.FAILED -> CsErrorOverlay(
+                title = "Couldn't play this episode",
+                message = uiState.resolveError ?: "Unknown error",
+                onRetry = viewModel::retryResolution,
+                onBack = onBack,
+            )
+
+            CsWatchViewModel.Phase.NO_LINKS -> CsErrorOverlay(
+                title = "No playable streams",
+                message = uiState.resolveError ?: "The provider returned no playable links",
+                onRetry = viewModel::retryResolution,
+                onBack = onBack,
+            )
+
+            CsWatchViewModel.Phase.PLAYING -> if (playerMode == CsPlayerMode.MINIMIZED) {
+                CsMinimizedControls(
+                    state = engineState,
+                    visible = controlsVisible,
+                    onToggleControls = { controlsVisible = !controlsVisible },
+                    onTogglePlay = {
+                        engine.playPause()
+                        controlsVisible = true
+                    },
+                    onSeekRelative = ::seekRelative,
+                    onSeekTo = { engine.seekTo(it) },
+                    onMaximize = { playerMode = CsPlayerMode.FULLSCREEN },
+                    onQualityClick = { showLinksSheet = true },
+                    onSubtitleClick = { showSubsSheet = true },
+                )
+            } else {
+                CsFullscreenControls(
+                    state = engineState,
+                    visible = controlsVisible,
+                    locked = controlsLocked,
+                    animeTitle = uiState.animeTitle,
+                    episodeInfo = "EP " + com.confused.anikuta.core.common.EpisodeTitleParser
+                        .formatEpisodeNumber(uiState.episodeNumber),
+                    qualityInfo = uiState.currentLink?.qualityLabel ?: "",
+                    currentSpeed = engineState.playbackSpeed,
+                    onToggleControls = { controlsVisible = !controlsVisible },
+                    onLockToggle = { controlsLocked = !controlsLocked },
+                    onMinimize = { playerMode = CsPlayerMode.MINIMIZED },
+                    onTogglePlay = {
+                        engine.playPause()
+                        controlsVisible = true
+                    },
+                    onSeekRelative = ::seekRelative,
+                    onSeekTo = { engine.seekTo(it) },
+                    onQualityClick = { showLinksSheet = true },
+                    onSubtitleClick = { showSubsSheet = true },
+                    onAudioClick = { showSubsSheet = true },
+                    onMoreClick = { showEpisodesSheet = true },
+                    onSpeedClick = { showSpeedSheet = true },
+                    onSkipForward = { viewModel.nextEpisode()?.let(viewModel::selectEpisode) },
+                )
+            }
+        }
+    }
+
+    // ── UI ────────────────────────────────────────────────────────────────────
+    when (playerMode) {
+        CsPlayerMode.MINIMIZED -> CsWatchPage(
+            uiState = uiState,
+            progressByEpisodeKey = progressByEpisodeKey,
+            playerContent = {
+                playerSurface(Modifier.fillMaxSize())
+                subtitleOverlay()
+                playerOverlay()
+            },
+            onBack = onBack,
+            onEpisodeSwitch = { viewModel.selectEpisode(it) },
+            currentEpisodeData = viewModel.currentEpisodeData(),
+            mainId = key.mainId,
+        )
+
+        CsPlayerMode.FULLSCREEN -> Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+        ) {
+            playerSurface(Modifier.fillMaxSize())
+            subtitleOverlay()
+            playerOverlay()
+        }
+    }
+
+    if (showLinksSheet) {
+        CsLinksSheet(
+            links = uiState.links,
+            currentLinkUrl = uiState.currentLink?.url,
+            failedLinkUrls = uiState.failedLinkUrls,
+            videoTracks = videoTracks,
+            selectedTrackLabel = selectedTrackLabel,
+            onLinkSelect = { link ->
+                viewModel.selectLink(link)
+                showLinksSheet = false
+            },
+            onTrackSelect = { track ->
+                engine.selectVideoTrack(track)
+                selectedTrackLabel = track?.label
+            },
+            onCopyUrl = { url ->
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                clipboard?.setPrimaryClip(ClipData.newPlainText("stream url", url))
+            },
+            onDismiss = { showLinksSheet = false },
+            playerPreferences = playerPreferences,
+        )
+    }
+
+    if (showSubsSheet) {
+        // Task 57: provider subs select through the OVERLAY (fetch + render —
+        // no reload); embedded tracks stay on the engine's live selection.
+        // "Off" clears BOTH domains.
+        CsSubtitlesSheet(
+            tracks = textTracks,
+            selectedTrackId = selectedSubId,
+            onSelect = { track ->
+                engine.selectTextTrack(track)
+                selectedSubId = track?.id
+                // An embedded pick (or OFF) replaces the overlay subtitle.
+                if (track == null || track.embedded) selectOverlaySub(null)
+                if (track != null) showSubsSheet = false
+            },
+            providerSubs = uiState.subtitles,
+            selectedProviderSubId = overlaySub?.id,
+            providerLoadingId = overlayLoadingId,
+            providerFailedId = overlayFailedId,
+            providerFailedReason = overlayFailedReason,
+            onProviderSubSelect = { sub ->
+                // A provider pick replaces the embedded selection.
+                engine.selectTextTrack(null)
+                selectedSubId = null
+                selectOverlaySub(sub)
+                showSubsSheet = false
+            },
+            audioTracks = audioTracks,
+            selectedAudioId = selectedAudioId,
+            onAudioSelect = { audio ->
+                engine.selectAudioTrack(audio)
+                selectedAudioId = audio?.id
+            },
+            onOpenSettings = {
+                showSubsSheet = false
+                showSubsSettingsSheet = true
+            },
+            onDismiss = { showSubsSheet = false },
+        )
+    }
+
+    // Task 55/57: the CS subtitle STYLE settings sheet — writes the SAME
+    // PlayerPreferences values the aniyomi stack uses and re-applies them to
+    // the Media3 view live (embedded cues). Task 58: onApplySettings FIRST
+    // refreshes the hoisted [liveSubtitleStyle] — the Compose overlay
+    // recomposes immediately, PAUSED or playing (the v0.4.5 finding: paused
+    // slider changes never re-rendered the overlay because the style read
+    // was non-reactive and the 100 ms ticker emits nothing new while paused).
+    if (showSubsSettingsSheet) {
+        CsSubtitleSettingsSheet(
+            onApplySettings = {
+                liveSubtitleStyle = currentSubtitleStyle(playerPreferences)
+                playerView?.let { view ->
+                    engine.applySubtitleStyle(view, liveSubtitleStyle)
+                }
+            },
+            onDismiss = { showSubsSettingsSheet = false },
+            playerPreferences = playerPreferences,
+        )
+    }
+
+    if (showEpisodesSheet) {
+        CsEpisodesSheet(
+            episodes = uiState.episodes,
+            currentData = viewModel.currentEpisodeData(),
+            onSelect = { episode ->
+                viewModel.selectEpisode(episode)
+                showEpisodesSheet = false
+            },
+            onDismiss = { showEpisodesSheet = false },
+        )
+    }
+
+    if (showSpeedSheet) {
+        CsSpeedSheet(
+            currentSpeed = engineState.playbackSpeed,
+            onSpeedSelected = { engine.setPlaybackSpeed(it) },
+            onDismiss = { showSpeedSheet = false },
+        )
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Player surface (shared AndroidView — re-parented, never recreated)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The single [PlayerView], moved between the minimized player box and the
+ * fullscreen surface. The factory re-uses the remembered instance (detaching
+ * it from any previous parent first — the aniyomi PlayerSurface pattern) so
+ * the video surface is never torn down on mode switches.
+ */
+@Composable
+private fun CsPlayerSurface(
+    playerView: PlayerView?,
+    engine: CsPlayerEngine,
+    onCreate: (PlayerView) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AndroidView(
+        factory = { ctx ->
+            val view = (playerView ?: PlayerView(ctx).apply {
+                useController = false
+                // The Compose layer draws the chrome; PlayerView only
+                // renders video + subtitle cues.
+                setShutterBackgroundColor(android.graphics.Color.BLACK)
+            }).also { v ->
+                if (playerView == null) {
+                    v.player = engine.player
+                    onCreate(v)
+                }
+                (v.parent as? ViewGroup)?.removeView(v)
+            }
+            view
+        },
+        modifier = modifier,
+    )
+}
+
+/**
+ * Task 55/57: PlayerPreferences → the subtitle style snapshot (one mapper,
+ * used at surface creation + every settings change + the overlay renderer).
+ * Task 57: fontScale / font family / delay now have REAL CS effects — the
+ * overlay honors all three (the MPV-parity fields the sheet exposes).
+ */
+private fun currentSubtitleStyle(prefs: PlayerPreferences): CsSubtitleStyle = CsSubtitleStyle(
+    fontSize = prefs.subtitleFontSize,
+    borderSize = prefs.subtitleBorderSize,
+    bold = prefs.boldSubtitles,
+    italic = prefs.italicSubtitles,
+    textColor = prefs.textColorSubtitles,
+    borderColor = prefs.borderColorSubtitles,
+    backgroundColor = prefs.backgroundColorSubtitles,
+    shadowOffset = prefs.subtitleShadowOffset,
+    position = prefs.subtitlePosition,
+    fontScale = prefs.subtitleFontScale,
+    fontFamilyName = prefs.subtitleFont,
+    delayMs = prefs.subtitlesDelay,
+)

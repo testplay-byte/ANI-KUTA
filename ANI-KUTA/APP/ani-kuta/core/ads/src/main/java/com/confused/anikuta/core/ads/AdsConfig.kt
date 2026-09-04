@@ -56,9 +56,9 @@ sealed interface AdKind {
 /** Settings for the [AdKind.SmartLink] ad kind. */
 data class SmartLinkConfig(
     /**
-     * The URL the user is redirected to. **PLACEHOLDER for testing** — the user
-     * will provide the real URL later. Change this single line + ship a new
-     * release to update the URL everywhere in the app.
+     * The URL the user is redirected to. Task 61 (round 21): the user's real
+     * sponsor URL. Change this single line + ship a new release to update the
+     * URL everywhere in the app.
      */
     val url: String,
     /**
@@ -69,9 +69,7 @@ data class SmartLinkConfig(
     /**
      * Minimum time the user must spend OUTSIDE the app (in the browser) for
      * the ad to count as completed. If they return sooner → "Try again".
-     * The user did not specify an exact threshold; 15s is a reasonable default
-     * (long enough to defeat instant-back cheating, short enough to not annoy
-     * a genuine visitor). Change here + ship a new release to tune.
+     * Task 61 (round 21): the user's spec — 15s → **5 seconds**.
      */
     val minTimeOutsideMs: Long,
     /**
@@ -92,9 +90,10 @@ object DefaultAdsConfig {
         enabled = true,
         activeKind = AdKind.SmartLink,
         smartLink = SmartLinkConfig(
-            url = "https://example.com/anikuta-sponsor",  // PLACEHOLDER — user will provide the real URL later
+            // Task 61 (round 21): the user's real smart-link URL.
+            url = "https://www.profitableratecpmnetwork.com/tfi8yqn4w?key=7378f4443c4c59466d19573ced0ef844",
             cooldownMs = 6 * 60 * 60 * 1000L,             // 6 hours
-            minTimeOutsideMs = 15_000L,                    // 15 seconds
+            minTimeOutsideMs = 5_000L,                    // Task 61: 15s → 5 seconds
             maxRetries = 3,
         ),
     )

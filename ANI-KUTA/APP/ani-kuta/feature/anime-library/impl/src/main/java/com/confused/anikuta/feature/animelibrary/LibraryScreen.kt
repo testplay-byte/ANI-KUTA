@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -40,11 +41,13 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -209,12 +212,19 @@ internal class CoverRevealController(
 /**
  * D-291: tracks how fast the library is scrolling (0f idle … 1f hard fling).
  *
- * [position] returns a coarse scroll signal (firstVisibleItemIndex * 4096 +
- * firstVisibleItemScrollOffset — the multiplier just keeps the index term
- * dominant). The signal feeds an EMA speed estimate; a 150ms decay loop fades
- * the factor back to idle after scrolling stops, so covers that finish
- * loading AFTER a fling ends still get the calm (slow) fade — "if the user
- * jumps into some area directly then it will slow down that area smoothly".
+ * Task 64 (round 24): [position] now returns the FIRST VISIBLE ITEM INDEX
+ * only. The old signal (index * 4096 + scrollOffset) changed on EVERY scroll
+ * FRAME, so the snapshotFlow below emitted (and ran its collect math on the
+ * main dispatcher) at frame rate for the whole duration of every scroll —
+ * pure per-frame overhead with no benefit, since only a coarse velocity
+ * estimate is needed for the fade duration. The index-only signal emits once
+ * per item crossed — dozens of times fewer emissions, still plenty of
+ * samples during a fling.
+ *
+ * The signal feeds an EMA speed estimate; a 150ms decay loop fades the
+ * factor back to idle after scrolling stops, so covers that finish loading
+ * AFTER a fling ends still get the calm (slow) fade — "if the user jumps
+ * into some area directly then it will slow down that area smoothly".
  */
 @Composable
 private fun rememberScrollVelocityFactor(position: () -> Int): State<Float> {
@@ -231,9 +241,9 @@ private fun rememberScrollVelocityFactor(position: () -> Int): State<Float> {
             }
             val dtMs = (now - lastTime) / 1_000_000f
             if (dtMs >= 1f && signal != lastSignal) {
-                // signal-units per ms; ~3/ms reads as a hard fling.
+                // items per ms; ~0.02/ms (one item per ~50ms) reads as a hard fling.
                 val speed = abs(signal - lastSignal) / dtMs
-                val instant = (speed / 3.0f).coerceIn(0f, 1f)
+                val instant = (speed / 0.02f).coerceIn(0f, 1f)
                 factor.floatValue = factor.floatValue * 0.4f + instant * 0.6f
                 lastSignal = signal
                 lastTime = now
@@ -270,53 +280,32 @@ fun LibraryScreen(
         viewModel.loadLibrary()
     }
 
+    // ── Task 62 (round 22 — M3, the root recomposition amplifier) ──────────
+    // This root used to run 34 collectAsState() calls at the top of a
+    // ~4,300-line file: ANY of them emitting (a keystroke, a selection tap, a
+    // settings toggle, the PTR spinner, the category counts) re-executed the
+    // ENTIRE root body. The reads now live in the LOWEST composable that
+    // consumes them:
+    //  • searchQuery            → the search-bar section below;
+    //  • the ~19 customize-sheet states → [LibraryCustomizeSheetHost] (only
+    //    composed while the sheet is open — a settings toggle now recomposes
+    //    the sheet, not this root);
+    //  • the chips states        → [LibraryCategorySection];
+    //  • the grid/list settings  → [LibraryGrid]/[LibraryList] themselves;
+    //  • isRefreshing            → [LibraryPullRefreshArea];
+    //  • the dialog states       → [LibraryDialogsHost].
+    // The root keeps only the states that genuinely drive its structure: the
+    // content state, the display mode (grid/list branch), the header count,
+    // and the selection state.
     val state by viewModel.state.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val sortType by viewModel.sortType.collectAsState()
-    val sortAscending by viewModel.sortAscending.collectAsState()
     val displayMode by viewModel.displayMode.collectAsState()
-    val columns by viewModel.columns.collectAsState()
-    val titleLines by viewModel.titleLines.collectAsState()
-    val episodeBadgeMode by viewModel.episodeBadgeMode.collectAsState()
-    val episodeBadgePosition by viewModel.episodeBadgePosition.collectAsState()
-    val showScoreBadge by viewModel.showScoreBadge.collectAsState()
-    val scoreBadgePosition by viewModel.scoreBadgePosition.collectAsState()
-    val showContinueWatching by viewModel.showContinueWatching.collectAsState()
-    val showTotalEntries by viewModel.showTotalEntries.collectAsState()
-    // D-140: per-category item counts + show-counts toggle.
-    val categoryCounts by viewModel.categoryCounts.collectAsState()
-    val showCategoryCounts by viewModel.showCategoryCounts.collectAsState()
-    // D-242-fix14: advanced RELEASED badge sub-options.
-    val releasedAudioFilter by viewModel.releasedAudioFilter.collectAsState()
-    val releasedUnwatchedOnly by viewModel.releasedUnwatchedOnly.collectAsState()
-    // D-242-fix17: cover border settings.
-    val coverBorderEnabled by viewModel.coverBorderEnabled.collectAsState()
-    val coverBorderColor by viewModel.coverBorderColor.collectAsState()
-    val coverBorderWidth by viewModel.coverBorderWidth.collectAsState()
-    // D-242-fix18: All Caught Up tag + list mode settings.
-    val showAllCaughtUpTag by viewModel.showAllCaughtUpTag.collectAsState()
-    val listDensity by viewModel.listDensity.collectAsState()
-    val listTitlePosition by viewModel.listTitlePosition.collectAsState()
-    // D-242-fix21: Comfortable border mode.
-    val comfortableBorderMode by viewModel.comfortableBorderMode.collectAsState()
-    // D-251: hide-titles toggle for Comfortable mode.
-    val hideTitlesInComfortable by viewModel.hideTitlesInComfortable.collectAsState()
     // D-140: total entries (for the header title "{n} in Library").
+    val showTotalEntries by viewModel.showTotalEntries.collectAsState()
     val totalEntries by viewModel.totalEntries.collectAsState()
-    // D.5: refresh state for pull-to-refresh.
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
-
-    // D-138: category tabs state — list of categories, currently selected
-    // category (null = "All"), and the category to show delete/rename dialog for.
-    val categories by viewModel.categories.collectAsState()
-    val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
-    val categoryToManage by viewModel.categoryToManage.collectAsState()
 
     // D-141: Multi-select state.
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val selectedMainIds by viewModel.selectedMainIds.collectAsState()
-    val showMultiSelectCategorySheet by viewModel.showMultiSelectCategorySheet.collectAsState()
-    val showDeleteConfirmation by viewModel.showDeleteConfirmation.collectAsState()
 
     // D-143: Sync selection mode to the shared LibrarySelectionMode so AppRoot
     // can replace the bottom nav bar with the selection action bar.
@@ -347,20 +336,18 @@ fun LibraryScreen(
     // (comfortable masonry / list / grid). remember(displayMode) keeps the
     // lambda identity STABLE between recompositions (a fresh lambda every
     // recomposition would restart the tracker's LaunchedEffects), while still
-    // switching signals when the display mode changes.
+    // switching signals when the display mode changes. Task 64: INDEX-ONLY
+    // signal (no scrollOffset term — see rememberScrollVelocityFactor).
     val revealPositionSignal = remember(displayMode) {
         when (displayMode) {
             LibraryDisplayMode.COMFORTABLE_GRID -> ({
-                viewModel.staggeredState.firstVisibleItemIndex * 4096 +
-                    viewModel.staggeredState.firstVisibleItemScrollOffset
+                viewModel.staggeredState.firstVisibleItemIndex
             })
             LibraryDisplayMode.LIST -> ({
-                viewModel.listState.firstVisibleItemIndex * 4096 +
-                    viewModel.listState.firstVisibleItemScrollOffset
+                viewModel.listState.firstVisibleItemIndex
             })
             else -> ({
-                viewModel.gridState.firstVisibleItemIndex * 4096 +
-                    viewModel.gridState.firstVisibleItemScrollOffset
+                viewModel.gridState.firstVisibleItemIndex
             })
         }
     }
@@ -393,11 +380,20 @@ fun LibraryScreen(
     // false → true transition, so it never buzzes continuously.
     // Uses HapticHelper (Vibrator service) for reliability across devices +
     // battery-saver modes.
-    val thresholdCrossed = ptrState.distanceFraction >= 1f
-    LaunchedEffect(thresholdCrossed) {
-        if (thresholdCrossed) {
-            HapticHelper.stageCross(context)
-        }
+    // Task 62 (round 22 — M1): the threshold is now read inside a
+    // snapshotFlow + distinctUntilChanged. The old composition-scope read
+    // `val thresholdCrossed = ptrState.distanceFraction >= 1f` subscribed the
+    // ENTIRE root composable (this ~4,300-line screen) to EVERY pull-drag
+    // frame — a whole-screen recomposition per frame; the flow reads it in
+    // the observer's scope instead.
+    LaunchedEffect(ptrState) {
+        snapshotFlow { ptrState.distanceFraction >= 1f }
+            .distinctUntilChanged()
+            .collect { crossed ->
+                if (crossed) {
+                    HapticHelper.stageCross(context)
+                }
+            }
     }
 
     val isList = displayMode == LibraryDisplayMode.LIST
@@ -556,6 +552,10 @@ fun LibraryScreen(
                 enter = fadeIn(tween(Motion.DurationStandard, easing = FastOutSlowInEasing)),
                 exit = fadeOut(tween(Motion.DurationShort, easing = FastOutSlowInEasing)),
             ) {
+                // Task 62 (M3): the query is collected HERE — every keystroke
+                // re-executes only this small section (the old root-level read
+                // recomposed the entire screen per character).
+                val searchQuery by viewModel.searchQuery.collectAsState()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -581,50 +581,14 @@ fun LibraryScreen(
             }
 
             // ── Category tabs (D-138, D-140) — hidden in selection mode ──
-            // Smart visibility rules:
-            //  - "All" tab only shows when 2+ categories have ≥1 item.
-            //  - "Default" (permanent) tab only shows when it has ≥1 item.
-            //  - Non-permanent categories always show (the user created them).
-            //  - No "+" button — categories are created from the details page
-            //    (long-press bookmark), not from the library page.
-            //  - D-141: hidden entirely in selection mode (the quick options row
-            //    above takes its place).
-            //  - D-141: thin 1dp divider below the tabs separates them from the
-            //    grid content.
-            val categoriesWithItems = categories.count { (categoryCounts[it.id] ?: 0) > 0 }
-            val showAllTab = categoriesWithItems >= 2
-            val visibleCategories = categories.filter { cat ->
-                if (cat.isPermanent) {
-                    // Default — hide when empty.
-                    (categoryCounts[cat.id] ?: 0) > 0
-                } else {
-                    // User-created — always visible.
-                    true
-                }
-            }
-            if (visibleCategories.isNotEmpty() && !isSelectionMode) {
-                Column {
-                    CategoryTabsRow(
-                        categories = visibleCategories,
-                        categoryCounts = categoryCounts,
-                        showCounts = showCategoryCounts,
-                        showAllTab = showAllTab,
-                        selectedCategoryId = selectedCategoryId,
-                        onSelectCategory = viewModel::selectCategory,
-                        onLongPressCategory = { category ->
-                            // Permanent categories ("Default") can't be managed.
-                            if (!category.isPermanent) {
-                                viewModel.showCategoryManagement(category)
-                            }
-                        },
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.fillMaxWidth(),
-                        thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                    )
-                }
-            }
+            // Task 62 (M3): the chips states (categories, counts, the
+            // show-counts toggle, the selection) are collected inside
+            // [LibraryCategorySection] — count changes no longer recompose
+            // this root. See its KDoc for the visibility rules.
+            LibraryCategorySection(
+                viewModel = viewModel,
+                isSelectionMode = isSelectionMode,
+            )
 
             // ── Content ──
             // Pull-to-refresh uses the official Material 3 PullToRefreshBox, which
@@ -709,51 +673,32 @@ fun LibraryScreen(
                                 icon = Icons.Filled.SearchOff,
                             )
                         } else if (!isList) {
+                            // Task 62 (M3): the ~15 grid settings (columns,
+                            // title lines, badges, borders…) are collected
+                            // INSIDE LibraryGrid — a settings toggle now
+                            // recomposes the grid, not this root.
                             LibraryGrid(
+                                viewModel = viewModel,
                                 entries = s.entries,
                                 gridState = gridState,
                                 staggeredState = viewModel.staggeredState,
                                 reveal = revealController,
-                                columns = columns,
-                                titleLines = titleLines,
+                                displayMode = displayMode,
                                 isSelectionMode = isSelectionMode,
                                 selectedMainIds = selectedMainIds,
                                 onClickEntry = onEntryClick,
                                 onLongClickEntry = onEntryLongClick,
-                                episodeBadgeMode = episodeBadgeMode,
-                                episodeBadgePosition = episodeBadgePosition,
-                                showScoreBadge = showScoreBadge,
-                                scoreBadgePosition = scoreBadgePosition,
-                                releasedAudioFilter = releasedAudioFilter,
-                                releasedUnwatchedOnly = releasedUnwatchedOnly,
-                                coverBorderEnabled = coverBorderEnabled,
-                                coverBorderColor = coverBorderColor,
-                                coverBorderWidth = coverBorderWidth,
-                                displayMode = displayMode,
-                                showAllCaughtUpTag = showAllCaughtUpTag,
-                                comfortableBorderMode = comfortableBorderMode,
-                                hideTitlesInComfortable = hideTitlesInComfortable,
                             )
                         } else {
                             LibraryList(
+                                viewModel = viewModel,
                                 entries = s.entries,
                                 listState = listState,
                                 reveal = revealController,
-                                titleLines = titleLines,
                                 isSelectionMode = isSelectionMode,
                                 selectedMainIds = selectedMainIds,
                                 onClickEntry = onEntryClick,
                                 onLongClickEntry = onEntryLongClick,
-                                episodeBadgeMode = episodeBadgeMode,
-                                showScoreBadge = showScoreBadge,
-                                releasedAudioFilter = releasedAudioFilter,
-                                releasedUnwatchedOnly = releasedUnwatchedOnly,
-                                showAllCaughtUpTag = showAllCaughtUpTag,
-                                coverBorderEnabled = coverBorderEnabled,
-                                coverBorderColor = coverBorderColor,
-                                coverBorderWidth = coverBorderWidth,
-                                listDensity = listDensity,
-                                listTitlePosition = listTitlePosition,
                             )
                         }
                     }
@@ -782,11 +727,11 @@ fun LibraryScreen(
                     libraryContent()
                 }
             } else {
-                PullToRefreshBox(
-                    isRefreshing = isRefreshing,
-                    onRefresh = { viewModel.refreshLibrary() },
-                    state = ptrState,
-                    modifier = Modifier.fillMaxSize(),
+                // Task 62 (M3): isRefreshing is collected inside the PTR area —
+                // the spinner's lifecycle no longer recomposes this root.
+                LibraryPullRefreshArea(
+                    viewModel = viewModel,
+                    ptrState = ptrState,
                 ) {
                     libraryContent()
                 }
@@ -795,118 +740,276 @@ fun LibraryScreen(
 
         // ── Library settings bottom sheet ──
         if (showSettingsSheet) {
-            CustomizeSheet(
+            // Task 62 (M3): the ~19 customize-sheet-only states are collected
+            // inside the host — toggling a setting re-executes the sheet, not
+            // this root.
+            LibraryCustomizeSheetHost(
+                viewModel = viewModel,
                 displayMode = displayMode,
-                columns = columns,
-                titleLines = titleLines,
-                episodeBadgeMode = episodeBadgeMode,
-                showScoreBadge = showScoreBadge,
-                showContinueWatching = showContinueWatching,
-                showTotalEntries = showTotalEntries,
-                showCategoryCounts = showCategoryCounts,
-                sortType = sortType,
-                sortAscending = sortAscending,
-                releasedAudioFilter = releasedAudioFilter,
-                releasedUnwatchedOnly = releasedUnwatchedOnly,
-                coverBorderEnabled = coverBorderEnabled,
-                coverBorderColor = coverBorderColor,
-                coverBorderWidth = coverBorderWidth,
-                showAllCaughtUpTag = showAllCaughtUpTag,
-                listDensity = listDensity,
-                listTitlePosition = listTitlePosition,
-                onDisplayModeChange = viewModel::setDisplayMode,
-                onColumnsChange = viewModel::setColumns,
-                onEpisodeBadgeModeChange = viewModel::setEpisodeBadgeMode,
-                onShowScoreBadgeChange = viewModel::setShowScoreBadge,
-                onShowContinueWatchingChange = viewModel::setShowContinueWatching,
-                onShowTotalEntriesChange = viewModel::setShowTotalEntries,
-                onShowCategoryCountsChange = viewModel::setShowCategoryCounts,
-                onTitleLinesChange = viewModel::setTitleLines,
-                onSortChange = viewModel::setSort,
-                onReleasedAudioFilterChange = viewModel::setReleasedAudioFilter,
-                onReleasedUnwatchedOnlyChange = viewModel::setReleasedUnwatchedOnly,
-                onCoverBorderEnabledChange = viewModel::setCoverBorderEnabled,
-                onCoverBorderColorChange = viewModel::setCoverBorderColor,
-                onCoverBorderWidthChange = viewModel::setCoverBorderWidth,
-                onShowAllCaughtUpTagChange = viewModel::setShowAllCaughtUpTag,
-                onListDensityChange = viewModel::setListDensity,
-                onListTitlePositionChange = viewModel::setListTitlePosition,
                 activeTab = customizeSheetActiveTab,
                 onActiveTabChange = { customizeSheetActiveTab = it },
-                comfortableBorderMode = comfortableBorderMode,
-                onComfortableBorderModeChange = viewModel::setComfortableBorderMode,
-                hideTitlesInComfortable = hideTitlesInComfortable,
-                onHideTitlesInComfortableChange = viewModel::setHideTitlesInComfortable,
                 onDismiss = { showSettingsSheet = false },
             )
         }
 
-        // ── Category management dialog (long-press on a category tab) ──
-        // categoryToManage is set by ViewModel.showCategoryManagement. For
-        // permanent categories the long-press handler bails out early, so this
-        // dialog only ever appears for user-created (non-permanent) categories.
-        // D-140: delete confirmation offers 3 options — Cancel, Delete (items
-        // removed), Move to Default (items moved to Default then category deleted).
-        // D-141: itemCount now comes from categoryCounts (not entries.size) so
-        // it reflects the TRUE count in the category even if the current view
-        // is filtered by search or another category is selected.
-        categoryToManage?.let { category ->
-            CategoryManagementDialog(
-                category = category,
-                itemCount = categoryCounts[category.id] ?: 0,
-                onRename = { newName ->
-                    viewModel.renameCategory(category.id, newName)
-                },
-                onDelete = {
-                    viewModel.deleteCategory(category.id)
-                },
-                onDeleteMoveToDefault = {
-                    viewModel.deleteCategoryAndMoveToDefault(category.id)
-                },
-                onDismiss = viewModel::dismissCategoryManagement,
-            )
-        }
+        // ── Dialogs (category management, multi-select picker, delete
+        // confirmation) ──
+        // Task 62 (M3): their states (categoryToManage, the picker's
+        // visibility + membership, the delete confirmation) are collected
+        // inside [LibraryDialogsHost] — opening/closing a dialog no longer
+        // recomposes this root. See the host's KDoc for the dialog behaviors.
+        LibraryDialogsHost(
+            viewModel = viewModel,
+            selectedCount = selectedMainIds.size,
+        )
+    }
+}
 
-        // D-143: The selection bottom bar is now handled by AppRoot — it
-        // replaces the nav bar's content directly. No SelectionBottomBar here.
+// ════════════════════════════════════════════════════════════════════════════
+//  Task 62 (round 22 — M3): the leaf state-owner composables
+// ════════════════════════════════════════════════════════════════════════════
 
-        // ── D-141: Multi-select category picker ──
-        // AlertDialog with a checkbox per category — same style as the
-        // CategoryPickerSheet on the details page. Tapping a checked category
-        // removes all selected entries from it; tapping an unchecked one adds
-        // all selected entries to it. getCategoriesForSelected() returns the
-        // initial checkbox state (true if ALL selected entries are in that cat).
-        if (showMultiSelectCategorySheet) {
-            // D-146: Use the ViewModel's membership set (reactive — updates on toggle).
-            val membership by viewModel.multiSelectCategoryMembership.collectAsState()
-            val selectedMap = categories.associate { cat ->
-                cat.id to (cat.id in membership)
-            }
-            MultiSelectCategoryPicker(
-                categories = categories,
-                selectedMap = selectedMap,
-                onToggle = { categoryId, isChecked ->
-                    if (isChecked) {
-                        viewModel.removeSelectedFromCategory(categoryId)
-                    } else {
-                        viewModel.addSelectedToCategory(categoryId)
-                    }
-                },
-                onDismiss = { viewModel.doneMultiSelectCategorySheet() },
-            )
-        }
+/**
+ * Task 62 (round 22 — M3): the category chips section. Collects its own
+ * states (categories, per-category counts, the show-counts toggle, the
+ * selection) so a count change recomposes only this section.
+ *
+ * Smart visibility rules (D-138/D-140, unchanged):
+ *  - "All" tab only shows when 2+ categories have ≥1 item.
+ *  - "Default" (permanent) tab only shows when it has ≥1 item.
+ *  - Non-permanent categories always show (the user created them).
+ *  - No "+" button — categories are created from the details page
+ *    (long-press bookmark), not from the library page.
+ *  - D-141: hidden entirely in selection mode (the quick options row above
+ *    takes its place); thin 1dp divider below the tabs + an 8dp spacer before
+ *    the results (the round-21 spec).
+ */
+@Composable
+private fun LibraryCategorySection(
+    viewModel: LibraryViewModel,
+    isSelectionMode: Boolean,
+) {
+    val categories by viewModel.categories.collectAsState()
+    val categoryCounts by viewModel.categoryCounts.collectAsState()
+    val showCategoryCounts by viewModel.showCategoryCounts.collectAsState()
+    val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
 
-        // ── D-141: Delete confirmation ──
-        // "Delete X entries from library?" with Cancel (dismissButton) + Delete
-        // (confirmButton, error color).
-        if (showDeleteConfirmation) {
-            DeleteSelectedDialog(
-                count = selectedMainIds.size,
-                onConfirm = { viewModel.deleteSelected() },
-                onDismiss = { viewModel.dismissDeleteConfirmation() },
-            )
+    val categoriesWithItems = categories.count { (categoryCounts[it.id] ?: 0) > 0 }
+    val showAllTab = categoriesWithItems >= 2
+    val visibleCategories = categories.filter { cat ->
+        if (cat.isPermanent) {
+            // Default — hide when empty.
+            (categoryCounts[cat.id] ?: 0) > 0
+        } else {
+            // User-created — always visible.
+            true
         }
     }
+    if (visibleCategories.isNotEmpty() && !isSelectionMode) {
+        Column {
+            CategoryTabsRow(
+                categories = visibleCategories,
+                categoryCounts = categoryCounts,
+                showCounts = showCategoryCounts,
+                showAllTab = showAllTab,
+                selectedCategoryId = selectedCategoryId,
+                onSelectCategory = viewModel::selectCategory,
+                onLongPressCategory = { category ->
+                    // Permanent categories ("Default") can't be managed.
+                    if (!category.isPermanent) {
+                        viewModel.showCategoryManagement(category)
+                    }
+                },
+            )
+            HorizontalDivider(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+            )
+            // Task 61 (round 21): breathing room between the category section
+            // and the results below (the round-21 spec: "add some spacing
+            // between the category section and the bottom results themselves").
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+/**
+ * Task 62 (round 22 — M3): the pull-to-refresh area. Collects [isRefreshing]
+ * internally so the spinner's lifecycle recomposes only this wrapper. The
+ * [content] receiver is [BoxScope] — the caller's local libraryContent()
+ * composable is a BoxScope extension (it aligns the scroll-blur overlay to
+ * the top center) and PullToRefreshBox's own content scope provides the
+ * same receiver.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryPullRefreshArea(
+    viewModel: LibraryViewModel,
+    ptrState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshLibrary() },
+        state = ptrState,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        content()
+    }
+}
+
+/**
+ * Task 62 (round 22 — M3): the dialogs host. Collects the category-management
+ * target, the multi-select picker's visibility + membership + categories, and
+ * the delete confirmation — opening/closing any of them recomposes only this
+ * host.
+ *
+ * Behaviors (unchanged, see the individual dialogs):
+ *  - CategoryManagementDialog — delete offers Cancel / Delete / Move to
+ *    Default; itemCount comes from categoryCounts (the TRUE count).
+ *  - MultiSelectCategoryPicker — a checkbox per category; tapping a checked
+ *    category removes all selected entries from it, tapping an unchecked one
+ *    adds them; Done closes + exits selection mode.
+ *  - DeleteSelectedDialog — "Delete X entries from library?".
+ */
+@Composable
+private fun LibraryDialogsHost(
+    viewModel: LibraryViewModel,
+    selectedCount: Int,
+) {
+    val categoryToManage by viewModel.categoryToManage.collectAsState()
+
+    categoryToManage?.let { category ->
+        val categoryCounts by viewModel.categoryCounts.collectAsState()
+        CategoryManagementDialog(
+            category = category,
+            itemCount = categoryCounts[category.id] ?: 0,
+            onRename = { newName ->
+                viewModel.renameCategory(category.id, newName)
+            },
+            onDelete = {
+                viewModel.deleteCategory(category.id)
+            },
+            onDeleteMoveToDefault = {
+                viewModel.deleteCategoryAndMoveToDefault(category.id)
+            },
+            onDismiss = viewModel::dismissCategoryManagement,
+        )
+    }
+
+    val showMultiSelectCategorySheet by viewModel.showMultiSelectCategorySheet.collectAsState()
+    if (showMultiSelectCategorySheet) {
+        // D-146: Use the ViewModel's membership set (reactive — updates on toggle).
+        val membership by viewModel.multiSelectCategoryMembership.collectAsState()
+        val categories by viewModel.categories.collectAsState()
+        val selectedMap = categories.associate { cat ->
+            cat.id to (cat.id in membership)
+        }
+        MultiSelectCategoryPicker(
+            categories = categories,
+            selectedMap = selectedMap,
+            onToggle = { categoryId, isChecked ->
+                if (isChecked) {
+                    viewModel.removeSelectedFromCategory(categoryId)
+                } else {
+                    viewModel.addSelectedToCategory(categoryId)
+                }
+            },
+            onDismiss = { viewModel.doneMultiSelectCategorySheet() },
+        )
+    }
+
+    val showDeleteConfirmation by viewModel.showDeleteConfirmation.collectAsState()
+    if (showDeleteConfirmation) {
+        DeleteSelectedDialog(
+            count = selectedCount,
+            onConfirm = { viewModel.deleteSelected() },
+            onDismiss = { viewModel.dismissDeleteConfirmation() },
+        )
+    }
+}
+
+/**
+ * Task 62 (round 22 — M3): the customize-sheet host. The ~19 settings states
+ * the sheet consumes are collected HERE (the host only composes while the
+ * sheet is open) — every toggle in the sheet re-executes the sheet's own
+ * subtree, never the library root. The values + callbacks are forwarded to
+ * [CustomizeSheet] exactly as the root used to pass them.
+ */
+@Composable
+private fun LibraryCustomizeSheetHost(
+    viewModel: LibraryViewModel,
+    displayMode: LibraryDisplayMode,
+    activeTab: Int,
+    onActiveTabChange: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val columns by viewModel.columns.collectAsState()
+    val titleLines by viewModel.titleLines.collectAsState()
+    val episodeBadgeMode by viewModel.episodeBadgeMode.collectAsState()
+    val showScoreBadge by viewModel.showScoreBadge.collectAsState()
+    val showContinueWatching by viewModel.showContinueWatching.collectAsState()
+    val showTotalEntries by viewModel.showTotalEntries.collectAsState()
+    val showCategoryCounts by viewModel.showCategoryCounts.collectAsState()
+    val sortType by viewModel.sortType.collectAsState()
+    val sortAscending by viewModel.sortAscending.collectAsState()
+    val releasedAudioFilter by viewModel.releasedAudioFilter.collectAsState()
+    val releasedUnwatchedOnly by viewModel.releasedUnwatchedOnly.collectAsState()
+    val coverBorderEnabled by viewModel.coverBorderEnabled.collectAsState()
+    val coverBorderColor by viewModel.coverBorderColor.collectAsState()
+    val coverBorderWidth by viewModel.coverBorderWidth.collectAsState()
+    val showAllCaughtUpTag by viewModel.showAllCaughtUpTag.collectAsState()
+    val listDensity by viewModel.listDensity.collectAsState()
+    val listTitlePosition by viewModel.listTitlePosition.collectAsState()
+    val comfortableBorderMode by viewModel.comfortableBorderMode.collectAsState()
+    val hideTitlesInComfortable by viewModel.hideTitlesInComfortable.collectAsState()
+
+    CustomizeSheet(
+        displayMode = displayMode,
+        columns = columns,
+        titleLines = titleLines,
+        episodeBadgeMode = episodeBadgeMode,
+        showScoreBadge = showScoreBadge,
+        showContinueWatching = showContinueWatching,
+        showTotalEntries = showTotalEntries,
+        showCategoryCounts = showCategoryCounts,
+        sortType = sortType,
+        sortAscending = sortAscending,
+        releasedAudioFilter = releasedAudioFilter,
+        releasedUnwatchedOnly = releasedUnwatchedOnly,
+        coverBorderEnabled = coverBorderEnabled,
+        coverBorderColor = coverBorderColor,
+        coverBorderWidth = coverBorderWidth,
+        showAllCaughtUpTag = showAllCaughtUpTag,
+        listDensity = listDensity,
+        listTitlePosition = listTitlePosition,
+        onDisplayModeChange = viewModel::setDisplayMode,
+        onColumnsChange = viewModel::setColumns,
+        onEpisodeBadgeModeChange = viewModel::setEpisodeBadgeMode,
+        onShowScoreBadgeChange = viewModel::setShowScoreBadge,
+        onShowContinueWatchingChange = viewModel::setShowContinueWatching,
+        onShowTotalEntriesChange = viewModel::setShowTotalEntries,
+        onShowCategoryCountsChange = viewModel::setShowCategoryCounts,
+        onTitleLinesChange = viewModel::setTitleLines,
+        onSortChange = viewModel::setSort,
+        onReleasedAudioFilterChange = viewModel::setReleasedAudioFilter,
+        onReleasedUnwatchedOnlyChange = viewModel::setReleasedUnwatchedOnly,
+        onCoverBorderEnabledChange = viewModel::setCoverBorderEnabled,
+        onCoverBorderColorChange = viewModel::setCoverBorderColor,
+        onCoverBorderWidthChange = viewModel::setCoverBorderWidth,
+        onShowAllCaughtUpTagChange = viewModel::setShowAllCaughtUpTag,
+        onListDensityChange = viewModel::setListDensity,
+        onListTitlePositionChange = viewModel::setListTitlePosition,
+        activeTab = activeTab,
+        onActiveTabChange = onActiveTabChange,
+        comfortableBorderMode = comfortableBorderMode,
+        onComfortableBorderModeChange = viewModel::setComfortableBorderMode,
+        hideTitlesInComfortable = hideTitlesInComfortable,
+        onHideTitlesInComfortableChange = viewModel::setHideTitlesInComfortable,
+        onDismiss = onDismiss,
+    )
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -942,11 +1045,97 @@ private fun CategoryTabsRow(
     onSelectCategory: (Long?) -> Unit,
     onLongPressCategory: (LibraryCategory) -> Unit,
 ) {
+    // Task 61 (round 21): the row's OWN state — needed for the auto-scroll
+    // (the selected category must be IN VIEW when the library page opens).
+    val listState = rememberLazyListState()
+
+    // Task 64 (round 24): a user-tap marker. The auto-center below ANIMATES
+    // only when the selection change came from the user TAPPING a chip; page
+    // opens, tab returns, restored selections, and category-list changes
+    // (rename/add/delete) land INSTANTLY with the first frame. The chips' click
+    // handlers set this before delegating to [onSelectCategory]; the effect
+    // consumes it when it runs.
+    var animateNextCenter by remember { mutableStateOf(false) }
+
+    // Task 61 (round 21 — the device report: "if I have selected the very
+    // first or very last category then when I open up the library page it
+    // opens it up in the middle. The right or left categories are not
+    // shown") + Task 64 (round 24 — the centering spec, re-done after the
+    // round-23 attempt was reverted): the row scrolls so the SELECTED chip
+    // is CENTERED in the row whenever possible. Centering is impossible at
+    // the two EDGES (LazyRow clamps — the first chip stays at the start, the
+    // last at the end), which is exactly the spec's "excluding the left and
+    // right side ones".
+    //
+    // Mechanics: the centered target needs the chip's measured width, which
+    // only exists once the item is composed. For the INSTANT paths (open /
+    // restore / list change) step 1 snaps the chip into view start-aligned
+    // (composing + measuring it), step 2 re-scrolls with the NEGATIVE offset
+    // that centers it — both no-animation, landing with the first frame.
+    // For a USER TAP the tapped chip is by definition already composed, so
+    // the row glides DIRECTLY from wherever it is to the centered target —
+    // no visible pre-snap (the round-23 version snapped-then-glided, which
+    // read as a backwards jump).
+    LaunchedEffect(categories, selectedCategoryId, showAllTab) {
+        val selectedIndex = when {
+            selectedCategoryId == null && showAllTab -> 0
+            selectedCategoryId == null -> -1
+            else -> {
+                val categoryIndex = categories.indexOfFirst { it.id == selectedCategoryId }
+                if (categoryIndex >= 0 && showAllTab) categoryIndex + 1 else categoryIndex
+            }
+        }
+        if (selectedIndex >= 0) {
+            val animate = animateNextCenter
+            animateNextCenter = false
+            if (animate) {
+                // The tapped chip is composed — find its measured size now.
+                var handled = false
+                repeat(3) {
+                    if (!handled) {
+                        val layout = listState.layoutInfo
+                        val item = layout.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
+                        if (item != null) {
+                            val viewport = layout.viewportEndOffset - layout.viewportStartOffset
+                            val centerOffset = -((viewport - item.size) / 2)
+                            listState.animateScrollToItem(selectedIndex, centerOffset)
+                            handled = true
+                        } else {
+                            // Not composed this frame (rare) — wait a frame, retry.
+                            androidx.compose.runtime.withFrameNanos { }
+                        }
+                    }
+                }
+            } else {
+                // Step 1: snap start-aligned — composes + measures the chip.
+                listState.scrollToItem(selectedIndex)
+                // Step 2: center it with the negative offset (clamped at the
+                // edges by LazyRow itself).
+                var centered = false
+                repeat(3) {
+                    if (!centered) {
+                        val layout = listState.layoutInfo
+                        val item = layout.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
+                        if (item != null) {
+                            val viewport = layout.viewportEndOffset - layout.viewportStartOffset
+                            val centerOffset = -((viewport - item.size) / 2)
+                            listState.scrollToItem(selectedIndex, centerOffset)
+                            centered = true
+                        } else {
+                            androidx.compose.runtime.withFrameNanos { }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     LazyRow(
+        state = listState,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            .padding(vertical = 0.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         // ── "All" tab (null selection) — only when 2+ categories have items ──
@@ -955,7 +1144,10 @@ private fun CategoryTabsRow(
                 CategoryTab(
                     label = "All",
                     isSelected = selectedCategoryId == null,
-                    onClick = { onSelectCategory(null) },
+                    onClick = {
+                        animateNextCenter = true
+                        onSelectCategory(null)
+                    },
                     onLongClick = null, // "All" cannot be managed.
                 )
             }
@@ -969,7 +1161,10 @@ private fun CategoryTabsRow(
             CategoryTab(
                 label = label,
                 isSelected = selectedCategoryId == category.id,
-                onClick = { onSelectCategory(category.id) },
+                onClick = {
+                    animateNextCenter = true
+                    onSelectCategory(category.id)
+                },
                 onLongClick = { onLongPressCategory(category) },
             )
         }
@@ -979,8 +1174,28 @@ private fun CategoryTabsRow(
 /**
  * A single text-based category tab with an underline indicator.
  *
- * - Selected: primary color, FontWeight.ExtraBold, 2dp primary underline.
+ * - Selected: primary color, FontWeight.ExtraBold, 3dp primary underline.
  * - Unselected: onSurfaceVariant, FontWeight.Medium, transparent underline.
+ *
+ * Task 61 (round 21) — the underline reworked per the device spec:
+ *  - it is as WIDE as the category text itself (the Column wraps the text;
+ *    the bar fills it — was a fixed 20dp);
+ *  - a little THICKER (2dp → 3dp) and CLOSER to the text (4dp → 2dp gap);
+ *  - the tab's internal vertical padding shrank (4dp → 2dp) with the row's
+ *    paddings — a tighter category section overall.
+ *
+ * Task 64 (round 24 — the device report: "The full category names do not
+ * show… without any minimization of the name, like adding dots at the end
+ * and shrinking the name or anything like that"): the chip now sizes to the
+ * FULL single-line text width. Root cause of the truncation: the Task-62
+ * underline fix wrapped the Column in `width(IntrinsicSize.Min)` — a Text's
+ * MIN intrinsic width is its widest WORD (intrinsic measurement assumes the
+ * paragraph can wrap), so every multi-word category name (or "Name (count)")
+ * had its column sized to ONE WORD and the maxLines=1 + Ellipsis text
+ * truncated to "My Long Ca…". `IntrinsicSize.Max` measures the FULL single
+ * line (the LazyRow already gives items unbounded main-axis width, so the
+ * chip renders at its full text width and the row scrolls); the ellipsis is
+ * removed outright so a bounded constraint can never re-introduce dots.
  *
  * Long-press is only wired up when [onLongClick] is non-null (i.e. for real
  * categories, not the "All" tab). No background — just text + underline,
@@ -1002,7 +1217,13 @@ private fun CategoryTab(
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
-            .padding(vertical = 4.dp),
+            // Task 64 (round 24 — the full-name fix): IntrinsicSize.Max sizes
+            // the Column to the text's FULL single-line width (the Min variant
+            // measured the widest WORD — see the KDoc above). fillMaxWidth()
+            // below resolves to exactly the text width, and the clickable
+            // area keeps the text's width.
+            .width(IntrinsicSize.Max)
+            .padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -1012,15 +1233,19 @@ private fun CategoryTab(
             fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
             color = if (isSelected) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            // Task 64: no maxLines / no Ellipsis — the chip always renders the
+            // name in full (one line, the row scrolls; a name wider than the
+            // viewport simply scrolls inside the row).
+            softWrap = false,
         )
-        Spacer(Modifier.height(4.dp))
-        // ── Underline indicator (animated alpha via the isSelected state) ──
+        // ── Underline indicator — as wide as the text, 3dp thick, 1dp gap ──
+        // Task 62: the gap tightened 2dp → 1dp (the device spec: the line
+        // should sit "very close to the bottom of the text").
+        Spacer(Modifier.height(1.dp))
         Box(
             modifier = Modifier
-                .width(20.dp)
-                .height(2.dp)
+                .fillMaxWidth()
+                .height(3.dp)
                 .background(
                     color = if (isSelected) MaterialTheme.colorScheme.primary
                             else Color.Transparent,
@@ -2648,36 +2873,60 @@ private fun SectionSeparator(title: String) {
 
 @Composable
 private fun LibraryGrid(
+    viewModel: LibraryViewModel,
     entries: List<LibraryEntry>,
     gridState: LazyGridState,
     staggeredState: LazyStaggeredGridState,
     reveal: CoverRevealController?,
-    columns: Int,
-    titleLines: Int,
+    displayMode: LibraryDisplayMode,
     isSelectionMode: Boolean,
     selectedMainIds: Set<String>,
     onClickEntry: (LibraryEntry) -> Unit,
     onLongClickEntry: (LibraryEntry) -> Unit,
-    episodeBadgeMode: EpisodeBadgeMode = EpisodeBadgeMode.OFF,
-    episodeBadgePosition: BadgePosition = BadgePosition.TOP_END,
-    showScoreBadge: Boolean = false,
-    scoreBadgePosition: BadgePosition = BadgePosition.TOP_START,
-    releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
-    releasedUnwatchedOnly: Boolean = false,
-    coverBorderEnabled: Boolean = false,
-    coverBorderColor: CoverBorderColor = CoverBorderColor.GRAY,
-    coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
-    displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
-    showAllCaughtUpTag: Boolean = false,
-    comfortableBorderMode: ComfortableBorderMode = ComfortableBorderMode.COVER_AND_TITLE,
-    hideTitlesInComfortable: Boolean = false,
 ) {
-    // D-242-fix21: Comfortable grid uses LazyVerticalStaggeredGrid (masonry
-    // layout) so items in a column can have different heights (shorter items
-    // don't force taller items to have gaps). All other modes use LazyVerticalGrid.
-    // D-290: staggeredState is VM-held (survives tab switches) — was
-    // rememberLazyStaggeredGridState() which died with the composable.
+    // Task 62 (round 22 — M3): the grid settings are collected HERE (columns,
+    // title lines, badge + border options) — a settings toggle recomposes
+    // the grid, not the library root that hosts it.
+    val columns by viewModel.columns.collectAsState()
+    val titleLines by viewModel.titleLines.collectAsState()
+    val episodeBadgeMode by viewModel.episodeBadgeMode.collectAsState()
+    val episodeBadgePosition by viewModel.episodeBadgePosition.collectAsState()
+    val showScoreBadge by viewModel.showScoreBadge.collectAsState()
+    val scoreBadgePosition by viewModel.scoreBadgePosition.collectAsState()
+    val releasedAudioFilter by viewModel.releasedAudioFilter.collectAsState()
+    val releasedUnwatchedOnly by viewModel.releasedUnwatchedOnly.collectAsState()
+    val coverBorderEnabled by viewModel.coverBorderEnabled.collectAsState()
+    val coverBorderColor by viewModel.coverBorderColor.collectAsState()
+    val coverBorderWidth by viewModel.coverBorderWidth.collectAsState()
+    val showAllCaughtUpTag by viewModel.showAllCaughtUpTag.collectAsState()
+    val comfortableBorderMode by viewModel.comfortableBorderMode.collectAsState()
+    val hideTitlesInComfortable by viewModel.hideTitlesInComfortable.collectAsState()
+
+    // Task 62 (round 22 — M2): the shared-element gate, hoisted OUT of the
+    // per-cell LibraryCoverImage (which koinInject-ed AppPreferences and did
+    // a synchronous SharedPreferences read on EVERY recomposition of EVERY
+    // cell). ONE read per grid recomposition here, gated OFF while the
+    // layout is actively scrolling — fling-recycled cells skip the
+    // SharedTransition registry churn, and a tap can't start the cover morph
+    // mid-drag anyway. At rest the registration re-attaches (the morph from
+    // a settled tap is unchanged).
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val coverTransitionEnabled = appPrefs.coverTransitionEnabled
+
+    // Task 64 (round 24): the shared-element gate is now a LAMBDA threaded to
+    // the cells, and its scroll term is evaluated INSIDE [LibraryCoverImage]'s
+    // composition scope — not here. The old Boolean param flipped at every
+    // scroll START and STOP, and since every cell's content lambda captured
+    // it, each flip recomposed ALL visible cards (badges, borders, titles and
+    // all — ~2× full-grid recompositions per fling gesture). Now a flip only
+    // re-executes the cheap cover-image scopes. The pref itself is still read
+    // ONCE here (never inside the cells — the synchronous SharedPreferences
+    // read per cell was M2's original fix); the branch below bakes it into a
+    // stable remembered lambda bound to that branch's scroll state.
     if (displayMode == LibraryDisplayMode.COMFORTABLE_GRID) {
+        val sharedElementsGate: () -> Boolean = remember(coverTransitionEnabled, staggeredState) {
+            { coverTransitionEnabled && !staggeredState.isScrollInProgress }
+        }
         LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Fixed(columns.coerceIn(2, 5)),
             state = staggeredState,
@@ -2713,6 +2962,7 @@ private fun LibraryGrid(
                     showAllCaughtUpTag = showAllCaughtUpTag,
                     comfortableBorderMode = comfortableBorderMode,
                     hideTitles = hideTitlesInComfortable,
+                    sharedElementsGate = sharedElementsGate,
                 )
             }
         }
@@ -2721,7 +2971,11 @@ private fun LibraryGrid(
         // between neighbors (horizontal AND vertical) and no side/top padding;
         // covers run edge-to-edge. COMPACT_GRID keeps the standard layout.
         val isCoverOnly = displayMode == LibraryDisplayMode.COVER_ONLY
-        // D-141: in selection mode, reserve extra bottom space for the action bar.
+        // Task 64: same lambda treatment for the standard grid branch — the
+        // isScrollInProgress read lands inside the cover cells' scope.
+        val sharedElementsGate: () -> Boolean = remember(coverTransitionEnabled, gridState) {
+            { coverTransitionEnabled && !gridState.isScrollInProgress }
+        }
         LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Fixed(columns.coerceIn(2, 5)),
@@ -2762,6 +3016,7 @@ private fun LibraryGrid(
                     displayMode = displayMode,
                     showAllCaughtUpTag = showAllCaughtUpTag,
                     comfortableBorderMode = comfortableBorderMode,
+                    sharedElementsGate = sharedElementsGate,
                 )
             }
         }
@@ -2798,6 +3053,21 @@ private fun LibraryGrid(
  *   cell (and its 5-column neighbors) never recompose during the fade.
  * - **Soft placeholder** — a low-alpha surfaceVariant tint sits behind the
  *   image so an unrevealed cover reads as "reserved space", not a black hole.
+ *
+ * Task 64 (round 24): two composition-cost cuts for fling smoothness —
+ * - **Reveal fast path** — a cover that is ALREADY revealed (the common case
+ *   during scroll-back / tab-return) composes a PLAIN AsyncImage: no
+ *   Animatable, no onState machinery, no alpha graphicsLayer. The check is a
+ *   `remember`-captured snapshot (NOT a reactive read of the VM set), so the
+ *   moment a first load succeeds the cell STAYS on the animated path until
+ *   the fade finishes (a reactive branch would swap branches mid-fade and
+ *   snap the alpha to 1, killing the animation the reveal system exists to
+ *   run). Cells entering composition later re-evaluate and take the fast
+ *   path. Cells with no controller at all also take it (they never animate).
+ * - **Gate lambda** — [sharedElementsGate] is evaluated HERE, in the cover's
+ *   own scope: the old grid-level Boolean flipped at every scroll
+ *   start/stop and recomposed every full card; now only these cheap cover
+ *   scopes re-run on a flip.
  */
 @Composable
 private fun LibraryCoverImage(
@@ -2807,6 +3077,9 @@ private fun LibraryCoverImage(
     contentScale: ContentScale = ContentScale.Crop,
     revealKey: String? = null,
     reveal: CoverRevealController? = null,
+    // Task 64 (round 24): the grid-level shared-element gate as a LAMBDA —
+    // evaluated inside THIS scope (see the KDoc above).
+    sharedElementsGate: () -> Boolean = { false },
 ) {
     val context = LocalContext.current
     // D-320/D-328: shared-element key for the experimental cover transition.
@@ -2814,8 +3087,7 @@ private fun LibraryCoverImage(
     // collide with a Search card showing the SAME anime — during a Library ⇄
     // Search switch both screens compose at once, and pre-D-328 both built
     // "cover:<url>", making the shared cover fly BETWEEN the two pages.
-    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
-    val sharedElementKey = if (appPrefs.coverTransitionEnabled) {
+    val sharedElementKey = if (sharedElementsGate()) {
         libraryCoverKey(url)
     } else null
     val request = remember(url, context) {
@@ -2826,55 +3098,72 @@ private fun LibraryCoverImage(
             .build()
     }
 
-    // ── D-291: reveal-once state ──
-    // Initially revealed (alpha 1, instant) unless a controller + key say this
-    // cover has never been revealed. Both states are remembered per key so a
-    // cell that scrolls away mid-load and comes back keeps its promise.
-    val hasReveal = revealKey != null && reveal != null
-    var revealed by remember(revealKey) {
-        mutableStateOf(if (hasReveal) reveal!!.isRevealed(revealKey!!) else true)
+    // ── Task 64: the reveal fast-path snapshot (see the KDoc) ──
+    // Captured ONCE per cell instance: no controller / no key → fast path;
+    // controller + already-revealed key → fast path; otherwise animated.
+    // A remember (not a direct read) so a mid-flight markRevealed() can never
+    // swap the branch out from under a running fade.
+    val initiallyRevealed = remember(revealKey, reveal) {
+        val controller = reveal
+        val key = revealKey
+        controller == null || key == null || controller.isRevealed(key)
     }
-    var fadeDurationMs by remember(revealKey) { mutableStateOf(220) }
-    // Target alpha: 0 until first load success (or 1 immediately when already
-    // revealed / no reveal controller). The animate*AsState spec is rebuilt
-    // when fadeDurationMs changes, which only happens at reveal time — the
-    // tween the fade actually runs with is the one sampled below in onState.
-    val revealAlpha = animateFloatAsState(
-        targetValue = if (revealed) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = fadeDurationMs,
-            easing = FastOutSlowInEasing,
-        ),
-        label = "coverReveal",
-    )
 
     Box(
         modifier = modifier.background(
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
         ),
     ) {
-        AsyncImage(
-            model = request,
-            contentDescription = contentDescription,
-            contentScale = contentScale,
-            onState = { state ->
-                if (state is AsyncImagePainter.State.Success && hasReveal && !revealed) {
-                    // Sample the scroll velocity NON-reactively right now and
-                    // map it to the fade duration: calm ≈ 240ms, fling ≈ 70ms.
-                    fadeDurationMs = (240 - 170 * reveal!!.velocity.value)
-                        .toInt()
-                        .coerceIn(70, 240)
-                    reveal!!.markRevealed(revealKey!!)
-                    revealed = true
-                }
-            },
-            // Draw-phase alpha read: animating the fade re-draws ONLY this
-            // cell's layer — zero recomposition churn in the grid.
-            modifier = Modifier
-                .fillMaxSize()
-                .coverSharedElement(sharedElementKey)
-                .graphicsLayer { alpha = revealAlpha.value },
-        )
+        if (initiallyRevealed) {
+            // Task 64 fast path — a previously-revealed (or controller-less)
+            // cover: full alpha, ZERO animation machinery on the cell.
+            AsyncImage(
+                model = request,
+                contentDescription = contentDescription,
+                contentScale = contentScale,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .coverSharedElement(sharedElementKey),
+            )
+        } else {
+            // ── D-291: the first-load animated path ──
+            var revealed by remember(revealKey) { mutableStateOf(false) }
+            var fadeDurationMs by remember(revealKey) { mutableStateOf(220) }
+            // Target alpha: 0 until first load success. The animate*AsState
+            // spec is rebuilt when fadeDurationMs changes, which only happens
+            // at reveal time — the tween the fade actually runs with is the
+            // one sampled below in onState.
+            val revealAlpha = animateFloatAsState(
+                targetValue = if (revealed) 1f else 0f,
+                animationSpec = tween(
+                    durationMillis = fadeDurationMs,
+                    easing = FastOutSlowInEasing,
+                ),
+                label = "coverReveal",
+            )
+            AsyncImage(
+                model = request,
+                contentDescription = contentDescription,
+                contentScale = contentScale,
+                onState = { state ->
+                    if (state is AsyncImagePainter.State.Success) {
+                        // Sample the scroll velocity NON-reactively right now and
+                        // map it to the fade duration: calm ≈ 240ms, fling ≈ 70ms.
+                        fadeDurationMs = (240 - 170 * reveal!!.velocity.value)
+                            .toInt()
+                            .coerceIn(70, 240)
+                        reveal!!.markRevealed(revealKey!!)
+                        revealed = true
+                    }
+                },
+                // Draw-phase alpha read: animating the fade re-draws ONLY this
+                // cell's layer — zero recomposition churn in the grid.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .coverSharedElement(sharedElementKey)
+                    .graphicsLayer { alpha = revealAlpha.value },
+            )
+        }
     }
 }
 
@@ -2900,6 +3189,12 @@ private fun LibraryGridCard(
     showAllCaughtUpTag: Boolean = false,
     comfortableBorderMode: ComfortableBorderMode = ComfortableBorderMode.COVER_AND_TITLE,
     hideTitles: Boolean = false,
+    // Task 64 (round 24): the grid-level shared-element gate as a LAMBDA —
+    // evaluated inside [LibraryCoverImage]'s scope so a scroll start/stop
+    // flip only recomposes the cover images, never the full cards (the old
+    // Boolean param dragged every visible card's badges/borders/titles into
+    // each flip).
+    sharedElementsGate: () -> Boolean = { false },
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -2911,11 +3206,19 @@ private fun LibraryGridCard(
 
     // Fade unselected cards to 40% opacity while selection mode is active, so the
     // selected items visually pop and the rest recede. Animated for a smooth fade.
-    val cardAlpha by animateFloatAsState(
-        targetValue = if (isSelectionMode && !isSelected) 0.4f else 1f,
-        animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
-        label = "cardAlpha",
-    )
+    // Task 64 (round 24): the animation is composed ONLY in selection mode —
+    // every grid cell used to carry an idle Animatable + LaunchedEffect for
+    // this at all times, pure composition overhead during flings (selection
+    // mode is the only time the fade is ever visible).
+    val cardAlpha: Float = if (isSelectionMode) {
+        animateFloatAsState(
+            targetValue = if (isSelected) 1f else 0.4f,
+            animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
+            label = "cardAlpha",
+        ).value
+    } else {
+        1f
+    }
 
     // D-242-fix19: Cover border — configurable width + color. Applied to the
     // card Box so it wraps the cover image + title overlay + badges.
@@ -3006,6 +3309,7 @@ private fun LibraryGridCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(cardShape),
+                    sharedElementsGate = sharedElementsGate,
                 )
 
                 // Cover badges (same as compact grid).
@@ -3146,6 +3450,7 @@ private fun LibraryGridCard(
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
                     .clip(cardShape),
+                sharedElementsGate = sharedElementsGate,
             )
 
             // D-242-fix15: Cover badges — positions hardcoded (no user-selectable position).
@@ -3320,25 +3625,39 @@ private data class ListDetailTag(val text: String, val container: Color, val con
 
 @Composable
 private fun LibraryList(
+    viewModel: LibraryViewModel,
     entries: List<LibraryEntry>,
     listState: LazyListState,
     reveal: CoverRevealController? = null,
-    titleLines: Int,
     isSelectionMode: Boolean,
     selectedMainIds: Set<String>,
     onClickEntry: (LibraryEntry) -> Unit,
     onLongClickEntry: (LibraryEntry) -> Unit,
-    episodeBadgeMode: EpisodeBadgeMode = EpisodeBadgeMode.OFF,
-    showScoreBadge: Boolean = false,
-    releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
-    releasedUnwatchedOnly: Boolean = false,
-    showAllCaughtUpTag: Boolean = false,
-    coverBorderEnabled: Boolean = false,
-    coverBorderColor: CoverBorderColor = CoverBorderColor.GRAY,
-    coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
-    listDensity: ListDensity = ListDensity.NORMAL,
-    listTitlePosition: ListTitlePosition = ListTitlePosition.BOTTOM,
 ) {
+    // Task 62 (round 22 — M3): the list settings are collected HERE — a
+    // settings toggle recomposes the list, not the library root.
+    val titleLines by viewModel.titleLines.collectAsState()
+    val episodeBadgeMode by viewModel.episodeBadgeMode.collectAsState()
+    val showScoreBadge by viewModel.showScoreBadge.collectAsState()
+    val releasedAudioFilter by viewModel.releasedAudioFilter.collectAsState()
+    val releasedUnwatchedOnly by viewModel.releasedUnwatchedOnly.collectAsState()
+    val showAllCaughtUpTag by viewModel.showAllCaughtUpTag.collectAsState()
+    val coverBorderEnabled by viewModel.coverBorderEnabled.collectAsState()
+    val coverBorderColor by viewModel.coverBorderColor.collectAsState()
+    val coverBorderWidth by viewModel.coverBorderWidth.collectAsState()
+    val listDensity by viewModel.listDensity.collectAsState()
+    val listTitlePosition by viewModel.listTitlePosition.collectAsState()
+
+    // Task 62 (round 22 — M2): ONE prefs read per list recomposition.
+    // Task 64 (round 24): the gate is a LAMBDA evaluated inside the cover
+    // cells' scope (see LibraryGrid) — a scroll start/stop flip no longer
+    // recomposes every full row.
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val coverTransitionEnabled = appPrefs.coverTransitionEnabled
+    val sharedElementsGate: () -> Boolean = remember(coverTransitionEnabled, listState) {
+        { coverTransitionEnabled && !listState.isScrollInProgress }
+    }
+
     // D-141: in selection mode, reserve extra bottom space for the action bar.
     LazyColumn(
         state = listState,
@@ -3369,6 +3688,7 @@ private fun LibraryList(
                 coverBorderWidth = coverBorderWidth,
                 listDensity = listDensity,
                 listTitlePosition = listTitlePosition,
+                sharedElementsGate = sharedElementsGate,
             )
         }
     }
@@ -3401,6 +3721,9 @@ private fun LibraryListRow(
     coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
     listDensity: ListDensity = ListDensity.NORMAL,
     listTitlePosition: ListTitlePosition = ListTitlePosition.BOTTOM,
+    // Task 64 (round 24): the list-level shared-element gate as a LAMBDA —
+    // evaluated inside [LibraryCoverImage]'s scope (see LibraryGrid).
+    sharedElementsGate: () -> Boolean = { false },
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -3409,11 +3732,17 @@ private fun LibraryListRow(
         animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
         label = "rowScale",
     )
-    val rowAlpha by animateFloatAsState(
-        targetValue = if (isSelectionMode && !isSelected) 0.4f else 1f,
-        animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
-        label = "rowAlpha",
-    )
+    // Task 64 (round 24): composed ONLY in selection mode (see the grid card's
+    // cardAlpha note) — no idle Animatable per row during flings.
+    val rowAlpha: Float = if (isSelectionMode) {
+        animateFloatAsState(
+            targetValue = if (isSelected) 1f else 0.4f,
+            animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
+            label = "rowAlpha",
+        ).value
+    } else {
+        1f
+    }
 
     // D-242-fix19: Resolve border color — ADAPTIVE extracts per-cover color.
     val isDark = isSystemInDarkTheme()
@@ -3443,54 +3772,61 @@ private fun LibraryListRow(
 
     // D-242-fix19: Compute All Caught Up status first. When true, episode
     // tags are HIDDEN (only All Caught Up + score + year show).
-    val isAllCaughtUp = showAllCaughtUpTag &&
-        anime.releasedEpisodes != null && anime.releasedEpisodes > 0 &&
-        anime.watchedCount != null && anime.watchedCount > 0 &&
-        (anime.unwatchedCount == null || anime.unwatchedCount == 0)
-
-    // D-242-fix18: Build detail tags (year, score, episode info, all caught up).
-    val detailTags = mutableListOf<ListDetailTag>()
-
-    // Episode badge tag — skipped when All Caught Up is showing.
-    if (!isAllCaughtUp) {
-        when (episodeBadgeMode) {
-            EpisodeBadgeMode.OFF -> {}
-            EpisodeBadgeMode.TOTAL -> {
-                (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
-                    detailTags.add(ListDetailTag("EP $ep", badgeColors.totalContainer, badgeColors.totalContent))
-                }
-            }
-            EpisodeBadgeMode.RELEASED -> {
-                val subCount = if (releasedUnwatchedOnly) anime.subUnwatchedCount else anime.subEpisodeCount
-                val dubCount = if (releasedUnwatchedOnly) anime.dubUnwatchedCount else anime.dubEpisodeCount
-                if (subCount != null && subCount > 0) {
-                    detailTags.add(ListDetailTag("SUB $subCount", badgeColors.subContainer, badgeColors.subContent))
-                }
-                if (dubCount != null && dubCount > 0) {
-                    detailTags.add(ListDetailTag("DUB $dubCount", badgeColors.dubContainer, badgeColors.dubContent))
-                }
-                if (detailTags.isEmpty()) {
-                    anime.releasedEpisodes?.let { ep ->
-                        detailTags.add(ListDetailTag("EP $ep", badgeColors.totalContainer, badgeColors.totalContent))
+    // D-382 (round 25 perf): the tag list is now BUILT ONCE per (entry, config,
+    // theme) inside remember — previously every recomposition of the row
+    // re-allocated the list + all its strings/objects, which multiplied across
+    // dozens of rows entering the viewport during flings (the 16MB GC churn in
+    // the user's logcat). LibraryEntry/BadgeColorScheme/ColorScheme are data
+    // classes with structural equals, so they are safe remember keys.
+    val colorScheme = MaterialTheme.colorScheme
+    val detailTags = remember(
+        anime, episodeBadgeMode, showScoreBadge, releasedUnwatchedOnly,
+        showAllCaughtUpTag, colorScheme, badgeColors,
+    ) {
+        val isAllCaughtUp = showAllCaughtUpTag &&
+            anime.releasedEpisodes != null && anime.releasedEpisodes > 0 &&
+            anime.watchedCount != null && anime.watchedCount > 0 &&
+            (anime.unwatchedCount == null || anime.unwatchedCount == 0)
+        buildList {
+            // Episode badge tag — skipped when All Caught Up is showing.
+            if (!isAllCaughtUp) {
+                when (episodeBadgeMode) {
+                    EpisodeBadgeMode.OFF -> {}
+                    EpisodeBadgeMode.TOTAL -> {
+                        (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
+                            add(ListDetailTag("EP $ep", badgeColors.totalContainer, badgeColors.totalContent))
+                        }
+                    }
+                    EpisodeBadgeMode.RELEASED -> {
+                        val subCount = if (releasedUnwatchedOnly) anime.subUnwatchedCount else anime.subEpisodeCount
+                        val dubCount = if (releasedUnwatchedOnly) anime.dubUnwatchedCount else anime.dubEpisodeCount
+                        if (subCount != null && subCount > 0) {
+                            add(ListDetailTag("SUB $subCount", badgeColors.subContainer, badgeColors.subContent))
+                        }
+                        if (dubCount != null && dubCount > 0) {
+                            add(ListDetailTag("DUB $dubCount", badgeColors.dubContainer, badgeColors.dubContent))
+                        }
+                        if (isEmpty()) {
+                            anime.releasedEpisodes?.let { ep ->
+                                add(ListDetailTag("EP $ep", badgeColors.totalContainer, badgeColors.totalContent))
+                            }
+                        }
                     }
                 }
             }
+            // All Caught Up tag.
+            if (isAllCaughtUp) {
+                add(ListDetailTag("All Caught Up", badgeColors.allCaughtUpContainer, badgeColors.allCaughtUpContent))
+            }
+            // Score tag.
+            if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
+                add(ListDetailTag("★ ${anime.averageScore}", badgeColors.scoreContainer, badgeColors.scoreContent))
+            }
+            // Year tag (always shown if available).
+            anime.seasonYear?.let { year ->
+                add(ListDetailTag("$year", colorScheme.surfaceVariant, colorScheme.onSurfaceVariant))
+            }
         }
-    }
-
-    // All Caught Up tag (uses pre-computed isAllCaughtUp).
-    if (isAllCaughtUp) {
-        detailTags.add(ListDetailTag("All Caught Up", badgeColors.allCaughtUpContainer, badgeColors.allCaughtUpContent))
-    }
-
-    // Score tag.
-    if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
-        detailTags.add(ListDetailTag("★ ${anime.averageScore}", badgeColors.scoreContainer, badgeColors.scoreContent))
-    }
-
-    // Year tag (always shown if available).
-    anime.seasonYear?.let { year ->
-        detailTags.add(ListDetailTag("$year", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant))
     }
 
     Row(
@@ -3526,6 +3862,7 @@ private fun LibraryListRow(
                     .width(listDensity.coverWidth.dp)
                     .height(listDensity.coverHeight.dp)
                     .clip(RoundedCornerShape(8.dp)),
+                sharedElementsGate = sharedElementsGate,
             )
             if (isSelectionMode) {
                 Box(
@@ -3631,14 +3968,28 @@ private fun DetailTagPill(tag: ListDetailTag) {
 /**
  * D-242-fix20: Renders detail tags as a horizontal scrollable row of custom
  * pill tags. Uses [DetailTagPill] for each tag — no empty space, tight fit.
+ *
+ * D-382 (round 25 perf): replaced the previous LazyRow with a plain
+ * Row + horizontalScroll. The LazyRow was THE structural jank source of
+ * list-mode scrolling: EVERY row composed a full nested lazy layout
+ * (SubcomposeLayout + rememberSaveable-backed list state + a gesture/scroll
+ * node + an item provider, with each pill subcomposed during MEASURE) just to
+ * show 2–5 fixed pills — the grid modes compose nothing of the sort, which is
+ * exactly why "3 per row is smooth, the list mode jitters" (user logcat:
+ * 50–268ms frames + a 16MB concurrent GC during one fling). A plain Row
+ * measures all children in a single pass, has one saveable + one gesture
+ * node, and zero subcomposition — same visuals, an order of magnitude
+ * cheaper per row.
  */
 @Composable
 private fun DetailTagRow(tags: List<ListDetailTag>) {
-    LazyRow(
+    Row(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
     ) {
-        items(tags) { tag ->
+        tags.forEach { tag ->
             DetailTagPill(tag)
         }
     }

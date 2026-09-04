@@ -69,24 +69,41 @@ class PlayerPreferences(private val store: PreferenceStore) {
         get() = store.getString(KEY_SUB_FONT, "Sans Serif")
         set(value) = store.putString(KEY_SUB_FONT, value)
 
-    /** Subtitle font size (MPV sub-font-size). Default: 55. Range: 20..100. */
+    /**
+     * Subtitle font size (MPV sub-font-size). Default: **100 (max)** — Task 59
+     * (round 19, the user's spec: the default subtitle look is font size MAX,
+     * scale 0.5×, border 5; 100 × 0.5 renders ≈ the old 55 default). Range:
+     * 20..100.
+     */
     var subtitleFontSize: Int
-        get() = store.getInt(KEY_SUB_FONT_SIZE, 55)
+        get() = store.getInt(KEY_SUB_FONT_SIZE, 100)
         set(value) = store.putInt(KEY_SUB_FONT_SIZE, value)
 
-    /** Subtitle font scale multiplier. Default: 1.0. Range: 0.5..3.0. */
+    /**
+     * Subtitle font scale multiplier. Default: **0.5×** — Task 59 (the user's
+     * spec; see [subtitleFontSize]). Range: 0.5..3.0.
+     */
     var subtitleFontScale: Float
-        get() = store.getFloat(KEY_SUB_SCALE, 1.0f)
+        get() = store.getFloat(KEY_SUB_SCALE, 0.5f)
         set(value) = store.putFloat(KEY_SUB_SCALE, value)
 
-    /** Subtitle border/outline size. Default: 3. Range: 0..10. */
+    /**
+     * Subtitle border/outline size. Default: **5** — Task 59 ("a comfortable
+     * 5", the user's spec). Range: 0..10.
+     */
     var subtitleBorderSize: Int
-        get() = store.getInt(KEY_SUB_BORDER_SIZE, 3)
+        get() = store.getInt(KEY_SUB_BORDER_SIZE, 5)
         set(value) = store.putInt(KEY_SUB_BORDER_SIZE, value)
 
-    /** Bold subtitles. Default: false. */
+    /**
+     * Bold subtitles. Default: **true** — Task 60 (round 20, the user's
+     * spec: "by default the bold should be turned on… make both of them as
+     * accurate to each other as possible"). One preference drives BOTH
+     * stacks (MPV `sub-bold` and the CS overlay's FontWeight), so the sheets
+     * and the engine land bold-on out of the box.
+     */
     var boldSubtitles: Boolean
-        get() = store.getBoolean(KEY_BOLD_SUBS, false)
+        get() = store.getBoolean(KEY_BOLD_SUBS, true)
         set(value) = store.putBoolean(KEY_BOLD_SUBS, value)
 
     /** Italic subtitles. Default: false. */
@@ -128,6 +145,60 @@ class PlayerPreferences(private val store: PreferenceStore) {
     var subtitlesDelay: Int
         get() = store.getInt(KEY_SUB_DELAY, 0)
         set(value) = store.putInt(KEY_SUB_DELAY, value)
+
+    /**
+     * Task 59 (round 19) — resets EVERY subtitle preference to its default in
+     * one write (the shared backing for BOTH subtitle settings sheets' Reset
+     * buttons — the aniyomi sheet and the CS sheet). Defaults per the user's
+     * spec: font size MAX (100), scale 0.5×, border 5; everything else back to
+     * its out-of-box value (Sans Serif, **bold ON** — Task 60, italic off,
+     * white text, black border, transparent background, position 100,
+     * shadow 0, delay 0, ASS-override off).
+     *
+     * Callers fire their `onApplySettings` after this so the live preview and
+     * the engine (MPV / Media3) pick the reset state up immediately.
+     */
+    fun resetSubtitleSettings() {
+        subtitleFont = "Sans Serif"
+        subtitleFontSize = 100
+        subtitleFontScale = 0.5f
+        subtitleBorderSize = 5
+        boldSubtitles = true
+        italicSubtitles = false
+        textColorSubtitles = 0xFFFFFFFF.toInt()
+        borderColorSubtitles = 0xFF000000.toInt()
+        backgroundColorSubtitles = 0x00000000
+        subtitlePosition = 100
+        subtitleShadowOffset = 0
+        subtitlesDelay = 0
+        overrideSubsAss = false
+    }
+
+    // ── Task 55 (round 15): source-list formatting + CS subtitle language ────
+    //
+    // The shared "formatting" toggle for the source-picking sheets (resolve
+    // sheets at the details entry + the in-player Qualities-and-Servers
+    // sheets), used by BOTH stacks:
+    //  - ON  (default): the aniyomi ResolverSheet design — collapsible server
+    //    cards, audio-version chips, quality chips.
+    //  - OFF: a raw flat list — one row per resolved stream, unformatted
+    //    labels (server name + quality), tap = play directly. No expanding.
+    // Non-reactive by design: the sheets are recreated on every open, so a
+    // read-at-open + write-on-toggle is sufficient.
+    var resolveSheetFormatted: Boolean
+        get() = store.getBoolean(KEY_RESOLVE_SHEET_FORMATTED, true)
+        set(value) = store.putBoolean(KEY_RESOLVE_SHEET_FORMATTED, value)
+
+    /**
+     * Preferred subtitle languages (comma-separated codes/names). Task 55:
+     * the CS (Media3) player auto-selects a matching sidecar/embedded track
+     * on first READY — the behavioral mirror of MPV's `slang` default (which
+     * picks the OS-language track). NEW key: only the CS engine reads it; the
+     * MPV stack is untouched.
+     */
+    var preferredSubtitleLanguages: String
+        get() = store.getString(KEY_PREF_SUB_LANGS, "en,eng,english")
+        set(value) = store.putString(KEY_PREF_SUB_LANGS, value)
 
     // ── Phase 2: Auto-select video (mirror of DownloadPreferences) ───────────
     //
@@ -204,6 +275,39 @@ class PlayerPreferences(private val store: PreferenceStore) {
         get() = store.getBoolean(KEY_HW_DECODE, true)
         set(value) = store.putBoolean(KEY_HW_DECODE, value)
 
+    // ── D-408 (round 32): the per-series selected-subtitle memory ─────────────
+    //
+    // The report: "make it remember the location of the selected subtitle
+    // files. If the user manually selects a subtitle, then that subtitle file
+    // will be remembered for that specific episode… that subtitle will be
+    // selected and be pre-applied on that." Persisted on every sheet track
+    // selection (incl. Off), every manual import, and every storage-row load;
+    // pre-applied by the player after every track-list reload (the label is
+    // matched against the live tracks; "off" pre-applies sid=no).
+    //
+    // Keyed by mainId (one small string per series ever watched — negligible;
+    // a future cap can LRU-evict if it ever matters).
+
+    /**
+     * The remembered selected subtitle track for a series.
+     * @return "" = nothing remembered; `"off"` = the user explicitly chose
+     *   Off; anything else = the track's display label ("English", "My
+     *   Subs") to pre-select on open.
+     */
+    fun getPreferredSubtitleTrack(mainId: String): String =
+        if (mainId.isBlank()) "" else store.getString(KEY_PREFIX_SUB_TRACK_MEMORY + mainId, "")
+
+    /**
+     * Remembers the selected subtitle track for a series. [label] = the
+     * track's display label, `"off"` for an explicit Off, or blank to CLEAR
+     * the memory.
+     */
+    fun setPreferredSubtitleTrack(mainId: String, label: String) {
+        if (mainId.isBlank()) return
+        val key = KEY_PREFIX_SUB_TRACK_MEMORY + mainId
+        if (label.isBlank()) store.delete(key) else store.putString(key, label)
+    }
+
     companion object {
         private const val KEY_SPEED = "player_speed"
         private const val KEY_AUTOPLAY_NEXT = "player_autoplay_next"
@@ -227,7 +331,10 @@ class PlayerPreferences(private val store: PreferenceStore) {
         private const val KEY_SUB_SHADOW_OFFSET = "pref_sub_shadow_offset"
         private const val KEY_OVERRIDE_ASS = "pref_override_subtitles_ass"
         private const val KEY_SUB_DELAY = "pref_subtitles_delay"
+        private const val KEY_RESOLVE_SHEET_FORMATTED = "pref_resolve_sheet_formatted"
+        private const val KEY_PREF_SUB_LANGS = "pref_preferred_subtitle_languages"
         private const val KEY_GESTURES = "player_gestures"
         private const val KEY_HW_DECODE = "player_hw_decode"
+        private const val KEY_PREFIX_SUB_TRACK_MEMORY = "pref_sub_track_memory_"
     }
 }

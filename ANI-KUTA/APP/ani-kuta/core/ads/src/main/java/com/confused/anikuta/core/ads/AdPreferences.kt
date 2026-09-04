@@ -15,9 +15,10 @@ import com.confused.anikuta.core.preferences.PreferenceStore
  * APK bytecode); this class holds only the *runtime-observed* state (when the
  * last ad was shown) so the cooldown can be enforced across cold starts.
  *
- * Only one field today — [lastAdShownTimestamp] — but scoped to its own class
- * so future ad-state (e.g. per-kind counters, daily caps) lands here without
- * polluting AppPreferences.
+ * Two fields today — [lastAdShownTimestamp] + [firstOpenGraceConsumed] (D-407:
+ * the round-31 first-open grace) — scoped to their own class so future
+ * ad-state (e.g. per-kind counters, daily caps) lands here without polluting
+ * AppPreferences.
  *
  * @param preferenceStore the shared backing store (Koin-injected singleton).
  */
@@ -36,8 +37,26 @@ class AdPreferences(
             Logger.i(TAG) { "lastAdShownTimestamp persisted = $value" }
         }
 
+    /**
+     * D-407 (round 31): whether the ONE-PER-INSTALL first-open grace has been
+     * consumed. The round-31 report: "For the very first time the user opens
+     * up the application and clicks on any of the contents, he should not be
+     * shown the advertisement pop-up… afterwards the normal advertisement
+     * system will work." `false` on a fresh install → the FIRST gated
+     * navigation proceeds straight to the details page (no interstitial, no
+     * cooldown recorded); the flag then flips to `true` for the install's
+     * lifetime and every later navigation follows the normal system.
+     */
+    var firstOpenGraceConsumed: Boolean
+        get() = preferenceStore.getBoolean(KEY_FIRST_OPEN_GRACE, false)
+        set(value) {
+            preferenceStore.putBoolean(KEY_FIRST_OPEN_GRACE, value)
+            Logger.i(TAG) { "firstOpenGraceConsumed persisted = $value" }
+        }
+
     private companion object {
         private const val TAG = "Anikuta:Core:Ads:Prefs"
         private const val KEY_LAST_AD_SHOWN = "ads_last_shown_timestamp"
+        private const val KEY_FIRST_OPEN_GRACE = "ads_first_open_grace_consumed"
     }
 }

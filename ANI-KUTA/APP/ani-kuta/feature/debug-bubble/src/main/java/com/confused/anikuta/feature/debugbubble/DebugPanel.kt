@@ -181,13 +181,10 @@ fun DebugPanel(
 
                     // ── Tab content ──
                     // NO outer verticalScroll — each tab manages its own scrolling.
-                    // Console tab: no padding (dark grey fills the whole area).
-                    // Other tabs: 16dp horizontal + 12dp vertical padding.
-                    val contentPadding = if (activeTab == DebugTab.CONSOLE) {
-                        Modifier.padding(0.dp)
-                    } else {
-                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                    }
+                    // Task 64: the Console tab (and its zero-padding special case)
+                    // is gone with the console-logging family — every remaining
+                    // tab gets the standard 16/12 padding.
+                    val contentPadding = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -208,7 +205,6 @@ fun DebugPanel(
                                 initialSearch = pendingDbFilter,
                                 onSelectTable = { },
                             )
-                            DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab()
                             DebugTab.NETWORK -> com.confused.anikuta.feature.debugbubble.panel.NetworkTab(
                                 viewMode = networkViewMode,
                                 onViewModeChange = { networkViewMode = it },
@@ -300,12 +296,9 @@ fun DebugPanel(
                         }
                     }
                     // ── Live content (scrollable, no buttons) ──
-                    // Console: no padding (dark grey fills the whole area).
-                    val miniContentPadding = if (activeTab == DebugTab.CONSOLE) {
-                        Modifier.padding(0.dp)
-                    } else {
-                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    }
+                    // Task 64: the Console tab's zero-padding special case is gone
+                    // with the console family — the mini panels all take the 8/4 padding.
+                    val miniContentPadding = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -318,7 +311,6 @@ fun DebugPanel(
                             DebugTab.DATABASE -> com.confused.anikuta.feature.debugbubble.panel.DatabaseTab(
                                 onSelectTable = { },
                             )
-                            DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab(minimized = true)
                             DebugTab.NETWORK -> com.confused.anikuta.feature.debugbubble.panel.NetworkTab(
                                 minimized = true,
                                 viewMode = networkViewMode,

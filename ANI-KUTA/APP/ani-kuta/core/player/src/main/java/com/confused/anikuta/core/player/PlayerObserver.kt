@@ -62,6 +62,16 @@ class PlayerObserver(
     var mpvView: AnikutaMPVView? = null
 
     /**
+     * D-408 (round 32): fired after EVERY track-list reload
+     * ([loadTracksFromMpv]) — the host's remembered-subtitle pre-apply. The
+     * observer owns the "when tracks changed" moment (FILE_LOADED, the 5s
+     * safety reloads, track-list/count property changes); the host owns the
+     * "what was remembered" logic — this hook connects them without
+     * coupling the observer to preferences.
+     */
+    var onTracksLoaded: ((List<VideoTrack>) -> Unit)? = null
+
+    /**
      * External subtitle tracks to load on the next FILE_LOADED.
      * Set by the host before calling `loadfile` (from the picked video's tracks).
      * Each entry is (url, lang).
@@ -174,6 +184,16 @@ class PlayerObserver(
                 stateHolder.updateError(null)
                 stateHolder.updateLoadingState(PlayerLoadingState.READY)
                 stateHolder.updateBuffering(false)
+                // D-408 (round 32): re-apply the REMEMBERED subtitle style
+                // settings on every file load. The init-time setOptionString
+                // pass is not reliable on all devices (the live setProperty*
+                // path's own doc says string-set doesn't reliably update
+                // numerics) — the round-32 report: styles only applied after
+                // a manual tweak in the settings sheet. Running the LIVE
+                // apply here covers every new file, episode switch, and
+                // fresh screen.
+                runCatching { mpvView?.applySubtitlePreferences() }
+                    .onFailure { Logger.w(TAG) { "applySubtitlePreferences on FILE_LOADED failed: ${it.message}" } }
                 // Load external tracks (sub-add / audio-add) BEFORE reading the
                 // track list — external tracks need to be registered first.
                 loadExternalTracks()
@@ -215,6 +235,11 @@ class PlayerObserver(
                     stateHolder.updateError(null)
                     stateHolder.updateLoadingState(PlayerLoadingState.READY)
                     stateHolder.updateBuffering(false)
+                    // D-408 (round 32): the remembered subtitle styles — the
+                    // same live apply as FILE_LOADED (this branch IS a file
+                    // load for streams that fire RESTART instead).
+                    runCatching { mpvView?.applySubtitlePreferences() }
+                        .onFailure { Logger.w(TAG) { "applySubtitlePreferences on RESTART failed: ${it.message}" } }
                     // Only load external tracks if they haven't been loaded yet.
                     // (pendingSubtitleTracks is cleared after loadExternalTracks,
                     // so if it's empty, they were already sent.)
@@ -418,6 +443,10 @@ class PlayerObserver(
             val (subs, audio) = view.loadTracks()
             stateHolder.updateTracks(subs, audio)
             Logger.i(TAG) { "Tracks loaded: ${subs.size} subs, ${audio.size} audio (MPV track-list/count=$trackCount)" }
+            // D-408 (round 32): notify the host (the remembered-subtitle
+            // pre-apply runs there — it owns the per-series memory).
+            runCatching { onTracksLoaded?.invoke(subs) }
+                .onFailure { Logger.w(TAG) { "onTracksLoaded hook failed: ${it.message}" } }
             if (subs.isEmpty() && audio.isEmpty() && trackCount == 0) {
                 Logger.w(TAG) { "No tracks detected — video may not have embedded subtitles. External subs need sub-add (see loadExternalTracks)." }
             }

@@ -15,6 +15,11 @@ import kotlinx.coroutines.withContext
  * 1. `episode_schedule` table (the schedule entries for each anime).
  * 2. `anime_update_state.next_airing_*` + `status` (S4 — unified airing data,
  *    shared with the Updates engine so both use the same AniList data).
+ * 3. D-391 (round 26): the smart-release one-shot checks — every FUTURE
+ *    airing discovered here gets a [SmartReleaseCheckWorker] scheduled at
+ *    `airingAt + learned offset`. This is the AUTHORITATIVE trigger: the
+ *    moment a new airing time is known, the smart check for it exists —
+ *    regardless of when the periodic worker happens to run.
  *
  * CORE_RULES §20: logged with tag "Anikuta:Core:Schedule".
  */
@@ -26,6 +31,9 @@ class ScheduleEngine(
     private val notificationManager: com.confused.anikuta.core.notifications.NotificationManager?,
     // D-193 v2: needed to schedule precise on_schedule OneTimeWorkers at airing time.
     private val appContext: android.content.Context,
+    // D-391 (round 26): schedules the smart-release one-shot checks — nullable
+    // seam (the engine's core fetch works without it; wiring in :app's Koin).
+    private val smartReleaseScheduler: com.confused.anikuta.core.updates.SmartReleaseScheduler? = null,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Schedule"
@@ -179,5 +187,20 @@ class ScheduleEngine(
         }
 
         Logger.i(TAG) { "fetchSchedule — complete. $totalEntries schedule entries written." }
+
+        // D-391 (round 26): every airing time just (re-)discovered → (re-)aim
+        // the smart-release one-shots. The unique-name + REPLACE policy makes
+        // this idempotent: fresher data simply re-targets existing checks.
+        // This is THE fix for "the next check was inaccurate": the countdown
+        // on the history page now tracks these one-shots (the earliest fires
+        // at the next actual expected release), not the periodic interval.
+        if (smartReleaseScheduler != null) {
+            try {
+                smartReleaseScheduler.scheduleUpcomingChecks()
+                Logger.i(TAG) { "Smart-release one-shots (re-)scheduled from the fresh schedule data" }
+            } catch (e: Exception) {
+                Logger.w(TAG) { "Smart-release scheduling failed (non-fatal): ${e.message}" }
+            }
+        }
     }
 }

@@ -20,6 +20,11 @@ val updatesModule = module {
             actualReleaseUpdater = getOrNull(),
             notificationSender = getOrNull(),
             updatePreferences = getOrNull(),
+            // Task 64 (round 24): the LIVE check-status notification + the
+            // check-history logger — both bound in :app's appModule (nullable
+            // here so tests + preview modules stay untouched).
+            progressNotifier = getOrNull(),
+            checkLogger = getOrNull(),
         )
     }
     // D-193 Phase 4: UpdateScheduler for configurable WorkManager interval.

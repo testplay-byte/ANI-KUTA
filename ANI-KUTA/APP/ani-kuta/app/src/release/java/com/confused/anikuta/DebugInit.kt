@@ -10,13 +10,16 @@ import org.koin.dsl.module
  * Release counterpart to `:app/src/debug/DebugInit.kt` (Phase DB).
  *
  * Same signature, minimal behavior. Lets `:app/src/main` call `debugKoinModules()`
- * + `initDebugIntegrations()` + `wrapDebugOkHttp()` + `wrapDebugSqlDriver()`
+ * + `wrapDebugOkHttp()` + `wrapDebugSqlDriver()`
  * unconditionally — in debug builds the debug source set's version does the
  * real work; in release builds these are minimal/no-ops.
  *
  * Release builds still register a `DebugBuildInfo` (with "release" buildType) —
  * harmless, + the App Info tab is never shown in release (the bubble module
  * isn't on the classpath, so the tab isn't reachable).
+ *
+ * Task 64 (round 24): `initDebugIntegrations()` is gone from BOTH source sets
+ * with the console-logging family (the Logger appender wiring it existed for).
  */
 
 /** Release builds register only the build-info (harmless). */
@@ -31,11 +34,6 @@ fun debugKoinModules(): List<Module> = listOf(
         }
     },
 )
-
-/** No-op in release builds. */
-fun initDebugIntegrations() {
-    // No-op — no debug-bubble module on the classpath.
-}
 
 /** No-op in release builds — returns the client unchanged. */
 fun wrapDebugOkHttp(client: OkHttpClient): OkHttpClient = client

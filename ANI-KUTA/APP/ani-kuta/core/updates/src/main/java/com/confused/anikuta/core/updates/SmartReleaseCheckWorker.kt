@@ -45,6 +45,14 @@ class SmartReleaseCheckWorker(
         const val KEY_AIRING_AT = "airing_at"
         const val MAX_ATTEMPTS = 4
 
+        /**
+         * D-396 (round 27): the per-anime tag stamped on every one-shot of
+         * THIS anime — the update-check history page matches it against
+         * WorkInfo.tags to resolve each series' LANDED fire time (WorkInfo
+         * exposes tags, not unique work names).
+         */
+        fun mainTag(mainId: String): String = "sr_main_$mainId"
+
         // D-193 Phase 7: Progressive retry schedule (minutes after previous attempt).
         // Attempt 1: airing + 10min
         // Attempt 2: + 20min (total: airing + 30min)
@@ -55,7 +63,16 @@ class SmartReleaseCheckWorker(
 
         /**
          * Schedule a smart-release check for a specific episode.
-         * Called by [SmartReleaseScheduler] when an anime's airing time is within ±1h.
+         *
+         * D-391 (round 26): the FIRST attempt now lands at
+         * `airingAt + [offsetMs]` — the per-anime LEARNED release delay
+         * (how long after the AniList airing the episode actually shows up on
+         * the source, learned from every confirmed find). A fixed +10min is
+         * only the no-history default. Every request is also tagged with
+         * [SmartReleaseScheduler.WORK_TAG] so the update-check history page
+         * can query WorkManager for the REAL next smart check time.
+         *
+         * Called by [SmartReleaseScheduler] for every known future airing.
          */
         fun schedule(
             context: Context,
@@ -63,12 +80,13 @@ class SmartReleaseCheckWorker(
             episodeNumber: Double,
             airingAt: Long,
             attempt: Int = 1,
+            offsetMs: Long = RETRY_DELAYS_MINUTES[0] * 60 * 1000,
         ) {
             val workName = "smart_release_${mainId}_$episodeNumber"
             val delayMinutes = if (attempt == 1) {
-                // First attempt: schedule at airingAt + 10min.
+                // First attempt: schedule at airingAt + the learned offset.
                 val now = System.currentTimeMillis()
-                val targetTime = airingAt + (RETRY_DELAYS_MINUTES[0] * 60 * 1000)
+                val targetTime = airingAt + offsetMs
                 val delayMs = (targetTime - now).coerceAtLeast(0)
                 delayMs / (60 * 1000)
             } else {
@@ -87,6 +105,15 @@ class SmartReleaseCheckWorker(
             val request = OneTimeWorkRequestBuilder<SmartReleaseCheckWorker>()
                 .setInputData(inputData)
                 .setInitialDelay(delayMinutes, TimeUnit.MINUTES)
+                // D-391: the tag the history page queries for the REAL next
+                // smart check time (min over ENQUEUED one-shots).
+                .addTag(SmartReleaseScheduler.WORK_TAG)
+                // D-396 (round 27): the PER-ANIME tag — the history page
+                // resolves each series' LANDED one-shot fire time by matching
+                // this tag (WorkInfo exposes tags; unique names don't), so a
+                // per-item row can contrast what was CALCULATED with what
+                // actually landed in WorkManager + the drift between them.
+                .addTag(SmartReleaseCheckWorker.mainTag(mainId))
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(
@@ -95,7 +122,10 @@ class SmartReleaseCheckWorker(
                 request,
             )
 
-            Logger.i(TAG) { "Scheduled: mainId=$mainId ep=$episodeNumber attempt=$attempt delay=${delayMinutes}min" }
+            Logger.i(TAG) {
+                "Scheduled: mainId=$mainId ep=$episodeNumber attempt=$attempt " +
+                    "delay=${delayMinutes}min (airingAt=$airingAt offsetMs=$offsetMs)"
+            }
         }
     }
 

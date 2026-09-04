@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,6 +59,11 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
  * Layout:
  * 1. Header "Link Source" + close button.
  * 2. Source picker (horizontal scroll of chips — one source at a time).
+ *    Task 50 (round 10): the chips are SECTIONED by ecosystem — aniyomi
+ *    extensions first (the "old system" is primary), CloudStream-bridged
+ *    providers second. Section headers render ONLY when both ecosystems
+ *    are installed (mirrors the Task-46 SEARCH picker —
+ *    ExtensionSourcePickerSheet).
  * 3. Search field (pre-filled with the anime's title).
  * 4. Results list (SAnime candidates) — tap to link.
  *
@@ -78,7 +84,22 @@ fun ManualSearchSheet(
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = screenHeight * 0.70f
 
-    var selectedSource by remember { mutableStateOf(availableSources.firstOrNull()) }
+    // Task 50 (round 10): un-mix the flat source list by ecosystem —
+    // CloudStream providers bridged through data/cloudstream expose
+    // AnimeHttpSource.isCloudStreamBridged (Task 50-b/50-c); everything else
+    // (including non-HTTP catalogue sources) is an aniyomi source. Relative
+    // order inside each bucket is preserved.
+    val aniyomiSources = availableSources.filter { src ->
+        (src as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource)?.isCloudStreamBridged != true
+    }
+    val cloudStreamSources = availableSources.filter { src ->
+        (src as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource)?.isCloudStreamBridged == true
+    }
+
+    var selectedSource by remember {
+        // Aniyomi first (primary ecosystem) — matches the visual order below.
+        mutableStateOf(aniyomiSources.firstOrNull() ?: cloudStreamSources.firstOrNull())
+    }
     var query by remember { mutableStateOf(initialQuery) }
 
     ModalBottomSheet(
@@ -124,7 +145,7 @@ fun ManualSearchSheet(
                 }
             }
 
-            // ── Source picker (horizontal scroll) ──
+            // ── Source picker (horizontal scroll, sectioned by ecosystem) ──
             if (availableSources.isEmpty()) {
                 Text(
                     text = "No trusted sources installed. Install extensions from Settings → Extensions first.",
@@ -134,30 +155,24 @@ fun ManualSearchSheet(
                     modifier = Modifier.padding(vertical = 24.dp),
                 )
             } else {
-                androidx.compose.foundation.lazy.LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(bottom = 12.dp),
-                ) {
-                    items(availableSources, key = { it.id }) { source ->
-                        val isSelected = source.id == selectedSource?.id
-                        Surface(
-                            color = if (isSelected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                            shape = RoundedCornerShape(50),
-                            modifier = Modifier.clickable { selectedSource = source },
-                        ) {
-                            Text(
-                                text = source.name,
-                                fontFamily = RobotoFamily,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                maxLines = 1,
-                            )
-                        }
-                    }
+                // Task 50 (round 10): aniyomi section FIRST, CloudStream second;
+                // headers only when BOTH buckets are non-empty (a lone ecosystem
+                // renders without a header — no confusing empty sections).
+                if (aniyomiSources.isNotEmpty()) {
+                    if (cloudStreamSources.isNotEmpty()) SourceSectionHeader("Aniyomi")
+                    SourceChipRow(
+                        sources = aniyomiSources,
+                        selectedSource = selectedSource,
+                        onSelect = { selectedSource = it },
+                    )
+                }
+                if (cloudStreamSources.isNotEmpty()) {
+                    if (aniyomiSources.isNotEmpty()) SourceSectionHeader("CloudStream")
+                    SourceChipRow(
+                        sources = cloudStreamSources,
+                        selectedSource = selectedSource,
+                        onSelect = { selectedSource = it },
+                    )
                 }
 
                 // ── Search field ──
@@ -262,6 +277,62 @@ fun ManualSearchSheet(
                 }
             }
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/**
+ * Task 50 (round 10): ecosystem section header — mirrors the Task-46 SEARCH
+ * picker's section headers (ExtensionSourcePickerSheet.PickerSectionHeader)
+ * so both sheets read identically. Rendered ONLY when both ecosystems are
+ * present.
+ */
+@Composable
+private fun SourceSectionHeader(title: String) {
+    Text(
+        text = title,
+        fontFamily = RobotoFamily,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp),
+    )
+}
+
+/**
+ * One ecosystem's source chips (horizontal scroll). Chip rendering + selection
+ * behavior are identical to the pre-sectioning single row — only the list fed
+ * in differs.
+ */
+@Composable
+private fun SourceChipRow(
+    sources: List<AnimeCatalogueSource>,
+    selectedSource: AnimeCatalogueSource?,
+    onSelect: (AnimeCatalogueSource) -> Unit,
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.padding(bottom = 12.dp),
+    ) {
+        items(sources, key = { it.id }) { source ->
+            val isSelected = source.id == selectedSource?.id
+            Surface(
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.clickable { onSelect(source) },
+            ) {
+                Text(
+                    text = source.name,
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    maxLines = 1,
+                )
+            }
         }
     }
 }

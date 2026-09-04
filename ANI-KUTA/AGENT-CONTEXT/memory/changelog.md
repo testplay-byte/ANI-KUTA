@@ -1526,3 +1526,243 @@ Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/
 - **D-327** — The cover → details flight is calmer: the cover's own bounds morph now runs 600ms emphasized (was 450) while the page crossfade stays at 450ms — the details page settles early and the cover glides the rest of the way in ("the details page can open up early but the image will move slowly"). Same easing curve on both (curve sync is the anti-jitter invariant; the durations are deliberately decoupled).
 - **D-328** — Switching Library ⇄ Search no longer makes shared anime covers fly between the two pages: shared-element keys are now screen-namespaced (`cover:library:<url>` / `cover:search:<url>` / `cover:browse:<section>:<url>`) via canonical builder functions — Library and Search previously both built `"cover:<url>"`, so any anime present on both pages matched and morphed across the (instant) switch. List → Details morphs (and back) are unchanged; Details carries the source card's key through the nav args.
 - **D-329** — Version 0.2.62 → 0.2.63; `test-feature/video-cache-new-download` MERGED INTO `main` (user-gated — first merge since 26e47722) — v0.2.63 tagged + released FROM main; new branch `streaming/CLOUDSTREAM` created from the new main for upcoming work (purpose TBD).
+
+## Task 51 (2026-08-30) — round 11: THE CLOUDSTREAM V2 REBUILD on streaming/CLOUDSTREAM-V2 (from main); v0.3.0
+
+The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directed a clean rebuild from main: the full CS plugin system + repos + trust UI + SEQUENTIAL multi-download, search + categories + memory + caching, details page, episodes/seasons — NO playback, aniyomi untouched. A 52-step plan (Phases A–J, each gated by a CI-green build) preceded all code; two research agents mapped main's seams + the reference's porting surface first.
+
+- **Phase A+B** — branch + gradle foundation (CS catalog pins: jackson STRICTLY 2.13.1, gson, kotlinx-datetime, appcompat, junit; CI streaming/** trigger + unit-test gate; version 0.3.0/64) + the ENTIRE clean-room ABI module ported (41 files, 5 test suites, zero app-coupling).
+- **Phase C** — the 7 additive core seams: InstallStep → provider-api; ExtensionManager.setExternalSources + the loadAll re-merge (CS sources survive every aniyomi reload); SAnime.year/score (binary-safe default accessors); AnimeHttpSource.isCloudStreamBridged; details year seeding; ExtensionExtras.year/score; cloudstreamShowNsfw.
+- **Phase D** — the data/cloudstream runtime ported (+22 tests) with TWO V2 changes: (1) the SEQUENTIAL install queue (D-370 — user requirement: multi-tap enqueues instantly, installs run strictly one-by-one); (2) the honest playback boundary (D-371 — bridge stripped to details/episodes; episode taps show "playback arrives with the playback port"). Also: the R11-B "BrowseCache corruption" disproven by byte-level verification (D-372 — terminal display artifact).
+- **Phase E** — app shell: AnikutaApp extends CloudStreamApp + THE SOURCE BRIDGE (CS providers → ExtensionManager, live appear/disappear); MainActivity AppCompatActivity + CommonActivity publishing (plugin load contract + activity-gated load + crash-restart self-heal); AppCompat theme; the RingLogBuffer logging data plane in ALL builds + plugin Log facade sink.
+- **Phase F** — details chain: year seeding at all 4 fetch sites, year+score persisted in ExtensionExtras for cache reopens, header meta row year, the link-source sheet sectioned Aniyomi/CloudStream.
+- **Phase G** — extensions UI: dedicated CS section (Trusted/Failed/Untrusted/Available) through the SHARED list chrome (aniyomi parity by construction), plugin detail pages (trust gate, live providers, install machine), dual-format repo management (CS-first detection), CS update checks, persisted NSFW toggle.
+- **Phase H** — search integration: sectioned source picker, browse categories (parallel shelves), persisted memory (tab + kind + provider across restarts via the proven awaitCsSource heal), SWR caching (instant cached feed, never-blank refresh), CF cards with UA-bound WebView.
+- **Phase I** — console logging tool: Settings → Developer tools → Console logs (live view, filters, level chips, export+share w/ own-process logcat).
+- **Phase J** — documentation (cloudstream-v2 zone: PLAN + ARCHITECTURE), adversarial review, release v0.3.0.
+- v0.3.0 (versionCode 64).
+
+## v0.4.0 — Task 52 (round 12): the CloudStream playback port
+
+- **Phase A** — gradle/CI groundwork: media3 1.9.3 pins (= upstream CS's own pin), :core:cs-player + :feature:cs-watch module skeletons, version 0.4.0/65, `:core:cs-player` added to the CI unit-test gate.
+- **Phase B+C** — the engine + the resolver: CsPlayerEngine (ExoPlayer host: per-link OkHttp DataSource w/ referer/UA/headers + provider interceptor, sidecar subtitle sources, external audio merge, track selection, upstream-format error diagnostics) + CloudstreamLinkResolver (progressive loadLinks snapshots, URL dedup, torrent/DRM filtering + counting, subtitle unique-ifying, 20-min link cache, 30-s first-link watchdog) — 12+13 unit locks.
+- **Phase D+E** — the CS watch screen: CsWatchKey (Nav3), CsWatchViewModel (resolution state + auto-pick + next-link fallback + watch progress on the SAME provider-agnostic store), Media3 PlayerView surface w/ Compose glass controls (seek/speed/auto-hide/immersive), resolving + honest error overlays, Streams sheet (type badges VIDEO/HLS/DASH, failed markers, hidden counts, long-press copy, per-stream quality rows), Subtitles sheet (sidecar + embedded), Episodes sheet, episode auto-advance.
+- **Phase F** — the seams: DetailsScreen routes CS episode taps to `onNavigateToCsWatch` BEFORE the classic resolver; continue-watching autoplay unified through the same handler; MainActivity CsWatchKey nav branch; the resolveEpisode CS short-circuit stays as defense in depth (downloads get the honest message).
+- **Phase G** — logging: the `Anikuta:CS:*` namespace (Resolver/Player/Subs/Watch) + the "CS Playback" console chip; the one-filter logcat recipe (doc cloudstream-v2/03).
+- **Phase H** — docs: 02-PLAYBACK-PLAN.md + 03-PLAYBACK.md (as-built), D-374..D-376, the long-task-execution skill (the user-requested agent-method doc).
+- v0.4.0 (versionCode 65). Aniyomi playback stack: zero diff (R12-REVIEW-verified).
+
+## Task 53 (round 13) — the playback-fixes release (v0.4.1)
+- Research round: upstream CloudStream clone (R13-A), AnymeX + its runtime bridge (R13-B), jadx decompilation of the actual AniKoto/MovieBoxProvider .cs3 plugins, and live empirical CDN testing (hcdn3 UA/referer rules, kryntal referer requirement) — every v0.4.0 device finding root-caused (doc cloudstream-v2/04).
+- RC-1 FIXED: vendored M3u8Helper passed an invented `referer = streamUrl` (nicehttp lets the referer param REPLACE the caller's Referer header) → kryntal 403 → AniKoto's runCatching swallowed it → 0 links + 0 subs after the full ~19-request walk (~19 s). Now headers-only (upstream parity) + Anikuta:CS:M3u8 failure forensics.
+- RC-2 FIXED: the player's default Mobile-Chrome UA caused the 428 class (hcdn3 rejects ANY browser UA with 428, any Referer with 429). Attempt 1 now = upstream semantics (UA from link headers else desktop Chrome/149); a 4xx at open time triggers ONE clean retry (client-default UA, referer dropped) — empirically 206.
+- RC-3 FIXED: the play-trigger LaunchedEffect read the collectAsState State object (lags the StateFlow by one dispatch) → a new episode's initialize() reset landed between composition and the effect → the PREVIOUS show's link played on the fresh engine. Generation lock (playGeneration == resolveGeneration, live StateFlow reads, logged verdicts) + engineResetTick hard-reset.
+- RC-4/RC-5: upstream's 120 s loadLinks timeout wrap (loadLinksTimeoutMs, 5–480 s clamp); WebViewResolver stub returns null-pair (upstream failure shape) instead of throwing.
+- RC-6 SHIPPED: the AnymeX-pattern resolve sheet — episode taps open a bottom sheet over the details page (progressive source rows, CC badges, "Scanning for more…"), selection seeds the watch VM with the full pre-resolved list (instant playback), CsSourceMemory remembers the per-anime server (auto-select on arrival; single-link auto-select).
+- RC-7 SHIPPED: Sheets reorganization — Sources (quality-desc sort, subtitle count, failed markers), Audio & Subtitles (embedded DASH audio tracks sectioned in when >1).
+- RC-8 SHIPPED: the diagnosability overhaul — request-profile logging on every engine load, m3u8 failure forensics (status + body preview), generation-lock verdicts, per-link failure reasons in the exhausted message, two new tags (Anikuta:CS:M3u8, Anikuta:CS:Sheet) in the one-filter recipe.
+- Aniyomi stack: byte-untouched (all changes inside the CS modules + the MainActivity CS seams).
+
+## v0.4.3 / 68 (2026-08-31, Task 55 / round 15, branch streaming/CLOUDSTREAM-V2)
+
+- **Resolve sheet cleanup** — the "via {provider}…" hint line and the
+  "N source(s) · N subtitle track(s)" footer removed (user request); the
+  in-player links sheet now matches the aniyomi QualitySheet exactly.
+- **Audio-version formatting** — CS sources render the aniyomi 3-tier
+  (Server → AudioVersion → Quality): SUB/DUB chips on the cards, per-version
+  label rows, quality chips; combined sub/dub resolution tags each stream.
+- **Source formatting on/off toggle (both stacks)** — tap the sheet title
+  ("Episode N" / "Qualities and Servers") → a small popup menu ABOVE it;
+  OFF = raw flat list, one row per stream, tap = play directly. Default ON.
+- **Subtitles fixed + customizable** — language names (never URLs), live-index
+  track selection, content-sniffed mimes, preferred-language auto-select,
+  and a full CS Subtitle Settings sheet styling the Media3 view live.
+- **Sub/Dub episode display modes** — Episode list settings → Display:
+  Separate (Sub | Dub chip switcher) or Combined (merged rows; tapping
+  resolves BOTH flavors and the sheet's audio chips let the user pick).
+- Aniyomi stack: strictly ADDITIVE changes (the toggle UI + the Display-tab
+  section); all existing behavior byte-identical.
+
+### v0.4.3 completion round (2026-08-31, Task 55 tail — the CI-failure fixes)
+
+- The round-15 push's CI run FAILED (2 tasks) before ANY downstream module
+  compiled. Root causes + fixes (all in this round):
+  1. `CloudstreamLinkResolver.sniffSubtitleMime` was declared as a LOCAL
+     function inside the `channelFlow` block WITH a `private` modifier —
+     illegal on locals (139 cascade errors, incl. the `?:` inference
+     breakdowns). Hoisted to a proper private CLASS member;
+     `SNIFF_HEAD_BYTES` (256L) extracted to the companion; the byte count
+     now `contentLength().takeIf { it in 1..256 } ?: 256` (Long-clean).
+  2. `CsMediaTypesTest.kt`: the Task-55 sniff tests were pasted at FILE
+     top level (outside any class) → JUnit4 discovered the file-facade
+     class `CsMediaTypesTestKt` → `InvalidTestClassError` (no public
+     zero-arg ctor). Wrapped in `class CsSubtitleSniffTest`.
+  3. Review round (3 parallel static reviewers over the NEVER-compiled
+     modules — CI aborted at :data:cloudstream so :feature:cs-watch:impl,
+     :feature:anime-details:impl and :app were unverified) caught:
+     a BLOCKER in the aniyomi `ResolverSheet` raw branch (function-type
+     mismatch: `onPickVideo` is `(ResolvedVideo, …)` but `RawVideoList`
+     emits `ResolverVideo` — contravariance can't bridge unrelated final
+     classes; fixed by sharing ONE pick adapter with the accordion
+     branch), a DUB-only-list blank-filter bug in DetailsScreen (single-
+     flavor lists now render unfiltered), a scanlator over-match that
+     could trigger the sub/dub chips on ANIYOMI lists (feature now gated
+     on `isLinkedSourceCloudStream()` + exact "Sub"/"Dub" scanlator match
+     only — the ADDITIVE-ONLY invariant is now structural), and a dropped
+     `fillermark` on merged rows (copied now). Also 11 unused imports
+     cleaned from CsPlayerSheets.
+- Version stays 0.4.3/68 (no user-visible behavior change beyond the fixes).
+
+### v0.4.4 (2026-08-31, Task 56 — the device-feedback-fixes release)
+
+- **F1 — no more auto-open from the resolve sheet.** The remembered-server
+  auto-select (fired the moment a remembered server's link streamed in) and
+  the single-link auto-select (fired on Completed with exactly 1 link) are
+  GONE from `CsResolveSheet` — "for some plugins/extensions" was exactly
+  those two conditions. The sheet now always presents the list; the user
+  picks; the remembered server still auto-EXPANDS its accordion (a hint,
+  not a decision). The in-player `autoStart` (episode-switch continuity)
+  stays by design.
+- **F2 — quality chips sort highest-leftmost.** CS `groupServers` ranks by
+  pixel height descending with Unknown(400) then Auto(0) at the far right
+  ("then any other options"); the ANIYOMI accordion (ResolverSheet +
+  watch QualitySheet) had NO sort at all — both now sort by a parsed-height
+  key ("4K"→2160, "1080p"→1080, non-numeric last) at the display layer.
+- **F3 — sub/dub lists renumber + de-tag.** Root cause: EpisodeListNormalizer
+  guarantees globally-UNIQUE numbers (its identity contract), so the second
+  flavor ALWAYS continues (dub 13–24 for a 12+12 show) — and the round-15
+  rows showed it. Fix: per-flavor DISPLAY ordinals (1..N per flavor) +
+  tag-stripped names at every CS episode surface (details rows, CS watch
+  page, episodes sheet, "currently playing"); identity numbers untouched
+  (progress/cache/metadata keys byte-identical).
+- **F4 — COMBINED mode actually merges.** The round-15 pairing keyed on
+  episode_number equality — dead under global numbering. All three pairing
+  sites (CsSubDubSiblings.mergeSiblings/handlesFor + the DetailsScreen
+  SEpisode twin) pair by flavor ORDINAL: 12+12 → 12 rows, a tap resolves
+  BOTH flavor handles (the round-15 dual-resolve flow finally engages).
+- **F5 — the LazyColumn duplicate-key crash.** `IllegalArgumentException:
+  Key "Default|Default|https://…mpd" was already used` — the aniyomi RAW
+  lists keyed rows by `"$server|$label|$url"` and an extension emitted the
+  same multi-quality DASH URL twice. All raw lists (both aniyomi sheets +
+  CS CsRawLinkList) now key by `"…|$index"` / `"…#$index"`.
+- Auto-advance stays within the current flavor (next/prev walk the row's
+  flavor; auto-start prefers the target row's flavor pool), and the CS
+  hand-off strips the flavor tag from titles (the pills carry the flavor).
+- v0.4.4/69. Plan: DOCUMENTATION/cloudstream-v2/07-DEVICE-ROUND-FIXES-PLAN.md.
+
+### v0.4.6 / 71 (2026-08-31, Task 58 / round 18 — the both-stacks-debug + downloads + share release, branch streaming/CLOUDSTREAM-V2)
+- **Debug toolkit on BOTH stacks:** the aniyomi ResolverSheet + in-player QualitySheet gain the gated header copy-report, per-chip/row copy icons and raw-URL lines (NEW pure `core:video-resolver` ResolverDebugReport — deterministic, header KEYS only; the same DebugPreferences flags, default OFF, live-collected; Debug page section retitled "all extensions"). 8 unit locks.
+- **Subtitle live view + ASS accuracy:** settings apply while PAUSED (hoisted `liveSubtitleStyle` Compose state — the non-reactive prefs read + the ticker's StateFlow equality-dedup were the root cause), MPV-unit-parity LINEAR border math (borderSize/55; the 0.035f ≈1.9× + 0.15 saturation bug gone), per-line ASS BorderStyle=3 background boxes hugging glyph bounds (padding = border width, no fixed dp, no half-leading artifacts), shadow IN ADDITION to border, no maxLines truncation, fontScale now scales the Media3 view (NEW `CsSubtitleGeometry`, 9 unit locks).
+- **THE CLOUDSTREAM DOWNLOADS PORT:** the details page's download button opens the CS resolve sheet in DOWNLOAD mode ("Download EP N", DASH filtered+counted); a pick enqueues through the SAME source-agnostic engine via NEW `app/download` CsDownloadRequestBuilder (allHeaders→MPV string, sidecars→DownloadTracks) — queue/foreground service/SAF storage/notifications/downloads screen/download-state chips + MPV offline playback all ride mainId|episodeKey with ZERO engine/schema changes; classic auto path CS-guarded.
+- **Plugin share + manual import (.moviebox.WHITECAT):** Share action on every CloudStream plugin detail state (cache export + FileProvider ACTION_SEND); exported `PluginImportActivity` (MIME-based VIEW/SEND filters — Android can't extension-match content://; display-name + manifest gates, ONE confirm dialog), `CloudstreamPluginManager.importSharedPlugin` (atomic place, repo LINKAGE when a catalog matches, untrusted record, AlreadyInstalled no-op) + PendingCsPluginNav hand-off (cold start + ON_RESUME → the plugin's detail page). 7 unit locks.
+- 24/24 new pure tests GREEN offline with the real compiler chain (kotlinc 2.2.0 + real kotlinx-serialization plugin + jars); error-histogram count parity vs HEAD on all 9 modified files; aniyomi playback engine/resolver/download engine byte-untouched.
+
+### v0.4.7 / 72 (2026-09-01, Task 59 / round 19 — the v0.4.6 device-round fixes, branch streaming/CLOUDSTREAM-V2)
+- **CS downloads dead-callback fix:** the episode row's download button was still wired to the classic resolver (round 18 gated a dead EpisodesSection param, not the live row lambda) — CS-bridged downloads now open the CS resolve sheet in DOWNLOAD mode as designed.
+- **Subtitle overlay rewrite (accuracy round 2):** the whole cue renders as ONE multi-line Text with every decoration pass (per-line back-color boxes, shadow, border) drawn from the SAME TextLayoutResult under the fill — natural line spacing at every scale (the per-line-Text double-leading + stroke collision gone), passes structurally cannot detach from the glyphs ("subtitle at top, border at bottom" gone), 4% horizontal wrap inset.
+- **New subtitle defaults + Reset (both stacks):** font size MAX (100) / scale 0.5x / border 5 per the user's spec (MPV parity preserved — 100×0.5 ≈ the old 55), with a Reset button on BOTH subtitle settings sheets (PlayerPreferences.resetSubtitleSettings; the aniyomi change additive-only).
+- **Formatting toggle redesign (all four resolve sheets, both stacks):** a distinct bordered "Formatted sources" pill ABOVE the episode title (direct toggle; the title is plain text — no more click-anywhere header or menu-over-the-title).
+- **Plugin share format v2 (.WHITECAT):** the extension is just .WHITECAT (legacy .moviebox.WHITECAT still imports); the export carries anikuta/export.json (source repo URL + icon URL + catalog fields) + anikuta/icon.png (embedded icon bytes, best-effort fetch) — the receiver keeps the plugin's icon (local file, no network) and source repository even repo-less.
+- **Import UX round:** content-first validation (.bin/renamed files analyzed by their zip manifest), the confirm dialog titled "Add <plugin name>", no trust caption, Add → a clean 1.5s "Plugin added" → the extensions page (launches the main app; the pending-nav note routes there now). Plugin detail page's verbose trust-note + share captions removed.
+- Tests: CsSharedPluginFormatTest rewritten for the format v2 (10 locks) + the geometry inset lock; aniyomi stack additive-only.
+
+### v0.4.8 / 73 (2026-09-01, Task 60 / round 20 — the v0.4.7 device-round fixes, branch streaming/CLOUDSTREAM-V2)
+- **Subtitle line-gap ROOT CAUSE (CS overlay):** the fill Text overrode fontSize but not lineHeight — Material3's ambient bodyLarge leaked a FIXED 24sp line box (huge gap at 0.5x scale, overlapping glyphs at 2x+). The overlay now passes an EXPLICIT font-proportional lineHeight (fontSize × 1.2) with Proportional/None lineHeightStyle: the inter-line gap is a constant ~20% of the glyph height at every size, scale and display mode.
+- **Bold subtitles default ON (both stacks):** one preference drives MPV sub-bold and the CS overlay — bold out of the box, and Reset restores bold-on.
+- **Reset confirmation (both sheets):** the header Reset icon asks first (identical dialogs on the aniyomi + CS sheets); only the dialog's Reset writes the defaults.
+- **Formatting menu ON the heading (all four resolve/quality sheets):** the round-19 standalone pill is gone — tapping the episode TITLE TEXT (only the text) pops a small flat menu with a DISTINCT 1dp outline border holding the "Formatted sources" switch; the menu stays open while toggling.
+- **Strict .WHITECAT (no legacy compatibility):** the old .moviebox.WHITECAT double tail is explicitly REJECTED (it also ends with .WHITECAT — checked first); old-format files import through the content-first/manifest path only. The import CONFIRM page shows the plugin's EMBEDDED icon (bytes → Image; iconUrl fallback; generic glyph last).
+- **CloudStream-tab landing:** after adding a CS plugin, the extensions page opens on the CLOUDSTREAM section (ExtensionsSettingsKey carries initialTab; the pending-nav push sets "cloudstream").
+- **Download rows (both stacks):** long server names now shorten with a trailing "…" (flex pill) and the progress percentage always keeps its space — queue rows AND the downloaded page's chips.
+- **Downloaded-page crash fixed:** duplicate LazyColumn keys ("downloaded_<contentId> was already used" when scrolling to the bottom) — the denormalized per-row content metadata split one anime into two same-key groups; grouping is now on the stable contentId (richest-record metadata).
+
+## Phase 13 — Task 61 / round 21: the QoL release (v0.4.9/74)
+- **Plugin icons never blank:** every icon slot (extensions list + detail + import confirm + "Plugin added") renders fallbacks while loading AND on failure (the colorful letter tile / the extension glyph); the "Plugin added" badge now shows the plugin's OWN icon with a compact check badge. Share exports only carry http(s) iconUrls (a device-local `file://` URI — the receiver-side blank-icon root cause).
+- **"Format sources" menu (all four sheets):** opens ABOVE the heading (a Popup anchored bottom-to-bottom — deterministic, vs. the DropdownMenu's below-only anchor), the exact label "Format sources", a guaranteed 24dp gap between the label and the toggle (fixed spacer + 220dp min width — a weight-only spacer collapses in a wrap-content menu).
+- **Search pagination (AniList + aniyomi extensions + CloudStream search):** as the user approaches the bottom (~2 rows before the end) the next page pre-fetches; a full-span "Loading more…" spinner renders if the user beats it; appends dedupe by the grids' key identity (no duplicate-key crashes); a failed page load is soft (the results stay, the next trigger retries).
+- **Randomized CloudStream sections:** the browse rows (Trending, Bollywood, …) reshuffle on EVERY entry into the search page (fresh load, tab switch, app switch, subpage return); each row keeps its original provider shelf index.
+- **Category subpages:** tapping a section's TITLE opens that category's own page — the heading at the top, all results in a grid, infinite scroll as the user scrolls.
+- **Image-loading performance:** a dedicated OkHttp client (a clone of the app's) under Coil caps concurrent cover fetches at TWO (finish-current → in-view → offscreen FIFO); the cards render over dim placeholders (no pop-in flash); the 500MB disk + memory caches ride as before.
+- **Pull-to-refresh on the search page:** at the top, pull down → the current mode reloads page 1; the CloudStream browse cache is deleted first (the fresh, randomized sections land).
+- **Library category chips:** the selected category auto-scrolls into view when the page opens (first/last included); the underline is as wide as the category text, a little thicker (3dp) and closer (2dp); the section is tighter; an 8dp gap before the results.
+- **Downloaded-episodes UI:** all cards COLLAPSED by default; a smooth animated expand (rotating chevron); separator lines between episodes; the episode count as a highlighted tag; expand/collapse LEFT of delete; the TWO-STEP delete (tap → the button morphs error-red with DeleteForever; tap again to delete; tap anywhere else to disarm).
+- **Ads system:** the real sponsor URL; the minimum outside-time 15s → 5s; the OFFLINE gate — no popup when there is no validated internet (the navigation proceeds, the ad is NOT recorded — it fires the next time the user is online).
+
+## Phase 13 — Task 62 / round 22: stability, linkage, and the library performance pass (v0.4.10/75)
+- **The post-import crash fixed:** "Key ExtensionsSettingsKey was used multiple times" — the ON_RESUME pending-nav observer captured a STALE `currentKey` (its DisposableEffect never re-keys), so returning from a plugin import while already on the extensions page double-pushed ExtensionsSettingsKey; the same-class AnimatedContent transition then composed TWO SaveableStateProviders under the one class-name key. The handler now reads the LIVE backstack inside itself and REVEALS an existing extensions entry (pops to it) instead of ever stacking a second one.
+- **Plugin ↔ repository linkage (the round-22 headline):** manually installed .cs3 plugins and the repository's entry for the same plugin are now ONE row, recognized even when the repository was added LATER. An ordered identity ladder (exact internalName → the link-time repoInternalName → download URL → sha256 fileHash → normalized names) matches installed records against the online catalog; rebuildLists back-fills the record's repoUrl/repoInternalName/url/fileHash (idempotent), the Available list drops matched entries, update pills key through the ladder, installPlugin updates an identity-matched record IN PLACE (same name + path, trust kept), and the Update pill resolves its target via availableUpdateTarget() (the old exact-name lookup was a no-op for linked imports).
+- **Format-sources menu position:** floats fully ABOVE the heading and OUTSIDE the bottom sheet (a custom PopupPositionProvider sits the menu's bottom edge 8dp above the heading's top; the sheet's full-screen dialog window hosts the sub-panel popup) — it no longer covers the "Episode N" text. All three copies.
+- **Randomization triggers retrained:** reshuffles happen ONLY on a true search-TAB exit + return (SearchTabExitSignal, marked by the bottom nav) or a pull-to-refresh — NOT on subpage/details returns, app resumes, or app reopens. The arrangement (row shelf indexes + per-row item urls) is PERSISTED on the browse snapshot and RESTORED exactly across cold restarts and background refreshes (content swaps in place; the rows never jump).
+- **The smart shuffle:** randomizes the row order AND the item order within each row under the cross-section constraint — the FIRST FOUR items of any randomized category never appear in another category's first four (claimed by url). A category that cannot claim 4 unclaimed items simply stays in its original order.
+- **Library chip underline restored:** fillMaxWidth() inside a LazyRow item is a NO-OP (unbounded width) — the 3dp underline was a 0-width invisible sliver. The tab Column now carries width(IntrinsicSize.Min) (the bar resolves to the text width) with a 1dp gap to the text.
+- **Library performance pass:** H1 — the 8 bulk-mutation paths (category ops, add/remove/delete-selected, the picker's membership queries) run on the IO dispatcher; H2 — ONE combined+debounced(200ms) pipeline runs the filter+sort on Default (no more per-keystroke main-thread sorts); M1 — the PTR threshold reads via snapshotFlow+distinctUntilChanged (no more whole-root recomposition per drag frame); M2 — the shared-element registration gate is hoisted to the grid/list level and OFF while scrolling (per-cell koinInject+prefs reads gone); M3 — the root's 34 collectAsState calls split into leaf state-owner composables (the root keeps 6); M4 — the 23 prefs reads run on Default before the first load.
+- **Downloads tag:** "(N Episodes Downloaded)" (singular-aware) on every downloaded-anime card.
+- **Cover zoom focal point:** the pinch now zooms INTO the fingers (the image point under them stays under them — top-right pinches zoom the top-right), via a non-consuming centroid observer on the Initial pointer pass + focal pan math; pan-while-zoomed and the auto-reset on lift are unchanged.
+
+## Phase CS-V2 Round 24 — Task 64: the ordered re-do (v0.4.12/77)
+- REVERTED the branch to ba3c6937 (v0.4.10) per the user's instruction; the revert itself CI-verified before any new work.
+- Library performance take two: image fetch cap 2→12/8-per-host; the in-memory category switch (full-set VM cache); per-cell animation fast paths; the shared-element gate lambda; the index-only velocity signal.
+- Library chips: the IntrinsicSize.Min word-width truncation fixed (Max + no ellipsis) + the centered auto-scroll (instant on open, animated on tap).
+- Downloads tag: no parentheses, bold count only. Console-logging family removed; the Debug options page + every other debug affordance kept.
+- Genres radar rework: bigger heading, the dedicated all-genres section below it, the category filter ladder (non-empty options only, gone-default→All fallback, the section can never disappear).
+- CS browse: original shelf indexes (pre-compaction) fix the subpage mixing; same-title sections merge (no duplicate rows).
+- Watch Activity: the weekday-label bottom clipping fixed (full row-pitch slots).
+- NEW: the update-check LIVE status notification (per-content names streaming) + the content-update history page (JSON file, no DB changes this round).
+
+## Phase CS-V2 Round 25 — Task 65: the seven v0.4.13 findings (v0.4.13/78)
+- **Schedule crash (D-381):** the schedule queries' INNER JOIN on library_item (one row PER CATEGORY) duplicated every schedule row once per category membership → identical LazyColumn keys → IllegalArgumentException. Now EXISTS semi-joins (+ defensive composite dedupes in the VMs, and the UpdatesScreen keys include audioVariant — sub+dub of one episode are two rows by design).
+- **Library list-mode scroll (D-382):** the per-row nested LazyRow in DetailTagRow (SubcomposeLayout + saveable state + gesture node per row for 2–5 fixed pills — the structural difference vs the smooth grid modes) replaced by a plain Row + horizontalScroll, with the tag list remembered per (entry, config, theme). The 50–268ms frames + 16MB GC per fling were the lazy-layout machinery + per-recomposition allocations.
+- **Downloads delete (D-384):** the icon morph normalized (stable frame, 150ms scale/fade AnimatedContent, 0.65x armed-glyph scale — the "3x jump" was the DeleteForever glyph's edge-to-edge footprint) + the exit choreography (settle pulse → slide-out + fade → VM delete, graphicsLayer-only) on both episode rows and delete-all cards + Modifier.animateItem() on the LazyColumn.
+- **Heatmap labels (D-385):** explicit 10sp lineHeight (the 8sp Text inherited bodyLarge's 24sp line box — the REAL residual clip) + a −1dp optical lift to the exact cell-row centers + month-label hardening.
+- **Details metadata (D-386):** up to four icon rows (year → rating → status → episodes) under the title, hidden per-fact when unavailable; CS 0–10 scores normalized to %.
+- **CS browse (D-387):** HomePageList NAME matching (providers that ignore MainPageRequest.name returned the whole home into every row — the bleeding), the phased pipeline (skeleton-before-network → per-shelf-as-it-lands → canonical final; shimmer rows + N-of-M status on the no-cache path, silent on stale-cache refreshes), and put() carries the display forward (background refreshes never re-arrange mid-view).
+- **Update notifications (D-388):** audible results channel (IMPORTANCE_DEFAULT, new id — Android never upgrades); rich BigText finish notifications (per-anime lines + next-check line in the device's clock + the cover as large icon + the history deep-link); the history page reworked (pinned next-check card with a live countdown + WorkManager's real fire time + the due anime with covers + the how; 12h/device time; covers + Details navigation on every row; the Settings→Updates row + check-now; the Debug→Update Check History button; trigger labels fixed).
+
+## Phase CS-V2 Round 26 — Task 66: the four v0.4.14 findings (v0.4.14/79)
+- **Delete button (D-389):** the armed (confirm) icon now GROWS to ~3x its idle size (animated 220ms; draw-phase scale so layout + tap target stay stable). The round-25 0.65x normalization was the inverse of the request.
+- **Delete logic (D-392):** the .data.json remove is a 3-attempt ladder (normal → fresh-index → nuclear delete-recreate, verify-by-re-read each); deleting the LAST episode removes the WHOLE series folder (recursive bottom-up SAF deletion with the identity-checked safety ladder: never the root, never a format folder, mainId re-confirmed at the last moment) + sweeps every DB row; delete-all is ONE atomic folder operation (per-episode fallback); every phase logs its outcome (Anikuta:Core:Download).
+- **CS browse (D-390):** the dedicated CsBrowseLoader module — the category plan (zero network) → STRICTLY SEQUENTIAL shelf fetches in the provider's own order → the strict name matcher (exact → fuzzy → EMPTY; the all-lists fallback is GONE — it was the bleeding hole that survived round 25) → static-home snapshot detection (one fetch replaces N duplicate full-home downloads) → the duplicate-content safety net in the canonical merge. The category subpages share the matcher. Covers stay with Coil (results first, covers after).
+- **Smart updates (D-391):** smart-release one-shots are scheduled for EVERY future airing the moment the schedule data discovers it (7-day horizon, airingAt + the per-anime learned release delay, WorkManager-tagged); the history page's next-check countdown = min(the earliest smart one-shot, the periodic fire); the "releasing before the next check" list is filtered by actual airing times (each row: EP n · release time · countdown); the engine summary + the finish notification's next-check line are release-aware and label the smart case.
+
+## Phase CS-V2 Round 27 — Task 67: the five v0.4.15 findings (v0.4.15/80)
+- **Delete button (D-397):** the armed (confirm) glyph now grows to 2.5x IN THE LAYOUT PHASE — the glyph's dp size (16→40dp / 20→50dp) AND the IconButton frame (32→48dp / 36→56dp) animate as real MEASURED size. The round-26 draw-phase scale(3f) painted outside the 16dp box: the card's rounded Surface clipped the grown glyph's top/left/right + the rasterized layer blurred (and 3x was too big per the re-spec). Layout growth can never clip + the vector re-rasters crisply; the row text re-ellipsizes ~16dp during the 220ms grow.
+- **Delete animation (D-397b):** the episode rows are now keyed (key(episode.episodeKey)) — the forEachIndexed Column's POSITIONAL remember slots made the row moving up after a delete INHERIT the deleted row's exit state (alpha=0, translated off-screen — "its content disappears" until re-expand). The deleted key's slots are discarded; survivors keep their own state.
+- **File deletion (D-393):** DISK-TRUTH — Phase 2 gained deleteEpisodeFilesOnDisk(): a census→delete→verify sweep of episodes/ + subtitles/ (+ legacy root files) keyed on the episode number FROM THE DB ROW, matching by the canonical filename token (full-token regex — EP 1 never matches E00001.5), with retry rounds + a survivors report (empty survivors = the on-disk GUARANTEE, independent of .data.json). The URI deletes stay as best-effort Phase 2a. The series-folder cleanup decision is now DB-driven (dbRemaining==0 — immune to .data.json ghosts, and never nukes files whose rows are live), with a playable-files disk check before the row sweep on a failed folder delete. The stale-URI/missing-entry silent-skip regression ("files are still there") is closed.
+- **Search reveal (D-395):** the top-bar collapse is a nested-scroll LATCH — any downward delta collapses, any upward delta reveals, content-mode transitions re-reveal. The old OR-of-all-three-scroll-states expression latched collapsed from a dead Idle column's ScrollState (it survives mode switches) and only re-expanded at the literal top.
+- **Update history (D-396):** per-series smart-schedule fact panel — Next release (EP + time + countdown/airs-ago), Learned delay (source lag vs the +10m default), Calculated (release + delay, captured at check time), Landed (the live WorkManager one-shot fire time via the new sr_main_<mainId> tag + the drift vs the calculated target, or "not scheduled — the periodic sweep covers it").
+
+## Phase CS-V2 Round 28 — Task 68: the five v0.4.15 findings + the onboarding wizard (v0.4.16/81)
+- **Delete button (D-399):** ONE synchronized armed choreography — a single armedProgress (260ms, Motion.EasingEmphasized) drives the glyph size, the IconButton frame, and a staggered overlap-free crossfade. The round-27 triple-animation (150ms morph vs 220ms grow) finished its morph early and read as a stutter.
+- **Tap-outside disarm (D-400):** the armed state is hoisted to the SCREEN level (one armed button in the list at a time) + an ancestor pointerInput interceptor disarms on any pointer DOWN whose window position is outside the armed button's own reported window-space rect — other rows, other cards, the header, blank space, even the start of a scroll.
+- **Deletion pipeline (D-401):** DATA.JSON FIRST, then the content — the user's explicit pipeline. The phases: DB capture → locate → capture entry → UPDATE+VERIFY the .data.json (while the tree is untouched — the stale-URI window is gone by design) → file deletes (captured URIs + the disk sweep) → series-folder cleanup → DB row LAST. deleteMutex (manager) + treeMutex (storage provider — ALL tree mutations serialized) close the read-modify-write race; DeletionMatching (pure, unit-tested) closes the two silent-success holes (the key-mismatch idempotent-true + the null-re-read "verified" pass) with key→episodeNumber drift reconciliation.
+- **Search reveal (D-402):** the sign fix — Compose's nested-scroll available.y is the FINGER displacement (positive = finger down = toward the top / the P2R pull), not the scroll-position delta; the branches swap to the standard app-bar semantics + a derivedStateOf at-top force-reveal (the very top is ALWAYS visible); the decision extracted to the unit-tested searchBarNextCollapsed.
+- **Onboarding wizard (D-403):** the new feature:onboarding module (custom non-Material animated welcome — aurora canvas + particles + staggered wordmark; LIVE 8-card theme picker; verified + skippable folder/notifications/battery steps re-checked on every ON_RESUME; finish summary) replaces the DELETED every-launch FirstRunSetupDialog. AppPreferences.onboardingCompleted gates the start destination; the no-download-folder gate (all five download call sites) shows a clear dialog + inline picker that verifies and auto-retries. The update-check history improvements are deferred per the user.
+
+## Phase CS-V2 Round 29 — Task 69: the data.json integrity system + the onboarding wizard v2 (v0.4.17/82)
+- **Deletion integrity (D-404):** THE root cause of every round-25..28 "data.json not updated/corrupted" report: openOutputStream(uri, "w") does NOT truncate on AOSP ExternalStorageProvider — a SHRINKING write left new-json-head + old-json-tail (the user's "corrupted" file), which made findContentFolder skip the folder and the last-episode delete skip every disk phase. Fix: "wt" everywhere + a post-write length check; readDataJsonIndexed SALVAGES corrupted files (the balanced-brace DataJsonRepair.salvageCompleteJsonHead — the app self-heals the file v0.4.16 left on disk); the delete flow REBUILDS the .data.json from DB truth (rows minus the deleted row — no matching, no key drift, no ghosts) via the VERIFIED rewrite ladder (strict no-salvage re-read + exact (key,number) set equality → retry → nuclear delete+recreate); findContentFolderByTitle locates destroyed-json folders for both delete paths. New DataJsonRepairTest (salvage + rebuild + equality tables incl. the exact device scenarios).
+- **Onboarding v2 (D-405):** the welcome background is five MORPHING ORGANIC BLOBS (Catmull-style cubic silhouettes, Lissajous drifts, richer jewel palette) + a rotating outline-geometry layer; the "offline-first anime streaming" footer REMOVED; the tagline ROTATES smoothly through the user's five lines; the theme step is a horizontal SNAP CAROUSEL with LIVE application on settle + the System/Light/Dark mode row + the settings note; the permission steps get big centered icons, granted states replacing dead Allow buttons, and ONE combined "Skip for now"→"Continue" bottom button; the finish step is a 2×2 summary grid. The BROWSE PRELOADER warms the 3 sections' data + every cover into Coil at the exact render sizes WHILE the wizard runs — "Start watching" lands on a fully materialized Browse.
+- **Smoothness (D-406):** the wizard⇄app handoff crossfades 250ms emphasized (quick entry, no visual cut); with the preload, the Browse screen renders content instantly on first composition.
+
+## Phase CS-V2 Round 30 — Task 70: the onboarding wizard rework (v0.4.18/83)
+- **THE CONFIRMATION OF THE ROUND**: the data.json deletion system VERIFIED FULLY RESOLVED on device (entry-level deletes clean, repeated deletes clean, the last episodes removing the whole folder — the user's "fully satisfactory"). D-404 closed; no deletion code touched.
+- **Button-at-the-top (D-406, structural)**: the permission + finish steps emitted TWO root-level layouts (fillMaxSize content Column + a separate bottom-CTA Column) and AnimatedContent stacks root children at TopStart — the CTAs overlapped the TOP of the screen. Every step is now ONE root Column with the CTA inside it at the bottom.
+- **Welcome background (D-406, root-cause)**: the round-29 stutter was TWO defects — the infinite-transition phases WRAPPED 0→2π against non-integer blob speeds (sin(2π×1.7)≠sin(0): silhouettes snapped + centers teleported every 11s/24s = the "keeps resetting") and ~50 heap objects allocated per frame (GC churn = the "skipped frames"). The new engine: ONE monotonic clock (clamped frame-nano deltas — backgrounding pauses the art), zero steady-state allocation (pre-allocated Paths, reused arrays, cached brushes), draw-phase-only invalidation, and the requested motion — shapes that MORPH between organic blobs and rounded polygons and SPLIT into halves that drift apart and merge back (staggered per-blob cycles, perfectly continuous both ends).
+- **Theme step (D-406)**: the appearance page's exact SegmentedToggle UI with EXACTLY Light/Dark at the top (SYSTEM initializes to the system's actual mode); the carousel below filters to the selected mode's themes (choices carry mode buckets) as exact PalettePreviewCard replicas with the center card big + side cards at 76% (draw-phase scroll-driven scale); mode flips apply the new bucket's default card in one shot (no mismatched-accent flash).
+- **Permission steps (D-406)**: every named description removed; the big icon morphs into a check on grant with one clean line; the folder re-pick is a FULL button (OnboardingSecondaryCta); the combined Skip→Continue button at the BOTTOM. Also: the finish CTA at the bottom, the progress numbering fixed (storage no longer duplicates the theme step's 1/5), the 48dp back-button touch target, the AutoMirrored arrow.
+
+## Phase CS-V2 Round 31 — Task 71: the wizard polish + the subtitle system (v0.4.19/84)
+- **Welcome art (D-407):** the "suddenly change their shades when they combine" pop is dead — the blob layer composites with BlendMode.Screen (overlaps blend like light — the liquid merge) AND the split's second half is alpha-ramped with the split itself (zero contribution at birth/merge). The "simple fixed path" is dead — each center wanders on THREE incommensurate harmonics per axis (never retraces; blobs cross at ever-different places). Each blob transforms through a SEQUENCE of polygons (staged seamless crossfades) and its radius breathes. Still zero steady-state allocation + the single monotonic clock.
+- **Theme carousel (D-407):** vertically centered between the Light/Dark toggle and the Continue button (LazyRow verticalAlignment — the cards no longer hug the toggle).
+- **Permission granted states (D-407):** the morphed check + label swap is an explicitly-CENTERED AnimatedContent over full-width children (the device's left-aligned "glitch" is structurally impossible); the folder step shows the FULL readable folder path ("Internal storage › ANI-KUTA › …" — describeFolderPath from the SAF tree document id) in a glass panel under "Folder verified".
+- **Ads first-open grace (D-407):** the FIRST content click after install opens the details page with NO interstitial (one-per-install persisted flag, consumed in requestNavigation between the enabled and cooldown gates — no cooldown recorded); the normal 6h-cooldown system takes over from the next click.
+- **Downloaded-episode subtitles (D-407, the core fix):** the details page passed "" for subtitle tracks when playing a downloaded episode — the player never looked at the disk (the report's "subtitles do not get shown in the subtitle selector even though they are stored properly"). ONE shared resolver — DownloadManager.resolveSubtitleTracks (DB subtitleUris → the episode's dedicated subtitles/ folder disk scan; labels parsed from the filenames) — now feeds the details hand-off, the downloads hand-off, AND the in-player episode switch (which also drops its "Subtitle N" generics). MainActivity's two private helpers deleted.
+- **Manual subtitle import (D-407):** a PERMANENT "Add subtitle file" row in the subtitle sheet → the multi-select SAF picker (custom contract; */* with mime hints — octet-stream subtitle files stay pickable; extensions validated post-pick) → for downloaded episodes the file is PERSISTED into the episode's subtitles/ folder + DB row + .data.json entry (the scanner's disk walk recovers it) → staged (no-cleanup stageSingle) → MPV sub-add with "select" (activates immediately, listed in the refreshed selector). Streamed episodes: session-scoped. Labels derive from the picked file's display name.
+
+## Phase CS-V2 Round 32 — Task 72: the subtitle-system maturity (v0.4.20/85)
+- **Downloaded-subtitle detection (D-408):** the v0.4.19 report's "huge issue" (downloaded episodes' subs still not in the selector) — resolveSubtitleTracks is now a LAYERED chain: stale-cache reload → DB row → the episode's OWN videoUri walk (immune to .data.json corruption + mainId drift) → mainId manifest walk → title fallback; labelForUri reads the actual on-disk file name (the last `/` segment — it was reading the whole decoded document path, so every label fell back to "Subtitle N").
+- **"Available in storage" sheet section (D-408):** the belt-and-braces listing — when the sheet opens, the episode's on-disk subtitle files (same resolver, minus already-loaded tracks) are listed; tapping loads via the proven stage → sub-add "select" path.
+- **Add-row placement (D-408):** below "Subtitle Settings", above "Off" (was the last item); the description line removed (the report's exact spec).
+- **Settings loading fix (D-408):** the LIVE applySubtitlePreferences (setProperty*) now runs on FILE_LOADED + PLAYBACK_RESTART — remembered styles apply on every episode open without a manual tweak (the init setOptionString pass alone was not reliable on device).
+- **Remembered subtitle selection (D-408):** per-series memory (PlayerPreferences.get/setPreferredSubtitleTrack — "" / "off" / label), persisted on every selection/import/storage-load, pre-applied through the new PlayerObserver.onTracksLoaded hook after every track-list reload.
+- **Import dedup (D-408):** picking the episode's OWN subtitle file no longer creates a `_manual_` copy — the existing track is returned (document-id or filename match; DB row repaired if needed).
+- SubtitleEngine.guessExtension gained .ttml; the wizard untouched (approved end-to-end this round).

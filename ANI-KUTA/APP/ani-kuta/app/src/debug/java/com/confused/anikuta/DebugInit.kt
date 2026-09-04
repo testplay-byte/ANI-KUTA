@@ -1,10 +1,8 @@
 package com.confused.anikuta
 
 import app.cash.sqldelight.db.SqlDriver
-import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.feature.debugbubble.DebugBuildInfo
 import com.confused.anikuta.feature.debugbubble.data.DebugDbStats
-import com.confused.anikuta.feature.debugbubble.data.DebugLogBuffer
 import com.confused.anikuta.feature.debugbubble.data.DebugNetworkStats
 import com.confused.anikuta.feature.debugbubble.data.DebugSqlDriverWrapper
 import com.confused.anikuta.feature.debugbubble.di.debugBubbleModule
@@ -17,11 +15,14 @@ import org.koin.dsl.module
  * release builds. Called from [AnikutaApp.onCreate] guarded by
  * `if (BuildConfig.DEBUG)`.
  *
- * DB-4: registers the debug-bubble Koin module + wires the Logger appender.
  * DB-5: wrapDebugOkHttp adds the DebugNetworkStats interceptor to OkHttpClients.
  * DB-6: buildInfoModule provides DebugBuildInfo (BuildConfig values).
  * DB-9: wrapDebugSqlDriver wraps the SqlDriver with DebugSqlDriverWrapper to
  *       track DB writes for the DB Activity view.
+ *
+ * Task 64 (round 24): DB-4 (initDebugIntegrations — the Logger appender →
+ * DebugLogBuffer composite) is REMOVED with the console-logging family; the
+ * bubble's other tabs (Screen / Database / Network / App Info) are untouched.
  */
 
 /** Koin modules to register in debug builds. */
@@ -37,17 +38,6 @@ fun debugKoinModules(): List<Module> = listOf(
         }
     },
 )
-
-/**
- * Wire debug-only integrations that need Koin to be started first.
- * Called AFTER `startKoin { ... modules(debugKoinModules()) }`.
- *
- * DB-4: wires Logger.setAppender(DebugLogBuffer).
- */
-fun initDebugIntegrations() {
-    val buffer = org.koin.core.context.GlobalContext.get().get<DebugLogBuffer>()
-    Logger.setAppender(buffer)
-}
 
 /**
  * DB-5: wrap an OkHttpClient with the [DebugNetworkStats] interceptor.

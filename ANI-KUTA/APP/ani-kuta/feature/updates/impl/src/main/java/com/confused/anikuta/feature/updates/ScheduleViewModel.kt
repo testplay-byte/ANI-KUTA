@@ -40,10 +40,19 @@ class ScheduleViewModel(
         from = System.currentTimeMillis(),
         to = System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000, // 1 year ahead
     ).map { entries ->
-        val enriched = entries.mapNotNull { entry -> enrichEntry(entry) }
+        // D-381 (round 25 crash fix): defensive dedupe — the DB query is now an
+        // EXISTS semi-join (no join duplication), but any future writer that
+        // emits parallel rows (e.g. sub + dub variants of the same episode at
+        // the same time) would still produce identical LazyColumn keys
+        // ("mainId_ep_scheduledAt") and crash the list. Dedupe BEFORE enrich so
+        // duplicate rows never reach the UI AND don't cost double DB lookups.
+        val upcoming = entries.distinctBy { Triple(it.mainId, it.episodeNumber, it.scheduledAt) }
+        val enriched = upcoming.mapNotNull { entry -> enrichEntry(entry) }
         val grouped = groupByDay(enriched)
         // D-193 Phase 6: Prepend today's aired entries as a grayed-out group.
-        val airedToday = scheduleStore.getTodayAired().mapNotNull { enrichEntry(it) }
+        val airedToday = scheduleStore.getTodayAired()
+            .distinctBy { Triple(it.mainId, it.episodeNumber, it.scheduledAt) }
+            .mapNotNull { enrichEntry(it) }
         val finalGroups = if (airedToday.isNotEmpty()) {
             listOf(ScheduleGroup("Aired Today", airedToday, isAired = true)) + grouped
         } else {

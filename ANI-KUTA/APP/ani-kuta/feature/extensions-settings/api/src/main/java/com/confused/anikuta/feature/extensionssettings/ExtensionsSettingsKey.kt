@@ -5,9 +5,20 @@ import kotlinx.serialization.Serializable
 
 /**
  * Nav3 key for the Extensions Settings screen.
+ *
+ * Task 60 (round 20): carries the tab the screen should open on. Default
+ * "aniyomi" (the built-in behavior); the post-plugin-import hand-off pushes
+ * "cloudstream" so landing after a CloudStream plugin Add shows the
+ * CLOUDSTREAM section (the user's round-20 spec: "I added the cloud streaming
+ * plugin so it should lead me to the cloud stream section by default").
+ * A @Serializable data class with all-default params — payloads persisted by
+ * the old `object` form (an empty object) still decode.
  */
 @Serializable
-object ExtensionsSettingsKey : NavKey
+data class ExtensionsSettingsKey(
+    /** "aniyomi" (default) or "cloudstream". */
+    val initialTab: String = "aniyomi",
+) : NavKey
 
 /**
  * Nav3 key for the Extension Repo Settings screen.
@@ -43,3 +54,13 @@ data class ExtensionDetailKey(val pkgName: String) : NavKey
  */
 @Serializable
 data class SourcePreferencesKey(val sourceId: Long) : NavKey
+
+/**
+ * Session 3 (device round 2): NavKey for the CloudStream PLUGIN Detail screen.
+ * Identified by internalName — the screen resolves the plugin across the
+ * manager's states (Trusted / Untrusted / Failed to load / Available) and
+ * renders its metadata (description, authors, version, status, size, supported
+ * modes, language, live providers) + the actions valid for that state.
+ */
+@Serializable
+data class CloudstreamPluginDetailKey(val internalName: String) : NavKey

@@ -88,6 +88,29 @@ class SubtitleEngine(
     }
 
     /**
+     * D-407 (round 31): stages ONE subtitle file WITHOUT the cleanup pass —
+     * the manual-import path. A mid-session import must never delete the
+     * files MPV is currently reading (the "clean old files" behavior of
+     * [downloadSubtitles] is for fresh video loads only).
+     *
+     * Handles the same three source types as the batch path: `content://`
+     * (SAF — the picked file / the persisted manual import), `file://` /
+     * plain paths, and remote URLs (with headers).
+     *
+     * @return the staged local file, or `null` when the source could not be
+     *   read (empty stream, revoked permission, IO error — logged).
+     */
+    suspend fun stageSingle(request: SubtitleDownloadRequest): File? {
+        if (request.url.isBlank()) return null
+        return try {
+            downloadSingle(request)
+        } catch (e: Exception) {
+            Logger.w(TAG) { "stageSingle failed for ${request.lang}: ${e.message}" }
+            null
+        }
+    }
+
+    /**
      * Download a single subtitle file.
      *
      * D.FIX: Handles three URL types:
@@ -212,6 +235,10 @@ class SubtitleEngine(
 
     /**
      * Guess the file extension from the URL.
+     *
+     * D-408 (round 32): "ttml" added — [com.confused.anikuta.core.download.SUBTITLE_EXTENSIONS]
+     * recognizes it, but a staged TTML file guessed as ".vtt" cannot be parsed
+     * by MPV (the extension IS the format detector for external subs).
      */
     private fun guessExtension(url: String): String {
         val lower = url.lowercase()
@@ -221,6 +248,7 @@ class SubtitleEngine(
             lower.endsWith(".ass") -> "ass"
             lower.endsWith(".ssa") -> "ssa"
             lower.endsWith(".sub") -> "sub"
+            lower.endsWith(".ttml") -> "ttml"
             else -> "vtt" // default to VTT
         }
     }

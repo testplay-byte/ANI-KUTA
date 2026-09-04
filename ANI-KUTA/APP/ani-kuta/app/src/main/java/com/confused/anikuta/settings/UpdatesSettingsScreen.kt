@@ -7,14 +7,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -23,6 +28,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -32,33 +41,46 @@ import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.UpdateMode
+import com.confused.anikuta.core.updates.UpdateEngine
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 /**
  * D-193 v2: Combined Updates & Notifications settings screen.
  *
- * Changes per user feedback:
- * - No back button (device gesture handles back)
- * - No "Manual Check" section (removed entirely)
- * - Each setting is a SEPARATE card (not divider-separated within a shared card)
- * - Sub/Dub checking is a 3-way toggle (Sub / Dub / Both) — gates NOTIFICATIONS only
- *   (the engine always checks both sub + dub; the toggle is honored by NotificationManager)
- * - Notifications is a single nav row to the dedicated NotificationsSettingsScreen
- *   (not an inline toggle). The dedicated page has the master enable + triggers +
- *   library customization + test button.
+ * D-388 (round 25 — the updates-page rework): this is now THE "Updates" page
+ * (its own row on the Settings home; the round-25 device report went looking
+ * for it and found nothing). Changes:
+ *  - the header says "Updates";
+ *  - a "Check for updates now" action button (runs the engine immediately —
+ *    the results notification + the history land as usual);
+ *  - "Update check history" is a PROMINENT row right under the mode card
+ *    (was buried at the very bottom);
+ *  - the Notifications nav row moved into its own section at the end.
  */
 @Composable
 fun UpdatesSettingsScreen(
     onOpenNotifications: () -> Unit,
     onOpenCategories: () -> Unit,
+    // Task 64 (round 24): opens the content-update history page.
+    onOpenCheckLog: () -> Unit = {},
     updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences = koinInject(),
     updateScheduler: com.confused.anikuta.core.updates.UpdateScheduler = koinInject(),
+    updateEngine: UpdateEngine = koinInject(),
 ) {
     val mode by updatePreferences.mode.collectAsState()
     val intervalHours by updatePreferences.intervalHours.collectAsState()
     val checkSub by updatePreferences.checkSub.collectAsState()
     val checkDub by updatePreferences.checkDub.collectAsState()
     val checkDubCompleted by updatePreferences.checkDubCompleted.collectAsState()
+
+    // D-388 (round 25): the check-now button's state + runner. Runs the engine
+    // with the MANUAL trigger (labeled correctly in the history now), on the
+    // user's Manual-mode category filter — the same semantics as the Updates
+    // tab's pull-to-refresh.
+    val scope = rememberCoroutineScope()
+    var checkNowRunning by remember { mutableStateOf(false) }
+    var checkNowResult by remember { mutableStateOf<String?>(null) }
 
     val lazyListState = rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
@@ -74,8 +96,11 @@ fun UpdatesSettingsScreen(
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             // No back button — device gesture handles back.
+            // D-388 (round 25): the page is "Updates" — its own destination
+            // from the Settings home (was the confusingly-labeled
+            // "Notifications" entry pointing here).
             CollapsingHeader(
-                title = "Updates & Notifications",
+                title = "Updates",
                 collapsed = collapsed,
             )
 
@@ -116,6 +141,117 @@ fun UpdatesSettingsScreen(
                                         updatePreferences.setMode(UpdateMode.entries[idx])
                                         updateScheduler.reschedule()
                                     },
+                                )
+                            }
+                        }
+                    }
+
+                    // ── D-388 (round 25): the CHECK-NOW action + the PROMINENT
+                    // history entry — directly under the mode card (the
+                    // round-25 report could not find either). ──
+                    if (mode != UpdateMode.OFF) {
+                        item {
+                            SeparateCard {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(enabled = !checkNowRunning) {
+                                            checkNowRunning = true
+                                            checkNowResult = null
+                                            scope.launch {
+                                                runCatching {
+                                                    updateEngine.checkDueAnime(trigger = "manual")
+                                                }.onSuccess { found ->
+                                                    checkNowResult =
+                                                        if (found > 0) "$found new episode(s) found" else "No new episodes"
+                                                }.onFailure { t ->
+                                                    checkNowResult = "Check failed: ${t.message}"
+                                                }
+                                                checkNowRunning = false
+                                            }
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Refresh,
+                                        contentDescription = null,
+                                        tint = if (checkNowRunning) MaterialTheme.colorScheme.onSurfaceVariant
+                                        else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Spacer(Modifier.width(11.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = if (checkNowRunning) "Checking for updates…" else "Check for updates now",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (checkNowRunning) MaterialTheme.colorScheme.onSurfaceVariant
+                                            else MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        // Local binding — `checkNowResult` is a remember-delegated
+                                        // property, so the null-checked form can NOT smart cast
+                                        // (Kotlin rule); the local can.
+                                        val result = checkNowResult
+                                        if (result != null) {
+                                            Text(
+                                                text = result,
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 13.sp,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(top = 2.dp),
+                                            )
+                                        } else {
+                                            Text(
+                                                text = "Runs an episode check right away — the results notification and the history land as usual",
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 13.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(top = 2.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        SeparateCard {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(onClick = onOpenCheckLog)
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.History,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Spacer(Modifier.width(11.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Update check history",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        text = "Every check — when, what was checked, results, next actions, the live next-check timer",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(top = 2.dp),
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Open",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
