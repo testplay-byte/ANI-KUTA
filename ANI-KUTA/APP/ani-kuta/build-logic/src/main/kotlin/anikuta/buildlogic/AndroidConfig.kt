@@ -448,8 +448,56 @@ object AndroidConfig {
     // the BOTTOM. Also: the finish CTA at the bottom, the step progress
     // numbering fixed (storage no longer duplicates the theme step's 1/5),
     // the back button's 48dp touch target, and the AutoMirrored arrow.
-    const val versionCode = 83
-    const val versionName = "0.4.18"
+    // v0.4.19 (D-407, round 31 — the wizard-polish + subtitle-system round):
+    // (A) THE WELCOME ART: the round-31 report — "when they combine together
+    // with each other, they suddenly change their shades… the globes can
+    // transform into different shapes and get merged with the different
+    // random places and such, not a simple fixed path" — fixed at the root:
+    // the blob layer now composites with BlendMode.Screen (overlaps blend
+    // like light — the liquid merge), the split child is alpha-ramped with
+    // the split itself (the double-draw shade POP at birth/merge is
+    // mathematically gone), each center wanders on THREE incommensurate
+    // harmonics (never retraces; blobs genuinely cross at different places),
+    // each blob cycles through a SEQUENCE of polygon shapes (staged
+    // crossfades — hexagon → triangle → pentagon → square), and the radius
+    // breathes. Still zero steady-state allocations + the single monotonic
+    // clock.
+    // (B) THE THEME CAROUSEL centered on the LazyRow's cross axis — the
+    // report: "not aligned to the top with the light and dark buttons but
+    // centered between the bottom one and the above one".
+    // (C) THE PERMISSION STEPS: the granted state (morphed check + label)
+    // renders in an explicitly-CENTERED AnimatedContent over full-width
+    // children — the report's left-aligned/"glitched" granted state is
+    // structurally impossible now; the folder step shows the FULL readable
+    // folder path ("Internal storage › ANI-KUTA › …") in a glass panel under
+    // "Folder verified".
+    // (D) THE ADS FIRST-OPEN GRACE: the report — "for the very first time
+    // the user opens up the application and clicks on any of the contents,
+    // he should not be shown the advertisement pop-up… afterwards the normal
+    // advertisement system will work" — a persisted one-per-install flag
+    // (AdPreferences.consumeFirstOpenGrace) lets the FIRST gated navigation
+    // through with no interstitial + no cooldown; every later navigation
+    // follows the normal 6h-cooldown system.
+    // (E) THE DOWNLOADED-EPISODE SUBTITLES — THE core fix: the details-page
+    // hand-off passed "" for subtitle tracks when playing a downloaded
+    // episode (the files were on disk; the player never looked). ONE shared
+    // resolver (DownloadManager.resolveSubtitleTracks: DB subtitleUris → the
+    // episode's dedicated subtitles/ folder disk scan, labels from the
+    // filenames) now feeds the details hand-off, the downloads hand-off, and
+    // the in-player episode switch (which also drops its "Subtitle N"
+    // generics).
+    // (F) THE MANUAL SUBTITLE IMPORT — the report: "add a permanent option
+    // there: the option to add subtitles manually… pick any kind of subtitle
+    // files (VTT, SRT, or any other relevant ones). After selecting those
+    // files, those subtitles will start to show up properly" — a permanent
+    // "Add subtitle file" row in the subtitle sheet → the multi-select SAF
+    // picker → each file validated (.srt/.vtt/.ass/.ssa/.sub/.ttml) →
+    // PERSISTED into the downloaded episode's subtitles/ folder (DB row +
+    // .data.json — the disk-truth chain the scanner rebuilds from) → staged
+    // → MPV sub-add with "select" (activates immediately, appears in the
+    // refreshed list). Streamed episodes get session-scoped staging.
+    const val versionCode = 84
+    const val versionName = "0.4.19"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.
