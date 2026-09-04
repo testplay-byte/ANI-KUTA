@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("anikuta.android.application.compose")
     alias(libs.plugins.kotlin.serialization)
@@ -30,15 +32,19 @@ android {
             keyAlias = "anikuta"
             keyPassword = "anikuta"
         }
-        if (file("keystore.properties").exists()) {
+        // D-413 note: the Properties type is IMPORTED (a fully-qualified
+        // java.util.* reference does not resolve in Kotlin-DSL script
+        // compilation — CI round 1's lesson), and the file is read at the
+        // container level (the proven file() nesting), then passed in.
+        val releasePropsFile = file("keystore.properties")
+        if (releasePropsFile.exists()) {
+            val releaseProps = Properties()
+            releasePropsFile.inputStream().use { releaseProps.load(it) }
             create("anikutaRelease") {
-                val ks = java.util.Properties().apply {
-                    file("keystore.properties").inputStream().use { load(it) }
-                }
-                storeFile = file(ks.getProperty("storeFile") ?: error("keystore.properties: storeFile missing"))
-                storePassword = ks.getProperty("storePassword") ?: error("keystore.properties: storePassword missing")
-                keyAlias = ks.getProperty("keyAlias") ?: error("keystore.properties: keyAlias missing")
-                keyPassword = ks.getProperty("keyPassword") ?: error("keystore.properties: keyPassword missing")
+                storeFile = file(releaseProps.getProperty("storeFile") ?: error("keystore.properties: storeFile missing"))
+                storePassword = releaseProps.getProperty("storePassword") ?: error("keystore.properties: storePassword missing")
+                keyAlias = releaseProps.getProperty("keyAlias") ?: error("keystore.properties: keyAlias missing")
+                keyPassword = releaseProps.getProperty("keyPassword") ?: error("keystore.properties: keyPassword missing")
             }
         }
     }
