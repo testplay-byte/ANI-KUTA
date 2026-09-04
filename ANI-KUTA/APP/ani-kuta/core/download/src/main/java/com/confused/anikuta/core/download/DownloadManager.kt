@@ -91,17 +91,20 @@ interface DownloadManager {
     suspend fun requestFolderRescan()
 
     /**
-     * D-407 (round 31): resolves the SUBTITLE TRACKS for a DOWNLOADED
+     * D-407 → D-408 (round 32): resolves the SUBTITLE TRACKS for a DOWNLOADED
      * episode — the ONE shared answer every playback path uses (the
-     * details-page hand-off, the downloads-page hand-off, and the in-player
-     * episode switch), so they can never disagree.
+     * details-page hand-off, the downloads-page hand-off, the in-player
+     * episode switch, and the subtitle sheet's "Available in storage"
+     * listing), so they can never disagree.
      *
-     * Resolution order: the DB row's `subtitleUris` first; when empty (older
-     * downloads / pre-rescan state), the DISK scan of the episode's dedicated
-     * `subtitles/` subfolder (canonical `subtitle_E{num:5}_…` naming). Each
-     * track carries a human-readable label derived from its filename
-     * ("English", "My Custom Subs", …) — see
-     * [DownloadedSubtitleLabels.labelForUri].
+     * A LAYERED chain (round 32) — a single broken link can never yield an
+     * empty answer: (0) a stale in-memory cache is reloaded from the DB once;
+     * (1) the DB row's `subtitleUris`; when empty, the disk chain — (2) the
+     * episode's OWN video file location (the most direct truth, immune to
+     * `.data.json` corruption + mainId drift), (3) the mainId manifest walk,
+     * (4) the title fallback. Each track carries a human-readable label
+     * derived from its on-disk filename ("English", "My Custom Subs", …) —
+     * see [DownloadedSubtitleLabels.labelForUri].
      *
      * @param mainId The content's mainId.
      * @param episodeNumber The episode number (1-based; drives the file
@@ -112,9 +115,14 @@ interface DownloadManager {
     suspend fun resolveSubtitleTracks(mainId: String, episodeNumber: Int): List<ResolvedSubtitleTrack>
 
     /**
-     * D-407 (round 31): imports ONE manually-picked subtitle file into a
+     * D-407 → D-408 (round 32): imports ONE manually-picked subtitle file into a
      * downloaded episode's dedicated `subtitles/` folder — the persistence
      * half of the player's "Add subtitle file" flow.
+     *
+     * D-408: a DEDUP phase precedes the copy — when the picked file already IS
+     * one of the episode's subtitle files (same document or same file name),
+     * NO copy is made and the existing track is returned (picking a file from
+     * the series' own subtitles/ folder must not create a `_manual_` duplicate).
      *
      * Writes `subtitle_E{num:5}_manual_{name}.{ext}` via SAF, APPENDS the new
      * URI to the DB row's `subtitleUris` AND the folder's `.data.json`
@@ -126,8 +134,9 @@ interface DownloadManager {
      * @param source The picked file's `content://` URI (the SAF picker).
      * @param displayName The picked file's display name (drives the on-disk
      *   filename + the returned label).
-     * @return the persisted track (URI + label), or `null` on failure (no
-     *   DB row, unsupported extension, folder/IO failure — logged).
+     * @return the persisted (or dedup-matched existing) track (URI + label),
+     *   or `null` on failure (no DB row, unsupported extension, folder/IO
+     *   failure — logged).
      */
     suspend fun importManualSubtitle(
         mainId: String,

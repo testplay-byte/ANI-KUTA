@@ -275,6 +275,39 @@ class PlayerPreferences(private val store: PreferenceStore) {
         get() = store.getBoolean(KEY_HW_DECODE, true)
         set(value) = store.putBoolean(KEY_HW_DECODE, value)
 
+    // ── D-408 (round 32): the per-series selected-subtitle memory ─────────────
+    //
+    // The report: "make it remember the location of the selected subtitle
+    // files. If the user manually selects a subtitle, then that subtitle file
+    // will be remembered for that specific episode… that subtitle will be
+    // selected and be pre-applied on that." Persisted on every sheet track
+    // selection (incl. Off), every manual import, and every storage-row load;
+    // pre-applied by the player after every track-list reload (the label is
+    // matched against the live tracks; "off" pre-applies sid=no).
+    //
+    // Keyed by mainId (one small string per series ever watched — negligible;
+    // a future cap can LRU-evict if it ever matters).
+
+    /**
+     * The remembered selected subtitle track for a series.
+     * @return "" = nothing remembered; `"off"` = the user explicitly chose
+     *   Off; anything else = the track's display label ("English", "My
+     *   Subs") to pre-select on open.
+     */
+    fun getPreferredSubtitleTrack(mainId: String): String =
+        if (mainId.isBlank()) "" else store.getString(KEY_PREFIX_SUB_TRACK_MEMORY + mainId, "")
+
+    /**
+     * Remembers the selected subtitle track for a series. [label] = the
+     * track's display label, `"off"` for an explicit Off, or blank to CLEAR
+     * the memory.
+     */
+    fun setPreferredSubtitleTrack(mainId: String, label: String) {
+        if (mainId.isBlank()) return
+        val key = KEY_PREFIX_SUB_TRACK_MEMORY + mainId
+        if (label.isBlank()) store.delete(key) else store.putString(key, label)
+    }
+
     companion object {
         private const val KEY_SPEED = "player_speed"
         private const val KEY_AUTOPLAY_NEXT = "player_autoplay_next"
@@ -302,5 +335,6 @@ class PlayerPreferences(private val store: PreferenceStore) {
         private const val KEY_PREF_SUB_LANGS = "pref_preferred_subtitle_languages"
         private const val KEY_GESTURES = "player_gestures"
         private const val KEY_HW_DECODE = "player_hw_decode"
+        private const val KEY_PREFIX_SUB_TRACK_MEMORY = "pref_sub_track_memory_"
     }
 }

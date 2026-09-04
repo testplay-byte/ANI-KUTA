@@ -50,15 +50,31 @@ val SUBTITLE_EXTENSIONS = setOf("srt", "vtt", "ass", "ssa", "sub", "ttml")
 object DownloadedSubtitleLabels {
 
     /**
+     * D-408 (round 32): the ON-DISK FILE NAME of a subtitle `content://` URI —
+     * the segment after the LAST `/` of the decoded document path.
+     *
+     * SAF document URIs carry the whole volume-relative chain in their last path
+     * segment (`primary:Root/video/Title/subtitles/subtitle_E00001_english_0.srt`)
+     * — the round-31 `labelForUri` read `lastPathSegment` directly, so the
+     * prefix check never matched and every label silently fell back to
+     * "Subtitle N". This helper takes the actual file name; `null` when nothing
+     * derivable.
+     */
+    fun fileNameOf(uri: String): String? =
+        runCatching { android.net.Uri.parse(uri).lastPathSegment }
+            .getOrNull()
+            ?.substringAfterLast('/')
+            ?.takeIf { it.isNotBlank() }
+
+    /**
      * Derives the display label for one subtitle URI.
      *
-     * @param uri The subtitle `content://` URI (the last path segment is the
-     *   on-disk filename).
+     * @param uri The subtitle `content://` URI (the last `/` segment of its
+     *   decoded document path is the on-disk filename).
      * @param index The 0-based track index (for the fallback label).
      */
     fun labelForUri(uri: String, index: Int): String {
-        val fileName = runCatching { android.net.Uri.parse(uri).lastPathSegment }
-            .getOrNull() ?: return fallback(index)
+        val fileName = fileNameOf(uri) ?: return fallback(index)
         if (!fileName.startsWith("subtitle_E") && !fileName.startsWith(".subtitle_E")) {
             return fallback(index)
         }

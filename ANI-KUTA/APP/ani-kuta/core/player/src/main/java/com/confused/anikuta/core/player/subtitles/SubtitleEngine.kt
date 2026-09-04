@@ -235,6 +235,10 @@ class SubtitleEngine(
 
     /**
      * Guess the file extension from the URL.
+     *
+     * D-408 (round 32): "ttml" added — [com.confused.anikuta.core.download.SUBTITLE_EXTENSIONS]
+     * recognizes it, but a staged TTML file guessed as ".vtt" cannot be parsed
+     * by MPV (the extension IS the format detector for external subs).
      */
     private fun guessExtension(url: String): String {
         val lower = url.lowercase()
@@ -244,6 +248,7 @@ class SubtitleEngine(
             lower.endsWith(".ass") -> "ass"
             lower.endsWith(".ssa") -> "ssa"
             lower.endsWith(".sub") -> "sub"
+            lower.endsWith(".ttml") -> "ttml"
             else -> "vtt" // default to VTT
         }
     }

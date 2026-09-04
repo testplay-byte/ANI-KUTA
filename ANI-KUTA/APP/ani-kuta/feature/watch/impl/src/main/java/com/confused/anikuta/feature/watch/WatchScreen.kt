@@ -272,6 +272,13 @@ fun WatchScreen(
                     }.onSuccess {
                         added++
                         Logger.i(TAG) { "Manual subtitle import — sub-add OK: '$label'" }
+                        // D-408 (round 32): remember the manually-added track
+                        // for this series — it pre-applies on the next open
+                        // ("that subtitle file will be remembered… and will be
+                        // pre-applied on that").
+                        if (mainId.isNotBlank()) {
+                            playerPreferences.setPreferredSubtitleTrack(mainId, label)
+                        }
                     }.onFailure {
                         Logger.w(TAG) { "Manual subtitle import — sub-add FAILED: ${it.message}" }
                     }
@@ -705,6 +712,45 @@ fun WatchScreen(
         }
     }
 
+    // ── D-408 (round 32): the REMEMBERED-SUBTITLE PRE-APPLY ─────────────────
+    // The per-series memory (PlayerPreferences.getPreferredSubtitleTrack):
+    // "" = nothing remembered (default behavior); "off" = the user explicitly
+    // chose Off; anything else = the selected track's display label. Invoked
+    // from the observer's onTracksLoaded hook (fired after EVERY track-list
+    // reload — file loads, the 5s safety reloads, external sub-adds), so the
+    // remembered subtitle pre-applies on open, on episode switch, and once
+    // the external tracks finish loading. Idempotent: it only sets sid when
+    // the current selection differs, and the user's own sheet selections
+    // update the memory immediately (no fighting).
+    val applyRememberedSubtitle: (List<com.confused.anikuta.core.player.VideoTrack>) -> Unit =
+        { subs ->
+            val mainId = watchKey.mainId
+            val remembered = if (mainId.isNotBlank()) {
+                playerPreferences.getPreferredSubtitleTrack(mainId)
+            } else ""
+            when {
+                remembered.isBlank() -> Unit
+                remembered == "off" -> {
+                    if (stateHolder.currentSubtitleTrack.value > 0) {
+                        runCatching { MPVLib.setPropertyString("sid", "no") }
+                        Logger.i(TAG) { "Remembered subtitle: OFF (pre-applied)" }
+                    }
+                }
+                else -> {
+                    val match = subs.firstOrNull {
+                        it.name == remembered ||
+                            it.lang?.equals(remembered, ignoreCase = true) == true
+                    }
+                    if (match != null && stateHolder.currentSubtitleTrack.value != match.id) {
+                        runCatching { MPVLib.setPropertyInt("sid", match.id) }
+                        Logger.i(TAG) {
+                            "Remembered subtitle: '$remembered' → track id ${match.id} (pre-applied)"
+                        }
+                    }
+                }
+            }
+        }
+
     // ── Init MPV + load video (once) ──
     val initMpv: (AnikutaMPVView) -> Unit = remember {
         { view ->
@@ -713,6 +759,9 @@ fun WatchScreen(
                 val obs = PlayerObserver(stateHolder, subtitleEngine)
                 obs.mpvView = view  // Wire so observer can call loadTracks() on FILE_LOADED
                 observer = obs      // Store reference so switch handlers can set pending tracks
+                // D-408 (round 32): the remembered-subtitle pre-apply hook —
+                // the observer fires it after every track-list reload.
+                obs.onTracksLoaded = applyRememberedSubtitle
 
                 // Set pending external subtitle/audio tracks.
                 // PRIMARY source: WatchKey.subtitleTracksSerialized (always available,
@@ -886,6 +935,103 @@ fun WatchScreen(
     var showSubtitleSettingsSheet by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
 
+    // ── D-408 (round 32): the episode's ON-DISK subtitle files for the sheet's
+    // "Available in storage" section ──
+    // Resolved whenever the subtitle sheet opens (and on an episode change
+    // while open) through the SAME layered resolver every playback path uses.
+    // Only the files NOT already loaded as MPV tracks are kept (matched by the
+    // track name/lang — the sub-add'ed external tracks carry the resolver's
+    // label), so the section is the belt-and-braces fallback: when the auto
+    // pending-track path delivered everything, it stays empty; when anything
+    // upstream dropped them, the user still sees + can load them on tap.
+    var storageSubtitles by remember {
+        mutableStateOf<List<com.confused.anikuta.core.download.ResolvedSubtitleTrack>>(emptyList())
+    }
+    LaunchedEffect(showSubtitleSheet, currentEpisodeUrl) {
+        if (showSubtitleSheet && watchKey.mainId.isNotBlank()) {
+            val epNum = stateHolder.currentEpisodeNumber.value.toInt()
+            if (epNum > 0) {
+                val resolved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        downloadManager.resolveSubtitleTracks(watchKey.mainId, epNum)
+                    }.getOrNull()
+                }.orEmpty()
+                val loaded = stateHolder.subtitleTracks.value
+                storageSubtitles = resolved.filter { r ->
+                    loaded.none {
+                        it.name == r.label || it.lang?.equals(r.label, ignoreCase = true) == true
+                    }
+                }
+                Logger.i(TAG) {
+                    "Storage subtitles — resolved ${resolved.size}, not-yet-loaded " +
+                        "${storageSubtitles.size} [labels=${storageSubtitles.map { it.label }}]"
+                }
+            }
+        }
+    }
+
+    // D-408 (round 32): loading one storage-row tap — the PROVEN manual-import
+    // load path (stage → sub-add "select" → refresh tracks), so the picked
+    // file activates immediately and appears in the selector exactly like the
+    // manually-imported ones do.
+    val onLoadStorageSubtitle: (com.confused.anikuta.core.download.ResolvedSubtitleTrack) -> Unit =
+        { track ->
+            showSubtitleSheet = false
+            scope.launch {
+                val staged = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        subtitleEngine.stageSingle(
+                            com.confused.anikuta.core.player.subtitles.SubtitleDownloadRequest(
+                                url = track.uri,
+                                lang = track.label,
+                                headers = "",
+                            ),
+                        )
+                    }.getOrNull()
+                }
+                if (staged != null) {
+                    runCatching {
+                        MPVLib.command(
+                            arrayOf("sub-add", staged.absolutePath, "select", "", track.label),
+                        )
+                    }.onSuccess {
+                        Logger.i(TAG) { "Storage subtitle loaded + selected: '${track.label}'" }
+                        // D-408: remember the pick for this series (pre-applies
+                        // on the next open).
+                        if (watchKey.mainId.isNotBlank()) {
+                            playerPreferences.setPreferredSubtitleTrack(watchKey.mainId, track.label)
+                        }
+                        kotlinx.coroutines.delay(600L)
+                        runCatching {
+                            mpvView?.let { v ->
+                                val (subs, audio) = v.loadTracks()
+                                stateHolder.updateTracks(subs, audio)
+                            }
+                        }
+                        android.widget.Toast.makeText(
+                            context,
+                            "Subtitle added",
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
+                    }.onFailure {
+                        Logger.w(TAG) { "Storage subtitle sub-add failed: ${it.message}" }
+                        android.widget.Toast.makeText(
+                            context,
+                            "Could not load the subtitle",
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                } else {
+                    Logger.w(TAG) { "Storage subtitle staging failed: '${track.label}'" }
+                    android.widget.Toast.makeText(
+                        context,
+                        "Could not read the subtitle file",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+
     // D.FIX: On-demand resolve for the QualitySheet when playing offline.
     // When the user opens the QualitySheet + resolvedServers is empty (offline
     // playback), resolve the episode on-demand so the user can switch to a
@@ -1013,8 +1159,20 @@ fun WatchScreen(
         try {
             if (trackId <= 0) {
                 MPVLib.setPropertyString("sid", "no")
+                // D-408 (round 32): remember the explicit Off for this series
+                // ("it will remember the state of the tool").
+                if (watchKey.mainId.isNotBlank()) {
+                    playerPreferences.setPreferredSubtitleTrack(watchKey.mainId, "off")
+                }
             } else {
                 MPVLib.setPropertyInt("sid", trackId)
+                // D-408 (round 32): remember the picked track's label for this
+                // series — it pre-applies on the next open / episode switch.
+                val label = stateHolder.subtitleTracks.value
+                    .firstOrNull { it.id == trackId }?.name
+                if (!label.isNullOrBlank() && watchKey.mainId.isNotBlank()) {
+                    playerPreferences.setPreferredSubtitleTrack(watchKey.mainId, label)
+                }
             }
         } catch (e: Exception) {
             Logger.w(TAG) { "Failed to set subtitle track: ${e.message}" }
@@ -1374,6 +1532,11 @@ fun WatchScreen(
                 showSubtitleSheet = false
                 subtitleFilePicker.launch(SUBTITLE_MIME_HINTS)
             },
+            // D-408 (round 32): the episode's on-disk subtitle files (not yet
+            // loaded as tracks) + the load handler (the proven stage → sub-add
+            // "select" path — they show + apply exactly like the manual imports).
+            storageSubtitles = storageSubtitles,
+            onLoadStorageSubtitle = onLoadStorageSubtitle,
             onRefreshTracks = {
                 // Manually reload tracks from MPV when the sheet opens.
                 Logger.i(TAG) { "=== SUBTITLE SHEET OPENED — refreshing tracks ===" }

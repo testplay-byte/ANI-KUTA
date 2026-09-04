@@ -100,12 +100,26 @@ import android.widget.Toast
  * subtitles/ folder), visually distinct from the track rows (a hairline
  * accent border + a filled accent icon chip, not a selectable row).
  *
+ * D-408 (round 32): the layout follows the device report — the Add row sits
+ * BELOW "Subtitle Settings" and ABOVE "Off" (it was the LAST list item), and
+ * its description line is GONE (the label alone). NEW: the "Available in
+ * storage" section lists the current episode's ON-DISK subtitle files (the
+ * resolver's answer minus the tracks already loaded) — tapping one stages +
+ * sub-add's it via the proven manual-import load path (the report: *"When
+ * the user clicks on those subtitles will be loaded from storage onto the
+ * player and will be shown exactly like how they currently are"*). Empty
+ * whenever the auto pending-track path already loaded them all.
+ *
  * @param tracks Available subtitle tracks (from MPV's track-list, NO "Off" entry).
  * @param currentTrackId The currently-selected track ID (-1 = Off).
  * @param onTrackSelected Called when a track is selected (id = -1 for Off).
  * @param onOpenSettings Called when the user taps "Subtitle Settings".
  * @param onAddSubtitleFile Called when the user taps "Add subtitle file" —
  *   launches the device's file picker (the host owns the launcher).
+ * @param storageSubtitles The episode's on-disk subtitle files NOT already
+ *   loaded as MPV tracks (D-408 — the belt-and-braces listing).
+ * @param onLoadStorageSubtitle Called when the user taps a storage row —
+ *   stages + sub-add's that file and selects it.
  * @param onDismiss Close the sheet.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -118,6 +132,8 @@ fun SubtitleTracksSheet(
     onOpenSettings: () -> Unit = {},
     onRefreshTracks: () -> Unit = {},
     onAddSubtitleFile: () -> Unit = {},
+    storageSubtitles: List<com.confused.anikuta.core.download.ResolvedSubtitleTrack> = emptyList(),
+    onLoadStorageSubtitle: (com.confused.anikuta.core.download.ResolvedSubtitleTrack) -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -234,8 +250,10 @@ fun SubtitleTracksSheet(
             // CRITICAL: Always render the "Off" entry, even when tracks is empty.
             // The user said: "I don't even see the OFF option in the subtitles."
             // Previously, "Off" was inside the `else` branch — hidden when empty.
-            // Now we always show it as the first item, then show the "no subtitles"
-            // message OR the actual tracks below it.
+            // D-408 (round 32): the visual order follows the device report —
+            // "Add subtitle file" BELOW "Subtitle Settings" and ABOVE "Off",
+            // then Off, then the tracks (empty message when none), then the
+            // "Available in storage" section at the bottom.
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -244,49 +262,15 @@ fun SubtitleTracksSheet(
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                // "Off" option — ALWAYS shown (first entry).
-                item(key = "off") {
-                    TrackRow(
-                        label = "Off",
-                        isSelected = currentTrackId <= 0,
-                        onClick = {
-                            onTrackSelected(-1)
-                            onDismiss()
-                        },
-                    )
-                }
-                // If no tracks, show a helpful message (below "Off").
-                if (tracks.isEmpty()) {
-                    item(key = "empty-msg") {
-                        Text(
-                            text = "No subtitles found in this stream.\nAdd one from a file below.",
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(20.dp),
-                        )
-                    }
-                } else {
-                    // Actual tracks
-                    items(tracks.size) { index ->
-                        val track = tracks[index]
-                        TrackRow(
-                            label = track.name,
-                            isSelected = track.id == currentTrackId,
-                            onClick = {
-                                onTrackSelected(track.id)
-                                onDismiss()
-                            },
-                        )
-                    }
-                }
-                // ── D-407 (round 31): the PERMANENT "Add subtitle file" row —
-                // always present, for every episode. Distinct from the track
-                // rows: a hairline accent border, a filled accent icon chip,
-                // and the accent-colored label (it is an ACTION, not a
-                // selectable state).
+                // ── D-407 → D-408: the PERMANENT "Add subtitle file" row —
+                // always present, for every episode, FIRST in the list (below
+                // the fixed Settings row, above "Off" — the report's exact
+                // placement). Distinct from the track rows: a hairline accent
+                // border, a filled accent icon chip, and the accent-colored
+                // label (it is an ACTION, not a selectable state). The
+                // description line is GONE (the report: "its description
+                // should not be shown").
                 item(key = "add-subtitle-file") {
-                    Spacer(modifier = Modifier.height(4.dp))
                     Surface(
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.06f),
                         shape = RoundedCornerShape(10.dp),
@@ -324,19 +308,122 @@ fun SubtitleTracksSheet(
                                 }
                             }
                             Spacer(modifier = Modifier.width(10.dp))
-                            Column {
+                            Text(
+                                text = "Add subtitle file",
+                                fontFamily = RobotoFamily,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                // "Off" option — ALWAYS shown (below the Add action row).
+                item(key = "off") {
+                    TrackRow(
+                        label = "Off",
+                        isSelected = currentTrackId <= 0,
+                        onClick = {
+                            onTrackSelected(-1)
+                            onDismiss()
+                        },
+                    )
+                }
+                // If no tracks, show a helpful message (below "Off").
+                if (tracks.isEmpty()) {
+                    item(key = "empty-msg") {
+                        Text(
+                            text = "No subtitles found in this stream.",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(20.dp),
+                        )
+                    }
+                } else {
+                    // Actual tracks
+                    items(tracks.size) { index ->
+                        val track = tracks[index]
+                        TrackRow(
+                            label = track.name,
+                            isSelected = track.id == currentTrackId,
+                            onClick = {
+                                onTrackSelected(track.id)
+                                onDismiss()
+                            },
+                        )
+                    }
+                }
+                // ── D-408 (round 32): the "Available in storage" section — the
+                // episode's on-disk subtitle files that are NOT yet MPV tracks.
+                // The belt-and-braces listing: whenever the auto pending-track
+                // path dropped them (stale cache, a lost hand-off, staging
+                // failure), they still appear here and load on tap through the
+                // proven stage → sub-add "select" path. Empty (hidden) when
+                // everything is already loaded.
+                if (storageSubtitles.isNotEmpty()) {
+                    item(key = "storage-header") {
+                        Text(
+                            text = "AVAILABLE IN STORAGE",
+                            fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 1.2.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 2.dp),
+                        )
+                    }
+                    items(storageSubtitles.size, key = { i -> "storage-sub-${storageSubtitles[i].uri}" }) { index ->
+                        val sub = storageSubtitles[index]
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.04f),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    onClick = {
+                                        onDismiss()
+                                        onLoadStorageSubtitle(sub)
+                                    },
+                                ),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.size(26.dp),
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.size(15.dp),
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    text = "Add subtitle file",
+                                    text = sub.label,
                                     fontFamily = RobotoFamily,
                                     fontSize = 14.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
-                                Text(
-                                    text = "Pick a .srt, .vtt, .ass or other subtitle file",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Load subtitle",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp),
                                 )
                             }
                         }

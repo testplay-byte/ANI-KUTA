@@ -786,16 +786,31 @@ class DefaultDownloadManager(
     // ── D-407 (round 31): the shared subtitle resolution + the manual import ──
 
     /**
-     * D-407 (round 31): the ONE subtitle answer for a downloaded episode.
+     * D-407 → D-408 (round 32): the ONE subtitle answer for a downloaded
+     * episode — now a LAYERED chain so a single broken link can never yield
+     * an empty selector again.
      *
      * The round-31 report: downloaded episodes' subtitles never showed in
      * the player's selector "even though they are stored properly in the
      * local storage, in the subtitles folder with proper numbering and
-     * naming" — because the DETAILS-page hand-off never looked for them and
-     * the in-player switch labeled whatever it found "Subtitle N". Every
-     * path now asks THIS function: DB row first (decoded `subtitleUris`),
-     * disk-scan fallback (the episode's dedicated `subtitles/` subfolder,
-     * canonical naming) — with real labels.
+     * naming". The round-32 report proved the DB-then-single-scan chain still
+     * had failure modes (a JUST-completed download not yet in the in-memory
+     * cache; a `.data.json` the manifest walk can't parse → `null` with no
+     * fallback). Every path asks THIS function:
+     *
+     * 0. **Stale-cache reload** — the row lookup failing (or an all-blank URI
+     *    list) triggers ONE cache reload from the DB, then a retry (kills the
+     *    download → open race).
+     * 1. **DB row `subtitleUris`** (the fast path — publish-time URIs).
+     * 2. **The videoUri-derived walk** — the episode's OWN video file location
+     *    is the ground truth (immune to a corrupt `.data.json` + mainId drift:
+     *    the video is playing from that folder).
+     * 3. **The mainId manifest walk** (`findContentFolder` + the scan).
+     * 4. **The title fallback** — the delete flow's proven
+     *    `findContentFolderByTitle` + the scan.
+     *
+     * Labels: [DownloadedSubtitleLabels.labelForUri] (round-32 fixed to read
+     * the on-disk file name — real labels, never "Subtitle N" regressions).
      */
     override suspend fun resolveSubtitleTracks(
         mainId: String,
@@ -803,17 +818,27 @@ class DefaultDownloadManager(
     ): List<ResolvedSubtitleTrack> {
         if (mainId.isBlank() || episodeNumber <= 0) return emptyList()
 
-        // 1. The DB cache's row for this episode (its subtitleUris are the
-        //    publish-time URIs — the fastest + most accurate source).
-        val fromDb = _downloadedEpisodes.value
-            .firstOrNull {
-                it.content.mainId == mainId && it.episode.episodeNumber.toInt() == episodeNumber
-            }
-            ?.subtitleUris
-            .orEmpty()
-            .filter { it.isNotBlank() }
+        fun findRow() = _downloadedEpisodes.value.firstOrNull {
+            it.content.mainId == mainId && it.episode.episodeNumber.toInt() == episodeNumber
+        }
 
-        // 2. Disk-truth fallback — the dedicated subtitles/ subfolder.
+        // 0. The row — with ONE stale-cache reload (a download that JUST
+        //    completed may not be in the in-memory cache yet — the report's
+        //    exact flow: download → open).
+        var row = findRow()
+        if (row?.subtitleUris?.any { it.isNotBlank() } != true) {
+            refreshDownloadedEpisodes()
+            row = findRow()
+            if (row != null) {
+                DownloadLogger.i {
+                    "resolveSubtitleTracks — cache reloaded from DB for mainId=$mainId " +
+                        "E$episodeNumber (subtitleUris=${row.subtitleUris.size})"
+                }
+            }
+        }
+
+        // 1. The DB row's publish-time URIs — the fast path.
+        val fromDb = row?.subtitleUris.orEmpty().filter { it.isNotBlank() }
         val uris = if (fromDb.isNotEmpty()) {
             DownloadLogger.i {
                 "resolveSubtitleTracks — DB row has ${fromDb.size} subtitle uri(s) " +
@@ -821,12 +846,43 @@ class DefaultDownloadManager(
             }
             fromDb
         } else {
-            val scanned = storage.findSubtitleFilesForEpisode(mainId, episodeNumber)
+            // ── The disk-truth chain (only when the DB has nothing). ──
+            val scanned = mutableListOf<String>()
+            // 2. The videoUri-derived walk — the most direct truth.
+            row?.videoUri?.takeIf { it.startsWith("content://") }?.let { vUri ->
+                scanned += storage.findSubtitleFilesForEpisodeNearVideo(vUri, episodeNumber)
+                if (scanned.isNotEmpty()) {
+                    DownloadLogger.i {
+                        "resolveSubtitleTracks — video-uri walk found ${scanned.size} " +
+                            "file(s) for mainId=$mainId E$episodeNumber"
+                    }
+                }
+            }
+            // 3. The mainId manifest walk.
+            if (scanned.isEmpty()) {
+                scanned += storage.findSubtitleFilesForEpisode(mainId, episodeNumber)
+            }
+            // 4. The title fallback — the delete flow's proven locator.
+            if (scanned.isEmpty()) {
+                val title = row?.content?.title?.takeIf { it.isNotBlank() }
+                if (title != null) {
+                    val folder = storage.findContentFolderByTitle(mainId, title)
+                    if (folder != null) {
+                        scanned += storage.scanSubtitleFilesInFolder(folder, episodeNumber)
+                        if (scanned.isNotEmpty()) {
+                            DownloadLogger.i {
+                                "resolveSubtitleTracks — TITLE fallback found " +
+                                    "${scanned.size} file(s) for mainId=$mainId E$episodeNumber"
+                            }
+                        }
+                    }
+                }
+            }
             DownloadLogger.i {
-                "resolveSubtitleTracks — DB subtitleUris empty; disk scan found " +
+                "resolveSubtitleTracks — DB subtitleUris empty; disk chain found " +
                     "${scanned.size} file(s) for mainId=$mainId E$episodeNumber"
             }
-            scanned
+            scanned.distinct()
         }
 
         return uris.mapIndexed { index, uri ->
@@ -838,9 +894,15 @@ class DefaultDownloadManager(
     }
 
     /**
-     * D-407 (round 31): persists one manually-picked subtitle into the
+     * D-407 → D-408 (round 32): persists one manually-picked subtitle into the
      * episode's subtitles/ folder + DB + `.data.json`, and returns the
      * track for the caller to sub-add into the running player.
+     *
+     * D-408: a DEDUP phase precedes the copy — when the picked file already IS
+     * one of the episode's subtitle files (matched by document id or file
+     * name), NO copy is made and the existing track is returned (the round-32
+     * report: picking a file from the series' own subtitles/ folder created a
+     * renamed `_manual_` duplicate).
      *
      * Serialized with the import/delete [deleteMutex] — the `.data.json`
      * read-modify-write must never race a concurrent delete (the round-28
@@ -876,6 +938,51 @@ class DefaultDownloadManager(
         val baseName = nameCandidate.substringBeforeLast('.').ifBlank { "custom" }
         val label = DownloadedSubtitleLabels.prettify(baseName)
 
+        // ── PHASE 1.5 (D-408, round 32): DEDUP — the picked file may already
+        // BE one of this episode's subtitle files (the report: picking a file
+        // from the series' own subtitles/ folder created a renamed `_manual_`
+        // COPY next to it). No copy in that case — the EXISTING track is
+        // returned, and (if it was only found on disk) it is appended to the
+        // DB row so every future resolution sees it. ──
+        val existing = resolveSubtitleTracks(mainId, episodeNumber)
+        if (existing.isNotEmpty()) {
+            val pickedDocId = runCatching {
+                android.net.Uri.parse(source.toString()).lastPathSegment
+            }.getOrNull()
+            // (a) The same document — the decoded document path matches.
+            val sameDoc = existing.firstOrNull { t ->
+                runCatching { android.net.Uri.parse(t.uri).lastPathSegment }.getOrNull() ==
+                    pickedDocId
+            }
+            // (b) The same file by NAME (case-insensitive) — provider-URI
+            // variants of the same document.
+            val sameName = sameDoc ?: existing.firstOrNull { t ->
+                DownloadedSubtitleLabels.fileNameOf(t.uri)
+                    ?.equals(nameCandidate, ignoreCase = true) == true
+            }
+            if (sameName != null) {
+                DownloadLogger.i {
+                    "importManualSubtitle — DEDUP: the picked file is already one of " +
+                        "this episode's subtitles ('${sameName.label}'); no copy made"
+                }
+                // Repair: a disk-scan-only find (DB row's list didn't include
+                // it) is appended so the DB + disk agree going forward.
+                val inDb = store.getDownloadedEpisodeRow(mainId, episodeKey)
+                    ?.subtitleUris
+                    .orEmpty()
+                    .filter { it.isNotBlank() }
+                if (sameName.uri !in inDb) {
+                    store.updateDownloadedSubtitleUris(
+                        mainId,
+                        episodeKey,
+                        inDb + sameName.uri,
+                    )
+                    refreshDownloadedEpisodes()
+                }
+                return@withLock sameName
+            }
+        }
+
         // ── PHASE 2: write the file into the episode's subtitles/ folder. ──
         val newUri = storage.importSubtitleFile(
             mainId = mainId,
@@ -886,11 +993,13 @@ class DefaultDownloadManager(
         ) ?: return@withLock null
 
         // ── PHASE 3: append to the DB row (read-modify-write under the lock). ──
-        val existing = store.getDownloadedEpisodeRow(mainId, episodeKey)
+        // (D-408: renamed from `existing` — the dedup phase's PHASE 1.5 owns
+        // that name in this scope now.)
+        val existingDbUris = store.getDownloadedEpisodeRow(mainId, episodeKey)
             ?.subtitleUris
             .orEmpty()
             .filter { it.isNotBlank() }
-        val updated = (existing + newUri).distinct()
+        val updated = (existingDbUris + newUri).distinct()
         store.updateDownloadedSubtitleUris(mainId, episodeKey, updated)
         DownloadLogger.i {
             "importManualSubtitle — DB row now has ${updated.size} subtitle uri(s) " +

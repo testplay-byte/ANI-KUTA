@@ -496,8 +496,56 @@ object AndroidConfig {
     // .data.json — the disk-truth chain the scanner rebuilds from) → staged
     // → MPV sub-add with "select" (activates immediately, appears in the
     // refreshed list). Streamed episodes get session-scoped staging.
-    const val versionCode = 84
-    const val versionName = "0.4.19"
+    // v0.4.20 (D-408, round 32 — the subtitle-system maturity round; the
+    // wizard was APPROVED end-to-end this round — zero wizard changes):
+    // (A) THE DOWNLOADED-SUBTITLE DETECTION made BULLETPROOF — the v0.4.19
+    // report: "It did not show me the subtitles in the subtitles category.
+    // This was a huge issue." resolveSubtitleTracks is now a LAYERED chain:
+    // (0) a stale in-memory cache is reloaded from the DB once (the
+    // download-just-completed → open race); (1) the DB row's subtitleUris;
+    // when empty the disk chain — (2) the episode's OWN video file location
+    // (the most direct truth: immune to .data.json corruption + mainId
+    // drift, via the new findSubtitleFilesForEpisodeNearVideo SAF walk),
+    // (3) the mainId manifest walk, (4) the title fallback
+    // (findContentFolderByTitle — the delete flow's proven locator).
+    // labelForUri fixed to read the on-disk FILE NAME (the last / segment —
+    // the round-31 version read the whole decoded document path, so every
+    // label silently fell back to "Subtitle N").
+    // (B) THE SHEET'S "AVAILABLE IN STORAGE" SECTION — the belt-and-braces
+    // listing: when the sheet opens, the episode's on-disk subtitle files
+    // (resolved through the same layered resolver, minus the ones already
+    // loaded as MPV tracks) are listed; tapping one loads it via the PROVEN
+    // manual-import path (stage → sub-add "select" → refresh) — "when the
+    // user clicks on those subtitles will be loaded from storage onto the
+    // player and will be shown exactly like how they currently are".
+    // (C) THE "Add subtitle file" ROW — the report: "it should be shown
+    // below the subtitle settings but above the off button… its description
+    // should not be shown" — moved to the FIRST list item (below the fixed
+    // Settings row, above Off) + the description line removed.
+    // (D) THE SUBTITLE SETTINGS LOADING FIX — the report: "When I opened a
+    // new episode, my old subtitle settings were not applied directly… I had
+    // to change something" — the reliable LIVE apply
+    // (AnikutaMPVView.applySubtitlePreferences, setProperty* for numerics)
+    // now runs on FILE_LOADED + the PLAYBACK_RESTART fallback (every new
+    // file, episode switch, fresh screen) instead of ONLY from the settings
+    // sheet's on-change callback.
+    // (E) THE REMEMBERED SUBTITLE SELECTION — the report: "make it remember
+    // the location of the selected subtitle files… that subtitle will be
+    // selected and will be pre-applied on that" — a per-series memory
+    // (PlayerPreferences.get/setPreferredSubtitleTrack: "" = none, "off" =
+    // explicitly off, else the track's label) persisted on every sheet
+    // selection (incl. Off), manual import, and storage-row load; pre-applied
+    // via the new PlayerObserver.onTracksLoaded hook after EVERY track-list
+    // reload (matches the label against the live tracks and sets sid).
+    // (F) THE IMPORT DEDUP — the report: "another copy of that subtitle file
+    // is created in the subtitles folder of that specific series" — a dedup
+    // phase (document-id or filename match) before the copy: picking the
+    // episode's OWN subtitle file returns the EXISTING track (no _manual_
+    // duplicate; the DB row is repaired if it was missing the file).
+    // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
+    // sub formats by extension).
+    const val versionCode = 85
+    const val versionName = "0.4.20"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

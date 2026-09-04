@@ -2,6 +2,7 @@ package com.confused.anikuta.core.download
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1247,7 +1248,7 @@ class DownloadStorageProvider(
     }
 
     /**
-     * D-407 (round 31): scans the content folder's `subtitles/` subfolder (+
+     * D-407 → D-408 (round 32): scans the content folder's `subtitles/` subfolder (+
      * the folder root, for legacy layouts) for the subtitle files belonging to
      * a SPECIFIC episode — the disk-truth fallback behind
      * [DownloadManager.resolveSubtitleTracks] when the DB row's
@@ -1265,40 +1266,143 @@ class DownloadStorageProvider(
     suspend fun findSubtitleFilesForEpisode(mainId: String, episodeNumber: Int): List<String> =
         withContext(Dispatchers.IO) {
             if (episodeNumber <= 0) return@withContext emptyList()
-            val epNumPadded = String.format("%05d", episodeNumber)
-            val results = mutableListOf<String>()
             try {
                 val contentDir = findContentFolder(mainId) ?: return@withContext emptyList()
-                val index = contentDir.listFiles().associateBy { it.name ?: "<null-name>" }
-                val subtitlesDir = index["subtitles"]?.takeIf { it.isDirectory }
-                val searchDirs = if (subtitlesDir != null) {
-                    listOf(subtitlesDir, contentDir)
-                } else {
-                    listOf(contentDir)
-                }
-                for (dir in searchDirs) {
-                    for (file in dir.listFiles()) {
-                        if (!file.isFile) continue
-                        val name = file.name ?: continue
-                        val bare = name.removePrefix(".")
-                        val ext = bare.substringAfterLast('.', "").lowercase()
-                        if (ext !in SUBTITLE_EXTENSIONS) continue
-                        val isEpisodeMatch = bare.startsWith("subtitle_E${epNumPadded}_")
-                        if (isEpisodeMatch) {
-                            results.add(file.uri.toString())
-                            DownloadLogger.i {
-                                "findSubtitleFilesForEpisode — found: ${name.take(60)}"
-                            }
-                        }
-                    }
-                }
+                scanSubtitleFilesInDirs(listOf(contentDir), String.format("%05d", episodeNumber))
             } catch (e: Exception) {
                 DownloadLogger.w {
                     "findSubtitleFilesForEpisode failed: ${e.message}"
                 }
+                emptyList()
             }
-            results
         }
+
+    /**
+     * D-408 (round 32): the MOST ROBUST subtitle locator — derives the candidate
+     * folders from the episode's OWN video file location instead of the
+     * `.data.json` manifest walk.
+     *
+     * The episode's video document id is the full volume-relative chain
+     * (`primary:Root/video/Title/episodes/E1.mkv`); the video's parent (legacy:
+     * the content folder) and grandparent (the canonical
+     * `<content>/episodes/<file>` layout) are walked from the SAF ROOT via
+     * `findFile` and each is scanned with the shared [scanSubtitleFilesInDirs].
+     * This cannot be defeated by a corrupt `.data.json`, mainId drift, or a
+     * stale DB row — the video is PLAYING from that folder, so its location is
+     * the ground truth.
+     *
+     * @param videoUri The episode's `content://` video URI (the DB row's videoUri).
+     * @param episodeNumber The episode number (drives the `E{num:5}` token).
+     * @return the matched subtitle `content://` URI strings (may be empty).
+     */
+    suspend fun findSubtitleFilesForEpisodeNearVideo(
+        videoUri: String,
+        episodeNumber: Int,
+    ): List<String> = withContext(Dispatchers.IO) {
+        if (episodeNumber <= 0 || !videoUri.startsWith("content://")) {
+            return@withContext emptyList()
+        }
+        try {
+            val root = getRootFolder() ?: return@withContext emptyList()
+            val rootDocId = runCatching { DocumentsContract.getTreeDocumentId(root.uri) }
+                .getOrNull()
+            val videoDocId = runCatching { DocumentsContract.getDocumentId(Uri.parse(videoUri)) }
+                .getOrNull()
+            if (rootDocId.isNullOrBlank() || videoDocId.isNullOrBlank()) {
+                return@withContext emptyList()
+            }
+            // Volume-relative chains: "primary:Root/video/Title/episodes/E1.mkv".
+            // (A different volume than the root's simply fails the prefix check —
+            // the caller falls through to the other locators.)
+            val rootRel = rootDocId.substringAfter(':').trim('/')
+            val videoRel = videoDocId.substringAfter(':').trim('/')
+            if (videoRel.isBlank() || !videoRel.startsWith(rootRel)) {
+                return@withContext emptyList()
+            }
+            val segments = videoRel.removePrefix(rootRel).trim('/')
+                .split('/').filter { it.isNotBlank() }
+            if (segments.size < 2) return@withContext emptyList()
+
+            val epNumPadded = String.format("%05d", episodeNumber)
+            val results = mutableListOf<String>()
+            // drop=1 → the video file's folder (legacy: the content folder);
+            // drop=2 → its parent (the canonical episodes/ layout's content folder).
+            for (drop in 1..2) {
+                if (segments.size - drop < 1) break
+                var folder: DocumentFile? = root
+                var walkOk = true
+                for (i in 0 until segments.size - drop) {
+                    folder = folder?.findFile(segments[i])
+                    if (folder == null || !folder.isDirectory) {
+                        walkOk = false
+                        break
+                    }
+                }
+                if (walkOk && folder != null) {
+                    results += scanSubtitleFilesInDirs(listOf(folder), epNumPadded)
+                }
+            }
+            results.distinct()
+        } catch (e: Exception) {
+            DownloadLogger.w {
+                "findSubtitleFilesForEpisodeNearVideo failed: ${e.message}"
+            }
+            emptyList()
+        }
+    }
+
+    /**
+     * D-408 (round 32): the shared episode-subtitle scan of explicit folders —
+     * used by the mainId walk ([findSubtitleFilesForEpisode]), the video-uri
+     * walk ([findSubtitleFilesForEpisodeNearVideo]), and the resolver's
+     * title-fallback path (via [findContentFolderByTitle] + this).
+     *
+     * Each folder is scanned itself + its `subtitles/` subfolder (the canonical
+     * layout; the folder-root pass covers legacy layouts).
+     */
+    suspend fun scanSubtitleFilesInFolder(folder: DocumentFile, episodeNumber: Int): List<String> =
+        withContext(Dispatchers.IO) {
+            if (episodeNumber <= 0) return@withContext emptyList()
+            runCatching {
+                scanSubtitleFilesInDirs(listOf(folder), String.format("%05d", episodeNumber))
+            }.getOrDefault(emptyList())
+        }
+
+    /**
+     * The raw scan loop (main-thread-unsafe — callers wrap in Dispatchers.IO):
+     * for each folder, its `subtitles/` subfolder (when present) + the folder
+     * itself, matching `subtitle_E{epNumPadded}_*.{ext}` against
+     * [SUBTITLE_EXTENSIONS].
+     */
+    private fun scanSubtitleFilesInDirs(dirs: List<DocumentFile>, epNumPadded: String): List<String> {
+        val results = mutableListOf<String>()
+        for (dir in dirs) {
+            val index = dir.listFiles().associateBy { it.name ?: "<null-name>" }
+            val subtitlesDir = index["subtitles"]?.takeIf { it.isDirectory }
+            val searchDirs = if (subtitlesDir != null) {
+                listOf(subtitlesDir, dir)
+            } else {
+                listOf(dir)
+            }
+            for (d in searchDirs) {
+                for (file in d.listFiles()) {
+                    if (!file.isFile) continue
+                    val name = file.name ?: continue
+                    val bare = name.removePrefix(".")
+                    val ext = bare.substringAfterLast('.', "").lowercase()
+                    if (ext !in SUBTITLE_EXTENSIONS) continue
+                    val isEpisodeMatch = bare.startsWith("subtitle_E${epNumPadded}_")
+                    if (isEpisodeMatch) {
+                        results.add(file.uri.toString())
+                        DownloadLogger.i {
+                            "scanSubtitleFiles — found: ${name.take(60)}"
+                        }
+                    }
+                }
+            }
+        }
+        return results.distinct()
+    }
 
     /**
      * D-407 (round 31): persists ONE manually-picked subtitle file into the
