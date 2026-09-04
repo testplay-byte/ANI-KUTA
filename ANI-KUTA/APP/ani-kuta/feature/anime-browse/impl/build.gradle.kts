@@ -10,7 +10,6 @@ android {
 dependencies {
     implementation(project(":feature:anime-browse:api"))
     implementation(project(":feature:anime-details:api"))
-    implementation(project(":core:debug-api"))  // DB-7: LocalDebugContext
     implementation(project(":core:navigation-api"))
     implementation(project(":core:designsystem"))
     implementation(project(":core:preferences"))  // D-320: cover-transition gate

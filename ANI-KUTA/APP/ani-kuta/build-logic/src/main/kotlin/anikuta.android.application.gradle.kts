@@ -32,8 +32,18 @@ android {
     }
 
     buildTypes {
+        // D-413 (round 33 — the v1.1.1 publishable release): R8 FULL MODE
+        // (obfuscation + shrinking + optimization; the AGP default) plus
+        // resource shrinking. The keep rules live in app/proguard-rules.pro —
+        // they cover every surface that is resolved BY NAME at runtime (the
+        // DexClassLoader plugin-compat classpath, the MPV/FFmpeg JNI
+        // surfaces, WorkManager workers, kotlinx-serialization companions).
+        // DexGuard (the commercial Guardsquare product) was assessed and
+        // deliberately not used — it cannot be provisioned without a paid
+        // per-company license; R8 full mode is the standard equivalent.
         getByName("release") {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

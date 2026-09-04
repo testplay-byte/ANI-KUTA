@@ -33,11 +33,13 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.kotlinx.coroutines.android)
 
-    // Phase 4: SourcePreferencesScreen (PreferenceFragmentCompat)
-    implementation("androidx.preference:preference-ktx:1.2.1")
-    implementation("androidx.fragment:fragment-ktx:1.6.2")
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("androidx.core:core-ktx:1.15.0")
+    // Phase 4: SourcePreferencesScreen (PreferenceFragmentCompat).
+    // D-414 (round 33): these were HARDCODED (bypassing the catalog — the
+    // appcompat pin even conflicted with the catalog's 1.7.1); now catalog refs.
+    implementation(libs.androidx.preference.ktx)
+    implementation(libs.androidx.fragment.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.core.ktx)
 
     debugImplementation(libs.androidx.ui.tooling)
 }

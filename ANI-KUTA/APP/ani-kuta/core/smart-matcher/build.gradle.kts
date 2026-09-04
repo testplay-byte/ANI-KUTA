@@ -10,7 +10,6 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:preferences"))
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.logcat)
 
     // AniList API + models (for AutoLinkService — searches AniList by title)
     implementation(project(":core:anilist"))

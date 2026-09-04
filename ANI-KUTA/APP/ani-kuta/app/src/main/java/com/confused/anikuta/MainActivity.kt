@@ -334,8 +334,9 @@ object PlayerSettingsKey : NavKey
 @Serializable
 object VideoCachingKey : NavKey
 
-// Task 57 (round 17): dedicated Debug page — debug-bubble toggle (debug builds
-// only) + CloudStream resolve-list source details / copy button (release too).
+// Task 57 (round 17): dedicated Debug page — CloudStream resolve-list source
+// details / copy button + the update-check history (D-409: the debug-bubble
+// toggle is removed with the bubble itself in the v1.1.1 publishable line).
 @Serializable
 object DebugSettingsKey : NavKey
 
@@ -781,13 +782,6 @@ fun AppRoot() {
         pop()
     }
 
-    // D-163 (DB-1): hoisted debug-context state. Screens write via
-    // LocalDebugContextUpdater; the debug bubble reads via LocalDebugContext.
-    // The provider wraps BOTH the nav content AND the bubble (DebugBubbleHost)
-    // so the bubble — a sibling of the nav content in this Box — is inside the
-    // provider's subtree and can read the context (D-162 C1 fix).
-    var debugContext by remember { androidx.compose.runtime.mutableStateOf<com.confused.anikuta.core.debugapi.DebugContext?>(null) }
-
     // Task 53 / RC-6: the CS resolve-sheet request — set by a CloudStream
     // episode tap on the details page; the sheet (an overlay sibling of the
     // nav content) resolves streams over the details page and hands off to
@@ -801,8 +795,6 @@ fun AppRoot() {
 
     androidx.compose.runtime.CompositionLocalProvider(
         LocalLibrarySelectionMode provides librarySelectionMode,
-        com.confused.anikuta.core.debugapi.LocalDebugContext provides debugContext,
-        com.confused.anikuta.core.debugapi.LocalDebugContextUpdater provides { ctx -> debugContext = ctx },
     ) {
         Box(
             modifier = Modifier
@@ -1583,11 +1575,6 @@ fun AppRoot() {
                 selectionModeContent = selectionContent,
             )
         }
-
-        // D-163 (DB-1): the debug bubble — renders on top of every screen.
-        // DebugBubbleHost is a no-op in release builds (release source set).
-        // In debug builds it renders the draggable squircle bubble.
-        DebugBubbleHost()
 
         // ── Task 53 / RC-6: the CS resolve sheet (AnymeX entry pattern) ──
         // Overlay sibling of the nav content: the details page stays visible

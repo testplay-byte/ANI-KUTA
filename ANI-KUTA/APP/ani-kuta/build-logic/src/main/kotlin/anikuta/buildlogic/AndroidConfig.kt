@@ -544,8 +544,24 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
+    // ── v1.1.1 (D-409..D-414, round 33 — THE FIRST PUBLISHABLE RELEASE) ─────
+    // The v0.4.x device-QA line (testplay-byte) is CLOSED; streaming/
+    // CLOUDSTREAM-V2 merged into main and release/1.1.1 cut from it. The
+    // publishable line: (D-409) the debug bubble removed COMPLETELY (module +
+    // source sets + every call site; show-sources/copy-button/update-check
+    // history KEPT); (D-410) the empty episode-check run is SILENT (the
+    // "nothing was due" notification only fired when totalChecked > 0);
+    // (D-411) the in-app updater + release links point at the published repo
+    // Confused-Creature-180/ANI-KUTA (APK-only); (D-412) release logging OFF
+    // (Logger + the com.lagradost.api.Log facade; E kept); (D-413) R8 full
+    // mode + resource shrinking + the plugin-compat keep rules + the
+    // keystore.properties release-signing plumbing; (D-414) logcat/seeker/
+    // androidx-media/truetype-parser/stray-rxjava deps removed + the
+    // hardcoded deps moved into the catalog. versionCode jumps to the
+    // major*10000+minor*100+patch scheme (1.1.1 → 10101; 10101 > 85 keeps the
+    // install-over line monotonic for sideload-onto-v0.4.20 devices).
+    const val versionCode = 10101
+    const val versionName = "1.1.1"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

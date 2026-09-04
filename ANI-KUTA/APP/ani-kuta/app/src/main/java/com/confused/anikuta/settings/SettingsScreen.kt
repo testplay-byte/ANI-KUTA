@@ -178,7 +178,7 @@ fun SettingsScreen(
                         MoreListRow(
                             icon = Icons.Filled.BugReport,
                             title = "Debug options",
-                            subtitle = "Debug bubble, source details, resolve-list copy button",
+                            subtitle = "Source details, resolve-list copy button, update check history",
                             onClick = onOpenDebug,
                         )
                     }

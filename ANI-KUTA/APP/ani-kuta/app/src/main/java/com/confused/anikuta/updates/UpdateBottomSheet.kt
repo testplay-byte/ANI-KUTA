@@ -82,7 +82,8 @@ import java.util.Locale
  *   and calls `updateManager.dismissUpdateSheet()` itself, but the X-button + scrim
  *   dismiss go through this `onDismiss` callback so the sheet's caller is the source
  *   of truth for the dismissal).
- * - GitHub release URL owner/repo updated to `testplay-byte/ANI-KUTA`.
+ * - GitHub release URL owner/repo updated to the published repo
+ *   `Confused-Creature-180/ANI-KUTA` (D-411, round 33 — the v1.1.1+ line).
  *
  * # Design (per user spec)
  *
@@ -228,7 +229,7 @@ fun UpdateBottomSheet(
                         },
                     )
                     Spacer(modifier = Modifier.height(10.dp))
-                    val releaseUrl = "https://github.com/testplay-byte/ANI-KUTA/releases/tag/v${info.versionName}"
+                    val releaseUrl = "https://github.com/Confused-Creature-180/ANI-KUTA/releases/tag/v${info.versionName}"
                     Text(
                         text = "View full release on GitHub →",
                         fontFamily = RobotoFamily,

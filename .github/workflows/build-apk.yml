@@ -9,6 +9,11 @@
 #
 # Status:
 #   - Debug build: active.
+#   - Release build (D-413, round 33 — the v1.1.1 publishable line): R8
+#     full mode + resource shrinking — every push ALSO runs assembleRelease
+#     so a minification break is caught at the same commit that caused it.
+#     The release APK is UNSIGNED on this path (the keystore properties are
+#     absent — the final SIGNED builds are the tag-driven release-apk.yml).
 #   - Tag pushes (v*) are handled by release-apk.yml (build + GitHub Release).
 #
 # NOTE: Per CORE_RULES §4, all project zones live inside a single wrapper folder
@@ -39,7 +44,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: ANI-KUTA/APP/ani-kuta
@@ -65,7 +70,7 @@ jobs:
       # CloudStream V2: unit tests gate every push — cloudstream-api carries
       # the plugin binary-compat surface (CompatSurfaceTest etc.),
       # data:cloudstream the repo-parsing + episode-mapping locks, and
-      # core:common the ring-buffer logging lock. Tests run BEFORE
+      # core:common the logging-policy locks. Tests run BEFORE
       # assembleDebug so a red test fails the build fast.
       # Task 52 (round 12): :core:cs-player carries the playback-port locks
       # (mime/quality mapping, subtitle mime detection, track selection).
@@ -82,6 +87,32 @@ jobs:
 
       - name: Build debug APK
         run: ./gradlew assembleDebug
+
+      # D-413 (round 33 — the v1.1.1 publishable line): the RELEASE build on
+      # every push — R8 full mode (obfuscation + shrinking + optimization) +
+      # resource shrinking. A keep-rule regression (plugin-compat classpath,
+      # JNI surfaces, serialization companions) breaks HERE, at the commit
+      # that caused it, instead of at tag time. The APK is UNSIGNED on this
+      # path (no keystore properties in this workflow — signing is the
+      # tag-driven release-apk.yml path); the mapping.txt is uploaded for
+      # stack-trace decoding.
+      - name: Build release APK (R8 + resource-shrink verification)
+        run: ./gradlew assembleRelease
+
+      - name: Verify the release APK was produced (and is minified)
+        run: |
+          set -e
+          apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          if [ ! -f "$apk" ]; then
+            echo "::error::Release APK missing at $apk"
+            ls -R app/build/outputs/apk/ 2>/dev/null || true
+            exit 1
+          fi
+          if [ ! -f "app/build/outputs/mapping/release/mapping.txt" ]; then
+            echo "::error::R8 mapping.txt missing — the release build was NOT minified"
+            exit 1
+          fi
+          echo "Release APK + mapping OK:"; ls -la "$apk" app/build/outputs/mapping/release/mapping.txt
 
       # D-246 (user-authorized emulator-testing support): OPTIONALLY produce a
       # TEST-ONLY native-x86_64 APK for the CI-emulator test environment. Per the
@@ -104,7 +135,8 @@ jobs:
           echo "Checking APK lib/ folders..."
           found_bad=0
           shopt -s nullglob globstar
-          for apk in ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/**/app-debug.apk; do
+          # D-413: both the debug AND the release (R8) APKs are checked.
+          for apk in ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/**/app-debug.apk ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/release/app-release-unsigned.apk; do
             [ -f "$apk" ] || continue
             echo "Inspecting: $apk"
             bad=$(unzip -Z1 "$apk" | grep -E '^lib/[^/]+/' || true)
@@ -132,4 +164,14 @@ jobs:
         with:
           name: anikuta-apk
           path: ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+      # D-413: the R8 mapping — the decoder table for every obfuscated
+      # stack trace the release build can ever produce (kept per-build for
+      # support + crash-report decoding).
+      - name: Upload R8 mapping artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: anikuta-release-mapping
+          path: ANI-KUTA/APP/ani-kuta/app/build/outputs/mapping/release/mapping.txt
           if-no-files-found: error

@@ -10,11 +10,19 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // ── Signing config: fixed debug keystore for consistent APK updates ──
-    // Per user request: "sign the APKs with some temporary random key so that
-    // I do not have to uninstall the old one. I can directly update it."
-    // This keystore is committed to the repo (it's a debug key, not a release key).
-    // Phase 9 will replace with a proper release signing setup.
+    // ── Signing configs ──
+    // 1) anikutaDebug: the committed debug keystore — dev/CI builds keep
+    //    installing over each other (the original user request).
+    // 2) anikutaRelease (D-413, round 33 — the v1.1.1 publishable line): the
+    //    REAL release signing, driven by app/keystore.properties
+    //    (storeFile / storePassword / keyAlias / keyPassword). That file is
+    //    NOT committed (the root .gitignore's keystore.properties + *.keystore
+    //    rules) — the final publishable builds write it from CI SECRETS. When
+    //    the file is ABSENT (local dev + CI verification builds) the config is
+    //    not created and the release buildType stays UNSIGNED — assembleRelease
+    //    still succeeds, which is exactly the CI R8-verification path. The
+    //    keystore itself is delivered to the user in the final password-
+    //    protected zip (never committed anywhere).
     signingConfigs {
         create("anikutaDebug") {
             storeFile = file("anikuta-debug.keystore")
@@ -22,11 +30,30 @@ android {
             keyAlias = "anikuta"
             keyPassword = "anikuta"
         }
+        if (file("keystore.properties").exists()) {
+            create("anikutaRelease") {
+                val ks = java.util.Properties().apply {
+                    file("keystore.properties").inputStream().use { load(it) }
+                }
+                storeFile = file(ks.getProperty("storeFile") ?: error("keystore.properties: storeFile missing"))
+                storePassword = ks.getProperty("storePassword") ?: error("keystore.properties: storePassword missing")
+                keyAlias = ks.getProperty("keyAlias") ?: error("keystore.properties: keyAlias missing")
+                keyPassword = ks.getProperty("keyPassword") ?: error("keystore.properties: keyPassword missing")
+            }
+        }
     }
 
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("anikutaDebug")
+        }
+        release {
+            // D-413: only signed when the keystore properties exist (see the
+            // signingConfigs block above); otherwise the release APK is
+            // unsigned and the build still succeeds.
+            if (signingConfigs.findByName("anikutaRelease") != null) {
+                signingConfig = signingConfigs.getByName("anikutaRelease")
+            }
         }
     }
 }
@@ -95,11 +122,6 @@ dependencies {
     implementation(project(":core:notifications"))
     implementation(project(":core:app-update"))
     implementation(project(":core:ads"))  // Ad system — smart-link interstitial (D-272)
-    implementation(project(":core:debug-api"))  // always on classpath (types only)
-
-    // Debug bubble — debug builds only (D-163). Release builds contain zero
-    // debug-bubble code. Wiring in :app/src/debug/DebugInit.kt.
-    debugImplementation(project(":feature:debug-bubble"))
 
     // AndroidX
     implementation(libs.androidx.core.ktx)
@@ -167,7 +189,7 @@ dependencies {
 //    (1.7.8; icons artifacts were deprecated after 1.7.8).
 //  - androidx.compose.material (non-icons: `material`, `material-ripple`) and
 //    androidx.compose.material3.adaptive are UNPINNED internal transitives
-//    (required only by material3 1.3.1 / seeker) — no app code compiles
+//    (required only by material3 1.3.1) — no app code compiles
 //    against them, so their exact version is not asserted.
 //  - Every other androidx.compose.* artifact must match the pinned compose line.
 //  - androidx.lifecycle must match the pinned lifecycle line.

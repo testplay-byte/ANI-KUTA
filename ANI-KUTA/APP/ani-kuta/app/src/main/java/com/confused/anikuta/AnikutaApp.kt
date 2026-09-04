@@ -92,15 +92,19 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             com.confused.anikuta.error.AnikutaCrashHandler(this)
         )
 
-        // Task 49 (round 9) → Task 64 (round 24): the console capture
-        // (Logger.setAppender(RingLogBuffer) + the com.lagradost.api.Log
-        // sink forwarding into the ring) is REMOVED — the in-app console
-        // logging tool is gone per the round-24 device instruction ("remove
-        // the console logs only"). The Logger itself stays (logcat-only now);
-        // min level still bounds the overhead: DEBUG lines only in debug
-        // builds, INFO+ in release (decision D-362).
-        Logger.setEnabled(true)
-        Logger.setMinLevel(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.INFO)
+        // Task 49 (round 9) → Task 64 (round 24) → D-412 (round 33): the
+        // console capture was removed at round 24 (logcat-only Logger since).
+        // D-412 (the v1.1.1 publishable round): the user instruction — "make
+        // sure that the console logging is removed" — the Logger is now fully
+        // OFF in release builds (the lambda-based wrapper means the ~1.2k call
+        // sites' message bodies are never even evaluated, and R8 strips the
+        // dead branches). Debug builds keep the full DEBUG-level logging.
+        Logger.setEnabled(BuildConfig.DEBUG)
+        Logger.setMinLevel(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.NONE)
+        // The plugin-facing facade (com.lagradost.api.Log — every vendored CS
+        // site + all loaded plugin dexes) gets the same gate: D/I/W silent in
+        // release, E kept (error diagnostics for support). D-412.
+        com.lagradost.api.Log.enabled = BuildConfig.DEBUG
 
         // ── Extension compat setup (BEFORE Koin, BEFORE any extension loads) ──
         // Extensions use Injekt (a service locator) to resolve NetworkHelper,
@@ -157,16 +161,12 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 playbackCacheModule,
                 appModule,
             )
-            // Debug-only Koin modules (debug-bubble, etc.). No-op in release
-            // builds — debugKoinModules() returns emptyList() there.
-            // (Phase DB-1 — D-163.)
-            modules(debugKoinModules())
         }
 
         // Task 64 (round 24): initDebugIntegrations() (the Logger appender →
         // DebugLogBuffer composite wiring) is REMOVED with the console family.
-        // The debug-bubble Koin modules above stay (its Screen/Database/Network/
-        // App-info tabs are untouched).
+        // D-409 (round 33): the debug-bubble module + its Koin wiring are
+        // REMOVED completely for the v1.1.1 publishable line.
 
         // Task 45: the CloudStream→aniyomi SOURCE BRIDGE — every trusted CloudStream
         // provider is published as an AnimeSource into ExtensionManager, so a
@@ -267,11 +267,9 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
         // App-level infrastructure DI
         private val appModule = module {
             // Network
-            // DB-5: wrapDebugOkHttp adds the DebugNetworkStats interceptor in
-            // debug builds; no-op (identity) in release builds.
-            single<OkHttpClient> { wrapDebugOkHttp(HttpClientFactory().create()) }
+            single<OkHttpClient> { HttpClientFactory().create() }
             // D.0.4: Download HTTP client — long timeouts, separate connection pool.
-            single<OkHttpClient>(HttpClientFactory.DOWNLOAD) { wrapDebugOkHttp(HttpClientFactory().createDownloadClient()) }
+            single<OkHttpClient>(HttpClientFactory.DOWNLOAD) { HttpClientFactory().createDownloadClient() }
 
             // D.4: Coil ImageLoader with 500MB disk cache (persistent)
             single { ImageLoaderFactory.create(get(), get()) }
@@ -280,10 +278,7 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             single { com.confused.anikuta.core.designsystem.color.CoverColorExtractor(get(), get()) }
 
             // Database
-            // DB-9: wrapDebugSqlDriver wraps the driver with DebugSqlDriverWrapper
-            // in debug builds (tracks DB writes for the DB Activity view); no-op
-            // (identity) in release builds.
-            single<SqlDriver> { wrapDebugSqlDriver(DatabaseDriverFactory(get()).create()) }
+            single<SqlDriver> { DatabaseDriverFactory(get()).create() }
             single<AnikutaDatabase> { AnikutaDatabase(get()) }
 
             // Phase SC-2: bind ScheduleStore as ActualReleaseUpdater (breaks the circular

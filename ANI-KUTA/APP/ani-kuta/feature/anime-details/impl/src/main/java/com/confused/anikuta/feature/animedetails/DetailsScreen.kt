@@ -559,37 +559,6 @@ fun DetailsScreen(
         )
     }
 
-    // DB-7: provide debug context for the Current Screen tab.
-    // Shows the anime's mainId, resolver state, + relevant DB rows.
-    val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
-    val mainId = viewModel.currentMainId
-    val debugCtx = remember(state, mainId, resolverState) {
-        val epCount = when (val es = episodeState) {
-            is EpisodeState.Loaded -> es.episodes.size
-            else -> 0
-        }
-        com.confused.anikuta.core.debugapi.DebugContext(
-            screenName = "Details",
-            screenData = buildMap {
-                mainId?.let { put("mainId", it) }
-                put("resolverState", resolverState::class.simpleName ?: "Unknown")
-                put("episodeCount", epCount.toString())
-                linkedSource?.let { put("sourceId", it.sourceId.toString()); put("sourceName", it.sourceName) }
-            },
-            relevantTables = mainId?.let {
-                listOf(
-                    com.confused.anikuta.core.debugapi.DbReference("main_entry", "main_id", it, "View main_entry row"),
-                    com.confused.anikuta.core.debugapi.DbReference("episode_metadata", "main_id", it, "View episode metadata"),
-                    com.confused.anikuta.core.debugapi.DbReference("watch_progress", "main_id", it, "View watch progress"),
-                )
-            } ?: emptyList(),
-        )
-    }
-    androidx.compose.runtime.LaunchedEffect(debugCtx) { updateDebugContext(debugCtx) }
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { updateDebugContext(null) }
-    }
-
     // D-223: When a cover accent is available, compute a derived ColorScheme
     // with the primary family overridden for this anime.
     val adaptiveAccent = coverAccent?.let { androidx.compose.ui.graphics.Color(it) }

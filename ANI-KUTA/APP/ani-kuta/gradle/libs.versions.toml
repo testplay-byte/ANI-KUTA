@@ -75,8 +75,9 @@ coil = "3.0.4"
 # WorkManager (Phase UP — smart update engine)
 workRuntime = "2.10.0"
 
-# Logging
-logcat = "0.1"
+# D-414 (round 33): the logcat lib (com.squareup.logcat) was declared in 14
+# modules but NEVER imported (a legacy from before the custom Logger) —
+# removed from the catalog with the declarations.
 
 # Source API (binary compat for extensions)
 jsoup = "1.19.1"
@@ -91,9 +92,8 @@ kotlinxSerializationJsonOkio = "1.7.3"
 mpvLib = "1.18.n"
 ffmpegKit = "1.18"
 smartException = "0.2.1"
-seeker = "1.2.2"
-mediaSession = "1.4.1"
-trueTypeParser = "2.1.4"
+# D-414 (round 33): seeker / androidx-media / truetype-parser removed —
+# verified zero imports before removal.
 
 [libraries]
 # AndroidX
@@ -167,8 +167,8 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 
-# Logging
-logcat = { group = "com.squareup.logcat", name = "logcat", version.ref = "logcat" }
+# D-414 (round 33): the logcat lib (com.squareup.logcat) was declared in 14
+# modules but never imported — removed with all declarations.
 
 # Source API (binary compat for extensions)
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
@@ -177,6 +177,7 @@ rxandroid = { group = "io.reactivex", name = "rxandroid", version.ref = "rxandro
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
 injekt = { group = "com.github.mihonapp", name = "injekt", version.ref = "injekt" }
 androidx-preference-ktx = { group = "androidx.preference", name = "preference-ktx", version.ref = "androidxPreference" }
+androidx-fragment-ktx = { group = "androidx.fragment", name = "fragment-ktx", version = "1.6.2" }  # D-414: was hardcoded in extensions-settings/impl
 kotlinx-serialization-json-okio = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json-okio", version.ref = "kotlinxSerializationJsonOkio" }
 
 # CloudStream plugin compat: properly-licensed third-party deps the plugin
@@ -197,9 +198,6 @@ kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime",
 mpv-lib = { group = "com.github.aniyomiorg", name = "aniyomi-mpv-lib", version.ref = "mpvLib" }
 ffmpeg-kit = { group = "com.github.jmir1", name = "ffmpeg-kit", version.ref = "ffmpegKit" }
 smart-exception = { group = "com.arthenica", name = "smart-exception-java", version.ref = "smartException" }
-seeker = { group = "io.github.2307vivek", name = "seeker", version.ref = "seeker" }
-androidx-media = { group = "androidx.media", name = "media", version.ref = "mediaSession" }
-truetype-parser = { group = "io.github.yubyf", name = "truetypeparser-light", version.ref = "trueTypeParser" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

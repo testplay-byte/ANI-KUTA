@@ -34,14 +34,10 @@ dependencies {
     // MPV native lib (via wrapper module)
     api(project(":core:player-mpv-lib"))
 
-    // Seeker — Compose seekbar (for controls, Phase 4)
-    implementation(libs.seeker)
-
-    // Media session — for background media controls
-    implementation(libs.androidx.media)
-
-    // TrueType parser — for subtitle font parsing
-    implementation(libs.truetype.parser)
+    // D-414 (round 33): seeker (Compose seekbar — the controls are hand-
+    // rolled), androidx.media (the old non-media3 media lib — zero imports;
+    // the CS player stack uses Media3), and truetype-parser (zero imports)
+    // REMOVED — verified unused before removal.
 
     // Coil3 — for episode thumbnails in switching overlay (Phase 4)
     implementation(libs.coil.compose)
@@ -55,6 +51,4 @@ dependencies {
     // Coroutines + serialization
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.rxjava)
-    implementation(libs.logcat)
 }

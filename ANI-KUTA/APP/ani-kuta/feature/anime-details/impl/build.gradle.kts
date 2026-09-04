@@ -9,7 +9,6 @@ android {
 
 dependencies {
     implementation(project(":feature:anime-details:api"))
-    implementation(project(":core:debug-api"))  // DB-7: LocalDebugContext
     implementation(project(":core:designsystem"))
     implementation(project(":core:anilist"))
     implementation(project(":core:common"))
@@ -49,7 +48,6 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.rxjava)
 
     debugImplementation(libs.androidx.ui.tooling)
 }

@@ -208,6 +208,17 @@ class UpdateProgressNotifierImpl(
 
     override fun onFinish(summary: UpdateCheckSummary) {
         lastPostAt = 0L
+        // D-410 (round 33 — the v1.1.1 publishable round): an EMPTY run is
+        // SILENT. The device report: the "Episode check complete — nothing was
+        // due for a check this run." notification fired on every app open; it
+        // must only show when there was actually something to check.
+        // `totalChecked == 0` ⇔ nothing was due (the engine's empty branch
+        // builds the summary with a literal 0; a real run passes dueAnime.size
+        // — and a real run notifies even when it finds zero new episodes).
+        // The live progress notification (2001) only ever fires on real runs;
+        // onFailed and the per-episode "new episode found" notifications are
+        // a separate path and stay untouched.
+        if (summary.totalChecked == 0) return
         // The cover load is async (Coil execute suspends) — post the body now,
         // then re-post with the large icon when/if it resolves. Both land on
         // the audible channel; onlyAlertOnce(false) is set per-post, but the

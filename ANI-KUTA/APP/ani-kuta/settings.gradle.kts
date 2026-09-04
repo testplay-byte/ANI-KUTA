@@ -51,7 +51,6 @@ include(":core:notifications")
 include(":core:app-update")
 include(":core:ads")  // Ad system — smart-link interstitial (D-272)
 include(":core:playback-cache")  // Video caching (test-feature/video-cache-new-download)
-include(":core:debug-api")
 include(":core:cloudstream-api")  // CloudStream V2: clean-room CS3 plugin binary-compat surface
 include(":core:cs-player")  // CloudStream V2 (task 52): Media3 ExoPlayer playback engine host — CS links NEVER touch MPV
 
@@ -80,4 +79,3 @@ include(":feature:anime-history:api")
 include(":feature:anime-history:impl")
 include(":feature:updates:api")
 include(":feature:updates:impl")
-include(":feature:debug-bubble")

@@ -33,10 +33,14 @@ import java.util.concurrent.TimeUnit
 val appUpdateModule = module {
     single { AppUpdatePreferences(get<PreferenceStore>()) }
 
-    // GitHub update source — configured for the new project repo.
+    // GitHub update source — the PUBLISHED repo (D-411, round 33): the v1.1.1+
+    // publishable line lives at Confused-Creature-180/ANI-KUTA (APK-only —
+    // releases carry the APK; no source code is published there). The v0.4.x
+    // dev line (testplay-byte) is closed — its installs query the old repo
+    // until the user sideloads v1.1.1 once, after which updates flow from here.
     single<UpdateSource>(named("github")) {
         GitHubUpdateSource(
-            owner = "testplay-byte",
+            owner = "Confused-Creature-180",
             repo = "ANI-KUTA",
             client = get(named("appUpdate")),
         )

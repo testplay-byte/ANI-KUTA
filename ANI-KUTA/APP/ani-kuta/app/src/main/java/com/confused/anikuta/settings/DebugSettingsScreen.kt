@@ -43,20 +43,20 @@ import org.koin.compose.koinInject
  * Task 57 (round 17) — the dedicated Debug page (Settings → Debug → "Debug options").
  *
  * User spec: gated tooling for on-device diagnostics, reachable from a Debug
- * section at the very bottom of the Settings list. The page itself ships in
- * RELEASE builds too (the user tests release APKs) — only the debug-bubble row
- * stays debug-build-only (the dual-source-set composable renders the real
- * toggle in `app/src/debug` and a no-op in `app/src/release`).
+ * section at the very bottom of the Settings list. The page ships in ALL
+ * builds (the user tests the same APKs that ship).
+ *
+ * D-409 (round 33): the debug-bubble toggle is REMOVED with the bubble itself
+ * (the whole :feature:debug-bubble + :core:debug-api modules are gone from
+ * the v1.1.1 publishable line).
  *
  * Contents:
  * - Resolve lists (BOTH extension stacks — Task 58): "Show sources" +
  *   "Copy button" toggles, both default OFF (opt-in diagnostics — raw resolve
  *   data only when asked for). The SAME flags gate the CloudStream resolve
  *   lists AND the aniyomi entry sheet (ResolverSheet) + in-player QualitySheet.
- * - Developer tools: the debug-bubble visibility toggle. The section is gated
- *   on BuildConfig.DEBUG so release shows no dangling empty header; the
- *   toggle call sits in a plain Column with no extra chrome so even the row
- *   itself renders bare in release.
+ * - Update checking (D-388): the "Update Check History" button → the dedicated
+ *   history page (per-series check log, schedules, landed-vs-expected).
  */
 @Composable
 fun DebugSettingsScreen(
@@ -69,7 +69,7 @@ fun DebugSettingsScreen(
     onOpenUpdateCheckHistory: () -> Unit = {},
     debugPreferences: DebugPreferences = koinInject(),
 ) {
-    // Write-through reactive reads — same pattern as the DebugBubbleToggle row.
+    // Write-through reactive reads (the same pattern the bubble toggle row used).
     val showSources by debugPreferences.showResolveSourcesFlow()
         .collectAsStateWithLifecycle(initialValue = debugPreferences.showResolveSources)
     val copyButton by debugPreferences.resolveCopyButtonFlow()
@@ -171,18 +171,6 @@ fun DebugSettingsScreen(
                         }
                     }
 
-                    // ── Developer tools (debug builds only) ──
-                    // DebugBubbleToggle renders the real toggle in debug builds
-                    // and NOTHING in release (dual source sets) — plain Column,
-                    // no Surface chrome, so release shows nothing for this row.
-                    if (com.confused.anikuta.BuildConfig.DEBUG) {
-                        item {
-                            SettingsSectionLabel("Developer tools")
-                            Column {
-                                com.confused.anikuta.DebugBubbleToggle()
-                            }
-                        }
-                    }
                 }
 
                 ScrollBlurOverlay(

@@ -28,6 +28,18 @@ import android.util.Log as AndroidLog
  *    is set from the app side.
  */
 object Log {
+    /**
+     * D-412 (round 33 — the v1.1.1 publishable round): the release-log gate,
+     * set from the app's Application.onCreate() with the app's
+     * BuildConfig.DEBUG. When false, D/I/W calls are silent (the plugin
+     * chatter + the vendored CS layer's diagnostic lines leave the release
+     * logcat clean); **E stays ungated** — error diagnostics must always be
+     * reachable for support. Defaults to true (library-standalone callers
+     * and tests keep the historical behavior).
+     */
+    @Volatile
+    var enabled: Boolean = true
+
     /** Mirrors every facade call; installed by the app process. Must be cheap + never throw. */
     @Volatile
     var sink: ((level: Level, tag: String, message: String) -> Unit)? = null
@@ -35,6 +47,7 @@ object Log {
     enum class Level { D, I, W, E }
 
     private fun emit(level: Level, tag: String, message: String) {
+        if (level != Level.E && !enabled) return
         runCatching {
             when (level) {
                 Level.D -> AndroidLog.d(tag, message)

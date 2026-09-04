@@ -13,7 +13,6 @@ dependencies {
     implementation(project(":core:preferences"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.logcat)
 
     // SQLDelight
     implementation(libs.sqldelight.android.driver)
