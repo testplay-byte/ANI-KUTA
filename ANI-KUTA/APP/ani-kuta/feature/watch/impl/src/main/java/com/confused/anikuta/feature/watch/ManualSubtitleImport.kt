@@ -26,10 +26,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * The multi-select SAF subtitle picker: `ACTION_OPEN_DOCUMENT` +
- * `EXTRA_ALLOW_MULTIPLE`, type `*/*` (deliberately — see the note) with
- * EXTRA_MIME_TYPES hinting the known subtitle mime types.
+ * `EXTRA_ALLOW_MULTIPLE`, the ANY-file type (deliberately — see the note)
+ * with EXTRA_MIME_TYPES hinting the known subtitle mime types.
  *
- * ## Why `*/*` + post-pick validation (not a mime filter)
+ * ## Why the ANY-file type + post-pick validation (not a mime filter)
  * SAF documents frequently carry no better mime than
  * `application/octet-stream` (most .srt/.ass files on internal storage) — a
  * mime-filtered picker would HIDE the user's subtitle files. The contract
