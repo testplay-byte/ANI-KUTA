@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.provider.DocumentsContract
 import android.provider.Settings
 import androidx.documentfile.provider.DocumentFile
 
@@ -64,5 +65,51 @@ internal object OnboardingPermissions {
         if (runCatching { context.startActivity(direct) }.isSuccess) return true
         val fallback = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
         return runCatching { context.startActivity(fallback) }.isSuccess
+    }
+
+    /**
+     * D-407 (round 31): converts the persisted SAF tree URI into a READABLE
+     * full folder path — "Internal storage  ›  ANI-KUTA  ›  Downloads" — for
+     * the folder step's granted panel (the report: "it could show the full
+     * folder path which the user had selected").
+     *
+     * The SAF tree URI's document id is the volume-relative chain
+     * ("primary:ANI-KUTA/Downloads"); the volume label maps to
+     * "Internal storage" (primary) / "SD card" (the XXXX-XXXX form) / the raw
+     * volume name for anything else. Main-thread-safe: the document id is
+     * parsed from the URI string (no provider round-trip).
+     *
+     * @return the readable path, or `null` when it cannot be derived (the UI
+     *   then simply hides the detail line — never a raw content:// string).
+     */
+    fun describeFolderPath(context: Context, uriStr: String): String? {
+        if (uriStr.isBlank()) return null
+        val uri = runCatching { Uri.parse(uriStr) }.getOrNull() ?: return null
+
+        val docId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+        if (!docId.isNullOrBlank()) {
+            val colon = docId.indexOf(':')
+            if (colon > 0) {
+                val volume = docId.substring(0, colon)
+                val rest = docId.substring(colon + 1).trim('/')
+                val volumeLabel = when {
+                    volume.equals("primary", ignoreCase = true) -> "Internal storage"
+                    volume.length == 9 && volume[4] == '-' -> "SD card"
+                    else -> volume
+                }
+                val segments = rest.split('/').filter { it.isNotBlank() }
+                if (segments.isNotEmpty()) {
+                    return (listOf(volumeLabel) + segments).joinToString("  ›  ")
+                }
+                return volumeLabel
+            }
+            // No volume separator (e.g. a raw document id) — fall through to
+            // the DocumentFile name below.
+        }
+
+        // Fallback: the folder's display name via DocumentFile (a local call
+        // for tree URIs). Shows just the last segment — better than nothing.
+        val name = runCatching { DocumentFile.fromTreeUri(context, uri)?.name }.getOrNull()
+        return name?.takeIf { it.isNotBlank() }
     }
 }

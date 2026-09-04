@@ -111,6 +111,19 @@ class AdsCoordinator(
             return true
         }
 
+        // D-407 (round 31) — the FIRST-OPEN GRACE: "For the very first time
+        // the user opens up the application and clicks on any of the
+        // contents, he should not be shown the advertisement pop-up…
+        // afterwards the normal advertisement system will work." One
+        // ad-free gated navigation per install (persisted); no interstitial,
+        // and CRUCIALLY no cooldown recorded — the NEXT eligible navigation
+        // is judged by the normal cooldown gate (last==0 → ad due → shown).
+        if (repository.consumeFirstOpenGrace()) {
+            Logger.i(TAG) { "first-open grace — proceeding without ad (one per install)" }
+            proceed()
+            return true
+        }
+
         // In cooldown → proceed immediately, no ad shown.
         if (repository.isInCooldown()) {
             Logger.i(TAG) {

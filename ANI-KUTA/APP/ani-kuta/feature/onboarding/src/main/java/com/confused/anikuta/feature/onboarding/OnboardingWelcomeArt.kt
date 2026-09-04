@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -45,53 +46,50 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * D-405 → D-406 (round 30): the CUSTOM animated art of the wizard's welcome
- * screen — deliberately NOT Material-styled (the user's spec: "a custom
+ * D-405 → D-406 → D-407 (round 31): the CUSTOM animated art of the wizard's
+ * welcome screen — deliberately NOT Material-styled (the user's spec: "a custom
  * modern beautiful-looking UI design").
  *
- * ## D-406: why the round-29 art stuttered, and the new engine
- * The round-30 device report: "there was some stuttering there. Occasionally
- * it would skip some frames or jump into some frames afterwards. It still
- * keeps resetting and some stuff like that." Two concrete defects, both
- * fixed AT THE ROOT this round:
+ * ## D-407: the round-31 report's two asks
+ * *"When they combine together with each other, they suddenly change their
+ * shades… The globes can transform into different shapes and get merged with
+ * the different random places and such, not a simple fixed path."*
  *
- * 1. **THE PHASE-WRAP RESET** — the old engine drove everything from two
- *    `rememberInfiniteTransition` phases that each ran 0 → 2π and then
- *    WRAPPED back to 0. The blobs multiplied those phases by NON-INTEGER
- *    speeds (1.7, 2.1, 1.4…), so at the wrap `sin(2π × 1.7) ≠ sin(0)` —
- *    every blob's silhouette SNAPPED and its center TELEPORTED on a fixed
- *    11s/24s schedule. That was the "keeps resetting / jumps into frames".
- *    The new engine runs ONE MONOTONIC CLOCK — frame-nano deltas,
- *    clamped so a backgrounded app PAUSES the art instead of jumping it —
- *    and every motion is `sin/cos(t · f + φ)` of ever-growing `t`:
- *    NOTHING wraps, NOTHING resets, ever.
+ * 1. **THE MERGE SHADE-POP** — the D-406 split drew child B only once
+ *    `split > 0.02`, exactly on top of child A, with the SAME brush alpha →
+ *    the two stacked gradients composite to a visibly different shade the
+ *    instant B appears (and snap back at the merge) — the "suddenly change
+ *    their shades when they combine". Fixed TWICE over:
+ *    - the whole blob layer now composites with **[BlendMode.Screen]** —
+ *      overlapping blobs blend like light (a smooth brightening where they
+ *      meet, the liquid-merge look) instead of srcOver's dominance stacking;
+ *    - child B is alpha-ramped with the split itself (`alpha ∝ split`), so it
+ *      contributes literally nothing at the birth/merge moment and grows in
+ *      continuously — no pop is mathematically possible.
  *
- * 2. **PER-FRAME ALLOCATIONS** — the old draw pass built a fresh `Path`,
- *    an `Array(8)` and 8 `Offset`s per blob per frame (~50 heap objects a
- *    frame → GC churn → the "skipped frames"). The new pass pre-allocates
- *    every [Path] and reuses FloatArrays; the radial-gradient brushes are
- *    cached and rebuilt ONLY when the canvas width or accent changes. The
- *    steady state allocates ZERO objects per frame.
+ * 2. **THE FIXED PATHS** — D-406's centers rode ONE Lissajous orbit each:
+ *    periodic, predictable, "a simple fixed path". D-407 sums THREE
+ *    incommensurate sinusoids per axis (amplitudes ~0.10/0.06/0.04 of the
+ *    canvas, frequencies at irrational ratios) — the wander never retraces,
+ *    never repeats, and the blobs genuinely cross paths at DIFFERENT screen
+ *    locations over time ("merged with the different random places").
  *
- * ## The motion (the report: "smooth flowing shapes which would change into
- * different shapes and would split sometimes and other stuff like that")
- * - each blob's silhouette blends an ORGANIC wobble (two spatial harmonics
- *   drifting in time) with a ROUNDED REGULAR POLYGON (its own side count —
- *   triangle / square / pentagon / hexagon) along a staged MORPH cycle:
- *   hold-organic → smooth morph → hold-shaped → smooth return;
- * - each blob also carries a staged SPLIT cycle — two halves born at the
- *   SAME center with the SAME shape (indistinguishable from one blob) that
- *   drift apart along a slowly precessing axis, easing slightly smaller as
- *   they separate, then merge back; the halves' wobble phases diverge ONLY
- *   in proportion to the split, so both the birth and the merge are
- *   perfectly continuous — no pop, no jump;
- * - the centers ride continuous Lissajous orbits, and a hairline outline
- *   geometry layer rotates on the same monotonic clock.
+ * 3. **SHAPE SEQUENCES** — each blob now cycles through a LIST of polygon
+ *    silhouettes (hexagon → triangle → pentagon → square → …) on a staged
+ *    crossfade (hold → blend → hold, the boundary is seamless because the
+ *    blend end-point and the next segment's start are the SAME pure polygon).
+ *    The blobs keep morphing organic ↔ shaped as before, but no longer into
+ *    the same shape forever — they "transform into different shapes".
  *
- * All of it is draw-phase work: the clock state is read ONLY inside
- * `drawBehind` → one draw invalidation per frame, zero recompositions, and
- * the layout is seeded-parameterized and remembered — the art is stable
- * across recompositions. The accent blob recolors LIVE with the theme.
+ * 4. **RADIUS BREATHING** — a slow per-blob scale pulse so even a blob at a
+ *    shape-hold moment never looks frozen.
+ *
+ * Everything the reports APPROVED is untouched: the single monotonic clock
+ * (no phase wraps — frame-nano deltas clamped to 64ms so backgrounding PAUSES
+ * the art), ZERO steady-state allocations (pre-allocated [Path]s + reused
+ * FloatArrays + cached radial brushes), the outline geometry layer, the
+ * approved palette, and the draw-phase-only clock read (one invalidation per
+ * frame — no recompositions, no remeasures).
  */
 @Composable
 internal fun OnboardingBlobBackground(
@@ -122,12 +120,7 @@ internal fun OnboardingBlobBackground(
     // ── The stable art state ──
     // Rebuilt ONLY when the accent changes (a rare theme pick). All Paths,
     // sample arrays, and the brush cache live here — nothing is allocated
-    // per frame. (The brush cache rebuilds itself on the first draw at a
-    // new canvas width, see [BlobArt.brushesFor].)
-    // NOTE: the clock is read ONLY inside the drawBehind lambda below — a
-    // draw-phase read, so the per-frame write invalidates the DRAW alone
-    // (zero recomposition, zero remeasure). Reading it here in the
-    // composable body would recompose this whole subtree every frame.
+    // per frame.
     val art = remember(accent) { BlobArt(buildFlowBlobs(accent)) }
     val outlines = remember { buildOutlineShapes() }
 
@@ -142,27 +135,47 @@ internal fun OnboardingBlobBackground(
                 // Layer 0 — the deep base.
                 drawRect(color = base)
 
-                // Layer 1 — the morphing, splitting organic blobs.
+                // Layer 1 — the morphing, splitting, wandering organic blobs.
+                // D-407: composited with Screen so overlaps BLEND like light
+                // (the smooth-merge look) — see the header notes.
                 val brushes = art.brushesFor(size.width)
                 art.blobs.forEachIndexed { i, blob ->
-                    // The drifting center — a continuous Lissajous orbit of
-                    // ever-growing t (never retraces, never resets).
+                    // The wandering center — THREE incommensurate harmonics
+                    // per axis (never retraces, never resets, blobs cross at
+                    // ever-different places).
                     val cx = size.width * (
-                        blob.anchorX + blob.driftAmpX *
-                            sin(t * blob.driftFreqX + blob.driftPhaseX)
+                        blob.anchorX +
+                            blob.wanderX[0].let { it.amp * sin(t * it.freq + it.phase) } +
+                            blob.wanderX[1].let { it.amp * sin(t * it.freq + it.phase) } +
+                            blob.wanderX[2].let { it.amp * cos(t * it.freq + it.phase) }
                         )
                     val cy = size.height * (
-                        blob.anchorY + blob.driftAmpY *
-                            cos(t * blob.driftFreqY + blob.driftPhaseY)
+                        blob.anchorY +
+                            blob.wanderY[0].let { it.amp * sin(t * it.freq + it.phase) } +
+                            blob.wanderY[1].let { it.amp * cos(t * it.freq + it.phase) } +
+                            blob.wanderY[2].let { it.amp * sin(t * it.freq + it.phase) }
                         )
-                    val radiusPx = size.width * blob.radius
+
+                    // The breathing radius — a slow, continuous scale pulse.
+                    val breathe = 1f + blob.breatheAmp *
+                        sin(t * blob.breatheFreq + blob.breathePhase)
+                    val radiusPx = size.width * blob.radius * breathe
 
                     // The staged cycles (both are 0 at their wrap boundary,
                     // so the (t/period + phase) mod 1 wrap is seamless).
                     val morph = stagedPulse(((t / blob.morphPeriod) + blob.morphPhase) % 1f)
                     val split = stagedPulse(((t / blob.splitPeriod) + blob.splitPhase) % 1f)
 
-                    // The polygon's own slow rotation + the split axis's
+                    // The shape sequence — which pair of polygons this blob is
+                    // currently crossfading between (the boundary is seamless:
+                    // segment end at mix=1 == next segment start at mix=0).
+                    val shapePhase = (t / blob.shapePeriod + blob.shapePhase) %
+                        blob.shapeSides.size
+                    val shapeIdx = shapePhase.toInt().mod(blob.shapeSides.size)
+                    val nextIdx = (shapeIdx + 1).mod(blob.shapeSides.size)
+                    val shapeMix = stagedShapeMix(shapePhase - shapeIdx)
+
+                    // The polygons' own slow rotation + the split axis's
                     // slow precession (both continuous functions of t).
                     val polyRotation = t * 0.13f + blob.polyRotation0
                     val axis = blob.splitAngle + t * 0.045f
@@ -183,21 +196,25 @@ internal fun OnboardingBlobBackground(
                             wobblePhaseA = blob.wobblePhaseA,
                             wobblePhaseB = blob.wobblePhaseB,
                             morph = morph,
-                            polygonSides = blob.polygonSides,
+                            polygonSides = blob.shapeSides[shapeIdx],
+                            nextPolygonSides = blob.shapeSides[nextIdx],
+                            shapeMix = shapeMix,
                             polygonRound = blob.polygonRound,
                             polyRotation = polyRotation,
                             t = t,
                             shrink = split,
                             brush = brushes[i],
+                            alpha = 1f,
                             offsetX = sepX,
                             offsetY = sepY,
                         )
-                        // Child B — drawn only once the split is visible. At
-                        // the moment it appears its wobble phase shift is
-                        // ~0.011 rad and its center sits exactly on child A:
-                        // it is INVISIBLE at birth and diverges continuously
-                        // as the halves separate. No pop.
-                        if (split > 0.02f) {
+                        // Child B — drawn with an alpha that RAMPS with the
+                        // split itself: at the birth/merge moment it
+                        // contributes nothing (alpha 0), growing in
+                        // continuously as the halves separate — the D-407
+                        // fix for "they suddenly change their shades".
+                        val childAlpha = ((split - 0.02f) / 0.28f).coerceIn(0f, 1f)
+                        if (childAlpha > 0.003f) {
                             drawFlowChild(
                                 path = art.paths[i * 2 + 1],
                                 xs = art.xs,
@@ -213,12 +230,15 @@ internal fun OnboardingBlobBackground(
                                 wobblePhaseA = blob.wobblePhaseA + 0.55f * split,
                                 wobblePhaseB = blob.wobblePhaseB + 0.40f * split,
                                 morph = morph,
-                                polygonSides = blob.polygonSides,
+                                polygonSides = blob.shapeSides[shapeIdx],
+                                nextPolygonSides = blob.shapeSides[nextIdx],
+                                shapeMix = shapeMix,
                                 polygonRound = blob.polygonRound,
                                 polyRotation = polyRotation,
                                 t = t,
                                 shrink = split,
                                 brush = brushes[i],
+                                alpha = childAlpha,
                                 offsetX = -sepX,
                                 offsetY = -sepY,
                             )
@@ -287,6 +307,19 @@ private fun stagedPulse(u: Float): Float = when {
     else -> 0f
 }
 
+/**
+ * D-407: the staged crossfade mix between two consecutive shapes of a blob's
+ * shape sequence, normalized u ∈ [0, 1) within ONE segment:
+ * hold-current (55%) → smooth blend (25%) → hold-next (20%).
+ * f(0)=0 and f(1)=1, and the NEXT segment starts at mix 0 with the shape this
+ * one ends on — the silhouette is continuous across the segment boundary.
+ */
+private fun stagedShapeMix(u: Float): Float = when {
+    u < 0.55f -> 0f
+    u < 0.80f -> smooth01((u - 0.55f) / 0.25f)
+    else -> 1f
+}
+
 /** Hermite smoothstep — C1-continuous easing for the staged pulses. */
 private fun smooth01(x: Float): Float {
     val t = x.coerceIn(0f, 1f)
@@ -308,19 +341,22 @@ private fun polygonRadius(theta: Float, sides: Int, rotation: Float): Float {
 
 /**
  * Renders ONE blob half into its (pre-allocated, reused) [path] and draws
- * it with [brush], offset by ([offsetX], [offsetY]) inside the caller's
- * already-translated scope. The silhouette radius at each sample angle:
+ * it with [brush] at [alpha], offset by ([offsetX], [offsetY]) inside the
+ * caller's already-translated scope. The silhouette radius at each sample
+ * angle:
  *
  * ```
- * r(θ) = R · lerp(organic(θ, t), roundedPolygon(θ), morph)
+ * r(θ) = R · lerp( organic(θ, t),
+ *                   lerp(poly(θ, sidesA), poly(θ, sidesB), shapeMix),
+ *                   morph )
  * ```
  *
  * where `organic` is two spatial harmonics drifting in time (the blob
- * "breathes" unevenly around its rim) and `roundedPolygon` is the
- * regular-polygon radius blended toward the circle. [shrink] eases the
- * half slightly smaller as the split widens (a true split, not a
- * duplication). ZERO allocations: the sample arrays and the Path are the
- * caller-owned reused storage.
+ * "breathes" unevenly around its rim), `sidesA→sidesB` is the shape-sequence
+ * crossfade (D-407), and each polygon is itself blended toward the circle by
+ * `polygonRound`. [shrink] eases the half slightly smaller as the split
+ * widens (a true split, not a duplication). ZERO allocations: the sample
+ * arrays and the Path are the caller-owned reused storage.
  */
 private fun DrawScope.drawFlowChild(
     path: Path,
@@ -334,11 +370,14 @@ private fun DrawScope.drawFlowChild(
     wobblePhaseB: Float,
     morph: Float,
     polygonSides: Int,
+    nextPolygonSides: Int,
+    shapeMix: Float,
     polygonRound: Float,
     polyRotation: Float,
     t: Float,
     shrink: Float,
     brush: Brush,
+    alpha: Float,
     offsetX: Float,
     offsetY: Float,
 ) {
@@ -350,14 +389,21 @@ private fun DrawScope.drawFlowChild(
             0.6f * sin(theta * 2f + wobblePhaseA + t * wobbleFreqA) +
                 0.4f * sin(theta * 3f + wobblePhaseB + t * wobbleFreqB)
             )
-        val poly = 1f + (polygonRadius(theta, polygonSides, polyRotation) - 1f) * polyMix
+        // D-407: the shape-sequence crossfade — polyA blends into polyB by
+        // the staged shapeMix (both rotate with the SAME polyRotation, so
+        // the crossfade is a pure silhouette morph).
+        val polyA = 1f + (polygonRadius(theta, polygonSides, polyRotation) - 1f) * polyMix
+        val polyB = 1f + (polygonRadius(theta, nextPolygonSides, polyRotation) - 1f) * polyMix
+        val poly = polyA + (polyB - polyA) * shapeMix
         val radius = r * (organic + (poly - organic) * morph)
         xs[i] = radius * cos(theta)
         ys[i] = radius * sin(theta)
     }
     buildClosedPath(path, xs, ys)
     translate(left = offsetX, top = offsetY) {
-        drawPath(path = path, brush = brush)
+        // D-407: Screen blend — overlaps blend like light (the liquid-merge
+        // look); child B's ramped alpha makes the split birth/merge pop-free.
+        drawPath(path = path, brush = brush, alpha = alpha, blendMode = BlendMode.Screen)
     }
 }
 
@@ -391,6 +437,18 @@ private fun buildClosedPath(path: Path, xs: FloatArray, ys: FloatArray) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * One wander harmonic of a blob's center: `amp · sin/cos(t · freq + phase)`
+ * (as a fraction of the canvas dimension it applies to). The three
+ * harmonics per axis use INCOMMENSURATE frequencies (irrational ratios) so
+ * the summed path never repeats.
+ */
+private class Wander(
+    val amp: Float,
+    val freq: Float,
+    val phase: Float,
+)
+
+/**
  * One flowing blob's full parameter set — every value is a STABLE seed
  * (remembered once); only the time phases move at draw time.
  */
@@ -400,24 +458,26 @@ private class FlowBlob(
     val radius: Float,
     val alpha: Float,
     val color: Color,
-    // The center's continuous Lissajous orbit.
-    val driftAmpX: Float,
-    val driftFreqX: Float,
-    val driftPhaseX: Float,
-    val driftAmpY: Float,
-    val driftFreqY: Float,
-    val driftPhaseY: Float,
+    // D-407: the center's THREE-harmonic wander per axis (incommensurate).
+    val wanderX: List<Wander>,
+    val wanderY: List<Wander>,
+    // D-407: the slow breathing scale pulse.
+    val breatheAmp: Float,
+    val breatheFreq: Float,
+    val breathePhase: Float,
     // The organic silhouette wobble (two spatial harmonics).
     val wobbleAmp: Float,
     val wobbleFreqA: Float,
     val wobbleFreqB: Float,
     val wobblePhaseA: Float,
     val wobblePhaseB: Float,
-    // The shape it morphs into.
-    val polygonSides: Int,
+    // D-407: the SEQUENCE of shapes the blob transforms through.
+    val shapeSides: List<Int>,
+    val shapePeriod: Float,
+    val shapePhase: Float,
     val polygonRound: Float,
     val polyRotation0: Float,
-    // The morph cycle's timing.
+    // The morph cycle's timing (organic ↔ shaped).
     val morphPeriod: Float,
     val morphPhase: Float,
     // The split cycle's timing + axis.
@@ -472,65 +532,122 @@ private class BlobArt(
 }
 
 /**
- * The blob palette (unchanged from round 29 — the round-30 report was happy
- * with the colors): the LIVE accent, electric violet, rose, warm amber, and
- * teal, layered over the deep base. The per-blob morph/split periods and
- * phases are staggered so shapes transform and halves separate at
- * DIFFERENT moments — "would split sometimes", never in unison.
+ * The blob palette (unchanged since round 29 — the reports were happy with
+ * the colors): the LIVE accent, electric violet, rose, warm amber, and teal,
+ * layered over the deep base. D-407 changes only the MOTION: three-harmonic
+ * wandering (large amplitudes so blobs genuinely meet at different places),
+ * shape SEQUENCES (each blob transforms through 3-4 different polygons),
+ * and per-blob breathing. Periods/phases stay staggered so no two blobs
+ * ever morph, split, or cross in unison.
  */
 private fun buildFlowBlobs(accent: Color): List<FlowBlob> = listOf(
     FlowBlob(
-        anchorX = 0.24f, anchorY = 0.26f, radius = 0.30f, alpha = 0.30f,
+        anchorX = 0.26f, anchorY = 0.28f, radius = 0.30f, alpha = 0.30f,
         color = accent,
-        driftAmpX = 0.045f, driftFreqX = 0.060f, driftPhaseX = 0.0f,
-        driftAmpY = 0.035f, driftFreqY = 0.048f, driftPhaseY = 1.1f,
+        wanderX = listOf(
+            Wander(0.105f, 0.061f, 0.0f),
+            Wander(0.058f, 0.0233f, 1.9f),
+            Wander(0.040f, 0.0889f, 3.5f),
+        ),
+        wanderY = listOf(
+            Wander(0.082f, 0.047f, 1.1f),
+            Wander(0.052f, 0.0191f, 0.4f),
+            Wander(0.036f, 0.0731f, 2.7f),
+        ),
+        breatheAmp = 0.06f, breatheFreq = 0.09f, breathePhase = 0.3f,
         wobbleAmp = 0.16f, wobbleFreqA = 0.26f, wobbleFreqB = 0.38f,
         wobblePhaseA = 0.0f, wobblePhaseB = 2.1f,
-        polygonSides = 6, polygonRound = 0.45f, polyRotation0 = 0.0f,
+        shapeSides = listOf(6, 3, 5, 4),
+        shapePeriod = 23f, shapePhase = 0.0f,
+        polygonRound = 0.45f, polyRotation0 = 0.0f,
         morphPeriod = 16f, morphPhase = 0.0f,
         splitPeriod = 22f, splitPhase = 0.15f, splitAngle = 0.4f, splitSpread = 0.85f,
     ),
     FlowBlob(
-        anchorX = 0.80f, anchorY = 0.22f, radius = 0.26f, alpha = 0.26f,
+        anchorX = 0.76f, anchorY = 0.24f, radius = 0.26f, alpha = 0.26f,
         color = Color(0xFF8B5CF6), // electric violet
-        driftAmpX = 0.050f, driftFreqX = 0.050f, driftPhaseX = 1.3f,
-        driftAmpY = 0.040f, driftFreqY = 0.055f, driftPhaseY = 0.4f,
+        wanderX = listOf(
+            Wander(0.098f, 0.053f, 1.3f),
+            Wander(0.061f, 0.0271f, 4.2f),
+            Wander(0.034f, 0.0947f, 0.8f),
+        ),
+        wanderY = listOf(
+            Wander(0.086f, 0.043f, 0.4f),
+            Wander(0.048f, 0.0217f, 2.6f),
+            Wander(0.032f, 0.0779f, 1.5f),
+        ),
+        breatheAmp = 0.07f, breatheFreq = 0.11f, breathePhase = 2.0f,
         wobbleAmp = 0.18f, wobbleFreqA = 0.30f, wobbleFreqB = 0.22f,
         wobblePhaseA = 1.0f, wobblePhaseB = 0.3f,
-        polygonSides = 3, polygonRound = 0.55f, polyRotation0 = 0.5f,
+        shapeSides = listOf(3, 5, 4, 6),
+        shapePeriod = 27f, shapePhase = 0.45f,
+        polygonRound = 0.55f, polyRotation0 = 0.5f,
         morphPeriod = 19f, morphPhase = 0.45f,
         splitPeriod = 26f, splitPhase = 0.62f, splitAngle = 2.1f, splitSpread = 0.85f,
     ),
     FlowBlob(
-        anchorX = 0.62f, anchorY = 0.66f, radius = 0.33f, alpha = 0.24f,
+        anchorX = 0.58f, anchorY = 0.64f, radius = 0.33f, alpha = 0.24f,
         color = Color(0xFFFF5C8A), // rose
-        driftAmpX = 0.060f, driftFreqX = 0.043f, driftPhaseX = 2.4f,
-        driftAmpY = 0.050f, driftFreqY = 0.038f, driftPhaseY = 0.9f,
+        wanderX = listOf(
+            Wander(0.092f, 0.049f, 2.4f),
+            Wander(0.055f, 0.0313f, 5.1f),
+            Wander(0.038f, 0.0713f, 1.9f),
+        ),
+        wanderY = listOf(
+            Wander(0.088f, 0.038f, 0.9f),
+            Wander(0.056f, 0.0173f, 3.3f),
+            Wander(0.030f, 0.0831f, 0.2f),
+        ),
+        breatheAmp = 0.05f, breatheFreq = 0.08f, breathePhase = 4.1f,
         wobbleAmp = 0.14f, wobbleFreqA = 0.24f, wobbleFreqB = 0.34f,
         wobblePhaseA = 2.8f, wobblePhaseB = 1.4f,
-        polygonSides = 4, polygonRound = 0.50f, polyRotation0 = 0.9f,
+        shapeSides = listOf(4, 6, 3, 5),
+        shapePeriod = 25f, shapePhase = 0.70f,
+        polygonRound = 0.50f, polyRotation0 = 0.9f,
         morphPeriod = 21f, morphPhase = 0.70f,
         splitPeriod = 24f, splitPhase = 0.33f, splitAngle = 3.6f, splitSpread = 0.85f,
     ),
     FlowBlob(
-        anchorX = 0.18f, anchorY = 0.78f, radius = 0.27f, alpha = 0.22f,
+        anchorX = 0.22f, anchorY = 0.74f, radius = 0.27f, alpha = 0.22f,
         color = Color(0xFFF59E0B), // warm amber
-        driftAmpX = 0.040f, driftFreqX = 0.055f, driftPhaseX = 0.7f,
-        driftAmpY = 0.045f, driftFreqY = 0.050f, driftPhaseY = 2.2f,
+        wanderX = listOf(
+            Wander(0.100f, 0.057f, 0.7f),
+            Wander(0.050f, 0.0269f, 2.8f),
+            Wander(0.042f, 0.0821f, 4.6f),
+        ),
+        wanderY = listOf(
+            Wander(0.080f, 0.050f, 2.2f),
+            Wander(0.054f, 0.0229f, 5.7f),
+            Wander(0.034f, 0.0691f, 1.1f),
+        ),
+        breatheAmp = 0.08f, breatheFreq = 0.10f, breathePhase = 1.2f,
         wobbleAmp = 0.19f, wobbleFreqA = 0.28f, wobbleFreqB = 0.20f,
         wobblePhaseA = 0.5f, wobblePhaseB = 3.0f,
-        polygonSides = 5, polygonRound = 0.55f, polyRotation0 = 1.7f,
+        shapeSides = listOf(5, 4, 6, 3),
+        shapePeriod = 29f, shapePhase = 0.85f,
+        polygonRound = 0.55f, polyRotation0 = 1.7f,
         morphPeriod = 17.5f, morphPhase = 0.85f,
         splitPeriod = 28f, splitPhase = 0.50f, splitAngle = 5.2f, splitSpread = 0.85f,
     ),
     FlowBlob(
-        anchorX = 0.48f, anchorY = 0.12f, radius = 0.22f, alpha = 0.20f,
+        anchorX = 0.50f, anchorY = 0.14f, radius = 0.22f, alpha = 0.20f,
         color = Color(0xFF2DD4BF), // teal
-        driftAmpX = 0.055f, driftFreqX = 0.050f, driftPhaseX = 3.1f,
-        driftAmpY = 0.030f, driftFreqY = 0.060f, driftPhaseY = 1.7f,
+        wanderX = listOf(
+            Wander(0.108f, 0.064f, 3.1f),
+            Wander(0.046f, 0.0287f, 1.0f),
+            Wander(0.038f, 0.0923f, 5.3f),
+        ),
+        wanderY = listOf(
+            Wander(0.078f, 0.060f, 1.7f),
+            Wander(0.044f, 0.0241f, 4.4f),
+            Wander(0.034f, 0.0757f, 2.9f),
+        ),
+        breatheAmp = 0.09f, breatheFreq = 0.12f, breathePhase = 3.4f,
         wobbleAmp = 0.17f, wobbleFreqA = 0.32f, wobbleFreqB = 0.25f,
         wobblePhaseA = 1.8f, wobblePhaseB = 0.9f,
-        polygonSides = 3, polygonRound = 0.60f, polyRotation0 = 2.6f,
+        shapeSides = listOf(3, 4, 5, 6),
+        shapePeriod = 21f, shapePhase = 0.30f,
+        polygonRound = 0.60f, polyRotation0 = 2.6f,
         morphPeriod = 15f, morphPhase = 0.30f,
         splitPeriod = 20f, splitPhase = 0.80f, splitAngle = 1.2f, splitSpread = 0.85f,
     ),

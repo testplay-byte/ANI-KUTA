@@ -89,6 +89,52 @@ interface DownloadManager {
      * Runs on Dispatchers.IO. Called from AnikutaApp.onCreate.
      */
     suspend fun requestFolderRescan()
+
+    /**
+     * D-407 (round 31): resolves the SUBTITLE TRACKS for a DOWNLOADED
+     * episode — the ONE shared answer every playback path uses (the
+     * details-page hand-off, the downloads-page hand-off, and the in-player
+     * episode switch), so they can never disagree.
+     *
+     * Resolution order: the DB row's `subtitleUris` first; when empty (older
+     * downloads / pre-rescan state), the DISK scan of the episode's dedicated
+     * `subtitles/` subfolder (canonical `subtitle_E{num:5}_…` naming). Each
+     * track carries a human-readable label derived from its filename
+     * ("English", "My Custom Subs", …) — see
+     * [DownloadedSubtitleLabels.labelForUri].
+     *
+     * @param mainId The content's mainId.
+     * @param episodeNumber The episode number (1-based; drives the file
+     *   pattern + the DB row match).
+     * @return the resolved tracks (empty when the episode has no subtitles on
+     *   disk or is not downloaded).
+     */
+    suspend fun resolveSubtitleTracks(mainId: String, episodeNumber: Int): List<ResolvedSubtitleTrack>
+
+    /**
+     * D-407 (round 31): imports ONE manually-picked subtitle file into a
+     * downloaded episode's dedicated `subtitles/` folder — the persistence
+     * half of the player's "Add subtitle file" flow.
+     *
+     * Writes `subtitle_E{num:5}_manual_{name}.{ext}` via SAF, APPENDS the new
+     * URI to the DB row's `subtitleUris` AND the folder's `.data.json`
+     * episodes entry (the durable source of truth — the scanner rebuilds the
+     * DB from it across reinstalls), then refreshes the in-memory cache.
+     *
+     * @param mainId The content's mainId.
+     * @param episodeKey The episode's key (`SEpisode.url`).
+     * @param source The picked file's `content://` URI (the SAF picker).
+     * @param displayName The picked file's display name (drives the on-disk
+     *   filename + the returned label).
+     * @return the persisted track (URI + label), or `null` on failure (no
+     *   DB row, unsupported extension, folder/IO failure — logged).
+     */
+    suspend fun importManualSubtitle(
+        mainId: String,
+        episodeKey: String,
+        source: android.net.Uri,
+        displayName: String?,
+    ): ResolvedSubtitleTrack?
 }
 
 /** Placeholder typealias — D.2 replaces this with the real sealed interface. */

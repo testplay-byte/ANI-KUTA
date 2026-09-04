@@ -169,6 +169,10 @@ fun DetailsScreen(
     val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
     // D-231: Episode list preferences (filters, sort, grouping).
     val episodeListPrefs = koinInject<com.confused.anikuta.core.preferences.EpisodeListPreferences>()
+    // D-407 (round 31): the scope for the downloaded-episode subtitle
+    // resolution (a suspend call — DB/disk — launched from the episode tap;
+    // the navigation fires from the coroutine when it completes).
+    val detailsScope = androidx.compose.runtime.rememberCoroutineScope()
 
     // D-227: Reset ALL per-anime state when LEAVING the Details screen.
     // Because the ViewModel is Activity-scoped (same instance reused across
@@ -633,22 +637,48 @@ fun DetailsScreen(
                         metadata = episodeMetadata,
                         currentScanlator = episode.scanlator,
                     )
-                    onNavigateToWatch(
-                        mainId ?: "",
-                        localUri,
-                        anime?.displayName ?: "Downloaded",
-                        "Downloaded",
-                        episode.url,
-                        episode.episode_number,
-                        episode.name,
-                        epListStr,
-                        "", // no headers for local file
-                        "", // no resolvedVideosKey
-                        effectiveLinkedSource?.sourceId ?: 0L,
-                        "", // no subtitle tracks (they're on disk)
-                        "", // no audio tracks
-                        epMetaStr,
-                    )
+                    // D-407 (round 31): resolve the episode's DOWNLOADED
+                    // subtitles (DB first, the dedicated subtitles/ folder's
+                    // canonical scan as the fallback) and hand them to the
+                    // player in the SAME "uri<US>lang" serialization the
+                    // streamed path uses — this was THE round-31 bug: the
+                    // branch passed "" ("no subtitle tracks (they're on
+                    // disk)") and the player never looked at the disk, so
+                    // downloaded episodes' subtitles never appeared in the
+                    // selector. The resolution is suspend (DB/disk) — the
+                    // navigation fires from the coroutine.
+                    detailsScope.launch {
+                        val subtitleTracks = kotlinx.coroutines.withContext(
+                            kotlinx.coroutines.Dispatchers.IO,
+                        ) {
+                            downloadManager.resolveSubtitleTracks(
+                                mainId = mainId,
+                                episodeNumber = episode.episode_number.toInt(),
+                            )
+                        }
+                        Logger.i("Anikuta:Feature:Details") {
+                            "onEpisodeClick — resolved ${subtitleTracks.size} downloaded " +
+                                "subtitle track(s) for E${episode.episode_number.toInt()}"
+                        }
+                        val subtitleTracksStr = subtitleTracks
+                            .joinToString("\n") { "${it.uri}${delim}${it.label}" }
+                        onNavigateToWatch(
+                            mainId ?: "",
+                            localUri,
+                            anime?.displayName ?: "Downloaded",
+                            "Downloaded",
+                            episode.url,
+                            episode.episode_number,
+                            episode.name,
+                            epListStr,
+                            "", // no headers for local file
+                            "", // no resolvedVideosKey
+                            effectiveLinkedSource?.sourceId ?: 0L,
+                            subtitleTracksStr, // D-407: the downloaded subs, serialized
+                            "", // no audio tracks
+                            epMetaStr,
+                        )
+                    }
                     return@onEpisodeClick
                 }
             }

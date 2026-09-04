@@ -84,6 +84,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -205,6 +206,13 @@ fun OnboardingScreen(
     // does its default thing (leave the app — the wizard restarts next launch).
     BackHandler(enabled = stepIndex > 0) { stepIndex-- }
 
+    // D-407 (round 31): the readable full path of the VERIFIED download
+    // folder ("Internal storage › ANI-KUTA") — recomputed whenever the
+    // folder pref changes and only when the folder is valid.
+    val folderPath = remember(folderUri, folderValid) {
+        if (folderValid) OnboardingPermissions.describeFolderPath(context, folderUri) else null
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // Direction-aware slide + fade between steps.
         AnimatedContent(
@@ -246,6 +254,11 @@ fun OnboardingScreen(
                     onAction = { folderPicker.launch(null) },
                     statusGranted = folderValid,
                     grantedLabel = "Folder verified",
+                    // D-407 (round 31): the report — "it could show the full
+                    // folder path which the user had selected". The readable
+                    // chain ("Internal storage › ANI-KUTA"), derived from the
+                    // SAF tree URI; null (hidden) when not derivable.
+                    grantedDetail = folderPath,
                     allowChange = true,
                     changeLabel = "Change folder",
                     onChange = { folderPicker.launch(null) },
@@ -752,6 +765,14 @@ private fun OnboardingThemeStep(
                 flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
                 contentPadding = PaddingValues(horizontal = edgePadding),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
+                // D-407 (round 31): the report — "the carousel… should not be
+                // aligned to the top with the light and dark buttons but…
+                // centered between the bottom one and the above one". LazyRow
+                // aligns its items to the TOP of the viewport by default;
+                // centering them on the cross-axis floats the carousel in the
+                // exact vertical middle of the area between the mode toggle
+                // above and the Continue button below.
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxSize(),
             ) {
                 itemsIndexed(modeChoices, key = { _, choice -> choice.id }) { index, choice ->
@@ -997,28 +1018,24 @@ private fun OnboardingPaletteCard(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * D-406 (round 30): the permission step v3 — the round-30 report's redesign:
+ * D-406 (round 30) → D-407 (round 31): the permission step v4 — the
+ * round-30 redesign (ONE root column, CTA at the bottom, no excess text,
+ * the icon-morph granted moment, the full Change-folder button, the combined
+ * Skip/Continue bottom button — all kept) + the round-31 fixes:
  *
- *  - **ONE ROOT COLUMN** — the round-29 version emitted the bottom CTA as a
- *    SECOND root-level layout after the fillMaxSize content column, and
- *    AnimatedContent stacked them at TopStart — the "Skip for Now option
- *    was shown at the very top" bug. The CTA now lives INSIDE the single
- *    root column, pinned to the bottom by the weighted content above.
- *  - **NO EXCESS TEXT** — every description the report called out ("Pick
- *    the folder where episodes are saved…", "Your download folder is
- *    verified and ready…", "You can pick a different folder anytime later
- *    in Settings → Downloads", the skip explanations) is gone: the step is
- *    the big icon, the title, and the action.
- *  - **THE GRANTED MOMENT** — the big step icon morphs into a check when
- *    the state verifies, with ONE clean line ("Folder verified") — no
- *    repetition, no folder tree, no status chip stacked above a panel that
- *    says the same thing.
- *  - **THE FULL CHANGE BUTTON** — the folder step's re-pick affordance is a
- *    full-width button ([OnboardingSecondaryCta]), "rather than just
- *    showing a simple text".
- *  - **THE COMBINED BOTTOM BUTTON** — "Skip for now" (neutral) while
- *    ungranted → "Continue" (accent) once granted — one button, one tap,
- *    always at the BOTTOM.
+ *  - **THE GRANTED STATE CENTERED — D-407**: the round-31 report found the
+ *    granted state (morphed check + "Notifications enabled" / "Background
+ *    usage allowed") rendering left-aligned + "glitched" on device. The
+ *    action→granted swap was an abrupt `if/else` with no explicit centering
+ *    container — it is now an [AnimatedContent] with
+ *    `contentAlignment = Center` over FULL-WIDTH explicitly-centered
+ *    children: the granted group can only ever render dead-center, and the
+ *    swap animates (fade + scale) instead of popping.
+ *  - **THE FOLDER DETAIL — D-407**: the report — "it could show the full
+ *    folder path which the user had selected". [grantedDetail] renders as a
+ *    glass panel under the granted label (the readable chain derived by
+ *    [OnboardingPermissions.describeFolderPath] — never a raw content://
+ *    string).
  */
 @Composable
 private fun OnboardingPermissionStep(
@@ -1029,6 +1046,7 @@ private fun OnboardingPermissionStep(
     onAction: () -> Unit,
     statusGranted: Boolean,
     grantedLabel: String,
+    grantedDetail: String? = null,
     allowChange: Boolean,
     changeLabel: String,
     onChange: () -> Unit,
@@ -1065,6 +1083,9 @@ private fun OnboardingPermissionStep(
                         )
                 },
                 label = "onboardingStepIcon_$stepNumber",
+                // D-407: explicit Center — nothing in this step may stack at
+                // TopStart (the same default that bit the round-30 buttons).
+                contentAlignment = Alignment.Center,
             ) { granted ->
                 Box(
                     modifier = Modifier
@@ -1096,33 +1117,95 @@ private fun OnboardingPermissionStep(
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.weight(0.45f))
-            if (!statusGranted) {
-                // The action — ONLY while ungranted (the round-28 version
-                // kept rendering the Allow button after the grant; the
-                // round-29 version kept the panel; this one is just the
-                // button).
-                OnboardingPrimaryCta(
-                    label = actionLabel,
-                    onClick = onAction,
-                )
-            } else {
-                // The granted state — ONE clean line under the morphed check
-                // (no repetition, no folder tree, no hints).
-                Text(
-                    text = grantedLabel,
-                    fontFamily = RobotoFamily,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    textAlign = TextAlign.Center,
-                )
-                if (allowChange) {
-                    // The folder step's re-pick — a FULL button (D-406).
-                    Spacer(Modifier.size(16.dp))
-                    OnboardingSecondaryCta(
-                        label = changeLabel,
-                        onClick = onChange,
-                    )
+            // D-407 (round 31): the action↔granted swap — an explicitly
+            // CENTERED AnimatedContent over full-width children. The granted
+            // group (label [+ folder path panel] [+ change button]) can only
+            // render dead-center, and the swap animates smoothly instead of
+            // the abrupt if/else pop the device report flagged as a glitch.
+            AnimatedContent(
+                targetState = statusGranted,
+                transitionSpec = {
+                    (
+                        scaleIn(
+                            animationSpec = tween(280, easing = Motion.EasingEmphasized),
+                            initialScale = 0.92f,
+                        ) + fadeIn(tween(280))
+                        ) togetherWith (
+                        scaleOut(animationSpec = tween(180)) + fadeOut(tween(180))
+                        )
+                },
+                contentAlignment = Alignment.Center,
+                label = "onboardingStepAction_$stepNumber",
+            ) { granted ->
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (!granted) {
+                        // The action — ONLY while ungranted (the round-28
+                        // version kept rendering the Allow button after the
+                        // grant; the round-29 version kept the panel; this one
+                        // is just the button).
+                        OnboardingPrimaryCta(
+                            label = actionLabel,
+                            onClick = onAction,
+                        )
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            // The granted label — ONE clean line under the
+                            // morphed check, full-width centered.
+                            Text(
+                                text = grantedLabel,
+                                fontFamily = RobotoFamily,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            if (!grantedDetail.isNullOrBlank()) {
+                                // D-407: the full folder path — a glass panel
+                                // with a folder glyph, centered, ellipsized
+                                // only if absurdly long.
+                                Spacer(Modifier.size(14.dp))
+                                OnboardingGlassPanel {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Folder,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(15.dp),
+                                        )
+                                        Spacer(Modifier.size(8.dp))
+                                        Text(
+                                            text = grantedDetail,
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false),
+                                        )
+                                    }
+                                }
+                            }
+                            if (allowChange) {
+                                // The folder step's re-pick — a FULL button (D-406).
+                                Spacer(Modifier.size(16.dp))
+                                OnboardingSecondaryCta(
+                                    label = changeLabel,
+                                    onClick = onChange,
+                                )
+                            }
+                        }
+                    }
                 }
             }
             Spacer(Modifier.weight(0.8f))

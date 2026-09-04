@@ -88,6 +88,29 @@ class SubtitleEngine(
     }
 
     /**
+     * D-407 (round 31): stages ONE subtitle file WITHOUT the cleanup pass —
+     * the manual-import path. A mid-session import must never delete the
+     * files MPV is currently reading (the "clean old files" behavior of
+     * [downloadSubtitles] is for fresh video loads only).
+     *
+     * Handles the same three source types as the batch path: `content://`
+     * (SAF — the picked file / the persisted manual import), `file://` /
+     * plain paths, and remote URLs (with headers).
+     *
+     * @return the staged local file, or `null` when the source could not be
+     *   read (empty stream, revoked permission, IO error — logged).
+     */
+    suspend fun stageSingle(request: SubtitleDownloadRequest): File? {
+        if (request.url.isBlank()) return null
+        return try {
+            downloadSingle(request)
+        } catch (e: Exception) {
+            Logger.w(TAG) { "stageSingle failed for ${request.lang}: ${e.message}" }
+            null
+        }
+    }
+
+    /**
      * Download a single subtitle file.
      *
      * D.FIX: Handles three URL types:

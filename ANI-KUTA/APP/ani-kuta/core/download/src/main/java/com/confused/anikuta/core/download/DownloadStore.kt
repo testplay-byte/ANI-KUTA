@@ -311,6 +311,29 @@ class DownloadStore(private val database: AnikutaDatabase) {
     fun getDownloadedVideoUri(mainId: String, episodeKey: String): String? =
         episodeQueries.getDownloadedEpisode(mainId, episodeKey).executeAsOneOrNull()?.video_uri
 
+    /**
+     * D-407 (round 31): the FULL downloaded-episode row for (mainId,
+     * episodeKey) — used by the manual subtitle import (it needs the episode
+     * number, the title, and the existing subtitleUris to append to).
+     * Returns `null` when the episode is not downloaded.
+     */
+    fun getDownloadedEpisodeRow(mainId: String, episodeKey: String): DownloadedEpisode? =
+        episodeQueries.getDownloadedEpisode(mainId, episodeKey).executeAsOneOrNull()
+            ?.toDownloadedEpisode()
+
+    /**
+     * D-407 (round 31): replaces the row's `subtitle_uris` JSON with [uris]
+     * (the manual subtitle import appends the new URI and writes the FULL
+     * list back — read-modify-write serialized by the caller).
+     */
+    fun updateDownloadedSubtitleUris(mainId: String, episodeKey: String, uris: List<String>) {
+        episodeQueries.updateSubtitleUris(
+            main_id = mainId,
+            episode_key = episodeKey,
+            subtitle_uris = encodeStringList(uris),
+        )
+    }
+
     /** Deletes a single downloaded episode row. */
     fun deleteDownloadedEpisode(mainId: String, episodeKey: String) {
         episodeQueries.deleteDownloadedEpisode(mainId, episodeKey)

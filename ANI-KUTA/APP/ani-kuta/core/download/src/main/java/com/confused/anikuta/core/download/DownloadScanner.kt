@@ -596,8 +596,9 @@ class DownloadScanner(
         }.map { (_, file) -> file.uri.toString() }
     }
 
-    /** Subtitle file extensions recognized by the scanner + downloader. */
-    private val SUBTITLE_EXTENSIONS = setOf("srt", "vtt", "ass", "ssa", "sub")
+    /** Subtitle file extensions recognized by the scanner + downloader.
+     * D-407 (round 31): now the ONE shared set (ttml included). */
+    private val SUBTITLE_EXTENSIONS = com.confused.anikuta.core.download.SUBTITLE_EXTENSIONS
 
     /**
      * The scan report returned by [scan].

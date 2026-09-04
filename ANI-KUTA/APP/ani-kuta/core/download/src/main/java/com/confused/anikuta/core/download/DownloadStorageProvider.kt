@@ -1247,6 +1247,138 @@ class DownloadStorageProvider(
     }
 
     /**
+     * D-407 (round 31): scans the content folder's `subtitles/` subfolder (+
+     * the folder root, for legacy layouts) for the subtitle files belonging to
+     * a SPECIFIC episode — the disk-truth fallback behind
+     * [DownloadManager.resolveSubtitleTracks] when the DB row's
+     * `subtitleUris` is empty.
+     *
+     * Matches the canonical naming schemes by episode number:
+     * `subtitle_E{num:5}_{lang}_{index}.{ext}` (provider tracks),
+     * `subtitle_E{num:5}_manual_{name}.{ext}` (manual imports), and the
+     * legacy `.subtitle_E{num:5}_…` hidden-file form. Extensions: the
+     * [SUBTITLE_EXTENSIONS] set.
+     *
+     * @return the `content://` URI strings, in listing order (the caller
+     *   derives display labels via [DownloadedSubtitleLabels.labelForUri]).
+     */
+    suspend fun findSubtitleFilesForEpisode(mainId: String, episodeNumber: Int): List<String> =
+        withContext(Dispatchers.IO) {
+            if (episodeNumber <= 0) return@withContext emptyList()
+            val epNumPadded = String.format("%05d", episodeNumber)
+            val results = mutableListOf<String>()
+            try {
+                val contentDir = findContentFolder(mainId) ?: return@withContext emptyList()
+                val index = contentDir.listFiles().associateBy { it.name ?: "<null-name>" }
+                val subtitlesDir = index["subtitles"]?.takeIf { it.isDirectory }
+                val searchDirs = if (subtitlesDir != null) {
+                    listOf(subtitlesDir, contentDir)
+                } else {
+                    listOf(contentDir)
+                }
+                for (dir in searchDirs) {
+                    for (file in dir.listFiles()) {
+                        if (!file.isFile) continue
+                        val name = file.name ?: continue
+                        val bare = name.removePrefix(".")
+                        val ext = bare.substringAfterLast('.', "").lowercase()
+                        if (ext !in SUBTITLE_EXTENSIONS) continue
+                        val isEpisodeMatch = bare.startsWith("subtitle_E$epNumPadded_")
+                        if (isEpisodeMatch) {
+                            results.add(file.uri.toString())
+                            DownloadLogger.i {
+                                "findSubtitleFilesForEpisode — found: ${name.take(60)}"
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                DownloadLogger.w {
+                    "findSubtitleFilesForEpisode failed: ${e.message}"
+                }
+            }
+            results
+        }
+
+    /**
+     * D-407 (round 31): persists ONE manually-picked subtitle file into the
+     * episode's dedicated `subtitles/` subfolder — the disk half of
+     * [DownloadManager.importManualSubtitle].
+     *
+     * The target name uses the manual scheme
+     * `subtitle_E{num:5}_manual_{sanitized-name}.{ext}` so the canonical
+     * episode-number scan ([findSubtitleFilesForEpisode]) picks it up on
+     * every future play + reinstall rescan, and
+     * [DownloadedSubtitleLabels.labelForUri] renders its label.
+     * A same-named existing file is replaced (delete + recreate — the same
+     * replace semantics as [publishVideoFile]).
+     *
+     * @param mainId The content's mainId (locates the content folder).
+     * @param episodeNumber The episode number (drives the `E{num:5}` token).
+     * @param displayName The picked file's display name (sanitized into the
+     *   filename; the caller also derives the label from it).
+     * @param extension The validated subtitle extension (srt/vtt/ass/ssa/sub/ttml).
+     * @param source The picked file's `content://` URI (copied stream→stream).
+     * @return the new file's `content://` URI string, or `null` on failure.
+     */
+    suspend fun importSubtitleFile(
+        mainId: String,
+        episodeNumber: Int,
+        displayName: String,
+        extension: String,
+        source: android.net.Uri,
+    ): String? = withContext(Dispatchers.IO) {
+        if (episodeNumber <= 0) return@withContext null
+        try {
+            val contentDir = findContentFolder(mainId) ?: run {
+                DownloadLogger.w { "importSubtitleFile — no content folder for mainId=$mainId" }
+                return@withContext null
+            }
+            val index = contentDir.listFiles().associateBy { it.name ?: "<null-name>" }
+            val subtitlesDir = index["subtitles"]?.takeIf { it.isDirectory }
+                ?: contentDir.createDirectory("subtitles") ?: run {
+                    DownloadLogger.w { "importSubtitleFile — failed to create subtitles/ subfolder" }
+                    return@withContext null
+                }
+            val epNum = String.format("%05d", episodeNumber)
+            val safeName = displayName.lowercase()
+                .replace(Regex("[^a-z0-9]+"), "-")
+                .trim('-')
+                .ifBlank { "custom" }
+            // Uniqueness: if the same manual name is imported twice, replace it.
+            val targetName = "subtitle_E${epNum}_manual_${safeName}.$extension"
+            val subIndex = subtitlesDir.listFiles().associateBy { it.name ?: "<null-name>" }
+            subIndex[targetName]?.delete()
+            val target = subtitlesDir.createFile("application/octet-stream", targetName) ?: run {
+                DownloadLogger.w { "importSubtitleFile — createFile failed: $targetName" }
+                return@withContext null
+            }
+            context.contentResolver.openInputStream(source)?.use { input ->
+                context.contentResolver.openOutputStream(target.uri, "wt")?.use { output ->
+                    input.copyTo(output)
+                }
+            } ?: run {
+                DownloadLogger.w { "importSubtitleFile — could not open streams (source=$source)" }
+                target.delete()
+                return@withContext null
+            }
+            if (target.length() == 0L) {
+                DownloadLogger.w { "importSubtitleFile — wrote an empty file; deleting" }
+                target.delete()
+                return@withContext null
+            }
+            DownloadLogger.i {
+                "importSubtitleFile — persisted $targetName (${target.length()} bytes) " +
+                    "for mainId=$mainId E$episodeNumber"
+            }
+            target.uri.toString()
+        } catch (e: Exception) {
+            DownloadLogger.w { "importSubtitleFile failed: ${e.message}" }
+            null
+        }
+    }
+
+    /**
      * D-404 (round 29): the DELETE flow's last-resort folder locator — matches
      * a series folder by its NAME (the sanitized title, including the
      * `(2)`/`(3)` collision suffixes [ensureContentDir] can append) when the

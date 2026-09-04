@@ -203,6 +203,108 @@ fun WatchScreen(
     // Kept open while MPV plays from it. Closed on dispose.
     var mpvParcelFileDescriptor by remember { mutableStateOf<android.os.ParcelFileDescriptor?>(null) }
 
+    // ── D-407 (round 31): the MANUAL SUBTITLE IMPORT ──────────────────────────
+    // The subtitle sheet's permanent "Add subtitle file" action → the device's
+    // multi-select file picker → each picked file is validated (.srt/.vtt/
+    // .ass/.ssa/.sub/.ttml), PERSISTED into the downloaded episode's dedicated
+    // subtitles/ folder (+ DB + .data.json) when the CURRENT episode is a
+    // download, staged into the player cache, and sub-add'ed with the "select"
+    // flag — it activates immediately and appears in the refreshed track list.
+    val subtitleFilePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = PickSubtitleFiles(),
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        Logger.i(TAG) { "Manual subtitle import — ${uris.size} file(s) picked" }
+        scope.launch {
+            var added = 0
+            var rejected = 0
+            for (uri in uris) {
+                val displayName = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    resolveSubtitleDisplayName(context, uri)
+                }
+                val fileName = displayName ?: uri.lastPathSegment ?: ""
+                val ext = fileName.substringAfterLast('.', "").lowercase()
+                if (ext !in com.confused.anikuta.core.download.SUBTITLE_EXTENSIONS) {
+                    rejected++
+                    Logger.w(TAG) {
+                        "Manual subtitle import — unsupported extension '.$ext' " +
+                            "(name='${fileName.take(60)}')"
+                    }
+                    continue
+                }
+                // Persist when the CURRENT episode is downloaded (mainId +
+                // the live episode key from the state holder — correct even
+                // after in-player episode switches).
+                val mainId = watchKey.mainId
+                val currentKey = stateHolder.currentEpisodeUrl.value
+                val persisted = if (mainId.isNotBlank() && currentKey.isNotBlank()) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching {
+                            downloadManager.importManualSubtitle(mainId, currentKey, uri, displayName)
+                        }.getOrNull()
+                    }
+                } else {
+                    null
+                }
+                // The track to load NOW: the persisted file's URI (offline) or
+                // the picked file's URI (streaming — session-scoped).
+                val trackUri = persisted?.uri ?: uri.toString()
+                val label = persisted?.label
+                    ?: com.confused.anikuta.core.download.DownloadedSubtitleLabels
+                        .prettify(fileName.substringBeforeLast('.').ifBlank { "Custom" })
+                val staged = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        subtitleEngine.stageSingle(
+                            com.confused.anikuta.core.player.subtitles.SubtitleDownloadRequest(
+                                url = trackUri,
+                                lang = label,
+                                headers = "",
+                            ),
+                        )
+                    }.getOrNull()
+                }
+                if (staged != null) {
+                    runCatching {
+                        // "select" — the new track becomes ACTIVE immediately;
+                        // the sheet (reopened) lists + can switch it like any
+                        // other track.
+                        MPVLib.command(arrayOf("sub-add", staged.absolutePath, "select", "", label))
+                    }.onSuccess {
+                        added++
+                        Logger.i(TAG) { "Manual subtitle import — sub-add OK: '$label'" }
+                    }.onFailure {
+                        Logger.w(TAG) { "Manual subtitle import — sub-add FAILED: ${it.message}" }
+                    }
+                }
+            }
+            if (added > 0) {
+                // Give MPV a moment to register the track(s), then refresh the
+                // state holder so the sheet + any track UI sees them.
+                kotlinx.coroutines.delay(600L)
+                val view = mpvView
+                if (view != null) {
+                    runCatching {
+                        val (subs, audio) = view.loadTracks()
+                        stateHolder.updateTracks(subs, audio)
+                        Logger.i(TAG) { "Manual subtitle import — refreshed: ${subs.size} sub track(s)" }
+                    }
+                }
+                android.widget.Toast.makeText(
+                    context,
+                    if (added == 1) "Subtitle added" else "$added subtitles added",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            } else if (rejected > 0) {
+                android.widget.Toast.makeText(
+                    context,
+                    "Unsupported file type (use .srt, .vtt, .ass, .ssa or .sub)",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
+
     // Seed the current-episode state from the WatchKey (immutable Nav3 contract —
     // we track the CURRENTLY playing episode in the state holder so it updates
     // on switch). This fixes the bug where the episode list highlight + "now
@@ -995,21 +1097,37 @@ fun WatchScreen(
                         val fdUrl = "fd://${pfd.fd}"
                         mpvParcelFileDescriptor = pfd
 
-                        // Look up the downloaded episode for subtitle URIs.
-                        val dlEp = downloadManager.getDownloadedEpisodes().value
-                            .firstOrNull { it.content.mainId == currentMainId && it.episode.episodeKey == ep.url }
-                        val subUris = dlEp?.subtitleUris ?: emptyList()
-                        if (subUris.isNotEmpty()) {
+                        // D-407 (round 31): the SHARED subtitle resolution for
+                        // the switched-to episode — the same ONE answer the
+                        // details-page + downloads-page hand-offs use (DB
+                        // `subtitleUris` first, the episode's dedicated
+                        // subtitles/ folder scan as the fallback, REAL labels
+                        // from the filenames). The old inline copy labeled
+                        // everything "Subtitle N" and had no fallback — the
+                        // round-31 report's "does not show the subtitles for
+                        // the downloaded episodes".
+                        val resolvedSubs = kotlinx.coroutines.withContext(
+                            kotlinx.coroutines.Dispatchers.IO,
+                        ) {
+                            downloadManager.resolveSubtitleTracks(
+                                mainId = currentMainId,
+                                episodeNumber = ep.episodeNumber.toInt(),
+                            )
+                        }
+                        if (resolvedSubs.isNotEmpty()) {
                             observer?.let { obs ->
-                                obs.pendingSubtitleTracks = subUris.mapIndexed { i, u ->
-                                    val lang = com.confused.anikuta.core.common.Logger.w(TAG) { "subtitle URI: ${u.take(60)}" }
-                                    Pair(u, "Subtitle ${i + 1}")
+                                obs.pendingSubtitleTracks = resolvedSubs.map {
+                                    it.uri to it.label
                                 }
                                 obs.trackHeaders = ""
                             }
-                            Logger.i(TAG) { "Episode switch — set ${subUris.size} pending subtitle track(s) for offline episode: ${subUris.joinToString("; ") { it.take(60) }}" }
+                            Logger.i(TAG) {
+                                "Episode switch — set ${resolvedSubs.size} pending subtitle " +
+                                    "track(s) for offline episode " +
+                                    "[labels=${resolvedSubs.map { it.label }}]"
+                            }
                         } else {
-                            Logger.w(TAG) { "Episode switch — no subtitle URIs found for downloaded episode (mainId=$currentMainId, epUrl=${ep.url})" }
+                            Logger.w(TAG) { "Episode switch — no subtitles resolved for downloaded episode (mainId=$currentMainId, epUrl=${ep.url})" }
                         }
 
                         // For fd:// URLs, delay 500ms for surface readiness (same as initial load).
@@ -1242,6 +1360,13 @@ fun WatchScreen(
             onOpenSettings = {
                 showSubtitleSheet = false
                 showSubtitleSettingsSheet = true
+            },
+            // D-407 (round 31): the permanent manual-import action — the sheet
+            // dismisses itself (the picker opens over the app; the import
+            // re-selects the new track + toasts on completion).
+            onAddSubtitleFile = {
+                showSubtitleSheet = false
+                subtitleFilePicker.launch(SUBTITLE_MIME_HINTS)
             },
             onRefreshTracks = {
                 // Manually reload tracks from MPV when the sheet opens.

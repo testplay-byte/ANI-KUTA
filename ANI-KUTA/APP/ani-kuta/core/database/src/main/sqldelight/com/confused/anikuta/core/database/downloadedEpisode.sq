@@ -109,6 +109,13 @@ UPDATE downloaded_episode
 SET verified_at = :verified_at
 WHERE main_id = :main_id AND episode_key = :episode_key;
 
+-- D-407 (round 31): replaces the episode's subtitle_uris JSON (the manual
+-- subtitle import appends to the list and writes the full set back).
+updateSubtitleUris:
+UPDATE downloaded_episode
+SET subtitle_uris = :subtitle_uris
+WHERE main_id = :main_id AND episode_key = :episode_key;
+
 deleteDownloadedEpisode:
 DELETE FROM downloaded_episode
 WHERE main_id = :main_id AND episode_key = :episode_key;

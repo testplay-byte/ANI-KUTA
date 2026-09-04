@@ -783,6 +783,163 @@ class DefaultDownloadManager(
         refreshDownloadedEpisodes()
     }
 
+    // ── D-407 (round 31): the shared subtitle resolution + the manual import ──
+
+    /**
+     * D-407 (round 31): the ONE subtitle answer for a downloaded episode.
+     *
+     * The round-31 report: downloaded episodes' subtitles never showed in
+     * the player's selector "even though they are stored properly in the
+     * local storage, in the subtitles folder with proper numbering and
+     * naming" — because the DETAILS-page hand-off never looked for them and
+     * the in-player switch labeled whatever it found "Subtitle N". Every
+     * path now asks THIS function: DB row first (decoded `subtitleUris`),
+     * disk-scan fallback (the episode's dedicated `subtitles/` subfolder,
+     * canonical naming) — with real labels.
+     */
+    override suspend fun resolveSubtitleTracks(
+        mainId: String,
+        episodeNumber: Int,
+    ): List<ResolvedSubtitleTrack> {
+        if (mainId.isBlank() || episodeNumber <= 0) return emptyList()
+
+        // 1. The DB cache's row for this episode (its subtitleUris are the
+        //    publish-time URIs — the fastest + most accurate source).
+        val fromDb = _downloadedEpisodes.value
+            .firstOrNull {
+                it.content.mainId == mainId && it.episode.episodeNumber.toInt() == episodeNumber
+            }
+            ?.subtitleUris
+            .orEmpty()
+            .filter { it.isNotBlank() }
+
+        // 2. Disk-truth fallback — the dedicated subtitles/ subfolder.
+        val uris = if (fromDb.isNotEmpty()) {
+            DownloadLogger.i {
+                "resolveSubtitleTracks — DB row has ${fromDb.size} subtitle uri(s) " +
+                    "for mainId=$mainId E$episodeNumber"
+            }
+            fromDb
+        } else {
+            val scanned = storage.findSubtitleFilesForEpisode(mainId, episodeNumber)
+            DownloadLogger.i {
+                "resolveSubtitleTracks — DB subtitleUris empty; disk scan found " +
+                    "${scanned.size} file(s) for mainId=$mainId E$episodeNumber"
+            }
+            scanned
+        }
+
+        return uris.mapIndexed { index, uri ->
+            ResolvedSubtitleTrack(
+                uri = uri,
+                label = DownloadedSubtitleLabels.labelForUri(uri, index),
+            )
+        }
+    }
+
+    /**
+     * D-407 (round 31): persists one manually-picked subtitle into the
+     * episode's subtitles/ folder + DB + `.data.json`, and returns the
+     * track for the caller to sub-add into the running player.
+     *
+     * Serialized with the import/delete [deleteMutex] — the `.data.json`
+     * read-modify-write must never race a concurrent delete (the round-28
+     * lesson applies to imports too). Disk work lands on Dispatchers.IO
+     * (the storage provider's own withContext).
+     */
+    override suspend fun importManualSubtitle(
+        mainId: String,
+        episodeKey: String,
+        source: android.net.Uri,
+        displayName: String?,
+    ): ResolvedSubtitleTrack? = deleteMutex.withLock {
+        // ── PHASE 0: the row (episode number + existing URIs + identity). ──
+        val row = store.getDownloadedEpisodeRow(mainId, episodeKey) ?: run {
+            DownloadLogger.w {
+                "importManualSubtitle — no downloaded episode row for " +
+                    "mainId=$mainId episodeKey=${episodeKey.take(60)}"
+            }
+            return@withLock null
+        }
+        val episodeNumber = row.episode.episodeNumber.toInt()
+
+        // ── PHASE 1: validate the picked file's extension. ──
+        val nameCandidate = displayName ?: source.lastPathSegment ?: ""
+        val ext = nameCandidate.substringAfterLast('.', "").lowercase()
+        if (ext !in SUBTITLE_EXTENSIONS) {
+            DownloadLogger.w {
+                "importManualSubtitle — unsupported subtitle extension " +
+                    "'.$ext' (name='${nameCandidate.take(60)}')"
+            }
+            return@withLock null
+        }
+        val baseName = nameCandidate.substringBeforeLast('.').ifBlank { "custom" }
+        val label = DownloadedSubtitleLabels.prettify(baseName)
+
+        // ── PHASE 2: write the file into the episode's subtitles/ folder. ──
+        val newUri = storage.importSubtitleFile(
+            mainId = mainId,
+            episodeNumber = episodeNumber,
+            displayName = baseName,
+            extension = ext,
+            source = source,
+        ) ?: return@withLock null
+
+        // ── PHASE 3: append to the DB row (read-modify-write under the lock). ──
+        val existing = store.getDownloadedEpisodeRow(mainId, episodeKey)
+            ?.subtitleUris
+            .orEmpty()
+            .filter { it.isNotBlank() }
+        val updated = (existing + newUri).distinct()
+        store.updateDownloadedSubtitleUris(mainId, episodeKey, updated)
+        DownloadLogger.i {
+            "importManualSubtitle — DB row now has ${updated.size} subtitle uri(s) " +
+                "(added: ${newUri.take(80)})"
+        }
+
+        // ── PHASE 4: append to the `.data.json` episodes entry (durable truth —
+        // the reinstall rescan rebuilds the DB from it). Best-effort: an IO
+        // failure here never blocks playback (the DB + the file are written).
+        runCatching {
+            val folder = storage.findContentFolder(mainId)
+            if (folder != null) {
+                val data = storage.readDataJson(folder)
+                if (data != null) {
+                    val entry = data.episodes.firstOrNull {
+                        it.episodeKey == episodeKey ||
+                            it.episodeNumber.toInt() == episodeNumber
+                    }
+                    if (entry != null) {
+                        val merged = (entry.subtitleUris + newUri).distinct()
+                        storage.upsertEpisodeInDataJson(
+                            folder = folder,
+                            episode = entry.copy(subtitleUris = merged),
+                        )
+                        DownloadLogger.i {
+                            "importManualSubtitle — .data.json entry updated " +
+                                "(${merged.size} subtitle uri(s))"
+                        }
+                    } else {
+                        DownloadLogger.w {
+                            "importManualSubtitle — episode entry not found in " +
+                                ".data.json (key=${episodeKey.take(60)}); DB + file " +
+                                "are written, the entry sync is skipped"
+                        }
+                    }
+                }
+            }
+        }.onFailure {
+            DownloadLogger.w {
+                "importManualSubtitle — .data.json sync failed (non-fatal): ${it.message}"
+            }
+        }
+
+        // ── PHASE 5: refresh the cache so every UI sees the new file. ──
+        refreshDownloadedEpisodes()
+
+        ResolvedSubtitleTrack(uri = newUri, label = label)
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     /** Reloads the downloaded-episodes cache from the DB. */

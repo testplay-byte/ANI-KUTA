@@ -2090,40 +2090,13 @@ private fun showDownloadToast(message: String) {
 }
 
 /**
- * Extracts a human-readable language label from a downloaded subtitle's
- * `content://` URI by parsing the on-disk filename.
- *
- * D-FIX-SUB: the download storage names subtitle files
- * `.subtitle_E{num}_{lang}_{index}.{ext}` (e.g. `.subtitle_E00001_english_0.srt`).
- * This extracts the `{lang}` segment + title-cases it ("english" → "English") so
- * the offline subtitle picker shows "English" / "Japanese" instead of "Subtitle 1".
- *
- * Falls back to `"Subtitle {index+1}"` for:
- * - Legacy filenames (`.subtitle_E{num}_{index}.{ext}` — pre-fix, no lang segment).
- * - URIs whose last path segment doesn't match the expected pattern.
- * - A `lang` segment of `"unknown"` (written when the track had no language).
- *
- * @param uri The subtitle `content://` URI.
- * @param index The 0-based track index (for the fallback label).
+ * D-407 (round 31): REMOVED — `extractSubtitleLangFromUri` +
+ * `scanSubtitleFilesOnDisk` were MainActivity-private copies of logic that
+ * now lives ONCE in `:core:download` (`DownloadedSubtitleLabels.labelForUri`
+ * + `DownloadStorageProvider.findSubtitleFilesForEpisode`, fronted by
+ * `DownloadManager.resolveSubtitleTracks`). Three call sites, one
+ * implementation, zero drift.
  */
-private fun extractSubtitleLangFromUri(uri: String, index: Int): String {
-    val fileName = android.net.Uri.parse(uri).lastPathSegment ?: return "Subtitle ${index + 1}"
-    // Expected: .subtitle_E{num}_{lang}_{index}.{ext}
-    // Strip the leading ".subtitle_E" prefix + the "E{num}_" episode segment.
-    if (!fileName.startsWith("subtitle_E") && !fileName.startsWith(".subtitle_E")) return "Subtitle ${index + 1}"
-    val withoutExt = fileName.substringBeforeLast('.')
-    // withoutExt = ".subtitle_E00001_english_0" → split by '_' → [".subtitle", "E00001", "english", "0"]
-    val segments = withoutExt.split('_')
-    // Need at least 4 segments for the new format (prefix, enum, lang, index).
-    // Legacy format has 3 segments (prefix, enum, index) → no lang → fallback.
-    if (segments.size < 4) return "Subtitle ${index + 1}"
-    val lang = segments[segments.size - 2] // second-to-last segment
-    if (lang.isBlank() || lang == "unknown") return "Subtitle ${index + 1}"
-    // Title-case: "english" → "English", "espanol-latino" → "Espanol Latino".
-    return lang.split('-').joinToString(" ") { word ->
-        word.replaceFirstChar { it.titlecase() }
-    }
-}
 
 @Composable
 private fun SelectionActionBar(
@@ -2323,27 +2296,24 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
         }
     } else ""
 
-    // Pass local subtitle URIs from the downloaded episode.
-    val subtitleUris = downloaded?.subtitleUris ?: emptyList()
-    Logger.i("Anikuta:MainActivity") {
-        "Downloads→Watch: downloaded=${downloaded != null}, " +
-            "downloaded.subtitleUris.size=${subtitleUris.size}, " +
-            "uris=${subtitleUris.joinToString("; ") { it.take(60) }}"
+    // D-407 (round 31): the SHARED subtitle resolution — the same ONE answer
+    // the details-page hand-off and the in-player episode switch get (DB
+    // `subtitleUris` first, the dedicated subtitles/ folder's canonical disk
+    // scan as the fallback, labels derived from the filenames). The old
+    // inline copy (DB list + scanSubtitleFilesOnDisk +
+    // extractSubtitleLangFromUri) is deleted — one implementation in
+    // `:core:download`, three call sites, zero drift.
+    val resolvedSubs = downloadManager.resolveSubtitleTracks(
+        mainId = mainId,
+        episodeNumber = downloaded?.episode?.episodeNumber?.toInt() ?: 0,
+    )
+    val subtitleTracksStr = resolvedSubs.joinToString("\n") {
+        "${it.uri}$delim${it.label}"
     }
-    // Fallback: if subtitleUris is empty, scan the content folder's subtitles/ subfolder.
-    // D-151-fix: was `runBlocking { ... }` (ANR risk) — now runs naturally on Dispatchers.IO.
-    val effectiveSubUris = if (subtitleUris.isNotEmpty()) {
-        subtitleUris
-    } else {
-        Logger.w("Anikuta:MainActivity") { "Downloads→Watch: subtitleUris empty in DB — trying disk scan" }
-        scanSubtitleFilesOnDisk(mainId, downloaded?.episode?.episodeNumber?.toInt() ?: 0)
-    }
-    val subtitleTracksStr = effectiveSubUris.mapIndexed { index, uri ->
-        val langLabel = extractSubtitleLangFromUri(uri, index)
-        "$uri${delim}$langLabel"
-    }.joinToString("\n")
     Logger.i("Anikuta:MainActivity") {
-        "Downloads→Watch: passing ${effectiveSubUris.size} local subtitle track(s), subtitleTracksStr.length=${subtitleTracksStr.length}"
+        "Downloads→Watch: resolver returned ${resolvedSubs.size} subtitle track(s) " +
+            "[labels=${resolvedSubs.map { it.label }}], " +
+            "subtitleTracksStr.length=${subtitleTracksStr.length}"
     }
 
     // Look up the sourceId so the watch screen can re-resolve non-downloaded episodes.
@@ -2369,48 +2339,10 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
 }
 
 /**
- * Fallback: scans the SAF storage for subtitle files for a specific episode.
- * Used when the downloaded_episode DB table doesn't have subtitleUris populated.
- *
- * Searches the content folder's "subtitles" subfolder (new) + the root (legacy)
- * for files matching the episode number pattern.
+ * D-407 (round 31): REMOVED — see the note where the old label helper lived;
+ * the disk scan is now `DownloadStorageProvider.findSubtitleFilesForEpisode`
+ * (behind `DownloadManager.resolveSubtitleTracks`).
  */
-private suspend fun scanSubtitleFilesOnDisk(mainId: String, episodeNumber: Int): List<String> {
-    if (episodeNumber <= 0) return emptyList()
-    val epNumPadded = String.format("%05d", episodeNumber)
-    val results = mutableListOf<String>()
-
-    try {
-        val koin = org.koin.core.context.GlobalContext.get()
-        val storage = koin.get<com.confused.anikuta.core.download.DownloadStorageProvider>()
-
-        val contentDir = storage.findContentFolder(mainId) ?: return emptyList()
-
-        val subtitlesDir = contentDir.listFiles().firstOrNull { it.name == "subtitles" && it.isDirectory }
-        val searchDirs = if (subtitlesDir != null) listOf(subtitlesDir, contentDir) else listOf(contentDir)
-
-        for (dir in searchDirs) {
-            for (file in dir.listFiles()) {
-                if (!file.isFile) continue
-                val name = file.name ?: continue
-                if ((name.startsWith("subtitle_E${epNumPadded}_") || name.startsWith(".subtitle_E${epNumPadded}_")) &&
-                    (name.endsWith(".srt") || name.endsWith(".vtt") || name.endsWith(".ass") || name.endsWith(".ssa"))
-                ) {
-                    results.add(file.uri.toString())
-                    com.confused.anikuta.core.common.Logger.i("Anikuta:MainActivity") {
-                        "scanSubtitleFilesOnDisk — found: ${name.take(60)}"
-                    }
-                }
-            }
-        }
-    } catch (e: Exception) {
-        com.confused.anikuta.core.common.Logger.w("Anikuta:MainActivity") {
-            "scanSubtitleFilesOnDisk failed: ${e.message}"
-        }
-    }
-
-    return results
-}
 
 /**
  * Tap-to-play from the Video Caching settings screen (session-2):
