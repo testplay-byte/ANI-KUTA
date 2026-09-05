@@ -10,7 +10,6 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:database"))
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.logcat)
 
     // SQLDelight
     implementation(libs.sqldelight.android.driver)

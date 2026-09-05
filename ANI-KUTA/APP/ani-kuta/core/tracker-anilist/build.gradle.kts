@@ -19,7 +19,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.sqldelight.coroutines.extensions)
-    implementation(libs.logcat)
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
 }

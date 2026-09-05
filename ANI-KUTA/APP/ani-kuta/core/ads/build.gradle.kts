@@ -44,6 +44,5 @@ dependencies {
 
     // Misc
     implementation(libs.androidx.core.ktx)
-    implementation(libs.logcat)
     debugImplementation(libs.androidx.ui.tooling)
 }

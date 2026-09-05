@@ -22,7 +22,6 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.logcat)
 
     implementation(libs.androidx.core.ktx)
 }

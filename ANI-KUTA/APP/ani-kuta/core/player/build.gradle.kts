@@ -35,13 +35,10 @@ dependencies {
     api(project(":core:player-mpv-lib"))
 
     // Seeker — Compose seekbar (for controls, Phase 4)
-    implementation(libs.seeker)
 
     // Media session — for background media controls
-    implementation(libs.androidx.media)
 
     // TrueType parser — for subtitle font parsing
-    implementation(libs.truetype.parser)
 
     // Coil3 — for episode thumbnails in switching overlay (Phase 4)
     implementation(libs.coil.compose)
@@ -55,6 +52,4 @@ dependencies {
     // Coroutines + serialization
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.rxjava)
-    implementation(libs.logcat)
 }
