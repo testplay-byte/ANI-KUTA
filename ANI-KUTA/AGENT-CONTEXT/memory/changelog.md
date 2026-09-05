@@ -1805,3 +1805,10 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 ## Phase CS-V2 Round 37 — Task 77 (the release-line half): the icon rework + the v1.1.1 re-release
 - **D-434**: the 8 premade baked app icons removed completely (aliases + all variant resources + previews; MAIN/LAUNCHER back on MainActivity with the user's icon) — the App Icon page is now catalog-only (the GitHub icons/ folder) with the rounded-corner full-artwork display format; re-release cut at the SAME version 1.1.1/10101 (old tag + release deleted, re-tagged, CI re-ran the full all-ABI + ZIP pipeline).
 - The same round's main-branch convergence (D-426..D-433) is recorded on main.
+
+## Round 38 (Task 78) — the release-hygiene round (release line)
+- **D-435:** the push path is DEBUG-ONLY on every branch (main's rewritten build-apk.yml taken verbatim; the push-path assembleRelease/keystore/gate/mapping removed). release-apk.yml stays the ONLY release builder (tags).
+- **D-436:** R8 RETIRED — isMinifyEnabled=false + isShrinkResources=false, proguard-rules.pro deleted, no mapping.txt in the release assets. THE extension-system fix (the unminified debug build worked on the user's device; both R8 builds broke).
+- **D-437:** the App Icon page's minimal empty state ("There aren't any icons yet." — every description removed).
+- **D-438:** the debug identity everywhere (the overlay's icon_current.png + lime density rasters + colors.xml); BUILD-AND-BRANCH-GUIDE.md added to this branch.
+- The v1.1.1 re-release at the SAME version follows with the unminified all-ABI signed APKs.

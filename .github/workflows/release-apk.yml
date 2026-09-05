@@ -1,4 +1,9 @@
-# ANI-KUTA — Release APK (D-423, round 35 — the all-ABI SIGNED release line)
+# ANI-KUTA — Release APK (D-423, round 35 — the all-ABI SIGNED release line;
+# round 38: the R8 mapping asset removed with the minification retirement)
+#
+# THE ONLY path that builds release APKs (round 38, user instruction: main and
+# every other branch build ONLY the debug APK — a release build exists solely
+# through this tag-driven workflow).
 #
 # Creates a versioned GitHub Release carrying:
 #   - ani-kuta-v{version}-arm64-v8a.apk    (64-bit ARM — most phones)
@@ -7,7 +12,6 @@
 #   - ani-kuta-v{version}-x86_64.apk       (64-bit x86 — emulators/Chromebooks)
 #   - ani-kuta-v{version}-universal.apk    (every ABI in one APK)
 #   - ANI-KUTA-v{version}-RELEASE.zip      (all five APKs + SHA256SUMS.txt)
-#   - ani-kuta-v{version}-mapping.txt      (the R8 mapping — crash decoding)
 #
 # Trigger: push a tag `v{versionName}` (e.g. v1.1.1) whose version matches
 # AndroidConfig.kt's versionName — the workflow verifies the match and fails
@@ -30,6 +34,12 @@
 # built with `-PreleaseAllAbis=true` (the splits block in app/build.gradle.kts
 # + the widened ndk.abiFilters in the convention plugin). The dev/CI push path
 # (build-apk.yml) stays arm64-v8a-only.
+#
+# MINIFICATION (D-436, round 38): R8 is REMOVED from the release line — the
+# release APKs are NOT minified, NOT obfuscated, NOT resource-shrunk (the
+# v1.1.1 device round: obfuscated release builds broke the extension system —
+# plugins loaded via DexClassLoader resolve host classes by their compiled
+# names). There is no mapping.txt anymore.
 #
 # The release is published as a STABLE release (never prerelease) —
 # /releases/latest and the in-app updater rely on it.
@@ -123,6 +133,7 @@ jobs:
           echo "Keystore decoded + verified ($KEY_ALIAS)."
 
       # D-423: the all-ABI split build — one signed APK per ABI + universal.
+      # D-436: NO minification (isMinifyEnabled=false since round 38).
       - name: Build SIGNED release APKs (all ABIs + universal)
         run: ./gradlew assembleRelease -PreleaseAllAbis=true
 
@@ -212,7 +223,7 @@ jobs:
           ( cd "$stage" && sha256sum ani-kuta-v${VERSION}-*.apk > SHA256SUMS.txt )
           cat "$stage/SHA256SUMS.txt"
           # The release ZIP: all five APKs + the checksums (D-423 — the user's
-          # "properly create a zip using the GitHub Actions" instruction).
+          # "properly create a zip using GitHub Actions" instruction).
           ( cd "$stage" && zip -j -9 "ANI-KUTA-v${VERSION}-RELEASE.zip" \
               ani-kuta-v${VERSION}-arm64-v8a.apk \
               ani-kuta-v${VERSION}-armeabi-v7a.apk \
@@ -220,8 +231,8 @@ jobs:
               ani-kuta-v${VERSION}-x86_64.apk \
               ani-kuta-v${VERSION}-universal.apk \
               SHA256SUMS.txt )
-          # The R8 mapping (stack-trace decoding for support).
-          cp app/build/outputs/mapping/release/mapping.txt "$stage/ani-kuta-v${VERSION}-mapping.txt"
+          # D-436 (round 38): no mapping.txt anymore — the release line is
+          # NOT minified/obfuscated, so there is nothing to map.
           ls -la "$stage"
 
       - name: Create GitHub Release (stable, never prerelease)
@@ -271,5 +282,4 @@ jobs:
             "/tmp/anikuta-release/ani-kuta-v${VERSION}-x86_64.apk" \
             "/tmp/anikuta-release/ani-kuta-v${VERSION}-universal.apk" \
             "/tmp/anikuta-release/ANI-KUTA-v${VERSION}-RELEASE.zip" \
-            "/tmp/anikuta-release/SHA256SUMS.txt" \
-            "/tmp/anikuta-release/ani-kuta-v${VERSION}-mapping.txt"
+            "/tmp/anikuta-release/SHA256SUMS.txt"

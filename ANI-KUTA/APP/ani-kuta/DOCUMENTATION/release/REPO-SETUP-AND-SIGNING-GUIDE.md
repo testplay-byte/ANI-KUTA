@@ -67,7 +67,7 @@ repo (this one) simply re-hosts those verified assets:
 
 1. Open the dev repo's `v{version}` release (e.g.
    https://github.com/testplay-byte/ANI-KUTA/releases/latest) and download
-   the five APKs + `SHA256SUMS.txt` (optionally the ZIP + mapping).
+   the five APKs + `SHA256SUMS.txt` (optionally the ZIP; no mapping file exists anymore — D-436, round 38).
 2. Go to Confused-Creature-180/ANI-KUTA → Releases → **Draft a new release**.
 3. "Choose a tag" → type `v{version}` → **Create new tag on publish** (target:
    leave empty — an APK-only repo has no commits; GitHub allows tag-on-publish
@@ -214,10 +214,12 @@ The zip you downloaded (from a temporary release asset on the dev repo —
 - The "nothing was due for a check" notification: silent when a check run had
   nothing to do (real runs still notify).
 - Console logging: OFF in release (error-level kept for support).
-- R8 full mode: obfuscation + code/dependency shrinking + resource shrinking;
-  the mapping.txt is kept per CI build for stack-trace decoding.
-- DexGuard: commercial-only (Guardsquare license) — assessed, not available
-  without purchase; R8 full mode is the implemented standard equivalent.
+- NOT minified (D-436, round 38): R8 is RETIRED from the release line — the
+  obfuscated v1.1.1 builds broke the extension system on the user's device
+  (plugins loaded via DexClassLoader resolve host classes by their compiled
+  names) while the unminified debug build with identical code worked. No
+  obfuscation, no shrinking, no resource shrinking, no mapping.txt. (DexGuard
+  remains commercial-only and was never used.)
 - Dead dependencies removed (logcat lib ×14 modules, stray rxjava ×3, seeker,
   androidx-media, truetype-parser); hardcoded deps moved into the version
   catalog.

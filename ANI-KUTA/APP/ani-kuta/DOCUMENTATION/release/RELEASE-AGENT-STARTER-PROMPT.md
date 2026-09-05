@@ -81,7 +81,7 @@ notice a new `v*` release on the dev repo.
    - `ani-kuta-v{V}-universal.apk` (all ABIs)
    - `ANI-KUTA-v{V}-RELEASE.zip` (all five + SHA256SUMS.txt)
    - `SHA256SUMS.txt`
-   - `ani-kuta-v{V}-mapping.txt` (R8 mapping — optional to re-host)
+   - (no mapping file — the release line is not minified since D-436/round 38)
 2. **Verify integrity**: download the APKs + SHA256SUMS.txt; run
    `sha256sum -c SHA256SUMS.txt`. Any mismatch → STOP, report, do not
    publish.
