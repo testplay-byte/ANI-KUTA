@@ -108,6 +108,7 @@ import com.confused.anikuta.feature.watch.WatchScreen
 import com.confused.anikuta.download.DownloadOrchestrator
 import com.confused.anikuta.download.EnqueueResult
 import com.confused.anikuta.settings.AboutScreen
+import com.confused.anikuta.settings.AppIconScreen
 import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.DetailsPageSettingsScreen
 import com.confused.anikuta.settings.AppearanceScreen
@@ -319,6 +320,9 @@ object UpdateCheckLogKey : NavKey
 object AppearanceKey : NavKey
 
 @Serializable
+object AppIconKey : NavKey
+
+@Serializable
 object AppearanceGeneralKey : NavKey
 
 @Serializable
@@ -390,6 +394,7 @@ private val allowedUpdateSheetKeys = setOf(
     ExtensionDetailKey::class,
     SourcePreferencesKey::class,
     AppearanceKey::class,
+    AppIconKey::class,
     AppearanceGeneralKey::class,
     DetailsPageSettingsKey::class,
     DebugSettingsKey::class,
@@ -1418,8 +1423,10 @@ fun AppRoot() {
                 onOpenGeneral = { backstack.add(AppearanceGeneralKey) },
                 onOpenDetailsPage = { backstack.add(DetailsPageSettingsKey) },
                 onOpenEpisodeSettings = { backstack.add(EpisodeSettingsKey) },
+                onOpenAppIcon = { backstack.add(AppIconKey) },
                 onBack = pop,
             )
+            is AppIconKey -> AppIconScreen(onBack = pop)
             is AppearanceGeneralKey -> AppearanceGeneralScreen(
                 onBack = pop,
             )

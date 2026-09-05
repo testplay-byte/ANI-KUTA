@@ -339,6 +339,9 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             single { com.confused.anikuta.core.preferences.UpdatePreferences(get()) }
             // Task 57 (round 17): Debug page prefs (resolve-list source details + copy button).
             single { com.confused.anikuta.core.preferences.DebugPreferences(get()) }
+            // D-432 (round 37 — the app-icon system): the App Icon page prefs
+            // (the GitHub catalog cache + the in-app override path).
+            single { com.confused.anikuta.core.preferences.AppIconPreferences(get()) }
 
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)

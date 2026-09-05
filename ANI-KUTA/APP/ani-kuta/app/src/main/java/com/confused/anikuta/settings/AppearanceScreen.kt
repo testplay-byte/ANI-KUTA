@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AppShortcut
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Tune
@@ -27,11 +28,18 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
  * Ported from the old project's `AppearanceScreen.kt`. Tapping each row
  * navigates to a sub-page:
  *  - **General** → [AppearanceGeneralScreen] (theme mode, AMOLED, palettes).
- *  - **Episode settings** → the episode settings hub (Phase 5+ — currently a
- *    placeholder that just dismisses).
+ *  - **Episode settings** → the episode settings hub.
+ *  - **Details page** → [DetailsPageSettingsScreen].
+ *  - **App Icon** (D-432, round 37 — the user's spec: "at the very bottom,
+ *    just below the Details page") → the App Icon page (the GitHub
+ *    repository's icons/ catalog in ONE grid — the 8 premade baked icons
+ *    were removed completely per the round-37 instruction; no
+ *    custom-image import).
  *
  * @param onOpenGeneral Navigates to the General appearance screen.
+ * @param onOpenDetailsPage Navigates to the Details page appearance screen.
  * @param onOpenEpisodeSettings Navigates to the Episode Settings hub.
+ * @param onOpenAppIcon Navigates to the App Icon page (D-432).
  * @param onBack Pops this screen.
  */
 @Composable
@@ -39,6 +47,7 @@ fun AppearanceScreen(
     onOpenGeneral: () -> Unit,
     onOpenDetailsPage: () -> Unit,
     onOpenEpisodeSettings: () -> Unit,
+    onOpenAppIcon: () -> Unit,
     onBack: () -> Unit,
 ) {
     val lazyListState = rememberLazyListState()
@@ -69,6 +78,20 @@ fun AppearanceScreen(
                         )
                     }
                     item {
+                        SettingsSectionLabel("Episode List")
+                        MoreListRow(
+                            icon = Icons.Filled.Tune,
+                            title = "Episode settings",
+                            subtitle = "Display, layout, and metadata",
+                            onClick = onOpenEpisodeSettings,
+                        )
+                    }
+                    item {
+                        // D-418 (round 34): the Details page row moved to the
+                        // bottom group — the App Icon row sits directly below
+                        // it as the very last item (the user's exact spec:
+                        // "at the very bottom, just below the Details page").
+                        SettingsSectionLabel("Details")
                         MoreListRow(
                             icon = Icons.Filled.Image,
                             title = "Details page",
@@ -77,12 +100,11 @@ fun AppearanceScreen(
                         )
                     }
                     item {
-                        SettingsSectionLabel("Episode List")
                         MoreListRow(
-                            icon = Icons.Filled.Tune,
-                            title = "Episode settings",
-                            subtitle = "Display, layout, and metadata",
-                            onClick = onOpenEpisodeSettings,
+                            icon = Icons.Filled.AppShortcut,
+                            title = "App Icon",
+                            subtitle = "Icons from the repository's folder",
+                            onClick = onOpenAppIcon,
                         )
                     }
                 }
