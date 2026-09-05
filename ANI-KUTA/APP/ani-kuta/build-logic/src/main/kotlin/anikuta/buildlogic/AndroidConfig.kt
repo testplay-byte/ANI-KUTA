@@ -560,24 +560,30 @@ object AndroidConfig {
     // hardcoded deps moved into the catalog. versionCode jumps to the
     // major*10000+minor*100+patch scheme (1.1.1 → 10101; 10101 > 85 keeps the
     // install-over line monotonic for sideload-onto-v0.4.20 devices).
-    // ── v1.1.2 (D-421..D-424, round 35 — THE FIRST CI-SIGNED RELEASE) ─────
-    // The round-34 delivery taught the hard lesson: the user downloaded the
-    // push-path app-release-unsigned.apk from the CI artifacts and hit
-    // INSTALL_PARSE_FAILED_NO_CERTIFICATES. This round: (D-423) CI builds AND
-    // signs EVERYTHING — the keystore now lives in the repository's GitHub
-    // Actions secrets (user-authorized), both workflows decode it before
-    // assembleRelease, every shipped APK passes a HARD apksigner verify gate,
-    // and releases carry ALL FOUR ABI split APKs + universal + the release
-    // ZIP + SHA256SUMS; (D-421) the adaptive icon bg layers regenerated with
-    // the subject scaled into the 66dp safe circle (no more launcher crop —
-    // the round-34 layers were full-bleed, every icon lost its outer third);
-    // (D-422) the App Icon page's custom-image import REMOVED + the GitHub
-    // catalog merged into the one home-screen grid; the updater now picks
-    // the APK asset matching the device's Build.SUPPORTED_ABIS. versionCode
-    // 10102 keeps the install-over line monotonic over the zip-delivered
-    // v1.1.1 (10101).
-    const val versionCode = 10102
-    const val versionName = "1.1.2"
+    // ── v1.1.1 RESTORED (D-425, round 36 — THE VERSION-DISCIPLINE FIX) ────
+    // Round 35 (D-421..D-424) shipped the first CI-signed all-ABI release but
+    // bumped to v1.1.2/10102 on its own initiative — the user's direction was
+    // to STAY on v1.1.1 (the first official release). D-425 restores
+    // versionName 1.1.1 / versionCode 10101 and adds the standing rule
+    // (CORE_RULES §8): the version NEVER moves without the user's explicit
+    // instruction — the agent proposes, the user disposes.
+    //
+    // Round 35's record (kept for context — the first CI-signed release):
+    // the user downloaded the round-34 push-path app-release-unsigned.apk and
+    // hit INSTALL_PARSE_FAILED_NO_CERTIFICATES. The fix, all still in force:
+    // (D-423) CI builds AND signs EVERYTHING — the keystore lives in the
+    // repository's GitHub Actions secrets (user-authorized), both workflows
+    // decode it before assembleRelease, every shipped APK passes a HARD
+    // apksigner verify gate, and releases carry ALL FOUR ABI split APKs +
+    // universal + the release ZIP + SHA256SUMS; (D-421) the adaptive icon bg
+    // layers scaled into the 66dp safe circle (no launcher crop); (D-422) the
+    // App Icon page's custom-image import REMOVED + the GitHub catalog merged
+    // into the one home-screen grid; the updater picks the APK asset matching
+    // the device's Build.SUPPORTED_ABIS. The v1.1.2 tag + release were
+    // deleted; v1.1.1 is the first official release (10101 > 85 keeps the
+    // install-over line monotonic for sideload-onto-v0.4.20 devices).
+    const val versionCode = 10101
+    const val versionName = "1.1.1"
 
     // ABI POLICY (CORE_RULES.md §8, updated D-423 round 35 per user
     // instruction — supersedes D-251's arm64-only rule):

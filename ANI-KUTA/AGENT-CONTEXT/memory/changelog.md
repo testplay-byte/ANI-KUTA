@@ -1795,3 +1795,9 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **D-424 — version 1.1.2/10102** (monotonic over the zip v1.1.1): the first release produced by the new pipeline.
 - **The release-agent starter prompt** written (DOCUMENTATION/release/RELEASE-AGENT-STARTER-PROMPT.md + the full chat delivery): the two-repo model, the re-host routine with checksum verification, the updater contract, the icons/ catalog rules, the never-build-locally + never-publish-unverified rules.
 - REPO-SETUP-AND-SIGNING-GUIDE.md updated for the CI-signs flow (§2 ABI-aware updater, §3 the v1.1.2+ routine, §4 CI routine, §5 the secrets rules + key-rotation warnings).
+
+## Round 36 / Task 76 — the v1.1.1 version-discipline round
+
+- **D-425 — the version restored to 1.1.1/10101**: the user's report ("you were supposed to stay on version 1.1.1… 1.1.2 is not good") reverted round 35's self-initiated D-424 bump; the v1.1.2 tag + GitHub release deleted; v1.1.1 re-tagged on the fixed commit so the D-423 CI pipeline (build + sign all ABIs + zip) produces the FIRST OFFICIAL release at the correct version. Standing rule in CORE_RULES §8: the version NEVER moves without the user's explicit instruction.
+- **The division of labor (user instruction)**: the BUILD agent builds the release AND the debug APKs (GitHub Actions only — the tag path builds ONLY the release version + the ZIP; the push path builds debug + release); the RELEASE agent (the new repository agent) creates and manages the GitHub releases + tags on the published repo. RELEASE-AGENT-STARTER-PROMPT.md + REPO-SETUP-AND-SIGNING-GUIDE.md updated accordingly.
+- **No workflow changes**: release-apk.yml already builds only the signed all-ABI release set + the ZIP on tags — exactly the user's "only build the release version and zip all of them using GitHub Actions properly".

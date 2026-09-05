@@ -1,4 +1,4 @@
-# ANI-KUTA — the published-repo setup + signing guide (v1.1.2, Rounds 33–35 / Tasks 73–75)
+# ANI-KUTA — the published-repo setup + signing guide (v1.1.1, Rounds 33–36 / Tasks 73–76)
 
 This is the user-facing guide for the NEW publishable GitHub repository:
 **https://github.com/Confused-Creature-180/ANI-KUTA** — the APK-only home of
@@ -40,9 +40,9 @@ order and takes the asset whose name carries that ABI tag —
 
 **Hard requirements for a release to be discoverable:**
 1. The release is NOT a draft.
-2. The tag is exactly `v` + the version (e.g. `v1.1.2`, `v1.1.3`) — three
+2. The tag is exactly `v` + the version (e.g. `v1.1.1`, `v1.1.2`) — three
    dot-separated integer parts.
-3. At least ONE `.apk` asset is attached. For v1.1.2+ releases the asset
+3. At least ONE `.apk` asset is attached. For v1.1.1+ releases the asset
    names follow the pipeline convention (see §4); older single-asset
    releases keep working via the first-APK fallback.
 
@@ -50,11 +50,14 @@ Notes:
 - Unauthenticated GitHub API = 60 requests/hour per IP — the app checks once
   per open (plus the 6-hour dismiss cooldown), so this is ample.
 - Prereleases are seen but a stable release of the same version wins.
-- **Version comparison is by versionName** (1.1.2 > 1.1.1 > 0.4.20), so bump
-  the versionName in `AndroidConfig.kt` for every release; keep versionCode
-  monotonic (the v1.x scheme: major·10000 + minor·100 + patch).
+- **Version comparison is by versionName** (1.1.2 > 1.1.1 > 0.4.20). The
+  versionName in `AndroidConfig.kt` moves ONLY on the user's EXPLICIT
+  instruction (D-425, the version-discipline rule — round 35 shipped v1.1.2
+  unasked and round 36 reverted it to 1.1.1, the first official release);
+  keep versionCode monotonic within the user-chosen line (the v1.x scheme:
+  major·10000 + minor·100 + patch).
 
-## 3. Creating a release in the published repo (v1.1.2+ routine)
+## 3. Creating a release in the published repo (v1.1.1+ routine)
 
 The DEV repo (testplay-byte/ANI-KUTA) is the build machine: its
 `release-apk.yml` workflow (triggered by a `v*` tag) builds AND signs every
@@ -81,12 +84,20 @@ on an older install offers the update (and the device-ABI APK is picked
 automatically); on the same version it says "You're up to date".
 
 (The v1.1.1 one-off flow — the password-protected delivery zip — was the
-round-34 delivery mechanism, superseded by the CI-signed pipeline from
-v1.1.2 onward.)
+round-34 delivery mechanism, superseded by the CI-signed pipeline. That
+pipeline now produces the official **v1.1.1** release itself: round 35
+shipped it prematurely as v1.1.2 and round 36 restored the version to
+1.1.1 — same CI builds + signs everything, correct version.)
 
 ## 4. Every future release (the routine — CI builds AND signs, D-423)
 
-1. Bump `versionCode`/`versionName` in `AndroidConfig.kt` (dev repo, on the
+0. **Division of labor (round 36):** the BUILD agent owns the dev repo's
+   workflows and builds BOTH the release and the debug APKs in GitHub
+   Actions — the tag path builds ONLY the release version (all variants,
+   signed, zipped). The RELEASE agent (or the user following §3 by hand)
+   creates and manages the GitHub releases + tags on the published repo.
+1. On the user's EXPLICIT instruction, set `versionCode`/`versionName` in
+   `AndroidConfig.kt` (dev repo, on the
    release line).
 2. Push; wait for the `Build APK` workflow to go green (it now also SIGNS the
    push-path release APK with the same secrets, and its own apksigner check
