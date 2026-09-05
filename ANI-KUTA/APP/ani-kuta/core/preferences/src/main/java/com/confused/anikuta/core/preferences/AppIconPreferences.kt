@@ -17,8 +17,9 @@ import kotlinx.coroutines.flow.Flow
  *   Default `IconV1`.
  * - `app_icon_catalog_json`: the cached GitHub catalog listing (the icons/
  *   folder of Confused-Creature-180/ANI-KUTA) so the grid survives offline.
- * - `app_icon_custom_path`: the imported custom image's processed copy
- *   (filesDir/app-icons/custom.png) — empty when none.
+ * - `app_icon_override_path`: the in-app override (an unbaked GitHub
+ *   catalog pick — D-422, round 35: the custom-image import was REMOVED per
+ *   the user's instruction; only provided options remain).
  */
 class AppIconPreferences(private val store: PreferenceStore) {
 
@@ -34,17 +35,12 @@ class AppIconPreferences(private val store: PreferenceStore) {
         get() = store.getString(KEY_CATALOG_JSON, "")
         set(value) = store.putString(KEY_CATALOG_JSON, value)
 
-    /** The processed custom image path ("" when none). */
-    var customIconPath: String
-        get() = store.getString(KEY_CUSTOM_PATH, "")
-        set(value) = store.putString(KEY_CUSTOM_PATH, value)
-
     /**
      * The in-app icon OVERRIDE path — set when the user picks a GitHub
-     * catalog icon that isn't baked into this release, or imports a custom
-     * image (Android forbids runtime launcher icons from arbitrary bitmaps —
-     * only the baked aliases can switch the home-screen icon). "" = the
-     * in-app icon follows the active launcher variant.
+     * catalog icon that isn't baked into this release (Android forbids
+     * runtime launcher icons from arbitrary bitmaps — only the baked
+     * aliases can switch the home-screen icon; the custom-image import was
+     * removed in D-422). "" = the in-app icon follows the active variant.
      */
     var inAppOverridePath: String
         get() = store.getString(KEY_OVERRIDE_PATH, "")
@@ -53,7 +49,6 @@ class AppIconPreferences(private val store: PreferenceStore) {
     companion object {
         private const val KEY_ACTIVE_ALIAS = "app_icon_active_alias"
         private const val KEY_CATALOG_JSON = "app_icon_catalog_json"
-        private const val KEY_CUSTOM_PATH = "app_icon_custom_path"
         private const val KEY_OVERRIDE_PATH = "app_icon_override_path"
 
         /** The manifest default (the user's kawaii-mouth icon). */

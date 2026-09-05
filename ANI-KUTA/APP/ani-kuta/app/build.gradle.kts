@@ -12,19 +12,43 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // ── D-423 (round 35): ABI SPLITS for shipped releases ──────────────────
+    // The tag-driven release-apk.yml workflow passes `-PreleaseAllAbis=true`
+    // (which also widens ndk.abiFilters to all four ABIs — see the
+    // convention plugin). With splits enabled, assembleRelease emits ONE APK
+    // PER ABI (app-<abi>-release.apk) PLUS a UNIVERSAL APK
+    // (app-universal-release.apk), each individually signed by the
+    // anikutaRelease signing config when keystore.properties exists. The
+    // dev/CI push path (no property) stays a single arm64-v8a APK —
+    // zero behavior change outside the release workflow. All split APKs
+    // share the base versionCode (sideload line: same package + same
+    // signature + same code = install-as-update).
+    if ((findProperty("releaseAllAbis") as? String) == "true") {
+        splits {
+            abi {
+                isEnable = true
+                reset()
+                include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+                isUniversalApk = true
+            }
+        }
+    }
+
     // ── Signing configs ──
     // 1) anikutaDebug: the committed debug keystore — dev/CI builds keep
     //    installing over each other (the original user request).
-    // 2) anikutaRelease (D-413, round 33 — the v1.1.1 publishable line): the
-    //    REAL release signing, driven by app/keystore.properties
-    //    (storeFile / storePassword / keyAlias / keyPassword). That file is
-    //    NOT committed (the root .gitignore's keystore.properties + *.keystore
-    //    rules) — the final publishable builds write it from CI SECRETS. When
-    //    the file is ABSENT (local dev + CI verification builds) the config is
-    //    not created and the release buildType stays UNSIGNED — assembleRelease
-    //    still succeeds, which is exactly the CI R8-verification path. The
-    //    keystore itself is delivered to the user in the final password-
-    //    protected zip (never committed anywhere).
+    // 2) anikutaRelease (D-413, round 33 — the v1.1.1 publishable line):
+    //    the REAL release signing, driven by app/keystore.properties
+    //    (storeFile / storePassword / keyAlias / keyPassword). D-423 (round
+    //    35): the file is written IN CI from the repository's GitHub
+    //    Actions secrets (ANIKUTA_KEYSTORE_BASE64 + the password secrets) —
+    //    CI builds AND signs every shipped APK (CORE_RULES §8: never build
+    //    locally). When the file is ABSENT (local dev without secrets) the
+    //    config is not created and the release buildType stays UNSIGNED —
+    //    assembleRelease still succeeds (the R8 verification path), and CI
+    //    HARD-FAILS the release workflow's apksigner verification gate
+    //    before anything reaches a GitHub release (the round-34 lesson: an
+    //    unsigned artifact must NEVER be downloadable as a release).
     signingConfigs {
         create("anikutaDebug") {
             storeFile = file("anikuta-debug.keystore")

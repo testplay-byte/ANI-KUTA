@@ -560,15 +560,47 @@ object AndroidConfig {
     // hardcoded deps moved into the catalog. versionCode jumps to the
     // major*10000+minor*100+patch scheme (1.1.1 → 10101; 10101 > 85 keeps the
     // install-over line monotonic for sideload-onto-v0.4.20 devices).
-    const val versionCode = 10101
-    const val versionName = "1.1.1"
+    // ── v1.1.2 (D-421..D-424, round 35 — THE FIRST CI-SIGNED RELEASE) ─────
+    // The round-34 delivery taught the hard lesson: the user downloaded the
+    // push-path app-release-unsigned.apk from the CI artifacts and hit
+    // INSTALL_PARSE_FAILED_NO_CERTIFICATES. This round: (D-423) CI builds AND
+    // signs EVERYTHING — the keystore now lives in the repository's GitHub
+    // Actions secrets (user-authorized), both workflows decode it before
+    // assembleRelease, every shipped APK passes a HARD apksigner verify gate,
+    // and releases carry ALL FOUR ABI split APKs + universal + the release
+    // ZIP + SHA256SUMS; (D-421) the adaptive icon bg layers regenerated with
+    // the subject scaled into the 66dp safe circle (no more launcher crop —
+    // the round-34 layers were full-bleed, every icon lost its outer third);
+    // (D-422) the App Icon page's custom-image import REMOVED + the GitHub
+    // catalog merged into the one home-screen grid; the updater now picks
+    // the APK asset matching the device's Build.SUPPORTED_ABIS. versionCode
+    // 10102 keeps the install-over line monotonic over the zip-delivered
+    // v1.1.1 (10101).
+    const val versionCode = 10102
+    const val versionName = "1.1.2"
 
-    // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
-    // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.
+    // ABI POLICY (CORE_RULES.md §8, updated D-423 round 35 per user
+    // instruction — supersedes D-251's arm64-only rule):
+    // - DEV/CI verification builds (assembleDebug + the push-path
+    //   assembleRelease): arm64-v8a ONLY — the fast, small verification line.
+    // - SHIPPED RELEASES (the tag-driven release-apk.yml): ALL FOUR ABIs —
+    //   one SPLIT APK per ABI (arm64-v8a / armeabi-v7a / x86 / x86_64) plus
+    //   a UNIVERSAL APK, all signed with the release keystore, all attached
+    //   to the GitHub release + bundled into the release zip. Enabled via
+    //   `-PreleaseAllAbis=true` (see anikuta.android.application.gradle.kts
+    //   + app/build.gradle.kts splits). CI verifies every split actually
+    //   carries its own lib/<abi>/ natives.
     // EXCEPTION (user-authorized, D-246 emulator-testing support): a TEST-ONLY
-    // x86_64 build is produced in CI via `-PemulatorX64Build=true` — it goes to a
-    // SEPARATE artifact and never ships. The main APK stays arm64-v8a-only.
+    // x86_64 build is produced in CI via `-PemulatorX64Build=true` — it goes
+    // to a SEPARATE artifact and never ships.
     val abiFilters = listOf("arm64-v8a")
+
+    /**
+     * D-423 (round 35): the ABI set for SHIPPED split releases — the
+     * release-apk.yml tag workflow passes `-PreleaseAllAbis=true` and gets
+     * one signed APK per ABI + the universal APK (see app/build.gradle.kts).
+     */
+    val releaseAllAbiFilters = listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
 
     /** ABIs for the CI emulator-test build (native x86_64 — no ARM translation). */
     val emulatorAbiFilters = listOf("x86_64")

@@ -6,10 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,7 +27,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -73,13 +69,16 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 // ════════════════════════════════════════════════════════════════════════════
-//  D-418 (round 34): the App Icon page — Settings → Appearance → App Icon.
+//  D-418 (round 34) + D-422 (round 35): the App Icon page — Settings →
+//  Appearance → App Icon.
 // ════════════════════════════════════════════════════════════════════════════
 //
-// The user's spec: a page of PREMADE app icons (the 8 baked variants + the
-// GitHub catalog from Confused-Creature-180/ANI-KUTA's icons/ folder) plus a
-// CUSTOM IMAGE upload, with the app "smart enough to format the images
-// properly, resize them according to how it needs to be".
+// The user's round-35 spec: ONE grid — the 8 baked variants PLUS every icon
+// from the GitHub repository's icons/ folder shown together in the same
+// home-screen section (no dedicated "More icons" section), and the CUSTOM
+// IMAGE option REMOVED COMPLETELY — the user only picks from the provided
+// options. (The applied-inside-the-app limitation for not-yet-baked catalog
+// icons was explicitly accepted.)
 //
 // How the launcher icon actually switches: Android can only show launcher
 // icons that are RESOURCES inside the APK — so the 8 baked variants switch
@@ -87,10 +86,15 @@ import java.net.URL
 // AndroidManifest.xml (PackageManager.setComponentEnabledSetting: enable the
 // new alias BEFORE disabling the old one, so there is never a moment with
 // zero enabled launcher entries). GitHub catalog icons whose filenames match
-// a baked variant (`icon-01…icon-08`) switch through the same alias; other
-// catalog images and imported custom images are formatted (center-crop →
-// 512px) and applied as the IN-APP icon with an honest note — they become
-// home-screen switchable once baked into a future release.
+// a baked variant (`icon-01…icon-08`) map to the same alias entry (deduped —
+// the baked cell already shows it); other catalog images are formatted
+// (center-crop → 512px) and applied as the IN-APP icon with an honest note —
+// they become home-screen switchable once baked into a future release.
+//
+// D-421 (round 35): the adaptive bg layers were regenerated with the subject
+// scaled into the 66dp safe circle + an edge-clamped continuation (see
+// ANI-KUTA/AGENT-CONTEXT/DOCUMENTATION/ release docs) — the grid previews are
+// pre-masked circles that now MATCH what the launcher actually shows.
 
 /** One baked launcher-icon variant (the activity-alias short name + its grid preview resource). */
 data class AppIconVariant(
@@ -238,28 +242,6 @@ class AppIconController(
         if (target.exists() && target.length() > 0) target else null
     }
 
-    /**
-     * Imports a custom image (SAF uri): decoded, center-cropped to a square,
-     * resized to 512, and persisted to filesDir/app-icons/custom.png — then
-     * set as the in-app icon override. Returns null when the image can't be
-     * decoded (the caller shows the error).
-     */
-    fun importCustomIcon(uri: Uri): File? {
-        val bitmap = runCatching {
-            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-        }.getOrNull() ?: return null
-        val processed = processSquare(bitmap, 512) ?: return null
-        val target = File(iconsDir(), "custom.png")
-        val ok = runCatching {
-            target.outputStream().use { processed.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        }.isSuccess
-        processed.recycle()
-        if (!ok || !target.exists() || target.length() == 0L) return null
-        preferences.customIconPath = target.absolutePath
-        preferences.inAppOverridePath = target.absolutePath
-        return target
-    }
-
     /** Clears the in-app override (the hero falls back to the active launcher variant). */
     fun clearOverride() {
         preferences.inAppOverridePath = ""
@@ -343,6 +325,23 @@ class AppIconController(
 //  The screen
 // ════════════════════════════════════════════════════════════════════════════
 
+/**
+ * D-422 (round 35): one entry of the UNIFIED home-screen grid — either a
+ * baked variant (switches the real launcher alias) or an unbaked catalog
+ * icon from the GitHub repository's icons/ folder (applied in-app).
+ */
+sealed interface IconGridEntry {
+    val key: String
+
+    data class Baked(val variant: AppIconVariant) : IconGridEntry {
+        override val key: String = "baked-${variant.alias}"
+    }
+
+    data class Catalog(val icon: CatalogIcon, val file: File?) : IconGridEntry {
+        override val key: String = "catalog-${icon.fileName}"
+    }
+}
+
 @Composable
 fun AppIconScreen(
     onBack: () -> Unit,
@@ -412,25 +411,15 @@ fun AppIconScreen(
             }
     }
 
-    val pickImage = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val imported = runCatching { controller.importCustomIcon(uri) }.getOrNull()
-        if (imported != null) {
-            overridePath = imported.absolutePath
-            Toast.makeText(
-                context,
-                "Custom image applied inside the app",
-                Toast.LENGTH_SHORT,
-            ).show()
-        } else {
-            Toast.makeText(
-                context,
-                "Couldn't read that image — try a different one",
-                Toast.LENGTH_SHORT,
-            ).show()
-        }
+    // D-422 (round 35): the UNIFIED home-screen grid — the 8 baked variants
+    // plus every unbaked catalog icon from the GitHub repository's icons/
+    // folder, in ONE grid (the user's spec: no separate "More icons"
+    // section, no custom-image import — only the provided options).
+    val gridEntries: List<IconGridEntry> = buildList {
+        controller.bakedVariants.forEach { add(IconGridEntry.Baked(it)) }
+        catalogIcons
+            .filter { it.bakedAlias == null } // baked matches already shown above
+            .forEach { add(IconGridEntry.Catalog(it, catalogFiles[it.fileName])) }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -466,7 +455,7 @@ fun AppIconScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(84.dp)
-                                        .clip(RoundedCornerShape(20.dp)),
+                                        .clip(CircleShape),
                                 ) {
                                     if (override != null) {
                                         AsyncImage(
@@ -496,7 +485,7 @@ fun AppIconScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                     Text(
-                                        text = if (override != null) "Custom image" else {
+                                        text = if (override != null) "From GitHub" else {
                                             controller.bakedVariants
                                                 .firstOrNull { it.alias == activeAlias }?.displayName
                                                 ?: "Original"
@@ -521,39 +510,17 @@ fun AppIconScreen(
                         }
                     }
 
-                    // ── The baked variants (the home-screen switchers) ──
-                    item { SettingsSectionLabel("Home screen") }
-                    controller.bakedVariants.chunked(4).forEach { rowVariants ->
-                        item(key = "baked-${rowVariants.first().alias}") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                rowVariants.forEach { variant ->
-                                    VariantCell(
-                                        variant = variant,
-                                        selected = variant.alias == activeAlias && overridePath.isBlank(),
-                                        onClick = { applyVariant(variant.alias) },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    item {
-                        NoteCard(
-                            text = "Tapping an icon switches the home screen icon. " +
-                                "Your launcher may take a few seconds to refresh it.",
-                        )
-                    }
-
-                    // ── The GitHub catalog ──
+                    // ── THE unified home-screen grid (D-422, round 35) ──
+                    // One grid: the 8 baked variants + every unbaked icon from
+                    // the GitHub repository's icons/ folder. No separate
+                    // "More icons" section, no custom-image import — the user
+                    // only picks from the provided options.
                     item {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            SettingsSectionLabel("More icons")
+                            SettingsSectionLabel("Home screen")
                             Spacer(Modifier.weight(1f))
                             IconButton(onClick = { refreshCatalog() }) {
                                 Icon(
@@ -564,139 +531,96 @@ fun AppIconScreen(
                             }
                         }
                     }
-                    item {
-                        NoteCard(
-                            text = "From the icons folder of the published repository. " +
-                                "New icons added there show up here — ones not built into this " +
-                                "release apply inside the app until the next version.",
-                        )
-                    }
-                    if (catalogLoading) {
-                        item {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                                contentAlignment = Alignment.Center,
+                    gridEntries.chunked(4).forEach { rowEntries ->
+                        item(key = "row-${rowEntries.first().key}") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                CircularProgressIndicator(strokeWidth = 2.dp)
-                            }
-                        }
-                    } else if (catalogIcons.isNotEmpty()) {
-                        val displayIcons = catalogIcons.filter {
-                            // The baked ones are already shown above.
-                            it.bakedAlias == null
-                        }
-                        if (displayIcons.isNotEmpty()) {
-                            displayIcons.chunked(4).forEachIndexed { rowIndex, rowIcons ->
-                                item(key = "catalog-$rowIndex") {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        rowIcons.forEach { icon ->
-                                            CatalogCell(
-                                                icon = icon,
-                                                file = catalogFiles[icon.fileName],
-                                                selected = false,
-                                                onClick = {
-                                                    scope.launch {
-                                                        val file = controller.loadCatalogIconFile(icon)
-                                                        if (file == null) {
-                                                            withContext(Dispatchers.Main) {
-                                                                Toast.makeText(
-                                                                    context,
-                                                                    "Couldn't load that icon",
-                                                                    Toast.LENGTH_SHORT,
-                                                                ).show()
-                                                            }
-                                                        } else {
-                                                            withContext(Dispatchers.Main) {
-                                                                overridePath = file.absolutePath
-                                                                Toast.makeText(
-                                                                    context,
-                                                                    "Applied inside the app",
-                                                                    Toast.LENGTH_SHORT,
-                                                                ).show()
-                                                            }
+                                rowEntries.forEach { entry ->
+                                    when (entry) {
+                                        is IconGridEntry.Baked -> VariantCell(
+                                            variant = entry.variant,
+                                            selected = entry.variant.alias == activeAlias &&
+                                                overridePath.isBlank(),
+                                            onClick = { applyVariant(entry.variant.alias) },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        is IconGridEntry.Catalog -> CatalogCell(
+                                            icon = entry.icon,
+                                            file = entry.file,
+                                            selected = entry.file != null &&
+                                                overridePath == entry.file.absolutePath,
+                                            onClick = {
+                                                scope.launch {
+                                                    val file = controller.loadCatalogIconFile(entry.icon)
+                                                    if (file == null) {
+                                                        withContext(Dispatchers.Main) {
+                                                            Toast.makeText(
+                                                                context,
+                                                                "Couldn't load that icon",
+                                                                Toast.LENGTH_SHORT,
+                                                            ).show()
+                                                        }
+                                                    } else {
+                                                        withContext(Dispatchers.Main) {
+                                                            overridePath = file.absolutePath
+                                                            Toast.makeText(
+                                                                context,
+                                                                "Applied inside the app",
+                                                                Toast.LENGTH_SHORT,
+                                                            ).show()
                                                         }
                                                     }
-                                                },
-                                                modifier = Modifier.weight(1f),
-                                            )
-                                        }
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                        )
                                     }
                                 }
                             }
-                        } else {
-                            item {
+                        }
+                    }
+                    if (catalogLoading) {
+                        item(key = "catalog-loading") {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            ) {
+                                CircularProgressIndicator(
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(16.dp),
+                                )
                                 Text(
-                                    text = "All catalog icons are already in the home screen section above.",
+                                    text = "Checking the icons folder on GitHub…",
                                     fontFamily = RobotoFamily,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(vertical = 8.dp),
                                 )
                             }
                         }
-                    } else if (catalogError != null) {
-                        item {
+                    } else if (catalogIcons.isEmpty() && catalogError != null) {
+                        item(key = "catalog-error") {
                             Text(
                                 text = catalogError ?: "",
                                 fontFamily = RobotoFamily,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 8.dp),
+                                modifier = Modifier.padding(vertical = 4.dp),
                             )
-                        }
-                    }
-
-                    // ── The custom image ──
-                    item { SettingsSectionLabel("Custom image") }
-                    item {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { pickImage.launch(arrayOf("image/*")) },
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.AddPhotoAlternate,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "Choose an image",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                    Text(
-                                        text = "Cropped to a square and applied inside the app",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(top = 2.dp),
-                                    )
-                                }
-                            }
                         }
                     }
                     item {
                         NoteCard(
-                            text = "Android doesn't let apps set an arbitrary picture as the " +
-                                "home screen icon — custom images apply inside the app. Want yours " +
-                                "on the home screen? Add it to the icons folder on GitHub and it " +
-                                "will be built into the next release.",
+                            text = "Tapping an icon switches the home screen icon — " +
+                                "your launcher may take a few seconds to refresh it. " +
+                                "Icons from the repository's icons folder that aren't " +
+                                "built into this release apply inside the app until " +
+                                "they're included in a release.",
                         )
                     }
+
                     if (overridePath.isNotBlank()) {
                         item {
                             Surface(
@@ -751,16 +675,18 @@ private fun VariantCell(
             .clickable(onClick = onClick)
             .padding(4.dp),
     ) {
+        // Circle clip: the previews are pre-masked circles (D-421) so the
+        // grid shows EXACTLY what the launcher shows.
         Box(
             modifier = Modifier
                 .size(64.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(CircleShape)
                 .then(
                     if (selected) {
                         Modifier.border(
                             width = 2.dp,
                             color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(16.dp),
+                            shape = CircleShape,
                         )
                     } else {
                         Modifier
@@ -805,14 +731,14 @@ private fun CatalogCell(
         Box(
             modifier = Modifier
                 .size(64.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 .then(
                     if (selected) {
                         Modifier.border(
                             width = 2.dp,
                             color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(16.dp),
+                            shape = CircleShape,
                         )
                     } else {
                         Modifier

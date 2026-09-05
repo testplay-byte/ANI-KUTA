@@ -32,7 +32,8 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
  *  - **Details page** → [DetailsPageSettingsScreen].
  *  - **App Icon** (D-418, round 34 — the user's spec: "at the very bottom,
  *    just below the Details page") → the App Icon page (the launcher-icon
- *    variant switching + the GitHub icon catalog + the custom image).
+ *    variant switching + the GitHub icon catalog in ONE unified grid — the
+ *    custom-image import was removed in D-422/round 35).
  *
  * @param onOpenGeneral Navigates to the General appearance screen.
  * @param onOpenDetailsPage Navigates to the Details page appearance screen.

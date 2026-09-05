@@ -1,4 +1,4 @@
-# ANI-KUTA — the published-repo setup + signing guide (v1.1.1, Round 33/34 / Tasks 73–74)
+# ANI-KUTA — the published-repo setup + signing guide (v1.1.2, Rounds 33–35 / Tasks 73–75)
 
 This is the user-facing guide for the NEW publishable GitHub repository:
 **https://github.com/Confused-Creature-180/ANI-KUTA** — the APK-only home of
@@ -31,16 +31,20 @@ GET https://api.github.com/repos/Confused-Creature-180/ANI-KUTA/releases?per_pag
 ```
 
 Then it: skips drafts → parses each tag as `vMAJOR.MINOR.PATCH` → picks the
-highest version (stable preferred) → takes the **first asset ending in
-`.apk`** → downloads → prompts install.
+highest version (stable preferred) → **picks the APK asset matching the
+device** (D-423, round 35: releases carry one APK per ABI plus a universal
+APK; the updater walks `Build.SUPPORTED_ABIS` in the device's preference
+order and takes the asset whose name carries that ABI tag —
+`-arm64-v8a`, `-armeabi-v7a`, `-x86`, `-x86_64` — falling back to
+`-universal`, then to the first APK) → downloads → prompts install.
 
 **Hard requirements for a release to be discoverable:**
 1. The release is NOT a draft.
-2. The tag is exactly `v` + the version (e.g. `v1.1.1`, `v1.1.2`) — three
+2. The tag is exactly `v` + the version (e.g. `v1.1.2`, `v1.1.3`) — three
    dot-separated integer parts.
-3. At least ONE `.apk` asset is attached. (The asset's file name does not
-   matter to the updater — but keep the `ani-kuta-v1.1.1.apk` convention for
-   humans.)
+3. At least ONE `.apk` asset is attached. For v1.1.2+ releases the asset
+   names follow the pipeline convention (see §4); older single-asset
+   releases keep working via the first-APK fallback.
 
 Notes:
 - Unauthenticated GitHub API = 60 requests/hour per IP — the app checks once
@@ -50,41 +54,66 @@ Notes:
   the versionName in `AndroidConfig.kt` for every release; keep versionCode
   monotonic (the v1.x scheme: major·10000 + minor·100 + patch).
 
-## 3. Creating the v1.1.1 release (per the final delivery)
+## 3. Creating a release in the published repo (v1.1.2+ routine)
 
-1. Extract the password-protected zip you received in chat (password given
-   ONLY in chat).
+The DEV repo (testplay-byte/ANI-KUTA) is the build machine: its
+`release-apk.yml` workflow (triggered by a `v*` tag) builds AND signs every
+APK in CI — all four ABI splits + universal + the release ZIP + SHA256SUMS —
+and attaches them to the dev repo's own release automatically. The published
+repo (this one) simply re-hosts those verified assets:
+
+1. Open the dev repo's `v{version}` release (e.g.
+   https://github.com/testplay-byte/ANI-KUTA/releases/latest) and download
+   the five APKs + `SHA256SUMS.txt` (optionally the ZIP + mapping).
 2. Go to Confused-Creature-180/ANI-KUTA → Releases → **Draft a new release**.
-3. "Choose a tag" → type `v1.1.1` → **Create new tag on publish** (target:
+3. "Choose a tag" → type `v{version}` → **Create new tag on publish** (target:
    leave empty — an APK-only repo has no commits; GitHub allows tag-on-publish
    with no target).
-4. Title: `ANI-KUTA v1.1.1`. Description (suggested): the release notes from
-   the chat delivery message.
-5. Attach the APK: **Attach binaries** → drop `ani-kuta-v1.1.1.apk`.
+4. Title: `ANI-KUTA v{version}`. Description: copy the dev release notes
+   (they include the which-APK-for-which-device table).
+5. Attach the five APKs + `SHA256SUMS.txt` (+ the ZIP if you want it there
+   too).
 6. Verify: NOT "Set as a pre-release"; "Set as the latest release" ✓.
 7. **Publish release.**
 
 Verification: open the app → Settings → About & Updates → Check for Updates
-on a v1.1.1 install shows "You're up to date"; on an older install (after
-sideloading v1.1.1) it offers the update.
+on an older install offers the update (and the device-ABI APK is picked
+automatically); on the same version it says "You're up to date".
 
-## 4. Every future release (the routine)
+(The v1.1.1 one-off flow — the password-protected delivery zip — was the
+round-34 delivery mechanism, superseded by the CI-signed pipeline from
+v1.1.2 onward.)
+
+## 4. Every future release (the routine — CI builds AND signs, D-423)
 
 1. Bump `versionCode`/`versionName` in `AndroidConfig.kt` (dev repo, on the
    release line).
-2. Build the signed release APK (round 34's established path: a LOCAL build
-   with `app/keystore.properties` present — the keystore + passwords never
-   touch GitHub, not even as Actions secrets; the CI keeps its
-   unsigned-verification role on every push).
-3. Download the APK; upload it as a `vX.Y.Z` release in the published repo
-   (steps as §3). That's the whole publish step — no source ever leaves the
-   dev repo.
+2. Push; wait for the `Build APK` workflow to go green (it now also SIGNS the
+   push-path release APK with the same secrets, and its own apksigner check
+   runs — an unsigned artifact can never be downloaded again).
+3. Tag `v{versionName}` and push the tag. The dev repo's `release-apk.yml`
+   runs: keystore decoded from the repo's **GitHub Actions secrets** →
+   `assembleRelease -PreleaseAllAbis=true` → five APKs
+   (`ani-kuta-v{v}-arm64-v8a|armeabi-v7a|x86|x86_64|universal.apk`) →
+   per-APK ABI verification → the HARD `apksigner verify` gate →
+   `ANI-KUTA-v{v}-RELEASE.zip` (all five + SHA256SUMS.txt) → the GitHub
+   release (stable, never prerelease) with the which-APK table.
+4. Re-host the verified assets in the published repo (steps as §3). No
+   source ever leaves the dev repo; nothing is ever built or signed locally
+   (CORE_RULES §8).
+
+The secrets on the dev repo (set once, round 35):
+`ANIKUTA_KEYSTORE_BASE64`, `ANIKUTA_KEYSTORE_PASSWORD`,
+`ANIKUTA_KEY_ALIAS`, `ANIKUTA_KEY_PASSWORD`.
 
 ## 4a. The icons/ folder — the App Icon catalog (round 34 / D-418)
 
 The published repo carries an `icons/` folder in its ROOT (main branch):
 any image placed there shows up in the app's App Icon page (Settings →
-Appearance → App Icon → "More icons"), fetched live from
+Appearance → App Icon) inside the ONE home-screen grid — the built-in
+variants and the catalog icons are shown together, D-422 (round 35); there
+is no separate "More icons" section and no custom-image upload (removed per
+the user's instruction — only provided options). The listing is fetched live from
 `https://api.github.com/repos/Confused-Creature-180/ANI-KUTA/contents/icons`.
 
 - **Naming convention**: `icon-01-original.png`, `icon-02-sakura.png`, …
@@ -129,22 +158,33 @@ The zip you downloaded (from a temporary release asset on the dev repo —
   passwords, alias, validity, certificate DN, SHA-256 fingerprints) + how
   to verify.
 
-### The rules
+### The rules (updated round 35 / D-423 — the user explicitly authorized
+### GitHub-secrets storage; CI is the only build+sign path)
+
 1. **Android update installs require the SAME signature forever.** Every
    future ANI-KUTA update must be signed with this key, or users get
    "App not installed" over their existing install (they'd have to uninstall
    + reinstall + lose app data: library, watch progress, downloads index).
-2. **Lose the key = lose the update line.** Keep AT LEAST two backups of the
-   zip (e.g. your password manager's secure storage + an encrypted cloud
-   drive). The zip is AES-encrypted; the password exists in this chat and
-   nowhere else.
-3. **Never commit the keystore or passwords to any repository.** The
-   .gitignore rules (`*.jks`, `*.keystore`, `keystore.properties`) enforce
-   the accidental-commit case; the round-34 signing flow keeps the key OFF
-   GitHub entirely (local build, not Actions secrets).
-4. The debug keystore (dev builds) is separate and already committed — that
+2. **Lose the key = lose the update line.** The keystore now lives in THREE
+   places, any of which can restore it: (a) the dev repo's GitHub Actions
+   secrets (`ANIKUTA_KEYSTORE_BASE64` + the three password secrets — the
+   live signing source), (b) your saved copy of the round-34 delivery zip,
+   (c) this guide's record that the key is JKS/RSA-2048/alias `anikuta`. For
+   recovery, GitHub repo admins can always RE-set the secrets from a saved
+   keystore copy — keep at least one offline backup (the password-manager +
+   encrypted-drive pair from round 34 remains the recommendation).
+3. **Never commit the keystore or passwords as FILES to any repository.**
+   GitHub Actions SECRETS are the authorized storage (encrypted at rest by
+   GitHub, never printed in logs, never in the repo tree). The .gitignore
+   rules (`*.jks`, `*.keystore`, `keystore.properties`) still enforce the
+   accidental-commit case for plain files.
+4. **Never build or sign an APK locally** (CORE_RULES §8, reinforced by the
+   user in round 35: "you will never build the APK in your own
+   environment"). Both workflows build AND sign in CI; the release workflow
+   hard-fails on any APK that does not pass `apksigner verify`.
+5. The debug keystore (dev builds) is separate and already committed — that
    one is intentionally public and disposable.
-5. Signature continuity today: v0.4.x installs were debug-signed. v1.1.1
+6. Signature continuity today: v0.4.x installs were debug-signed. v1.1.1
    (release-signed) is a NEW signature — one final uninstall/reinstall (or a
    fresh install) is expected for devices upgrading from the dev line; every
    v1.1.1+ update after that is in-place.

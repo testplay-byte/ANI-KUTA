@@ -1,6 +1,7 @@
 package com.confused.anikuta.core.appupdate
 
 import com.confused.anikuta.core.common.Logger
+import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -28,7 +29,12 @@ import okhttp3.Request
  *    - `name` → release name
  *    - `body` → changelog
  *    - `published_at` → release date (ISO 8601 → epoch ms)
- *    - `assets` → finds the first `.apk` asset → `browser_download_url` + `size`
+ *    - `assets` → picks the APK asset matching THIS DEVICE (D-423, round
+ *      35: releases carry one APK per ABI — `-arm64-v8a`, `-armeabi-v7a`,
+ *      `-x86`, `-x86_64` — plus `-universal`; the picker walks
+ *      `Build.SUPPORTED_ABIS` in the device's preference order, falls back
+ *      to the universal APK, then to the first APK — the legacy
+ *      single-asset releases) → `browser_download_url` + `size`
  * 5. Compares the release's version with the installed version (tuple compare).
  *    If newer → returns [AppUpdateInfo].
  *
@@ -141,11 +147,28 @@ class GitHubUpdateSource(
                 return@withContext null
             }
 
-            // Find the first .apk asset.
-            val apkAsset = release.assets?.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
+            // D-423 (round 35): ABI-aware asset pick — releases carry one
+            // APK per ABI plus a universal APK. Walk the device's
+            // SUPPORTED_ABIS in preference order and take the first asset
+            // whose name carries that ABI tag; fall back to -universal,
+            // then to the first APK (legacy single-asset releases).
+            val apkAssets = (release.assets ?: emptyList())
+                .filter { it.name.endsWith(".apk", ignoreCase = true) }
+            val apkAsset = Build.SUPPORTED_ABIS
+                .asSequence()
+                .mapNotNull { abi ->
+                    apkAssets.firstOrNull { it.name.contains("-$abi.", ignoreCase = true) }
+                }
+                .firstOrNull()
+                ?: apkAssets.firstOrNull { it.name.contains("-universal.", ignoreCase = true) }
+                ?: apkAssets.firstOrNull()
             if (apkAsset == null) {
                 Logger.w(TAG) { "fetchLatestUpdate: no APK asset in release ${release.tagName}" }
                 return@withContext null
+            }
+            Logger.i(TAG) {
+                "fetchLatestUpdate: picked ${apkAsset.name} for device ABIs " +
+                    "[${Build.SUPPORTED_ABIS.joinToString()}] (release ${release.tagName})"
             }
 
             val releaseDate = parseIsoDate(release.publishedAt)
