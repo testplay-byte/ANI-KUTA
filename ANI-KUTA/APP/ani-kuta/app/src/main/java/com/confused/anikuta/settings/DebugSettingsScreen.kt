@@ -102,9 +102,12 @@ fun DebugSettingsScreen(
                         SettingsSectionLabel("Resolve lists (all extensions)")
                     }
                     item {
+                        // D-419 (round 34 — the user's exact minimal strings):
+                        // "Show stream URLs" / "Add a copy button to stream URL"
+                        // — nothing more.
                         DebugSwitchCard(
                             title = "Show sources",
-                            subtitle = "Reveal the raw stream URL under each resolved row (CloudStream + aniyomi lists)",
+                            subtitle = "Show stream URLs",
                             checked = showSources,
                             onCheckedChange = { debugPreferences.showResolveSources = it },
                         )
@@ -112,7 +115,7 @@ fun DebugSettingsScreen(
                     item {
                         DebugSwitchCard(
                             title = "Copy button",
-                            subtitle = "Add a copy button to resolved rows — copies full stream details for reports (CloudStream + aniyomi lists)",
+                            subtitle = "Add a copy button to stream URL",
                             checked = copyButton,
                             onCheckedChange = { debugPreferences.resolveCopyButton = it },
                         )
@@ -155,7 +158,9 @@ fun DebugSettingsScreen(
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
                                     Text(
-                                        text = "Every episode check — when, why, how, results, next actions",
+                                        // D-419 (round 34): "Check the history" —
+                                        // nothing more.
+                                        text = "Check the history",
                                         fontFamily = RobotoFamily,
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,

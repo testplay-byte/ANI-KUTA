@@ -51,10 +51,14 @@
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode"
             android:theme="@style/Theme.ANIKUTA">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            <!-- D-417 (round 34 — the app-icon system): the MAIN/LAUNCHER
+                 intent-filter moved OFF MainActivity onto the 8 activity
+                 aliases below (.icons.IconV1..V8) — the launcher entry point
+                 is now an alias whose android:icon the App Icon page switches
+                 via PackageManager.setComponentEnabledSetting (enable the new
+                 alias BEFORE disabling the old one — the app never has zero
+                 enabled launcher entries). The deep-link + OAuth filters stay
+                 right here on the activity itself. -->
             <!-- D-220: AniList OAuth2 implicit grant redirect. -->
             <!-- AniList redirects to anikuta://anilist-auth#access_token=... -->
             <!-- The token is in the URL fragment (not query). -->
@@ -65,6 +69,115 @@
                 <data android:scheme="anikuta" android:host="anilist-auth" />
             </intent-filter>
         </activity>
+
+        <!-- D-417 (round 34): the launcher ICON ALIASES — one per baked icon
+             variant. V1 (the default, the user's kawaii-mouth icon) is the
+             ONLY enabled alias; V2..V8 (sakura / midnight / mint / sunset /
+             mono / aqua / void) ship disabled until the App Icon page
+             (Settings → Appearance → App Icon) enables one. Component class
+             names resolve against the NAMESPACE (com.confused.anikuta), NOT
+             the applicationId — the .debug suffixed build resolves the SAME
+             class strings; AppIconController constructs ComponentName(
+             context.packageName, "com.confused.anikuta.icons.IconV{n}") —
+             suffix-safe by construction (verified against the built APK).
+             The debug build's DEFAULT (V1) shows the old lime icon via the
+             app/src/debug/res resource overlay; the variants are shared. -->
+        <activity-alias
+            android:name=".icons.IconV1"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icons.IconV2"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_v2"
+            android:roundIcon="@mipmap/ic_launcher_v2"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icons.IconV3"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_v3"
+            android:roundIcon="@mipmap/ic_launcher_v3"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icons.IconV4"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_v4"
+            android:roundIcon="@mipmap/ic_launcher_v4"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icons.IconV5"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_v5"
+            android:roundIcon="@mipmap/ic_launcher_v5"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icons.IconV6"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_v6"
+            android:roundIcon="@mipmap/ic_launcher_v6"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icons.IconV7"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_v7"
+            android:roundIcon="@mipmap/ic_launcher_v7"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icons.IconV8"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_v8"
+            android:roundIcon="@mipmap/ic_launcher_v8"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Crash handler error screen (shown when app crashes) -->
         <activity

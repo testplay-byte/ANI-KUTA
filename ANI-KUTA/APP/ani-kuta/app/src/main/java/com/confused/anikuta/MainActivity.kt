@@ -108,6 +108,7 @@ import com.confused.anikuta.feature.watch.WatchScreen
 import com.confused.anikuta.download.DownloadOrchestrator
 import com.confused.anikuta.download.EnqueueResult
 import com.confused.anikuta.settings.AboutScreen
+import com.confused.anikuta.settings.AppIconScreen
 import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.DetailsPageSettingsScreen
 import com.confused.anikuta.settings.AppearanceScreen
@@ -324,6 +325,11 @@ object AppearanceGeneralKey : NavKey
 @Serializable
 object DetailsPageSettingsKey : NavKey
 
+// D-418 (round 34 — the app-icon system): the App Icon page (Appearance →
+// the very bottom, just below the Details page row).
+@Serializable
+object AppIconKey : NavKey
+
 @Serializable
 object EpisodeSettingsKey : NavKey
 
@@ -393,6 +399,7 @@ private val allowedUpdateSheetKeys = setOf(
     AppearanceKey::class,
     AppearanceGeneralKey::class,
     DetailsPageSettingsKey::class,
+    AppIconKey::class,
     DebugSettingsKey::class,
     EpisodeSettingsKey::class,
     UpdateCheckLogKey::class,
@@ -1410,12 +1417,17 @@ fun AppRoot() {
                 onOpenGeneral = { backstack.add(AppearanceGeneralKey) },
                 onOpenDetailsPage = { backstack.add(DetailsPageSettingsKey) },
                 onOpenEpisodeSettings = { backstack.add(EpisodeSettingsKey) },
+                // D-418 (round 34): the App Icon page.
+                onOpenAppIcon = { backstack.add(AppIconKey) },
                 onBack = pop,
             )
             is AppearanceGeneralKey -> AppearanceGeneralScreen(
                 onBack = pop,
             )
             is DetailsPageSettingsKey -> DetailsPageSettingsScreen(onBack = pop)
+            // D-418 (round 34): the App Icon page — launcher-alias switching +
+            // the GitHub catalog + the custom image import.
+            is AppIconKey -> AppIconScreen(onBack = pop)
             is EpisodeSettingsKey -> PlaceholderScreen(
                 title = "Episode settings",
                 description = "Episode display settings will be added in a future phase.",

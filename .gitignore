@@ -42,3 +42,6 @@ skills/
 worklog.md
 /tool-results/
 /agent-ctx/
+
+# Kotlin 2.x session/build artifact dirs (round 34 local builds)
+ANI-KUTA/APP/ani-kuta/**/.kotlin/

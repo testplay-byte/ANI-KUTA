@@ -52,6 +52,19 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("anikutaDebug")
+            // D-416 (round 34 — the co-installable debug line): the debug build
+            // gets its own applicationId (com.confused.anikuta.debug) + version
+            // suffix + the OLD lime launcher icon + the "ANI-KUTA Debug" label
+            // (app/src/debug/res overlay) so the RELEASE v1.1.1 and the debug
+            // build install SIDE BY SIDE on the same device — the user's exact
+            // request. Every manifest placeholder authority
+            // (${applicationId}.fileprovider, androidx-startup) and every
+            // context.packageName read follows the suffix automatically; the
+            // committed anikuta-debug.keystore keeps all debug builds
+            // cross-installable (the release build keeps the bare id — the
+            // v1.1.1 install replaces the old v0.4.x dev line exactly once).
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
         }
         release {
             // D-413: only signed when the keystore properties exist (see the

@@ -1,4 +1,4 @@
-# ANI-KUTA — the published-repo setup + signing guide (v1.1.1, Round 33 / Task 73)
+# ANI-KUTA — the published-repo setup + signing guide (v1.1.1, Round 33/34 / Tasks 73–74)
 
 This is the user-facing guide for the NEW publishable GitHub repository:
 **https://github.com/Confused-Creature-180/ANI-KUTA** — the APK-only home of
@@ -70,21 +70,64 @@ sideloading v1.1.1) it offers the update.
 
 ## 4. Every future release (the routine)
 
-1. Bump `versionCode`/`versionName` in `AndroidConfig.kt` (dev repo).
-2. Build the signed release APK in CI (the release-apk.yml path — it signs
-   from the repo's signing secrets).
+1. Bump `versionCode`/`versionName` in `AndroidConfig.kt` (dev repo, on the
+   release line).
+2. Build the signed release APK (round 34's established path: a LOCAL build
+   with `app/keystore.properties` present — the keystore + passwords never
+   touch GitHub, not even as Actions secrets; the CI keeps its
+   unsigned-verification role on every push).
 3. Download the APK; upload it as a `vX.Y.Z` release in the published repo
    (steps as §3). That's the whole publish step — no source ever leaves the
    dev repo.
 
+## 4a. The icons/ folder — the App Icon catalog (round 34 / D-418)
+
+The published repo carries an `icons/` folder in its ROOT (main branch):
+any image placed there shows up in the app's App Icon page (Settings →
+Appearance → App Icon → "More icons"), fetched live from
+`https://api.github.com/repos/Confused-Creature-180/ANI-KUTA/contents/icons`.
+
+- **Naming convention**: `icon-01-original.png`, `icon-02-sakura.png`, …
+  The `icon-NN` prefix is the app's match key: files whose NN maps to a
+  variant baked into that installed release (01–08 in v1.1.1) switch the
+  REAL home-screen launcher icon; other numbers/images apply inside the app
+  with an honest "until the next release" note (Android only lets apps ship
+  launcher icons as resources baked into the APK — new catalog icons become
+  home-screen switchable once a release bakes them in).
+- The app centers-crops, resizes (512px) and caches each image itself —
+  just upload the raw images (square ones look best).
+- The zip you received contains the eight starter icons (`icons/` folder) —
+  upload them once (GitHub web: Add file → Upload files → drag the PNGs into
+  a folder named `icons`), and the v1.1.1 app immediately picks them up.
+
+## 4b. The delivery zip (round 34's actual delivery flow)
+
+The zip you downloaded (from a temporary release asset on the dev repo —
+  deleted from GitHub after you confirmed safekeeping; the password was
+  shared in chat ONLY and exists nowhere else) contains:
+
+- `ani-kuta-v1.1.1-release.apk` — the SIGNED first release (arm64-v8a).
+- `ani-kuta-v1.1.1-debug.apk` — the co-installable debug build (own app id
+  `com.confused.anikuta.debug`, old lime icon, "ANI-KUTA Debug" label —
+  installs BESIDE the release version).
+- `anikuta-release.keystore` — the release keystore (JKS, RSA-2048,
+  25-year validity, alias `anikuta`).
+- `keystore.properties` — the Gradle-side config (storeFile path needs
+  adjusting to wherever you keep the keystore).
+- `SIGNING-DETAILS.txt` — all five signing details written out plainly.
+- `icons/` — the eight starter PNGs for §4a.
+- `README-FIRST.txt` — the quick-start.
+
 ## 5. The signing key — storage + rules (CRITICAL — read once, keep forever)
 
 ### What you received in the zip
-- `<release-keystore>.jks` — the release keystore (contains the signing key).
+- `anikuta-release.keystore` — the release keystore (JKS: distinct store +
+  key passwords, RSA-2048, valid until ~2051, alias `anikuta`).
 - `keystore.properties` — the Gradle-side config (storeFile/storePassword/
-  keyAlias/keyPassword) used by the CI build.
-- `signing-info.txt` — all values written out plainly (store/key passwords,
-  alias, fingerprints) + the zip password reminder.
+  keyAlias/keyPassword) used by the signed build.
+- `SIGNING-DETAILS.txt` — all values written out plainly (store/key
+  passwords, alias, validity, certificate DN, SHA-256 fingerprints) + how
+  to verify.
 
 ### The rules
 1. **Android update installs require the SAME signature forever.** Every
@@ -95,10 +138,10 @@ sideloading v1.1.1) it offers the update.
    zip (e.g. your password manager's secure storage + an encrypted cloud
    drive). The zip is AES-encrypted; the password exists in this chat and
    nowhere else.
-3. **Never commit the keystore or passwords to any repository.** The dev repo
-   keeps them ONLY as GitHub Actions secrets (never printed in logs); the
+3. **Never commit the keystore or passwords to any repository.** The
    .gitignore rules (`*.jks`, `*.keystore`, `keystore.properties`) enforce
-   the accidental-commit case.
+   the accidental-commit case; the round-34 signing flow keeps the key OFF
+   GitHub entirely (local build, not Actions secrets).
 4. The debug keystore (dev builds) is separate and already committed — that
    one is intentionally public and disposable.
 5. Signature continuity today: v0.4.x installs were debug-signed. v1.1.1
