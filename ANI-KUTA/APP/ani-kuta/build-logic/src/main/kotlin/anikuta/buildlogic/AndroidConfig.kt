@@ -546,16 +546,33 @@ object AndroidConfig {
     // sub formats by extension).
     const val versionCode = 85
     const val versionName = "0.4.20"
+    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
+    // discipline (D-425: the version never moves without the user's explicit
+    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
+    // main is the dev line where the v1.x features converge between
+    // releases. A version bump on main happens only when the user asks for
+    // the next release cut.
 
-    // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
-    // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.
+    // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
+    // for the dev/CI verification line (main pushes: assembleDebug + the
+    // signed push-path assembleRelease); `-PreleaseAllAbis=true` (the
+    // tag-driven release-apk.yml workflow ONLY) expands the set to ALL FOUR
+    // ABIs so the app module's splits block emits one APK per ABI + universal.
     // EXCEPTION (user-authorized, D-246 emulator-testing support): a TEST-ONLY
     // x86_64 build is produced in CI via `-PemulatorX64Build=true` — it goes to a
-    // SEPARATE artifact and never ships. The main APK stays arm64-v8a-only.
+    // SEPARATE artifact and never ships.
     val abiFilters = listOf("arm64-v8a")
 
     /** ABIs for the CI emulator-test build (native x86_64 — no ARM translation). */
     val emulatorAbiFilters = listOf("x86_64")
+
+    /**
+     * D-430 (the D-423 port): ALL FOUR ABIs — used ONLY by the tag-driven
+     * release-apk.yml (`-PreleaseAllAbis=true`) together with the app
+     * module's splits block: one SPLIT APK per ABI + a universal APK, all
+     * release-signed. The dev/CI push path never touches this.
+     */
+    val releaseAllAbiFilters = listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
 
     // JVM target for Kotlin + Java
     const val jvmTarget = "17"

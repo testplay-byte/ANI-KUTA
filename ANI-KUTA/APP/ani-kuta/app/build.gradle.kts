@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("anikuta.android.application.compose")
     alias(libs.plugins.kotlin.serialization)
@@ -10,11 +12,43 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // ── Signing config: fixed debug keystore for consistent APK updates ──
-    // Per user request: "sign the APKs with some temporary random key so that
-    // I do not have to uninstall the old one. I can directly update it."
-    // This keystore is committed to the repo (it's a debug key, not a release key).
-    // Phase 9 will replace with a proper release signing setup.
+    // ── D-430 (round 37 — the D-423 port): ABI SPLITS for shipped releases ─
+    // The tag-driven release-apk.yml workflow passes `-PreleaseAllAbis=true`
+    // (which also widens ndk.abiFilters to all four ABIs — see the
+    // convention plugin). With splits enabled, assembleRelease emits ONE APK
+    // PER ABI (app-<abi>-release.apk) PLUS a UNIVERSAL APK
+    // (app-universal-release.apk), each individually signed by the
+    // anikutaRelease signing config when keystore.properties exists. The
+    // dev/CI push path (no property) stays a single arm64-v8a APK —
+    // zero behavior change outside the release workflow. All split APKs
+    // share the base versionCode (sideload line: same package + same
+    // signature + same code = install-as-update).
+    if ((findProperty("releaseAllAbis") as? String) == "true") {
+        splits {
+            abi {
+                isEnable = true
+                reset()
+                include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+                isUniversalApk = true
+            }
+        }
+    }
+
+    // ── Signing configs ──
+    // 1) anikutaDebug: the committed debug keystore — dev/CI builds keep
+    //    installing over each other (the original user request: "sign the
+    //    APKs with some temporary random key so that I do not have to
+    //    uninstall the old one").
+    // 2) anikutaRelease (D-430, the D-413/D-423 port from release/1.1.1):
+    //    the REAL release signing, driven by app/keystore.properties
+    //    (storeFile / storePassword / keyAlias / keyPassword). In CI the
+    //    file is written from the repository's GitHub Actions secrets
+    //    (ANIKUTA_KEYSTORE_BASE64 + the password secrets) — CI builds AND
+    //    signs every shipped APK (CORE_RULES §8: never build locally). When
+    //    the file is ABSENT (local dev without secrets) the config is not
+    //    created and the release buildType stays UNSIGNED — assembleRelease
+    //    still succeeds (the R8 verification path), and CI HARD-FAILS the
+    //    apksigner verification gate before anything reaches a user.
     signingConfigs {
         create("anikutaDebug") {
             storeFile = file("anikuta-debug.keystore")
@@ -22,11 +56,48 @@ android {
             keyAlias = "anikuta"
             keyPassword = "anikuta"
         }
+        // D-413 note: the Properties type is IMPORTED (a fully-qualified
+        // java.util.* reference does not resolve in Kotlin-DSL script
+        // compilation — CI round 1's lesson), and the file is read at the
+        // container level (the proven file() nesting), then passed in.
+        val releasePropsFile = file("keystore.properties")
+        if (releasePropsFile.exists()) {
+            val releaseProps = Properties()
+            releasePropsFile.inputStream().use { releaseProps.load(it) }
+            create("anikutaRelease") {
+                storeFile = file(releaseProps.getProperty("storeFile") ?: error("keystore.properties: storeFile missing"))
+                storePassword = releaseProps.getProperty("storePassword") ?: error("keystore.properties: storePassword missing")
+                keyAlias = releaseProps.getProperty("keyAlias") ?: error("keystore.properties: keyAlias missing")
+                keyPassword = releaseProps.getProperty("keyPassword") ?: error("keystore.properties: keyPassword missing")
+            }
+        }
     }
 
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("anikutaDebug")
+            // D-429 (round 37 — the D-416 port): the co-installable debug
+            // line. The debug build gets its own applicationId
+            // (com.confused.anikuta.debug) + version suffix + (from D-432)
+            // the OLD lime launcher icon + the "ANI-KUTA Debug" label
+            // (app/src/debug/res overlay) so a RELEASE install and a DEBUG
+            // build live SIDE BY SIDE on the same device — the user's exact
+            // request ("test the release version and the debug version at
+            // the same time"). Every manifest placeholder authority
+            // (${applicationId}.fileprovider, androidx-startup) and every
+            // context.packageName read follows the suffix automatically; the
+            // committed anikuta-debug.keystore keeps all debug builds
+            // cross-installable. The release build keeps the bare id.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
+        release {
+            // D-430: only signed when the keystore properties exist (see the
+            // signingConfigs block above); otherwise the release APK is
+            // unsigned and the build still succeeds.
+            if (signingConfigs.findByName("anikutaRelease") != null) {
+                signingConfig = signingConfigs.getByName("anikutaRelease")
+            }
         }
     }
 }
