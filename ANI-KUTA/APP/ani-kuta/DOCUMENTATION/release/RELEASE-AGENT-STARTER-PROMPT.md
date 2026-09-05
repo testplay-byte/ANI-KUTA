@@ -58,11 +58,12 @@ never touch the app source or the dev repo's workflows.
    > ANI-KUTA — an Android anime streaming app.
    > Download the latest APK from [Releases](../../releases/latest).
    > Requirements: Android 7.0+. Most phones: the `-arm64-v8a` APK.
-3. Create the `icons/` folder (§5) and upload the starter icons
-   (`icon-01-original.png` … `icon-08-void.png` — 512px PNGs, square, flat
-   background; they were delivered in the round-34 zip and live at
-   `icon-work/delivery-icons/` on the build sandbox if you are the same
-   operator).
+3. Create the `icons/` folder (§5). What goes in it is THE USER'S choice —
+   ask them (the round-34 delivery zip contained a starter set of eight
+   512px PNGs — `icon-01-original.png` … `icon-08-void.png` — but round 37
+   removed the premade icons from the app, so the folder content is now
+   entirely up to the user; an empty folder shows an honest empty state in
+   the app).
 
 ## 3. The release routine (per version)
 
@@ -121,24 +122,28 @@ one APK asset, and (v1.1.1+) ideally the five-APK + universal set with the
 exact naming above. Never rename APK assets away from the
 `ani-kuta-v{V}-{abi}.apk` pattern — the ABI picker matches on it.
 
-## 5. The icons/ folder (the in-app App Icon catalog)
+## 5. The icons/ folder (the in-app App Icon catalog — D-434, round 37: catalog-ONLY)
 
-The published repo's root `icons/` folder IS the app's icon catalog: the App
-Icon page (Settings → Appearance → App Icon) fetches
+The published repo's root `icons/` folder IS the app's icon catalog — and
+since round 37 it is the ONLY source: the 8 premade baked app icons were
+REMOVED from the app completely (the user's explicit instruction), so the
+App Icon page (Settings → Appearance → App Icon) shows exactly what is in
+this folder, nothing else. The page fetches
 `https://api.github.com/repos/Confused-Creature-180/ANI-KUTA/contents/icons`
-live (with an offline cache) and shows every image in the SAME grid as the
-8 built-in icons.
+live (with an offline cache) and shows every image as its FULL artwork in a
+rounded-corner cell (no circle crops — the round-37 display-format fix).
 
 Rules:
-- **Naming**: `icon-NN-name.png` (e.g. `icon-09-kiwi.png`). `NN` 01–08
-  MATCH the built-in variants of the current release (those catalog files
-  are deduplicated in-app — don't re-upload 01–08 unless a release changed
-  them). New icons start at 09.
-- **Format**: square PNG/JPG/WebP, ≥ 512×512, flat background recommended
-  (the app center-crops to a square + caches; it does NOT change the
-  launcher icon for unbaked files — they apply in-app until a future
-  release bakes them in as launcher aliases; the user accepted this
-  limitation explicitly).
+- **Naming**: any image name works (e.g. `kiwi.png` or `icon-09-kiwi.png`).
+  The name minus its extension, minus a leading `icon-NN-` prefix, with
+  underscores as spaces, becomes the label under the icon. There is no
+  number matching anymore — every catalog icon is equal.
+- **Format**: square PNG/JPG/WebP, ≥ 512×512 (the app center-crops to a
+  square + caches). Tapping an icon applies it INSIDE THE APP; it becomes
+  the home-screen LAUNCHER icon when the user picks it for a future release
+  (Android only ships launcher icons baked into the APK — the catalog is
+  the selection surface between releases; the user accepted this model
+  explicitly).
 - **Adding icons**: commit/upload directly to the repo root `icons/` folder
   (main branch). In-app: pull-to-refresh isn't needed — the page has a
   refresh button; the catalog also re-fetches on page open.

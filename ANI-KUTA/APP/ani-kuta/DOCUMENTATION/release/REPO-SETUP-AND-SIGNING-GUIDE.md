@@ -117,28 +117,34 @@ The secrets on the dev repo (set once, round 35):
 `ANIKUTA_KEYSTORE_BASE64`, `ANIKUTA_KEYSTORE_PASSWORD`,
 `ANIKUTA_KEY_ALIAS`, `ANIKUTA_KEY_PASSWORD`.
 
-## 4a. The icons/ folder — the App Icon catalog (round 34 / D-418)
+## 4a. The icons/ folder — the App Icon catalog (D-434, round 37: catalog-ONLY)
 
 The published repo carries an `icons/` folder in its ROOT (main branch):
 any image placed there shows up in the app's App Icon page (Settings →
-Appearance → App Icon) inside the ONE home-screen grid — the built-in
-variants and the catalog icons are shown together, D-422 (round 35); there
-is no separate "More icons" section and no custom-image upload (removed per
-the user's instruction — only provided options). The listing is fetched live from
+Appearance → App Icon) — the catalog IS the icon list. **Round 37 removed the
+8 premade baked app icons completely** (the user: "There are 8 premade app
+icons on the app icon page but I told you to remove all of them and you did
+not. Remove them properly.") — there are no built-in variants anymore and no
+icon-NN matching: every icon in the folder is shown the same way (each as its
+FULL artwork in a rounded-corner cell). There is no custom-image upload
+(removed round 35). The listing is fetched live from
 `https://api.github.com/repos/Confused-Creature-180/ANI-KUTA/contents/icons`.
 
-- **Naming convention**: `icon-01-original.png`, `icon-02-sakura.png`, …
-  The `icon-NN` prefix is the app's match key: files whose NN maps to a
-  variant baked into that installed release (01–08 in v1.1.1) switch the
-  REAL home-screen launcher icon; other numbers/images apply inside the app
-  with an honest "until the next release" note (Android only lets apps ship
-  launcher icons as resources baked into the APK — new catalog icons become
-  home-screen switchable once a release bakes them in).
-- The app centers-crops, resizes (512px) and caches each image itself —
-  just upload the raw images (square ones look best).
-- The zip you received contains the eight starter icons (`icons/` folder) —
-  upload them once (GitHub web: Add file → Upload files → drag the PNGs into
-  a folder named `icons`), and the v1.1.1 app immediately picks them up.
+- **Naming**: any image name works; the name (minus extension, minus a
+  leading `icon-NN-` prefix, underscores → spaces) becomes the label under
+  the icon. Square images look best.
+- **What tapping does**: the icon applies INSIDE THE APP (the App Icon page's
+  current-icon display). The home-screen launcher icon stays the release's
+  baked icon (the user's own) — Android only lets apps ship launcher icons as
+  resources baked into the APK, so a catalog icon becomes the LAUNCHER icon
+  when the user picks it for a future release (the catalog is the selection
+  surface between releases).
+- The app center-crops, resizes (512px) and caches each image itself — just
+  upload the raw images.
+- The round-34 delivery zip contained eight starter icons (`icons/` folder) —
+  **the user chooses what actually goes in the folder** (the premade set, a
+  different set, or none). An empty folder simply shows "No icons in the
+  folder yet" with a hint.
 
 ## 4b. The delivery zip (round 34's actual delivery flow)
 
