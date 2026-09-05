@@ -30,15 +30,16 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
  *  - **General** → [AppearanceGeneralScreen] (theme mode, AMOLED, palettes).
  *  - **Episode settings** → the episode settings hub.
  *  - **Details page** → [DetailsPageSettingsScreen].
- *  - **App Icon** (D-418, round 34 — the user's spec: "at the very bottom,
- *    just below the Details page") → the App Icon page (the launcher-icon
- *    variant switching + the GitHub icon catalog in ONE unified grid — the
- *    custom-image import was removed in D-422/round 35).
+ *  - **App Icon** (D-432, round 37 — the user's spec: "at the very bottom,
+ *    just below the Details page") → the App Icon page (the GitHub
+ *    repository's icons/ catalog in ONE grid — the 8 premade baked icons
+ *    were removed completely per the round-37 instruction; no
+ *    custom-image import).
  *
  * @param onOpenGeneral Navigates to the General appearance screen.
  * @param onOpenDetailsPage Navigates to the Details page appearance screen.
  * @param onOpenEpisodeSettings Navigates to the Episode Settings hub.
- * @param onOpenAppIcon Navigates to the App Icon page (D-418).
+ * @param onOpenAppIcon Navigates to the App Icon page (D-432).
  * @param onBack Pops this screen.
  */
 @Composable
@@ -102,7 +103,7 @@ fun AppearanceScreen(
                         MoreListRow(
                             icon = Icons.Filled.AppShortcut,
                             title = "App Icon",
-                            subtitle = "Premade icons, custom image",
+                            subtitle = "Icons from the repository's folder",
                             onClick = onOpenAppIcon,
                         )
                     }
