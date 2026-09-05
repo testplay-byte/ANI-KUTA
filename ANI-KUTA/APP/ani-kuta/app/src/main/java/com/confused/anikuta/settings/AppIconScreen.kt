@@ -244,23 +244,20 @@ fun AppIconScreen(
     var overridePath by remember { mutableStateOf(preferences.inAppOverridePath) }
 
     // ── The GitHub catalog state machine ──
+    // D-437 (round 38): NO descriptive error/empty text — the user's
+    // instruction: remove every "couldn't reach the icon folders / check
+    // your connection / icons come from the repository" description;
+    // the empty state says ONLY "There aren't any icons yet."
     var catalogLoading by remember { mutableStateOf(true) }
-    var catalogError by remember { mutableStateOf<String?>(null) }
     var catalogIcons by remember { mutableStateOf<List<CatalogIcon>>(emptyList()) }
     var catalogFiles by remember { mutableStateOf<Map<String, File>>(emptyMap()) }
 
     fun refreshCatalog() {
         scope.launch {
             catalogLoading = true
-            catalogError = null
             controller.fetchCatalog()
-                .onSuccess { icons ->
-                    catalogIcons = icons
-                    if (icons.isEmpty()) {
-                        catalogError = "No icons in the folder yet"
-                    }
-                }
-                .onFailure { catalogError = "Couldn't reach the icons folder" }
+                .onSuccess { icons -> catalogIcons = icons }
+                .onFailure { catalogIcons = emptyList() }
             catalogLoading = false
         }
     }
@@ -429,45 +426,21 @@ fun AppIconScreen(
                     }
                     if (catalogLoading) {
                         item(key = "catalog-loading") {
+                            // D-437: the loading indicator only — no text.
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
                             ) {
                                 CircularProgressIndicator(
                                     strokeWidth = 2.dp,
                                     modifier = Modifier.size(16.dp),
                                 )
-                                Text(
-                                    text = "Checking the icons folder on GitHub…",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
                             }
                         }
                     } else if (catalogIcons.isEmpty()) {
                         item(key = "catalog-empty") {
-                            NoteCard(
-                                text = when (catalogError) {
-                                    "No icons in the folder yet" ->
-                                        "No icons in the folder yet. Add icon images " +
-                                            "to the repository's icons folder on GitHub " +
-                                            "(PNG, JPG or WebP), then tap the refresh button."
-                                    else ->
-                                        "Couldn't reach the icons folder. Check your " +
-                                            "connection and tap the refresh button to try again."
-                                },
-                            )
+                            NoteCard(text = "There aren't any icons yet.")
                         }
-                    }
-                    item(key = "note") {
-                        NoteCard(
-                            text = "Icons come from the repository's icons folder on " +
-                                "GitHub — refresh to pick up newly added icons. Tapping " +
-                                "an icon applies it inside the app; it becomes the home " +
-                                "screen launcher icon when it's included in a release.",
-                        )
                     }
 
                     if (overridePath.isNotBlank()) {

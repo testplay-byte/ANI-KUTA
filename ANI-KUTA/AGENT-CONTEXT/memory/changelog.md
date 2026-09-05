@@ -1777,3 +1777,11 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **D-432**: the app icon system rebuilt: the user's kawaii icon is the launcher icon, the App Icon page shows ONLY the GitHub icons/ catalog (the 8 premade baked icons removed COMPLETELY), and every icon displays as its FULL artwork in a rounded-corner cell (the circle crops are gone).
 - **Branch cleanup**: test-feature/video-cache-new-download, streaming/CLOUDSTREAM, streaming/CLOUDSTREAM-V2, functionality/improvements deleted (4 × 204); feature/test-controller-v5, main, release/1.1.1 kept.
 - **Docs**: 28-MAIN-ROUND-37-PLAN.md + release/BUILD-AND-BRANCH-GUIDE.md (the release-vs-debug division, the co-install testing model, version discipline, the division of labor).
+
+## Round 38 (Task 78) — the release-hygiene round
+- **D-435:** the push path is DEBUG-ONLY on every branch (build-apk.yml: tests → assembleDebug → ABI check → the debug-only `anikuta-apk` artifact; the push-path assembleRelease/keystore/gate/mapping removed). Main's STALE release-apk.yml (the pre-round-35 assembleDebug version!) replaced with the current all-ABI SIGNED tag pipeline — a main-line tag can now cut a correct release. Release APKs exist ONLY via tags.
+- **D-436:** R8 RETIRED from the release line (isMinifyEnabled=false + isShrinkResources=false; app/proguard-rules.pro deleted; no mapping.txt in releases) — the obfuscated v1.1.1 builds broke the extension system on the user's device while the unminified debug build worked; the fix is on BOTH main and release/1.1.1.
+- **D-437:** the App Icon page's descriptions removed — the empty state says ONLY "There aren't any icons yet."; the bottom repository-note card deleted; the loading row is a bare spinner.
+- **D-438:** the debug identity everywhere — the debug overlay's own `drawable-nodpi/icon_current.png` (the App Icon page hero never shows the release kawaii artwork in debug) + lime `ic_launcher.webp` density rasters (pre-26 devices) + its own colors.xml.
+- Cleanup: the accidentally-committed `.kotlin/errors` logs removed from the repo + `.kotlin/` gitignored.
+- Docs: 29-RELEASE-ROUND-38-PLAN.md; CORE_RULES §8 (the debug-only push rule, the all-ABI release rule, the no-R8 rule, the version-discipline rule); BUILD-AND-BRANCH-GUIDE.md fully revised for the round-38 model.

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- D-438 (round 38): the debug overlay's own launcher-background color —
+     the lime #B1F256 (the OLD ANI-KUTA logo identity the debug builds carry).
+     Self-contained on purpose: the debug adaptive icon no longer depends on
+     a same-named color from the main source set. -->
+<resources>
+    <color name="ic_launcher_background">#B1F256</color>
+</resources>

@@ -7,6 +7,7 @@ ANI-KUTA/APP/ani-kuta/.cxx/
 ANI-KUTA/APP/ani-kuta/.externalNativeBuild/
 ANI-KUTA/APP/ani-kuta/**/*.iml
 ANI-KUTA/APP/ani-kuta/.idea/
+ANI-KUTA/APP/ani-kuta/.kotlin/
 
 # Dashboard (Next.js)
 ANI-KUTA/DASHBOARD/webpage/node_modules/

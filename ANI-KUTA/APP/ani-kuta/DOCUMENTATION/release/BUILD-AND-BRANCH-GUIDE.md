@@ -1,10 +1,14 @@
 # ANI-KUTA — the build & branch guide (release vs debug, kept separate)
 
-**Round 37 / Task 77 (D-429..D-430).** This is the standing reference for how
-ANI-KUTA is built, which branch produces what, and how the release version and
-the debug version are tested side by side on one device. It is the companion
-to `REPO-SETUP-AND-SIGNING-GUIDE.md` (the published-repo routine) —
-this document covers the DEV side (the `main` branch + the CI push path).
+**Round 37 / Task 77 (D-429..D-430). Round 38 / Task 78 revision (D-435..D-436):**
+the push path is now **DEBUG-ONLY on every branch** (the user's round-38
+instruction), and **R8 minification is retired from the release line**
+(D-436 — it broke the extension system on device). This is the standing
+reference for how ANI-KUTA is built, which branch produces what, and how the
+release version and the debug version are tested side by side on one device.
+It is the companion to `REPO-SETUP-AND-SIGNING-GUIDE.md` (the published-repo
+routine) — this document covers the DEV side (the `main` branch + the CI push
+path).
 
 ---
 
@@ -12,8 +16,8 @@ this document covers the DEV side (the `main` branch + the CI push path).
 
 | Branch | What it is | The debug bubble | CI on push | Used for |
 |---|---|---|---|---|
-| `main` | The DEV line — where features land and converge between releases. Currently carries the v1.1.x feature set (round 37: the episode-check fix, the share hardening, the minimal debug descriptions, the app-icon system, the co-install line). | **PRESENT** (the user's standing instruction: the bubble stays on main) | tests + assembleDebug + **SIGNED assembleRelease** (R8) — single-ABI arm64 verification builds, downloadable as CI artifacts | Feature development + the debug test line |
-| `release/1.1.1` | The PUBLISHABLE line — the clean, stripped release track (no debug bubble, release logging gates, the published updater target). | REMOVED (D-409) | The same push path + the TAG path: `v*` → release-apk.yml → ALL-ABI splits + universal + the ZIP + the GitHub release | Cutting actual releases |
+| `main` | The DEV line — where features land and converge between releases. Currently carries the v1.1.x feature set (round 37: the episode-check fix, the share hardening, the minimal debug descriptions, the app-icon system, the co-install line). | **PRESENT** (the user's standing instruction: the bubble stays on main) | tests + assembleDebug — the **DEBUG APK only** (D-435) — downloadable as the CI artifact | Feature development + the debug test line |
+| `release/1.1.1` | The PUBLISHABLE line — the clean release track (no debug bubble, release logging gates, the published updater target). | REMOVED (D-409) | The same DEBUG-ONLY push path; releases happen via the TAG path only: `v*` → release-apk.yml → ALL-ABI splits + universal + the ZIP + the GitHub release | Cutting actual releases |
 | `feature/test-controller-v5` | A kept experiment line. | — | Same push path | Reference |
 
 Deleted in round 37 (per the user's instruction): `test-feature/video-cache-new-download`,
@@ -40,14 +44,22 @@ release is cut. Main-branch pushes never trigger it.
 
 ### The RELEASE build (`assembleRelease`)
 - Package: `com.confused.anikuta` (no suffix)
-- R8 full mode (obfuscation + shrinking + optimization) + resource shrinking
-  (D-430; the keep surface is `app/proguard-rules.pro` — the plugin-compat
-  classpath, the JNI surfaces, WorkManager workers, serialization companions)
-- Signing: `app/keystore.properties` → the `anikutaRelease` config. **In CI the
-  file is decoded from the repository's GitHub Actions secrets**
-  (`ANIKUTA_KEYSTORE_BASE64` + the password secrets) BEFORE the build, so the
-  push-path release APK is SIGNED and installable. When the properties file is
-  absent the release build is unsigned-but-building (the R8 verification path).
+- **NOT minified (D-436, round 38): R8 is RETIRED from the release line.**
+  The v1.1.1 device round proved the obfuscated release builds broke the
+  extension system (some extensions loaded, others failed, the loaded ones
+  returned no results — while the unminified debug build with identical code
+  worked). The release buildType is `isMinifyEnabled=false` +
+  `isShrinkResources=false`; `app/proguard-rules.pro` is DELETED (the D-413
+  keep-rule record lives in decisions.md). No mapping.txt is produced anymore.
+- **Built ONLY by the tag-driven release-apk.yml** (D-435): NO branch push —
+  main, feature, release, streaming, any — ever builds a release APK. A
+  release APK exists only through pushing a `v*` tag on the release branch
+  (or the release-apk.yml workflow_dispatch with an existing tag).
+- Signing: `app/keystore.properties` → the `anikutaRelease` config. In CI the
+  file is decoded from the repository's GitHub Actions secrets
+  (`ANIKUTA_KEYSTORE_BASE64` + the password secrets) BEFORE the build, so every
+  shipped release APK is SIGNED. The apksigner verify gate hard-fails the
+  workflow if any APK is unsigned.
 - On main the release build keeps dev logging + the dev updater target (the
   release-only polish — D-411/D-412 — lives on `release/1.1.1` only).
 
@@ -56,19 +68,22 @@ release is cut. Main-branch pushes never trigger it.
 CORE_RULES §8: **CI is the only build machine.** Every APK that anyone
 installs is produced by GitHub Actions.
 
-1. **Debug + release test builds (the push path):** any push to `main`
-   (or `release/**`) → the **Build APK** workflow:
-   `tests → assembleDebug → keystore decode (secrets) → assembleRelease (SIGNED, R8) →
-   the apksigner verify gate → the ABI check → artifacts`.
+1. **Debug test builds (the push path — the ONLY push artifact, D-435):** any
+   push to any workflow-tracked branch → the **Build APK** workflow:
+   `tests → assembleDebug → the ABI check → the anikuta-apk artifact`.
    Download from the Actions run page:
-   - artifact **`anikuta-apk`** — `app-debug.apk` (co-installable debug) + `app-release.apk` (signed, arm64)
-   - artifact **`anikuta-release-mapping`** — `mapping.txt` (the R8 stack-trace decoder for that build)
-2. **An actual release (the tag path):** on the RELEASE branch, tag + push
-   `v<version>` → the **Release APK** workflow:
-   `tag-version match → keystore decode → assembleRelease -PreleaseAllAbis=true →
-   one APK per ABI (arm64-v8a / armeabi-v7a / x86 / x86_64) + universal →
-   per-APK lib verification → the HARD apksigner gate → ANI-KUTA-v<version>-RELEASE.zip
-   + SHA256SUMS.txt + mapping.txt → the stable GitHub release with the which-APK table`.
+   - artifact **`anikuta-apk`** — `app-debug.apk` (co-installable debug) —
+     **the debug APK only; NO release APK is produced or uploaded on any
+     branch push** (the round-37 push-path assembleRelease was removed by the
+     user's round-38 instruction after a release APK appeared in the
+     main-branch artifact).
+2. **An actual release (the tag path — the ONLY release source, D-435):** on
+   the RELEASE branch, tag + push `v<version>` → the **Release APK** workflow:
+   `tag-version match → keystore decode → assembleRelease -PreleaseAllAbis=true
+   → one APK per ABI (arm64-v8a / armeabi-v7a / x86 / x86_64) + universal →
+   per-APK lib verification → the HARD apksigner gate →
+   ANI-KUTA-v<version>-RELEASE.zip + SHA256SUMS.txt → the stable GitHub release
+   with the which-APK table` (no mapping.txt — D-436).
    See `REPO-SETUP-AND-SIGNING-GUIDE.md` §4 for the full routine.
 
 ## 4. The side-by-side testing model (the user's workflow)
@@ -81,6 +96,12 @@ installs is produced by GitHub Actions.
    "ANI-KUTA Debug" label) and nominally distinct (`-debug` version suffix).
 4. Iterate: the committed debug keystore means each new debug artifact installs
    directly over the previous one.
+5. The debug build's identity is consistent EVERYWHERE now (D-438, round 38):
+   the lime launcher icon at every density (the debug overlay's own
+   `ic_launcher.webp` rasters for pre-26 devices + the adaptive XMLs) AND the
+   in-app "current icon" display (the App Icon page hero) via the debug
+   overlay's own `drawable-nodpi/icon_current.png` — the debug build never
+   shows the release kawaii artwork anywhere.
 
 ## 5. Version discipline (D-425 — standing rule)
 
