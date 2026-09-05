@@ -1766,3 +1766,14 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **Remembered subtitle selection (D-408):** per-series memory (PlayerPreferences.get/setPreferredSubtitleTrack — "" / "off" / label), persisted on every selection/import/storage-load, pre-applied through the new PlayerObserver.onTracksLoaded hook after every track-list reload.
 - **Import dedup (D-408):** picking the episode's OWN subtitle file no longer creates a `_manual_` copy — the existing track is returned (document-id or filename match; DB row repaired if needed).
 - SubtitleEngine.guessExtension gained .ttml; the wizard untouched (approved end-to-end this round).
+
+## Phase CS-V2 Round 37 — Task 77: the MAIN-branch convergence round (the release-line features ported + the app-icon system rebuilt catalog-only + the v1.1.1 re-release prep)
+- **D-426**: the episode-check empty-notification fix ported (onFinish silent on totalChecked == 0 — no more "nothing was due" on every app open).
+- **D-427**: the three minimal debug descriptions ported (Show stream URLs / Add a copy button to stream URL / Check the history).
+- **D-428**: the share button fully hardened (pre-flight check, 4s/15s hard bounds, the Activity unwrap, per-cause toasts, the stale-export sweep).
+- **D-429**: the co-installable debug line (.debug applicationId + -debug version + the lime debug icon + "ANI-KUTA Debug" label) + THE release-DebugInit classpath fix — release now compiles WITH the bubble (the latent assembleRelease break D-409 found on the release line, fixed honestly instead of by removal).
+- **D-430**: R8 full mode + resource shrinking + the keystore.properties release signing + the ABI-splits property + the SIGNED push-path CI workflow (main pushes now produce a signed release APK artifact + the mapping).
+- **D-431**: the unused-deps cleanup (logcat ×14, stray rxjava ×3, seeker, androidx-media, truetype-parser; the 5 hardcoded deps → catalog) + the root cleanup (DATABASE.json deleted, the icon upload moved into USER-UPLOADS/).
+- **D-432**: the app icon system rebuilt: the user's kawaii icon is the launcher icon, the App Icon page shows ONLY the GitHub icons/ catalog (the 8 premade baked icons removed COMPLETELY), and every icon displays as its FULL artwork in a rounded-corner cell (the circle crops are gone).
+- **Branch cleanup**: test-feature/video-cache-new-download, streaming/CLOUDSTREAM, streaming/CLOUDSTREAM-V2, functionality/improvements deleted (4 × 204); feature/test-controller-v5, main, release/1.1.1 kept.
+- **Docs**: 28-MAIN-ROUND-37-PLAN.md + release/BUILD-AND-BRANCH-GUIDE.md (the release-vs-debug division, the co-install testing model, version discipline, the division of labor).
