@@ -167,7 +167,11 @@ jobs:
           check app-universal-release.apk    "arm64-v8a armeabi-v7a x86 x86_64"
 
       # THE gate that would have caught the round-34 unsigned download:
-      # every shipped APK must carry a verifiable signature.
+      # every shipped APK must carry a verifiable signature. apksigner's own
+      # exit code is the gate (nonzero = verification failure); the cert-DN
+      # grep is format-agnostic ("Signer #1 certificate DN" on older
+      # build-tools, "V2 Signer: certificate DN" on 37.0.0+) — an unsigned
+      # APK prints no certificate lines at all, so a missing DN = failure.
       - name: Verify SIGNATURES (apksigner gate — hard fail on any unsigned APK)
         run: |
           set -e
@@ -187,7 +191,10 @@ jobs:
               continue
             fi
             grep -E "Verified using v[0-9.]+ scheme.*: true|Verifies" /tmp/certs.txt || true
-            grep -m1 "Signer #1 certificate DN" /tmp/certs.txt || true
+            grep -E "certificate DN" /tmp/certs.txt || {
+              echo "::error::$(basename "$apk") verified but printed NO certificate lines — refusing to publish."
+              fail=1
+            }
           done
           exit $fail
 
