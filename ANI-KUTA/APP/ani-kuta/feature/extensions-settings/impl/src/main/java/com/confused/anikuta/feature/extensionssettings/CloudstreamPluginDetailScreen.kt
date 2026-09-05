@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import android.content.ContextWrapper
 import android.content.Intent
 import android.widget.Toast
 import androidx.core.content.FileProvider
@@ -63,6 +64,7 @@ import com.confused.anikuta.data.cloudstream.model.CloudstreamExtension
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.koin.compose.koinInject
 import java.io.File
 import java.net.HttpURLConnection
@@ -810,6 +812,27 @@ private fun SharePluginRow(
  * (not the installed original) is shared so the exported NAME is
  * deterministic regardless of the install path's repo salt — and the
  * .setReadOnly() original stays untouched.
+ *
+ * D-415 (round 34 — the user's "sometimes the loading never ends and the
+ * share sheet never appears, with no error message" report): the flow is
+ * now bulletproofed end to end —
+ *  1. a PRE-FLIGHT source check (missing/empty plugin file → a specific,
+ *     actionable message instead of a silent zip failure);
+ *  2. a hard 4s bound around the icon fetch (the per-read 2.5s timeouts
+ *     could previously be stretched indefinitely by a trickle server —
+ *     readBytes() only bounds EACH read, not the total);
+ *  3. a hard 15s bound around the whole export (the spinner can never
+ *     spin forever);
+ *  4. the ContextWrapper unwrap to the Activity — the chooser launches
+ *     from the activity context (launching from a non-activity context
+ *     without NEW_TASK is the silent-failure class), with
+ *     FLAG_ACTIVITY_NEW_TASK only when no activity is reachable;
+ *  5. CancellationException is rethrown (leaving the screen mid-share
+ *     never shows a false error); TimeoutCancellationException gets its
+ *     own message;
+ *  6. every failure path lands in a SPECIFIC user-facing toast;
+ *  7. exports older than an hour are swept so cacheDir never grows
+ *     unbounded.
  */
 private suspend fun sharePluginFile(
     context: android.content.Context,
@@ -818,65 +841,141 @@ private suspend fun sharePluginFile(
     repoUrl: String?,
     meta: PluginMeta?,
 ) {
-    val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
-    val export = File(exportDir, CsSharedPluginFormat.sharedFileName(internalName))
     try {
-        withContext(Dispatchers.IO) {
-            // Best-effort icon fetch BEFORE the rewrite (the bytes must be
-            // in hand when the zip is written). 2.5s timeouts; failures fall
-            // back to the URL riding export.json.
-            val iconBytes = meta?.iconUrl?.let { fetchIconBytes(it) }
-            val info = CsExportInfo(
-                repoUrl = repoUrl,
-                // Task 61 (round 21 — root-cause hardening): a DEVICE-LOCAL
-                // `file://` iconUrl (a plugin that was itself imported from a
-                // shared file) must NOT ride the export metadata — it points
-                // at the SENDER's filesystem and guarantees an AsyncImage
-                // failure on the receiver (the round-20 "no icon anywhere"
-                // report). The local bytes were already embedded above
-                // (fetchIconBytes reads file:// URIs); only http(s) URLs ride
-                // the fallback field.
-                iconUrl = meta?.iconUrl?.takeIf { it.startsWith("http", ignoreCase = true) },
-                name = meta?.name,
-                version = meta?.version,
-                language = meta?.language,
-                authors = meta?.authors ?: emptyList(),
-                description = meta?.description,
-                tvTypes = meta?.tvTypes ?: emptyList(),
-                exportedAtMs = System.currentTimeMillis(),
-            )
-            CsSharedPluginFormat.writeSharedFile(
-                source = File(filePath),
-                target = export,
-                info = info,
-                iconBytes = iconBytes,
-            )
-        }
-        // The share target only READS it — make sure the export isn't
-        // read-only from a copied flag (the loader sets the source RO).
-        export.setReadable(true, false)
+        withTimeout(SHARE_TOTAL_TIMEOUT_MS) {
+            withContext(Dispatchers.IO) {
+                // ── 1. Pre-flight: the installed plugin file must be there. ──
+                val source = File(filePath)
+                if (!source.exists() || source.length() == 0L) {
+                    throw ShareException(
+                        "The plugin file is missing — reinstall the plugin and try again",
+                    )
+                }
 
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", export)
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/octet-stream"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "ANI-KUTA plugin: $internalName")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            clipData = android.content.ClipData.newRawUri("plugin", uri)
+                // ── 2. The export area (with the stale sweep). ──
+                val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+                exportDir.listFiles()?.forEach { old ->
+                    if (old.isFile && System.currentTimeMillis() - old.lastModified() > EXPORT_MAX_AGE_MS) {
+                        runCatching { old.delete() }
+                    }
+                }
+                val export = File(exportDir, CsSharedPluginFormat.sharedFileName(internalName))
+
+                // ── 3. The icon fetch — bounded by the hard 4s total. Best
+                //    effort: failure shares WITHOUT the embedded icon (the
+                //    URL rides export.json).
+                val iconBytes = meta?.iconUrl?.let { url ->
+                    try {
+                        withTimeout(ICON_FETCH_TOTAL_TIMEOUT_MS) { fetchIconBytes(url) }
+                    } catch (t: kotlinx.coroutines.CancellationException) {
+                        if (t is kotlinx.coroutines.TimeoutCancellationException) null else throw t
+                    } catch (t: Throwable) {
+                        null
+                    }
+                }
+                val info = CsExportInfo(
+                    repoUrl = repoUrl,
+                    // Task 61 (round 21 — root-cause hardening): a DEVICE-LOCAL
+                    // `file://` iconUrl (a plugin that was itself imported from a
+                    // shared file) must NOT ride the export metadata — it points
+                    // at the SENDER's filesystem and guarantees an AsyncImage
+                    // failure on the receiver (the round-20 "no icon anywhere"
+                    // report). The local bytes were already embedded above
+                    // (fetchIconBytes reads file:// URIs); only http(s) URLs ride
+                    // the fallback field.
+                    iconUrl = meta?.iconUrl?.takeIf { it.startsWith("http", ignoreCase = true) },
+                    name = meta?.name,
+                    version = meta?.version,
+                    language = meta?.language,
+                    authors = meta?.authors ?: emptyList(),
+                    description = meta?.description,
+                    tvTypes = meta?.tvTypes ?: emptyList(),
+                    exportedAtMs = System.currentTimeMillis(),
+                )
+                CsSharedPluginFormat.writeSharedFile(
+                    source = source,
+                    target = export,
+                    info = info,
+                    iconBytes = iconBytes,
+                )
+
+                // The share target only READS it — make sure the export isn't
+                // read-only from a copied flag (the loader sets the source RO).
+                export.setReadable(true, false)
+
+                // ── 4. The share sheet — launched from the ACTIVITY context
+                //    (unwrap the ContextWrapper chain; a non-activity context
+                //    can only launch with FLAG_ACTIVITY_NEW_TASK).
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    export,
+                )
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/octet-stream"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, "ANI-KUTA plugin: $internalName")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    clipData = android.content.ClipData.newRawUri("plugin", uri)
+                }
+                val chooser = Intent.createChooser(intent, "Share plugin")
+                val activity = context.findActivity()
+                if (activity == null) {
+                    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                withContext(Dispatchers.Main) {
+                    (activity ?: context).startActivity(chooser)
+                }
+                com.confused.anikuta.core.common.Logger.i("Anikuta:CS:PluginDetail") {
+                    "shared plugin $internalName as ${export.name} (${export.length() / 1024} KB, " +
+                        "icon=${if (iconBytes != null) "embedded" else "url-only"})"
+                }
+            }
         }
+    } catch (t: ShareException) {
+        com.confused.anikuta.core.common.Logger.e("Anikuta:CS:PluginDetail", t) { "share failed" }
         withContext(Dispatchers.Main) {
-            context.startActivity(Intent.createChooser(intent, "Share plugin"))
+            Toast.makeText(context, t.message, Toast.LENGTH_LONG).show()
         }
-        com.confused.anikuta.core.common.Logger.i("Anikuta:CS:PluginDetail") {
-            "shared plugin $internalName as ${export.name} (${export.length() / 1024} KB, " +
-                "icon=${if (export.length() > File(filePath).length()) "embedded" else "url-only"})"
+    } catch (t: kotlinx.coroutines.TimeoutCancellationException) {
+        // The hard 15s bound fired (a slow network or a huge plugin) — the
+        // spinner has ended; tell the user what happened instead of silence.
+        com.confused.anikuta.core.common.Logger.e("Anikuta:CS:PluginDetail", t) { "share timed out" }
+        withContext(Dispatchers.Main) {
+            Toast.makeText(
+                context,
+                "Sharing took too long — check your connection and try again",
+                Toast.LENGTH_LONG,
+            ).show()
         }
+    } catch (c: kotlinx.coroutines.CancellationException) {
+        // The user left the screen (or the scope died) mid-share — rethrow;
+        // a cancellation is never shown as a share failure.
+        throw c
     } catch (t: Throwable) {
         com.confused.anikuta.core.common.Logger.e("Anikuta:CS:PluginDetail", t) { "share failed" }
         withContext(Dispatchers.Main) {
-            Toast.makeText(context, "Couldn't share the plugin file", Toast.LENGTH_SHORT).show()
+            val reason = t.message?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""
+            Toast.makeText(
+                context,
+                "Couldn't share the plugin file$reason",
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
+}
+
+/** A share-flow failure that already carries a user-ready message (D-415). */
+private class ShareException(message: String) : Exception(message)
+
+/** Unwraps a (possibly wrapped) Compose context to its host Activity (D-415). */
+private fun android.content.Context.findActivity(): android.app.Activity? {
+    var current: android.content.Context = this
+    while (current is android.content.ContextWrapper) {
+        if (current is android.app.Activity) return current
+        current = current.baseContext
+    }
+    return null
 }
 
 /**
@@ -915,4 +1014,13 @@ private const val MAX_ICON_BYTES = 512 * 1024
 
 /** The icon fetch timeout (connect + read) — best effort, never blocks long. */
 private const val ICON_FETCH_TIMEOUT_MS = 2500
+
+/** D-415: the HARD total bound around the icon fetch (4s). */
+private const val ICON_FETCH_TOTAL_TIMEOUT_MS = 4_000L
+
+/** D-415: the hard bound around the entire share export (the spinner can never hang). */
+private const val SHARE_TOTAL_TIMEOUT_MS = 15_000L
+
+/** D-415: exports older than this are swept on every share (cacheDir hygiene). */
+private const val EXPORT_MAX_AGE_MS = 3_600_000L
 
