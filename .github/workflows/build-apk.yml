@@ -107,7 +107,7 @@ jobs:
           mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-debug-x86_64-emulator.apk
           cp /tmp/app-debug-arm.apk app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Verify ABIs (debug path: only arm64-v8a allowed)
+      - name: Verify ABIs (debug path, arm64-v8a only)
         working-directory: .
         run: |
           set -e
