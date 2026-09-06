@@ -63,3 +63,24 @@ The user's round (three device reports + the release + the environment rule):
 - The release build's "Check for Updates" hits Confused-Creature-180/ANI-KUTA
   (the published repo); the debug build's hits testplay-byte/ANI-KUTA.
 - A fresh install: notifications are OFF until the user enables them.
+
+## Status (final)
+
+- main CI: GREEN (run 34001193509, debug-only artifact).
+- release/1.1.2 CI: GREEN (run 34001414759).
+- tag v1.1.2 → Release APK: GREEN (run 34001670724, all 17 steps incl. the
+  apksigner gate). RELEASE LIVE on testplay-byte/ANI-KUTA: id 383417792,
+  stable, latest-pointer set, 7 assets.
+- Verified: the arm64 download's sha256 matches SHA256SUMS.txt; every APK
+  inside the release ZIP hash-matches; the ZIP holds exactly the 5 APKs +
+  the sums; the tagged tree carries 1.1.2/10102.
+- **The re-host to Confused-Creature-180/ANI-KUTA is PENDING (blocked on
+  credentials):** the dev PAT (testplay-byte) cannot write to the published
+  repo (403 — the token's repository access covers testplay-byte's repos
+  only). The complete re-host package is staged at /home/z/r39-release
+  (all 7 checksum-verified assets + rehost.sh + body.md): run it with the
+  release-agent token (the Confused-Creature-180 account) or hand the
+  starter prompt to the release agent. Until then, release builds'
+  in-app "Check for Updates" (which now targets the published repo, D-440)
+  see only v1.1.1 there — v1.1.2 installs correctly from the dev release
+  meanwhile.
