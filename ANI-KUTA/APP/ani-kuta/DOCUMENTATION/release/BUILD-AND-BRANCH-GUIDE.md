@@ -3,7 +3,13 @@
 **Round 37 / Task 77 (D-429..D-430). Round 38 / Task 78 revision (D-435..D-436):**
 the push path is now **DEBUG-ONLY on every branch** (the user's round-38
 instruction), and **R8 minification is retired from the release line**
-(D-436 — it broke the extension system on device). This is the standing
+(D-436 — it broke the extension system on device).
+**Round 39 / Task 79 revision (D-439..D-442):** the release branch is now
+**cut FROM MAIN** (main carries everything the release needs; the branch is
+main + ONE version-bump commit), the in-app updater's repo follows the
+BUILD TYPE at runtime, and the sandbox is LEAN (no local Android tooling —
+GitHub Actions is the only build machine; the local SDK/JDK/Gradle were
+deleted). This is the standing
 reference for how ANI-KUTA is built, which branch produces what, and how the
 release version and the debug version are tested side by side on one device.
 It is the companion to `REPO-SETUP-AND-SIGNING-GUIDE.md` (the published-repo
@@ -16,8 +22,9 @@ path).
 
 | Branch | What it is | The debug bubble | CI on push | Used for |
 |---|---|---|---|---|
-| `main` | The DEV line — where features land and converge between releases. Currently carries the v1.1.x feature set (round 37: the episode-check fix, the share hardening, the minimal debug descriptions, the app-icon system, the co-install line). | **PRESENT** (the user's standing instruction: the bubble stays on main) | tests + assembleDebug — the **DEBUG APK only** (D-435) — downloadable as the CI artifact | Feature development + the debug test line |
-| `release/1.1.1` | The PUBLISHABLE line — the clean release track (no debug bubble, release logging gates, the published updater target). | REMOVED (D-409) | The same DEBUG-ONLY push path; releases happen via the TAG path only: `v*` → release-apk.yml → ALL-ABI splits + universal + the ZIP + the GitHub release | Cutting actual releases |
+| `main` | The DEV line — where features land and converge between releases. Carries the v1.1.x feature set + the round-39 fixes (D-439 crash hardening, D-440 the build-type updater, D-441 notifications-off) + EVERYTHING the release needs (the build line, the workflows — D-430/D-435/D-436). | **PRESENT** (the user's standing instruction: the bubble stays on main) | tests + assembleDebug — the **DEBUG APK only** (D-435) — downloadable as the CI artifact | Feature development + the debug test line + the source of every future release cut |
+| `release/1.1.2` | The PUBLISHABLE line — **cut FROM the round-39 main head** (D-442, the first release branch cut directly from main): main + ONE commit (AndroidConfig 1.1.2/10102 + the branch-point docs). | PRESENT (inherited from main — the release APK build itself excludes it via the source-set split; the co-install debug identity is the debug overlay) | The same DEBUG-ONLY push path; releases happen via the TAG path only: `v*` → release-apk.yml → ALL-ABI splits + universal + the ZIP + the GitHub release | Cutting actual releases |
+| `release/1.1.1` | The previous release line (kept for reference — the long-lived-branch model before round 39). | REMOVED (D-409) | Same push path | Reference only — do NOT build new releases here |
 | `feature/test-controller-v5` | A kept experiment line. | — | Same push path | Reference |
 
 Deleted in round 37 (per the user's instruction): `test-feature/video-cache-new-download`,
@@ -60,8 +67,12 @@ release is cut. Main-branch pushes never trigger it.
   (`ANIKUTA_KEYSTORE_BASE64` + the password secrets) BEFORE the build, so every
   shipped release APK is SIGNED. The apksigner verify gate hard-fails the
   workflow if any APK is unsigned.
-- On main the release build keeps dev logging + the dev updater target (the
-  release-only polish — D-411/D-412 — lives on `release/1.1.1` only).
+- On main the release build keeps dev logging (D-412's release-logging strip
+  stays release-line-only). The UPDATER TARGET no longer differs by branch
+  (D-440, round 39 — supersedes D-411): the repo is resolved at RUNTIME from
+  the build type (FLAG_DEBUGGABLE) — debug → testplay-byte/ANI-KUTA,
+  release → Confused-Creature-180/ANI-KUTA — correct on every branch and
+  build path.
 
 ## 3. How you get APKs (everything comes from CI — never build locally)
 
@@ -106,12 +117,15 @@ installs is produced by GitHub Actions.
 ## 5. Version discipline (D-425 — standing rule)
 
 The version NEVER moves without the user's explicit instruction:
-- `main` carries its own dev version (currently 0.4.20 / 85 — main never got a
-  version bump; a future release cut from main would take the next number the
-  USER chooses, e.g. 1.1.2).
-- `release/1.1.1` carries 1.1.1 / 10101. The round-37 re-release reuses the
-  SAME version (the user's explicit instruction — same versionCode, so a device
-  holding the old v1.1.1 must uninstall once before installing the re-release).
+- `main` carries its own dev version (0.4.20 / 85 — main never takes a
+  release bump; the release BRANCH carries the bump).
+- `release/1.1.2` carries 1.1.2 / 10102 — the number the guide anticipated
+  for the first main-cut release ("a future release cut from main would take
+  the next number the USER chooses, e.g. 1.1.2"), cut by the user's explicit
+  round-39 instruction. It is monotonic over the installed v1.1.1 (10102 >
+  10101 — installs over it, no uninstall churn).
+- `release/1.1.1` carries 1.1.1 / 10101 (the same-version re-release model
+  of rounds 37/38 — historical).
 
 ## 6. The division of labor (round 36 — standing)
 
@@ -121,3 +135,17 @@ The version NEVER moves without the user's explicit instruction:
   and manages the GitHub releases + tags on the published repo
   (Confused-Creature-180/ANI-KUTA) — re-hosting the dev releases, managing the
   icons/ catalog. It never builds. See `RELEASE-AGENT-STARTER-PROMPT.md`.
+- **Round-39 note:** when the user instructs the build agent to "manage
+  everything" for a round, the build agent ALSO performs the re-host
+  (the release-agent routine: download the dev release's assets → verify the
+  SHA256SUMS → create the release on the published repo with the EXACT
+  version-prefixed asset names → set stable + latest) — as done for v1.1.2.
+
+## 7. The lean-environment rule (round 39 — standing)
+
+The sandbox carries NO Android SDK, NO JDK, NO Gradle caches (deleted
+round 39 per the user's instruction — never reinstall them, and never
+install any other heavy software). GitHub Actions is the ONLY build machine
+and the ONLY verification path (CORE_RULES §8, the CI-first D-281 loop).
+Local verification is limited to checksums (`sha256sum`) and API/log
+inspection — no builds, no decompiles, no emulator.

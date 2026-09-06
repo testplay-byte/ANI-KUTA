@@ -56,13 +56,21 @@ class NotificationPreferences(private val store: PreferenceStore) {
         }
     }
 
-    /** Master kill switch — when false, NO notifications are posted. */
+    /**
+     * Master kill switch — when false, NO notifications are posted.
+     *
+     * D-441 (round 39): default flipped true → false. The app's notifications
+     * are now OFF by default on a fresh install — the user must opt in via
+     * Settings → Updates → Notifications. Users who already toggled the switch
+     * keep their stored value (the default only applies when the key is absent,
+     * i.e. the toggle was never touched).
+     */
     var notificationsEnabled: Boolean
-        get() = store.getBoolean(KEY_ENABLED, true)
+        get() = store.getBoolean(KEY_ENABLED, false)
         set(value) = store.putBoolean(KEY_ENABLED, value)
 
     fun notificationsEnabledFlow(): Flow<Boolean> =
-        store.booleanFlow(KEY_ENABLED, true)
+        store.booleanFlow(KEY_ENABLED, false)
 
     // ── Default trigger states (tri-state) ─────────────────────────────────────
     // Stored as Int (0=OFF, 1=ON, 2=SILENT) — matches TriggerState.dbValue.

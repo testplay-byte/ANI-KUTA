@@ -76,6 +76,7 @@ import com.confused.anikuta.feature.animebrowse.AnimeBrowseKey
 import com.confused.anikuta.feature.animebrowse.BrowseScreen
 import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
 import com.confused.anikuta.feature.animedetails.DetailsScreen
+import com.confused.anikuta.feature.animedetails.describeDetailsKeyAnomaly
 import com.confused.anikuta.feature.animelibrary.AnimeLibraryKeyImpl
 import com.confused.anikuta.feature.animelibrary.LibraryEntry
 import com.confused.anikuta.feature.animelibrary.LibraryScreen
@@ -1110,6 +1111,19 @@ fun AppRoot() {
                             )
                         },
                     )
+                    // D-439 (round 39 — the library-crash root fix): total-when
+                    // hardening. The v1.1.1 device round crashed INSIDE
+                    // DetailsScreen's own sealed-when (NoWhenBranchMatchedException,
+                    // DetailsScreen.kt:367) on every library open — this dispatch
+                    // when is the same pattern one frame up the stack. An unknown
+                    // runtime variant (class-identity anomaly) now logs the exact
+                    // runtime class + classloader identity and renders nothing,
+                    // instead of relying on the compiler's implicit skip path.
+                    else -> {
+                        com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                            describeDetailsKeyAnomaly(currentKey)
+                        }
+                    }
                 }
             }
             is AnimeLibraryKeyImpl -> LibraryScreen(
@@ -1695,6 +1709,14 @@ private fun handleDownloadEpisode(
                     contentRepository.getMainEntryByAniListId(detailsKey.animeId)?.mainId
                 is AnimeDetailsKey.Extension ->
                     contentRepository.getMainEntryByExtension(detailsKey.sourceId, detailsKey.animeUrl)?.mainId
+                // D-439: total-when — an unknown runtime variant logs + resolves
+                // to null (the caller's existing null-path handles it).
+                else -> {
+                    com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                        "handleDownloadEpisode — " + describeDetailsKeyAnomaly(detailsKey)
+                    }
+                    null
+                }
             }
             if (mainId == null) {
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {
@@ -1850,6 +1872,13 @@ private fun handleDownloadSpecificVideo(
                     contentRepository.getMainEntryByAniListId(detailsKey.animeId)?.mainId
                 is AnimeDetailsKey.Extension ->
                     contentRepository.getMainEntryByExtension(detailsKey.sourceId, detailsKey.animeUrl)?.mainId
+                // D-439: total-when — see handleDownloadEpisode above.
+                else -> {
+                    com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                        "handleDownloadSpecificVideo — " + describeDetailsKeyAnomaly(detailsKey)
+                    }
+                    null
+                }
             }
             if (mainId == null) {
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {

@@ -74,3 +74,40 @@ sealed interface AnimeDetailsKey : NavKey {
         override val transitionKey: String? = null,
     ) : AnimeDetailsKey
 }
+
+/**
+ * D-439 (round 39 — the library-crash root fix): diagnostic description of a
+ * details key whose runtime class failed to match ANY sealed variant — the
+ * `NoWhenBranchMatchedException` crash path reported from the v1.1.1 device
+ * round (DetailsScreen.kt:367).
+ *
+ * The sealed hierarchy declares exactly [AniList] + [Extension], and the app's
+ * own navigation code only ever constructs those two — so a runtime object
+ * that matches NEITHER `is` check can only exist through a class-identity
+ * anomaly (the same class name resolved through two different classloaders —
+ * e.g. a stale plugin/extension dex carrying host-class copies, or a hybrid
+ * install's leftover runtime state). This helper captures the exact runtime
+ * identity of such an object — class name, classloader class + identity hash,
+ * and whether the object even still passes `is AnimeDetailsKey` — so a single
+ * log line pins the mechanism down if the anomaly ever recurs.
+ *
+ * Pure JVM (no Android/logging deps — the api module has none): call sites
+ * pass the string to their own Logger.
+ */
+fun describeDetailsKeyAnomaly(key: Any?): String {
+    if (key == null) return "detailsKey is null (expected a non-null AnimeDetailsKey)"
+    val cls = key.javaClass
+    val loader = cls.classLoader
+    return buildString {
+        append("unknown AnimeDetailsKey variant — runtime-class=")
+        append(cls.name)
+        append(", class-loader=")
+        append(loader?.javaClass?.name ?: "null")
+        append("@")
+        append(System.identityHashCode(loader))
+        append(", implements-AnimeDetailsKey=")
+        append(key is AnimeDetailsKey)
+        append(", object-identity=")
+        append(System.identityHashCode(key))
+    }
+}

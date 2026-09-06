@@ -197,6 +197,16 @@ fun DetailsScreen(
                 thumbnailUrl = detailsKey.thumbnailUrl,
                 year = detailsKey.year,
             )
+            // D-439 (round 39 — the library-crash root fix): total-when
+            // hardening. The sealed hierarchy has exactly two variants and the
+            // app only constructs those two — but the v1.1.1 device round
+            // proved a runtime key can STILL fail both `is` checks (the
+            // NoWhenBranchMatchedException crash at the line-367 when). An
+            // unknown variant must degrade to a logged no-op (the screen stays
+            // on its loading skeleton) instead of killing the process.
+            else -> Logger.w("Anikuta:Feature:Details") {
+                describeDetailsKeyAnomaly(detailsKey)
+            }
         }
     }
 
@@ -364,13 +374,28 @@ fun DetailsScreen(
     // tapped card (and back on back-navigation). Null when the feature is
     // disabled or the source had no cover.
     val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    // D-439: total-when — this is the EXACT expression that crashed v1.1.1
+    // (NoWhenBranchMatchedException, DetailsScreen.kt:367, on EVERY library
+    // open in the release build while the debug build was unaffected). The
+    // `else` makes the expression total: an unknown runtime variant resolves
+    // to a null cover hint (the skeleton renders without the shared-element
+    // morph) + a diagnostic log instead of a hard crash.
     val navKeyCoverUrl = when (val k = detailsKey) {
         is AnimeDetailsKey.AniList -> k.coverUrl
         is AnimeDetailsKey.Extension -> k.thumbnailUrl
+        else -> {
+            Logger.w("Anikuta:Feature:Details") { describeDetailsKeyAnomaly(detailsKey) }
+            null
+        }
     }
     val navKeyTitle = when (val k = detailsKey) {
         is AnimeDetailsKey.AniList -> k.title
         is AnimeDetailsKey.Extension -> k.title
+        // D-439: total-when — see navKeyCoverUrl above.
+        else -> {
+            Logger.w("Anikuta:Feature:Details") { describeDetailsKeyAnomaly(detailsKey) }
+            null
+        }
     }
     val sharedCoverKey = if (appPrefs.coverTransitionEnabled) {
         detailsKey.transitionKey
@@ -426,6 +451,11 @@ fun DetailsScreen(
     val autoPlayEpisode = when (detailsKey) {
         is AnimeDetailsKey.AniList -> detailsKey.autoPlayEpisode
         is AnimeDetailsKey.Extension -> detailsKey.autoPlayEpisode
+        // D-439: total-when — see navKeyCoverUrl above.
+        else -> {
+            Logger.w("Anikuta:Feature:Details") { describeDetailsKeyAnomaly(detailsKey) }
+            null
+        }
     }
     var hasAutoPlayed by remember { mutableStateOf(false) }
 
