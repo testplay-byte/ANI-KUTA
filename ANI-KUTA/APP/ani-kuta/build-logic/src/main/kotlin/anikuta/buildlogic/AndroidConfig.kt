@@ -544,14 +544,18 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10102
+    const val versionName = "1.1.2"
+    // D-442 (round 39): release/1.1.2 — the FIRST release branch cut directly
+    // from main (the branch = the round-39 main head c1b8e747 + this commit).
+    // The user's explicit round-39 instruction: update main → create the new
+    // release FROM main → create the release branch → complete the release
+    // flow. 1.1.2 is the next number after 1.1.1 (exactly what
+    // BUILD-AND-BRANCH-GUIDE §5 anticipated); the round-35 v1.1.2 was deleted
+    // before any user install, so the number is clean. 10102 is monotonic over
+    // the installed v1.1.1 (10101) — the release installs over it, no
+    // uninstall churn. Main stays at 0.4.20/85 (D-425 discipline — the bump
+    // lives on the release branch, not main).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
