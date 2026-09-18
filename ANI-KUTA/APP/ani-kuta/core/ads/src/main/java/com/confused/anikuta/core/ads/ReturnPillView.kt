@@ -86,7 +86,8 @@ data class ReturnPillColors(
  * - Ready transition: LayoutTransition (chip in + width grow, 300ms) +
  *   the scale-up spring + the looping pulse (1.06 → 1.09 → 1.06).
  * - Press: scale-down on touch, spring back on release (ready state only).
- * - Exit is owned by the controller (a quick fade-out before removal).
+ * - Exit (D-452): the label + chip collapse away, only the checkmark
+ *   remains, and it POPS like a bubble — then the window is removed.
  *
  * # Safety
  *
@@ -130,6 +131,16 @@ class ReturnPillView(
     }
 
     init {
+        // D-452 headroom: the ready-state scale (1.06) + the pulse (up to
+        // 1.08) enlarge the capsule BEYOND its laid-out bounds — without
+        // padding, the window (sized exactly to the content) CLIPPED the
+        // capsule's left/right sides (the v1.1.4 device report). The root's
+        // padding gives every scale room to breathe inside the window; the
+        // capsule itself is centered within it.
+        val padH = dp(16).toInt()
+        val padV = dp(8).toInt()
+        setPadding(padH, padV, padH, padV)
+
         capsuleBackground = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(30)
@@ -174,7 +185,10 @@ class ReturnPillView(
             LinearLayout.LayoutParams(dp(34).toInt(), dp(34).toInt()).apply { gravity = Gravity.CENTER_VERTICAL },
         )
         capsule.addView(label, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        addView(capsule)
+        addView(
+            capsule,
+            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER),
+        )
 
         startEntrance()
         if (totalMs <= 0) {
@@ -218,7 +232,8 @@ class ReturnPillView(
         ring.showCheckmark()
 
         // The chip — inserted into the transition-armed capsule: the width
-        // grow + the chip's entrance animate together (D-448).
+        // grow + the chip's entrance animate together (D-448). Kept in a
+        // field: the exit animation collapses it back out (D-452).
         val chip = TextView(viewContext).apply {
             text = "Go back"
             setTextColor(pillColors.onAccent)
@@ -235,6 +250,7 @@ class ReturnPillView(
             chip,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT),
         )
+        chipView = chip
 
         // The slight size increase on ready (D-448) — scale, not dpi, so the
         // artwork stays crisp; then the gentle pulse keeps inviting the tap.
@@ -248,7 +264,7 @@ class ReturnPillView(
             interpolator = OvershootInterpolator(1.4f)
             start()
         }
-        pulseAnimator = ObjectAnimator.ofFloat(capsule, SCALE_X, READY_SCALE, READY_SCALE + 0.03f).apply {
+        pulseAnimator = ObjectAnimator.ofFloat(capsule, SCALE_X, READY_SCALE, READY_SCALE + 0.02f).apply {
             startDelay = 320
             duration = 700
             repeatMode = ValueAnimator.REVERSE
@@ -256,7 +272,7 @@ class ReturnPillView(
             interpolator = AnimationUtils.loadInterpolator(viewContext, android.R.interpolator.fast_out_slow_in)
             start()
         }
-        ObjectAnimator.ofFloat(capsule, SCALE_Y, READY_SCALE, READY_SCALE + 0.03f).apply {
+        ObjectAnimator.ofFloat(capsule, SCALE_Y, READY_SCALE, READY_SCALE + 0.02f).apply {
             startDelay = 320
             duration = 700
             repeatMode = ValueAnimator.REVERSE
@@ -291,19 +307,67 @@ class ReturnPillView(
         }
     }
 
+    /** The "Go back" chip (created in the ready state; collapsed on exit). */
+    private var chipView: TextView? = null
+
+    /** True while the exit animation runs (the tap + hide paths are one-shot). */
+    private var isExiting = false
+
+    /** Shared token for the exit's staged callbacks (cancelable in one call). */
+    private val exitToken = Any()
+
     private var readyYAnimator: Animator? = null
 
-    /** Fade-out for the controller's orderly removal. Cancels everything. */
+    /**
+     * The exit (D-452, the user's v1.1.4 spec): the pill SHRINKS horizontally
+     * — the label + the chip collapse away — until ONLY the checkmark ring
+     * remains, and the checkmark POPS like a bubble (scales up with an
+     * overshoot while fading out). Then [onEnd] lets the controller remove
+     * the window. Runs for BOTH exit routes (the Go-back tap + the
+     * state-driven hide) — one code path, idempotent.
+     */
     fun animateOut(onEnd: () -> Unit) {
+        if (isExiting) return
+        isExiting = true
         cancelAnimators()
-        animate()
-            .alpha(0f)
-            .translationY(translationY + 12f * resources.displayMetrics.density)  // sinks back down
-            .setDuration(180)
-            .setListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) = onEnd()
-            })
-            .start()
+        isClickable = false  // one-shot — no re-entry mid-animation
+
+        // Phase 1 (0–170ms): the label + chip collapse horizontally into the
+        // ring (pivot on their left edge — the pill shrinks from its right
+        // side inward).
+        label.pivotX = 0f
+        chipView?.pivotX = 0f
+        label.animate().scaleX(0f).alpha(0f).setDuration(170).start()
+        chipView?.animate()?.scaleX(0f)?.alpha(0f)?.setDuration(170)?.start()
+
+        // Phase 2 (170ms): remove them — the transition-armed capsule
+        // animates the width collapse smoothly.
+        postDelayed({
+            label.visibility = GONE
+            chipView?.visibility = GONE
+        }, exitToken, 170)
+
+        // Phase 3 (~260ms): the checkmark pops like a bubble — scales up
+        // with an overshoot while fading out.
+        postDelayed({
+            ring.pivotX = ring.width / 2f
+            ring.pivotY = ring.height / 2f
+            ObjectAnimator.ofFloat(ring, SCALE_X, 1f, 1.4f).apply {
+                duration = 340
+                interpolator = OvershootInterpolator(2f)
+                start()
+            }
+            ObjectAnimator.ofFloat(ring, SCALE_Y, 1f, 1.4f).apply {
+                duration = 340
+                interpolator = OvershootInterpolator(2f)
+                start()
+            }
+            ring.animate().alpha(0f).setStartDelay(140).setDuration(240).start()
+        }, exitToken, 260)
+
+        // Phase 4 (~640ms): the bubble has popped — hand the window back to
+        // the controller for removal.
+        postDelayed({ onEnd() }, exitToken, 640)
     }
 
     private fun cancelAnimators() {
@@ -311,6 +375,7 @@ class ReturnPillView(
         readyYAnimator?.cancel()
         entranceAnimator?.cancel()
         ring.cancel()
+        removeCallbacks(exitToken)
         animate().setListener(null)
     }
 
