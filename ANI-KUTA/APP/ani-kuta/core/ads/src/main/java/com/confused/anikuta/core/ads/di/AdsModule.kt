@@ -5,6 +5,7 @@ import com.confused.anikuta.core.ads.AdsCoordinator
 import com.confused.anikuta.core.ads.AdsRepository
 import com.confused.anikuta.core.ads.AdsRepositoryImpl
 import com.confused.anikuta.core.ads.AppLifecycleObserver
+import com.confused.anikuta.core.ads.SmartLinkReturnPillController
 import com.confused.anikuta.core.preferences.PreferenceStore
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module

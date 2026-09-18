@@ -108,16 +108,17 @@ fun SmartLinkAdInterstitial() {
     }
 
     // D-443: the floating return pill lives over the BROWSER exactly while
-    // the ad is in progress. Show fires at the Continue tap (the state flips
-    // while the app is still foregrounded — the overlay window then survives
-    // the backgrounding); every other state means the user is IN the app,
-    // where the in-app interstitial is the right surface. The controller is
-    // a no-op when the overlay permission isn't granted (silent fallback to
-    // the previous no-pill behavior — never blocks the ad flow).
+    // the ad is in progress. The SHOW is invoked directly in the Continue /
+    // Try-again tap handlers (NOT from a state-driven effect): the state
+    // flip happens in the same tap, but a recomposition could be deferred
+    // until after the browser covers the screen — the direct call runs the
+    // window-add before the transition. Every state CHANGE here hides the
+    // pill (the user is back IN the app, where the interstitial is the
+    // right surface — including the Try-again state and every cancel /
+    // completion path). The controller is a no-op when the overlay
+    // permission isn't granted (silent fallback — never blocks the flow).
     LaunchedEffect(state) {
-        if (state is AdGateState.AdInProgress) {
-            pillController.show(context, pillColors, pillDurationMs)
-        } else {
+        if (state !is AdGateState.AdInProgress) {
             pillController.hide()
         }
     }
@@ -160,14 +161,24 @@ fun SmartLinkAdInterstitial() {
                         when (current) {
                             is AdGateState.AdPending -> AdPendingContent(
                                 config = repository.config,
-                                onContinue = { coordinator.onUserContinue(context) },
+                                // The show is IN the tap handler (before
+                                // onUserContinue opens the browser) — a
+                                // state-effect-driven show could be deferred
+                                // past the app-backgrounding (D-443).
+                                onContinue = {
+                                    pillController.show(context, pillColors, pillDurationMs)
+                                    coordinator.onUserContinue(context)
+                                },
                                 onCancel = { coordinator.cancel() },
                             )
                             is AdGateState.AdInProgress -> AdInProgressContent()
                             is AdGateState.AdTryAgain -> AdTryAgainContent(
                                 state = current,
                                 config = repository.config,
-                                onTryAgain = { coordinator.onTryAgain(context) },
+                                onTryAgain = {
+                                    pillController.show(context, pillColors, pillDurationMs)
+                                    coordinator.onTryAgain(context)
+                                },
                                 onCancel = { coordinator.cancel() },
                             )
                             else -> { /* Idle — but we returned early above; defensive. */ }
