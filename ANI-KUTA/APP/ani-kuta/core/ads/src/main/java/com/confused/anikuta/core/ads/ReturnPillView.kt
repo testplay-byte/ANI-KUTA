@@ -7,6 +7,8 @@ import android.animation.LayoutTransition
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -316,6 +318,11 @@ class ReturnPillView(
     /** Shared token for the exit's staged callbacks (cancelable in one call). */
     private val exitToken = Any()
 
+    /** The exit's staged callbacks run through a Handler (View.postDelayed
+     * has no token variant; Handler.postDelayed(Runnable, token, delay) is
+     * API 24+ — our minSdk). */
+    private val exitHandler = Handler(Looper.getMainLooper())
+
     private var readyYAnimator: Animator? = null
 
     /**
@@ -342,14 +349,14 @@ class ReturnPillView(
 
         // Phase 2 (170ms): remove them — the transition-armed capsule
         // animates the width collapse smoothly.
-        postDelayed({
+        exitHandler.postDelayed({
             label.visibility = GONE
             chipView?.visibility = GONE
-        }, exitToken, 170)
+        }, exitToken, 170L)
 
         // Phase 3 (~260ms): the checkmark pops like a bubble — scales up
         // with an overshoot while fading out.
-        postDelayed({
+        exitHandler.postDelayed({
             ring.pivotX = ring.width / 2f
             ring.pivotY = ring.height / 2f
             ObjectAnimator.ofFloat(ring, SCALE_X, 1f, 1.4f).apply {
@@ -363,11 +370,11 @@ class ReturnPillView(
                 start()
             }
             ring.animate().alpha(0f).setStartDelay(140).setDuration(240).start()
-        }, exitToken, 260)
+        }, exitToken, 260L)
 
         // Phase 4 (~640ms): the bubble has popped — hand the window back to
         // the controller for removal.
-        postDelayed({ onEnd() }, exitToken, 640)
+        exitHandler.postDelayed({ onEnd() }, exitToken, 640L)
     }
 
     private fun cancelAnimators() {
@@ -375,7 +382,7 @@ class ReturnPillView(
         readyYAnimator?.cancel()
         entranceAnimator?.cancel()
         ring.cancel()
-        removeCallbacks(exitToken)
+        exitHandler.removeCallbacks(exitToken)
         animate().setListener(null)
     }
 
