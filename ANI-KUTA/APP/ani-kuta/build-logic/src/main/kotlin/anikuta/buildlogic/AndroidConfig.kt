@@ -544,14 +544,25 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10103
+    const val versionName = "1.1.3"
+    // D-446 (round 40): release/1.1.3 — cut from the round-40 FEATURE branch
+    // head 789f4e44 (NOT from main — the user's explicit round-40 instruction:
+    // "after you have successfully done this and also you have done the new
+    // release version of it from the new branch"; this supersedes the D-442
+    // from-main flow for THIS release). This branch = 789f4e44 + this ONE
+    // commit; the FIRST cut (at 5413b7e4) was discarded BEFORE any publish or
+    // install (the canceled run + deleted tag/branch, the round-35/36
+    // clean-number precedent) because the user revised the D-444 artwork
+    // mid-round. What the release carries (all on the feature branch): D-443
+    // the smart-link floating return pill (countdown capsule over the
+    // browser), D-444 the mascot-artwork debug launcher (never cropped), D-445
+    // the arm64-v8a-only debug path (the x86_64 emulator exception retired).
+    // 1.1.3 is the next number after v1.1.2; 10103 > 10102 — the release
+    // installs OVER the installed v1.1.2 (no uninstall churn). Main stays at
+    // 0.4.20/85 (D-425: the bump lives on the release branch; main has NOT
+    // received the feature-branch merge — that awaits the user's explicit
+    // confirmation).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
