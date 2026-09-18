@@ -10,9 +10,11 @@
 #     release ZIP). The round-37 push-path assembleRelease (D-430) was
 #     removed by the user's explicit instruction after a release APK showed
 #     up in the main-branch artifact next to the debug one.
-#   - The debug APK is arm64-v8a-only on this path (fast verification); the
-#     TEST-ONLY x86_64 emulator APK stays behind the manual
-#     workflow_dispatch input (D-246, user-authorized — never ships).
+#   - ROUND 40 (user instruction, D-445): the debug path is arm64-v8a ONLY —
+#     "from now we will only build the arm64v8 version for the debug version."
+#     The D-246/D-251 x86_64 emulator-test exception (the workflow_dispatch
+#     input + the gradle emulatorX64Build flag + emulatorAbiFilters) is
+#     RETIRED — no x86 APK is built anywhere on this path anymore.
 #
 # Status:
 #   - Debug build: active — the unit tests gate every push, then
@@ -35,12 +37,7 @@ on:
     branches: [ main, 'feature/**', 'functionality/**', 'release/**', 'streaming/**' ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
-    inputs:
-      build_emulator_apk:
-        description: 'Also build the TEST-ONLY x86_64 emulator APK'
-        type: boolean
-        default: false
+  workflow_dispatch:  # D-445: no inputs — the x86_64 emulator option is retired
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -93,20 +90,6 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
-      # D-246 (user-authorized emulator-testing support): OPTIONALLY produce a
-      # TEST-ONLY native-x86_64 APK for the CI-emulator test environment. Per the
-      # user's D-251 instruction this ONLY runs on explicit manual request
-      # (workflow_dispatch input) — never on normal pushes. It goes to the SAME
-      # artifact as the debug APK (different file name) and never ships; the
-      # main debug APK above stays arm64-v8a-only.
-      - name: Build emulator-test APK (x86_64, test-only)
-        if: github.event_name == 'workflow_dispatch' && inputs.build_emulator_apk
-        run: |
-          cp app/build/outputs/apk/debug/app-debug.apk /tmp/app-debug-arm.apk
-          ./gradlew assembleDebug -PemulatorX64Build=true
-          mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-debug-x86_64-emulator.apk
-          cp /tmp/app-debug-arm.apk app/build/outputs/apk/debug/app-debug.apk
-
       - name: Verify ABIs (debug path, arm64-v8a only)
         working-directory: .
         run: |
@@ -128,15 +111,8 @@ jobs:
               esac
             done
           done
-          # The emulator-test APK must contain ONLY x86_64 (sanity check both ways).
-          emu=ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/debug/app-debug-x86_64-emulator.apk
-          if [ -f "$emu" ]; then
-            emu_abis=$(unzip -Z1 "$emu" | grep -E '^lib/[^/]+/' | cut -d'/' -f2 | sort -u | tr '\n' ' ')
-            echo "Emulator APK ABIs: $emu_abis"
-            if [ "$emu_abis" != "x86_64 " ]; then
-              echo "::error::Emulator APK has unexpected ABIs: $emu_abis"; found_bad=1
-            fi
-          fi
+          # D-445: the emulator x86_64 sanity check was removed with the
+          # retired emulator build — arm64-v8a is the ONLY legal ABI here.
           exit $found_bad
 
       - name: Upload APK artifacts

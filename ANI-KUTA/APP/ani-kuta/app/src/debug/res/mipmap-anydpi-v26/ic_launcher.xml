@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- D-444 (round 40): the debug launcher = the user's mascot artwork
+     (USER-UPLOADS/IMG_20260918_223706.png) as the FULL-BLEED adaptive
+     background (the same structure as the release line: full-bleed bg +
+     the empty fg layer — nothing of the artwork is cropped by us; the
+     launcher's own shape mask applies as it does to every app icon).
+     Overrides main's kawaii-mouth bg via the debug source set. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_background" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <background android:drawable="@mipmap/ic_launcher_bg" />
+    <foreground android:drawable="@mipmap/ic_launcher_fg_none" />
 </adaptive-icon>

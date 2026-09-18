@@ -20,13 +20,11 @@ android {
         // dev/CI verification line; `-PreleaseAllAbis=true` (the tag-driven
         // release-apk.yml workflow ONLY) expands the set to ALL FOUR ABIs so
         // the app module's splits block emits one APK per ABI + universal.
-        // EXCEPTION (D-246, user-authorized): `-PemulatorX64Build=true` swaps
-        // the ABI set to x86_64 for the CI TEST-ONLY emulator artifact.
+        // (The D-246 x86_64 emulator exception is RETIRED — D-445, round 40:
+        // the user's "only build the arm64v8 version for the debug version".)
         ndk {
-            val isEmulatorBuild = (findProperty("emulatorX64Build") as? String) == "true"
             val isReleaseAllAbis = (findProperty("releaseAllAbis") as? String) == "true"
             abiFilters += when {
-                isEmulatorBuild -> anikuta.buildlogic.AndroidConfig.emulatorAbiFilters
                 isReleaseAllAbis -> anikuta.buildlogic.AndroidConfig.releaseAllAbiFilters
                 else -> anikuta.buildlogic.AndroidConfig.abiFilters
             }

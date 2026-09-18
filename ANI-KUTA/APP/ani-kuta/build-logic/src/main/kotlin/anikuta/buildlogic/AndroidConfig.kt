@@ -558,13 +558,10 @@ object AndroidConfig {
     // signed push-path assembleRelease); `-PreleaseAllAbis=true` (the
     // tag-driven release-apk.yml workflow ONLY) expands the set to ALL FOUR
     // ABIs so the app module's splits block emits one APK per ABI + universal.
-    // EXCEPTION (user-authorized, D-246 emulator-testing support): a TEST-ONLY
-    // x86_64 build is produced in CI via `-PemulatorX64Build=true` — it goes to a
-    // SEPARATE artifact and never ships.
+    // (The D-246 x86_64 emulator exception is RETIRED — D-445, round 40: the
+    // user's "from now we will only build the arm64v8 version for the debug
+    // version" — no x86 APK is ever built on the dev/CI path anymore.)
     val abiFilters = listOf("arm64-v8a")
-
-    /** ABIs for the CI emulator-test build (native x86_64 — no ARM translation). */
-    val emulatorAbiFilters = listOf("x86_64")
 
     /**
      * D-430 (the D-423 port): ALL FOUR ABIs — used ONLY by the tag-driven
