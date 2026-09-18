@@ -382,7 +382,7 @@ class ReturnPillView(
         readyYAnimator?.cancel()
         entranceAnimator?.cancel()
         ring.cancel()
-        exitHandler.removeCallbacks(exitToken)
+        exitHandler.removeCallbacks(null, exitToken)
         animate().setListener(null)
     }
 
