@@ -124,9 +124,12 @@ class ReturnPillView(
     /** True once the countdown finished (ready state entered). Idempotent gate. */
     private var isReady = false
 
-    init {
-        val dp = { v: Int -> TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics) }
+    /** Shared dp→px helper (init + the ready-state relayout both use it). */
+    private val dp: (Int) -> Float = { v: Int ->
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics)
+    }
 
+    init {
         capsuleBackground = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(30)
