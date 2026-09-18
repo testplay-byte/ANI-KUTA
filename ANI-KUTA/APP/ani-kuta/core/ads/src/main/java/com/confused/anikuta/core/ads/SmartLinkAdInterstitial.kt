@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -80,10 +81,10 @@ fun SmartLinkAdInterstitial() {
     // pill always matches the user's active palette.
     val pillController = koinInject<SmartLinkReturnPillController>()
     val pillColors = ReturnPillColors(
-        container = MaterialTheme.colorScheme.surface,
-        content = MaterialTheme.colorScheme.onSurface,
-        accent = MaterialTheme.colorScheme.primary,
-        onAccent = MaterialTheme.colorScheme.onPrimary,
+        container = MaterialTheme.colorScheme.surface.toArgb(),
+        content = MaterialTheme.colorScheme.onSurface.toArgb(),
+        accent = MaterialTheme.colorScheme.primary.toArgb(),
+        onAccent = MaterialTheme.colorScheme.onPrimary.toArgb(),
     )
     val pillDurationMs = repository.config.smartLink.minTimeOutsideMs
 

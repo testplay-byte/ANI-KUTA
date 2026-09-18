@@ -85,7 +85,7 @@ data class ReturnPillColors(
  */
 class ReturnPillView(
     context: Context,
-    private val colors: ReturnPillColors,
+    private val pillColors: ReturnPillColors,
     /** The smart-link's min-time-outside threshold — the ring's full length. */
     totalMs: Long,
     /** Invoked when the user taps the pill / the Go-back chip. */
@@ -122,8 +122,8 @@ class ReturnPillView(
         capsuleBackground = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(30)
-            setColor(colors.container)
-            setStroke(dp(1).toInt(), withAlpha(colors.content, 0x14))
+            setColor(pillColors.container)
+            setStroke(dp(1).toInt(), withAlpha(pillColors.content, 0x14))
         }
 
         capsule = LinearLayout(context).apply {
@@ -133,10 +133,10 @@ class ReturnPillView(
             setPadding(dp(12).toInt(), dp(8).toInt(), dp(8).toInt(), dp(8).toInt())
         }
 
-        ring = CountdownRingView(context, colors, totalMs)
+        ring = CountdownRingView(context, pillColors, totalMs)
 
         label = TextView(context).apply {
-            setTextColor(colors.content)
+            setTextColor(pillColors.content)
             textSize = 13f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             text = "Stay a moment…"
@@ -145,13 +145,13 @@ class ReturnPillView(
 
         chip = TextView(context).apply {
             text = "Go back"
-            setTextColor(colors.onAccent)
+            setTextColor(pillColors.onAccent)
             textSize = 13f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(22)
-                setColor(colors.accent)
+                setColor(pillColors.accent)
             }
             setPadding(dp(14).toInt(), dp(8).toInt(), dp(14).toInt(), dp(8).toInt())
         }
