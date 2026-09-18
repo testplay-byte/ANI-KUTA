@@ -75,6 +75,17 @@ fun SmartLinkAdInterstitial() {
     val lifecycleObserver = koinInject<AppLifecycleObserver>()
     val state by coordinator.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // D-443: the floating return pill (over the browser) — controller + the
+    // theme colors it renders with, captured from THIS composition so the
+    // pill always matches the user's active palette.
+    val pillController = koinInject<SmartLinkReturnPillController>()
+    val pillColors = ReturnPillColors(
+        container = MaterialTheme.colorScheme.surface,
+        content = MaterialTheme.colorScheme.onSurface,
+        accent = MaterialTheme.colorScheme.primary,
+        onAccent = MaterialTheme.colorScheme.onPrimary,
+    )
+    val pillDurationMs = repository.config.smartLink.minTimeOutsideMs
 
     // Register the ProcessLifecycleObserver while the interstitial is active.
     // Unregister on dispose so we don't hold the observer when no ad is in flight.
@@ -92,6 +103,21 @@ fun SmartLinkAdInterstitial() {
                 Logger.d("Anikuta:Core:Ads:Interstitial") { "foreground return received → onAppReturnedToForeground" }
                 coordinator.onAppReturnedToForeground()
             }
+        }
+    }
+
+    // D-443: the floating return pill lives over the BROWSER exactly while
+    // the ad is in progress. Show fires at the Continue tap (the state flips
+    // while the app is still foregrounded — the overlay window then survives
+    // the backgrounding); every other state means the user is IN the app,
+    // where the in-app interstitial is the right surface. The controller is
+    // a no-op when the overlay permission isn't granted (silent fallback to
+    // the previous no-pill behavior — never blocks the ad flow).
+    LaunchedEffect(state) {
+        if (state is AdGateState.AdInProgress) {
+            pillController.show(context, pillColors, pillDurationMs)
+        } else {
+            pillController.hide()
         }
     }
 

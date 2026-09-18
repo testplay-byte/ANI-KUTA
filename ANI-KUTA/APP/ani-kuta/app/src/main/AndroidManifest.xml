@@ -13,6 +13,13 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- D-443: the smart-link ad's floating return pill — a system overlay
+         window so the countdown + "Go back" pill floats over the USER'S
+         BROWSER while the sponsor visit runs. Runtime-gated by
+         Settings.canDrawOverlays(): users who never grant "Display over
+         other apps" simply get the previous no-pill behavior (the ad flow
+         itself is never blocked on this). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- D-193 Phase 4: Battery optimization — needed for background notifications when app is killed -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- D-315: saving cover images to the gallery (Pictures/ANI-KUTA) on

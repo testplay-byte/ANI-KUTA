@@ -23,6 +23,8 @@ The user explicitly requested: *"I want to keep it separate from the other parts
 | `AppLifecycleObserver.kt` | `DefaultLifecycleObserver` on `ProcessLifecycleOwner` — records ON_STOP timestamp + emits `onReturnToForeground: SharedFlow<Unit>` on ON_START. `elapsedOutsideMs()` measures time outside. |
 | `AdsCoordinator.kt` | The state machine. `val state: StateFlow<AdGateState>` + `requestNavigation(proceed): Boolean` + `onUserContinue(context)` + `onAppReturnedToForeground()` + `onTryAgain(context)` + `cancel()`. |
 | `SmartLinkAdInterstitial.kt` | Full-screen Compose `Dialog` with 3 `Crossfade` states (AdPending / AdInProgress / AdTryAgain). `DisposableEffect` registers the lifecycle observer; `LaunchedEffect` collects `onReturnToForeground` while AdInProgress. |
+| `ReturnPillView.kt` | (D-443) The floating return pill itself — classic Views (the overlay window has no lifecycle owner, so Compose is not an honest fit): a rounded capsule `FrameLayout` [countdown ring][label][Go-back chip] + the `ReturnPillColors` ARGB carrier + the private `CountdownRingView` (60fps arc countdown + remaining-seconds text + drawn checkmark when done). |
+| `SmartLinkReturnPillController.kt` | (D-443) WindowManager controller for the pill's TYPE_APPLICATION_OVERLAY window: `show(context, colors, durationMs)` / `hide()`, replace-on-reshow (Try-again loop), idempotent animated hide, orphan safety removal at countdown+10min, add/remove try/catch so the ad flow never breaks over the pill, and the `bringAppToForeground` launch-intent action. |
 | `di/AdsModule.kt` | Koin module registering `AdPreferences`, `AdsRepository`, `AppLifecycleObserver`, `AdsCoordinator`. |
 
 ## State machine (one ad-gated navigation)
@@ -134,6 +136,20 @@ The user said: *"make sure that the ad system is robust and it is not that intru
 - **No browser installed:** `ActivityNotFoundException` → `completeAd()` (treat as ad shown so the cooldown still applies — the URL was "presented" even if no browser consumed it) + proceed. Don't trap the user.
 - **Safety cap (maxRetries = 3):** if the user keeps coming back too quickly, after 3 retries the ad is counted as completed + they proceed. Don't trap forever.
 - **6h cooldown:** at most 1 ad per 6 hours regardless of how many content entries the user taps. The cooldown survives cold starts (SharedPreferences).
+
+## The floating return pill (D-443)
+
+Round 40, per the user: *"When the user is redirected what should happen is that a floating button should start to show up with the timer and the option to go back. It will be a pill-shaped one, animated, beautiful, and theme-colored."*
+
+**What happens now on Continue:** the browser opens AND a small theme-colored capsule floats over the browser (top-center, below the status bar): a circular countdown ring counting down `minTimeOutsideMs` with the remaining seconds inside, the label "Stay a moment…", and a **Go back** chip. When the countdown finishes, the pill crossfades to "You can go back now", the ring swaps to a checkmark, and the capsule starts a gentle pulse. Tapping the pill (at ANY time — early taps are fine) brings ANI-KUTA back to the foreground: the existing coordinator gate then either completes the ad (elapsed ≥ min → details page opens) or shows the in-app Try-again state.
+
+**Why a system overlay window:** while the user is in the browser, our app is backgrounded — an in-app Compose overlay is invisible over another app. The pill lives in a `TYPE_APPLICATION_OVERLAY` `WindowManager` window, which is why it is classic Views (no lifecycle owner / saved-state registry exists there to host a ComposeView honestly).
+
+**Theme-colored:** the interstitial captures `MaterialTheme.colorScheme` (surface / onSurface / primary / onPrimary) into `ReturnPillColors` at the Continue tap — the pill always renders in the user's active palette (their chosen colors, dark/light).
+
+**Permission honesty:** floating over another app requires `SYSTEM_ALERT_WINDOW` ("Display over other apps"). It is declared in the manifest but runtime-gated by `Settings.canDrawOverlays()` — users who never grant it silently get the previous no-pill behavior. The ad flow is NEVER blocked on the permission, and there is deliberately no settings nag (non-intrusive standing rule).
+
+**State-driven, zero coordinator changes:** the interstitial's `LaunchedEffect(state)` shows the pill on `AdInProgress` (fired at the Continue tap while the app is still foregrounded — the window then survives the backgrounding) and hides it on every other state. The Try-again loop re-shows it per attempt (fresh countdown, replace-on-reshow). An orphan safety removal fires at countdown + 10 minutes.
 
 ## Test checklist (see the closing task response)
 

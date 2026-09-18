@@ -40,4 +40,9 @@ val adsModule = module {
     // Task 61 (round 21): the application context rides the constructor for
     // the offline gate (ConnectivityManager) — see AdsCoordinator.isOnline.
     single { AdsCoordinator(get(), get(), androidContext()) }
+    // D-443: the floating return pill over the browser (system overlay
+    // window). No context in the constructor — it takes one per show() call
+    // (the application context via applicationContext()) and is a pure
+    // window manager, no state beyond the active-pill handle.
+    single { SmartLinkReturnPillController() }
 }
