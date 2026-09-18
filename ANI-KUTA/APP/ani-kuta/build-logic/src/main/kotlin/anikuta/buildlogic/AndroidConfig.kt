@@ -544,14 +544,23 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10104
+    const val versionName = "1.1.4"
+    // D-450 (round 41): release/1.1.4 — cut from the round-41 FEATURE branch
+    // head 056373e2 (the same from-feature-branch model the user ordered for
+    // round 40; main still carries NONE of this — the merge awaits the
+    // user's explicit confirmation). What the release carries: D-443 the
+    // floating return pill, D-444 the mascot debug launcher, D-445 the
+    // arm64-only debug path, D-447 the DEBUG-ONLY release line (this repo's
+    // releases = the debug arm64-v8a APK the standalone debug app updates
+    // itself from), D-448 the pill redesign (bottom, Go-back only after the
+    // timer, the grow animation, no early tap), D-449 the wizard's "Draw
+    // over other apps" step. 1.1.4 is the next number after v1.1.3; 10104 >
+    // 10103 — installs OVER any installed v1.1.x. NOTE: the v1.1.3 RELEASE
+    // was the all-ABI publication DELETED from this repo by D-447's policy —
+    // the debug device line jumps 1.1.2 (10102) → 1.1.4 (10104), still
+    // monotonic. Main stays at 0.4.20/85 (D-425: the bump lives on the
+    // release branch).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
