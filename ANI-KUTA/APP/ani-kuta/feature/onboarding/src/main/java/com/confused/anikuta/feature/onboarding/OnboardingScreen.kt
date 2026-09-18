@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.Icon
@@ -157,11 +158,13 @@ fun OnboardingScreen(
     var folderValid by remember { mutableStateOf(false) }
     var notificationsGranted by remember { mutableStateOf(false) }
     var batteryExempted by remember { mutableStateOf(false) }
+    var overlayGranted by remember { mutableStateOf(false) }  // D-449
 
     fun refreshPermissions() {
         folderValid = OnboardingPermissions.resolveDownloadFolder(context, folderUri) != null
         notificationsGranted = OnboardingPermissions.hasNotificationPermission(context)
         batteryExempted = OnboardingPermissions.isIgnoringBatteryOptimizations(context)
+        overlayGranted = OnboardingPermissions.hasOverlayPermission(context)
     }
     // Initial check + re-verify whenever the folder pref changes (the
     // picker's result lands here — no "we asked once" flag, the STATE is
@@ -299,12 +302,36 @@ fun OnboardingScreen(
                     onBack = { stepIndex-- },
                     onContinue = { stepIndex = 5 },
                 )
+                // D-449 (round 41): the "Draw over other apps" step — the
+                // floating ad-return pill needs this special consent, and the
+                // v1.1.3 device round showed the wizard never asked. One tap
+                // opens the system's own toggle screen for THIS app; the
+                // ON_RESUME re-verify above marks the step granted the moment
+                // the user flips the toggle and comes back.
+                OnboardingStep.OVERLAY -> OnboardingPermissionStep(
+                    stepNumber = 5,
+                    icon = Icons.Filled.Layers,
+                    title = "Draw over other apps",
+                    description = "Lets ANI-KUTA show a small floating timer while the " +
+                        "sponsor opens, with a Go back button that brings you straight " +
+                        "back into the app.",
+                    actionLabel = "Allow drawing over apps",
+                    onAction = { OnboardingPermissions.requestOverlayPermission(context) },
+                    statusGranted = overlayGranted,
+                    grantedLabel = "Drawing over apps allowed",
+                    allowChange = false,
+                    changeLabel = "",
+                    onChange = {},
+                    onBack = { stepIndex-- },
+                    onContinue = { stepIndex = 6 },
+                )
                 OnboardingStep.FINISH -> OnboardingFinishStep(
                     themeChoices = themeChoices,
                     selectedThemeId = selectedThemeId,
                     folderValid = folderValid,
                     notificationsGranted = notificationsGranted,
                     batteryExempted = batteryExempted,
+                    overlayGranted = overlayGranted,
                     appVersion = appVersion,
                     onBack = { stepIndex-- },
                     onFinish = onFinished,
@@ -734,7 +761,7 @@ private fun OnboardingThemeStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = 1, totalSteps = 5, onBack = onBack)
+        OnboardingTopBar(stepPosition = 1, totalSteps = 6, onBack = onBack)
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
             Text(
                 text = "Make it yours",
@@ -1047,6 +1074,12 @@ private fun OnboardingPermissionStep(
     statusGranted: Boolean,
     grantedLabel: String,
     grantedDetail: String? = null,
+    /**
+     * D-449: an optional one-line explanation under the title — the OVERLAY
+     * step uses it to say WHY the consent exists (the ad-return pill). The
+     * older steps pass nothing and render exactly as before.
+     */
+    description: String? = null,
     allowChange: Boolean,
     changeLabel: String,
     onChange: () -> Unit,
@@ -1059,7 +1092,7 @@ private fun OnboardingPermissionStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = stepNumber, totalSteps = 5, onBack = onBack)
+        OnboardingTopBar(stepPosition = stepNumber, totalSteps = 6, onBack = onBack)
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -1116,6 +1149,19 @@ private fun OnboardingPermissionStep(
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
             )
+            // D-449: the optional WHY line (only the OVERLAY step passes one).
+            if (description != null) {
+                Spacer(Modifier.size(8.dp))
+                Text(
+                    text = description,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+            }
             Spacer(Modifier.weight(0.45f))
             // D-407 (round 31): the action↔granted swap — an explicitly
             // CENTERED AnimatedContent over full-width children. The granted
@@ -1243,6 +1289,7 @@ private fun OnboardingFinishStep(
     folderValid: Boolean,
     notificationsGranted: Boolean,
     batteryExempted: Boolean,
+    overlayGranted: Boolean,
     appVersion: String,
     onBack: () -> Unit,
     onFinish: () -> Unit,
@@ -1253,7 +1300,7 @@ private fun OnboardingFinishStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = 5, totalSteps = 5, onBack = onBack)
+        OnboardingTopBar(stepPosition = 6, totalSteps = 6, onBack = onBack)
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -1312,6 +1359,18 @@ private fun OnboardingFinishStep(
                     done = batteryExempted,
                     modifier = Modifier.weight(1f),
                 )
+            }
+            // D-449: the overlay consent joins the summary (row 3, left cell).
+            Spacer(Modifier.size(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SummaryCard(
+                    icon = Icons.Filled.Layers,
+                    label = "Draw over apps",
+                    value = if (overlayGranted) "Allowed" else "Skipped",
+                    done = overlayGranted,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.weight(1f))
             }
             Spacer(Modifier.height(28.dp))
         }

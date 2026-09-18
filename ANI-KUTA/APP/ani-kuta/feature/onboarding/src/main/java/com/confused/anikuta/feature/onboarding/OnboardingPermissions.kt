@@ -68,6 +68,32 @@ internal object OnboardingPermissions {
     }
 
     /**
+     * D-449 (round 41): the "Display over other apps" consent — the
+     * smart-link ad's floating return pill (D-443/D-448) floats over the
+     * browser through a TYPE_APPLICATION_OVERLAY window, which on every
+     * supported API level requires this special consent. There is no
+     * runtime-dialog shortcut (unlike notifications): the check is
+     * [Settings.canDrawOverlays] and the grant happens ONLY on the system's
+     * own toggle screen — which the wizard's step opens with ONE tap.
+     */
+    fun hasOverlayPermission(context: Context): Boolean = Settings.canDrawOverlays(context)
+
+    /**
+     * Opens this app's page on the system's "Display over other apps"
+     * screen (the single toggle the user flips) with the general
+     * overlay-settings list as the fallback for devices that refuse the
+     * per-package URI. Returns whether ANY intent resolved.
+     */
+    fun requestOverlayPermission(context: Context): Boolean {
+        val direct = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+            data = Uri.parse("package:${context.packageName}")
+        }
+        if (runCatching { context.startActivity(direct) }.isSuccess) return true
+        val fallback = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+        return runCatching { context.startActivity(fallback) }.isSuccess
+    }
+
+    /**
      * D-407 (round 31): converts the persisted SAF tree URI into a READABLE
      * full folder path — "Internal storage  ›  ANI-KUTA  ›  Downloads" — for
      * the folder step's granted panel (the report: "it could show the full

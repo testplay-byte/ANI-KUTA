@@ -1,45 +1,37 @@
-# ANI-KUTA — Release APK (D-423, round 35 — the all-ABI SIGNED release line;
-# round 38: the R8 mapping asset removed with the minification retirement)
+# ANI-KUTA — Release APK (D-447, round 41 — THE DEBUG-ONLY RELEASE LINE)
 #
-# THE ONLY path that builds release APKs (round 38, user instruction: main and
-# every other branch build ONLY the debug APK — a release build exists solely
-# through this tag-driven workflow).
+# THE policy (the user's v1.1.3 device-round correction): THIS repository's
+# GitHub releases carry ONLY the DEBUG build, ONLY for arm64-v8a — "you were
+# supposed to do the releases of the debug version… only one of the debug
+# versions, the arm64v8, was supposed to be built and was supposed to be
+# released." The RELEASE-signed, all-ABI build line lives on the PUBLISHED
+# repo (Confused-Creature-180/ANI-KUTA) and happens ONLY after everything
+# is completed — never on this repo.
+#
+# Why debug here: the debug app is the user's STANDALONE daily build
+# (applicationIdSuffix `.debug` — it co-installs with the release app) and
+# it updates IN-APP from THIS repo's releases (D-440: debug checks
+# testplay-byte/ANI-KUTA at runtime). A release-signed APK on this repo is
+# unusable by the debug app (different signature + different applicationId)
+# and must never appear here again.
 #
 # Creates a versioned GitHub Release carrying:
-#   - ani-kuta-v{version}-arm64-v8a.apk    (64-bit ARM — most phones)
-#   - ani-kuta-v{version}-armeabi-v7a.apk  (32-bit ARM — older devices)
-#   - ani-kuta-v{version}-x86.apk          (32-bit x86 — some emulators/boxes)
-#   - ani-kuta-v{version}-x86_64.apk       (64-bit x86 — emulators/Chromebooks)
-#   - ani-kuta-v{version}-universal.apk    (every ABI in one APK)
-#   - ANI-KUTA-v{version}-RELEASE.zip      (all five APKs + SHA256SUMS.txt)
+#   - ani-kuta-v{version}-debug-arm64-v8a.apk  (the DEBUG build, arm64-v8a)
+#   - SHA256SUMS.txt                           (the APK's checksum)
 #
-# Trigger: push a tag `v{versionName}` (e.g. v1.1.1) whose version matches
+# Trigger: push a tag `v{versionName}` (e.g. v1.1.4) whose version matches
 # AndroidConfig.kt's versionName — the workflow verifies the match and fails
 # on mismatch. Can also be run via workflow_dispatch with an existing tag.
 #
-# SIGNING (D-423, the round-34 lesson — the user's report):
-#   CI builds AND signs EVERY APK. The release keystore + credentials live in
-#   the repository's GitHub Actions secrets:
-#     ANIKUTA_KEYSTORE_BASE64     base64 of the .keystore (JKS, RSA-2048)
-#     ANIKUTA_KEYSTORE_PASSWORD   the keystore store password
-#     ANIKUTA_KEY_ALIAS           the signing key alias (anikuta)
-#     ANIKUTA_KEY_PASSWORD        the key password
-#   They are decoded to app/keystore.properties + app/anikuta-release.keystore
-#   before the build; the AGP signing config (D-413) signs each split APK.
-#   The apksigner verify gate then HARD-FAILS the workflow if ANY shipped APK
-#   is unsigned or fails verification — an unsigned artifact must NEVER be
-#   downloadable from a release (INSTALL_PARSE_FAILED_NO_CERTIFICATES).
+# SIGNING: the DEBUG APK is signed with the COMMITTED debug keystore (the
+# app's anikutaDebug config — the co-install line has always used it), so no
+# release secrets are involved here. The committed debug key is a deliberate
+# project decision (the user's original request: a stable debug key so dev
+# installs update in place). An apksigner gate still verifies the APK is
+# properly signed before publishing.
 #
-# ABI POLICY (CORE_RULES §8, D-423): shipped releases carry ALL FOUR ABIs —
-# built with `-PreleaseAllAbis=true` (the splits block in app/build.gradle.kts
-# + the widened ndk.abiFilters in the convention plugin). The dev/CI push path
-# (build-apk.yml) stays arm64-v8a-only.
-#
-# MINIFICATION (D-436, round 38): R8 is REMOVED from the release line — the
-# release APKs are NOT minified, NOT obfuscated, NOT resource-shrunk (the
-# v1.1.1 device round: obfuscated release builds broke the extension system —
-# plugins loaded via DexClassLoader resolve host classes by their compiled
-# names). There is no mapping.txt anymore.
+# ABI POLICY (D-445/D-447): the debug line is arm64-v8a ONLY — the workflow
+# HARD-FAILS if any other ABI is found in the APK.
 #
 # The release is published as a STABLE release (never prerelease) —
 # /releases/latest and the in-app updater rely on it.
@@ -52,7 +44,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to release (e.g. v1.1.1 — must match AndroidConfig.versionName)'
+        description: 'Existing tag to release (e.g. v1.1.4 — must match AndroidConfig.versionName)'
         required: true
         type: string
 
@@ -70,11 +62,6 @@ jobs:
     defaults:
       run:
         working-directory: ANI-KUTA/APP/ani-kuta
-    env:
-      KEYSTORE_BASE64: ${{ secrets.ANIKUTA_KEYSTORE_BASE64 }}
-      KEYSTORE_PASSWORD: ${{ secrets.ANIKUTA_KEYSTORE_PASSWORD }}
-      KEY_ALIAS: ${{ secrets.ANIKUTA_KEY_ALIAS }}
-      KEY_PASSWORD: ${{ secrets.ANIKUTA_KEY_PASSWORD }}
     steps:
       - name: Checkout (tag)
         uses: actions/checkout@v4
@@ -113,126 +100,65 @@ jobs:
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
 
-      - name: Write release keystore + properties from GitHub secrets
+      - name: Run unit tests (CloudStream modules)
+        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:common:testDebugUnitTest
+
+      # D-447: the DEBUG build — signed with the committed debug keystore by
+      # the anikutaDebug config. No release secrets on this path anymore.
+      - name: Build the DEBUG APK (arm64-v8a only)
+        run: ./gradlew assembleDebug
+
+      - name: Verify the debug APK exists
         run: |
           set -e
-          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
-            echo "::error::Release signing secrets are missing (need ANIKUTA_KEYSTORE_BASE64, ANIKUTA_KEYSTORE_PASSWORD, ANIKUTA_KEY_ALIAS, ANIKUTA_KEY_PASSWORD). Releases MUST be signed in CI — D-423."
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          if [ ! -f "$apk" ]; then
+            echo "::error::Missing debug APK: $apk"
+            ls -R app/build/outputs/apk/debug/ 2>/dev/null || true
             exit 1
           fi
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > app/anikuta-release.keystore
-          {
-            printf 'storeFile=anikuta-release.keystore\n'
-            printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
-            printf 'keyAlias=%s\n' "$KEY_ALIAS"
-            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
-          } > app/keystore.properties
-          # Sanity: a loadable keystore with the expected alias (keytool ships with the runner's JDK).
-          keytool -list -keystore app/anikuta-release.keystore \
-            -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
-          echo "Keystore decoded + verified ($KEY_ALIAS)."
+          ls -la "$apk"
 
-      # D-423: the all-ABI split build — one signed APK per ABI + universal.
-      # D-436: NO minification (isMinifyEnabled=false since round 38).
-      - name: Build SIGNED release APKs (all ABIs + universal)
-        run: ./gradlew assembleRelease -PreleaseAllAbis=true
-
-      - name: Verify the five release APKs exist
-        run: |
-          set -e
-          ok=1
-          for apk in app/build/outputs/apk/release/app-arm64-v8a-release.apk \
-                     app/build/outputs/apk/release/app-armeabi-v7a-release.apk \
-                     app/build/outputs/apk/release/app-x86-release.apk \
-                     app/build/outputs/apk/release/app-x86_64-release.apk \
-                     app/build/outputs/apk/release/app-universal-release.apk; do
-            if [ ! -f "$apk" ]; then
-              echo "::error::Missing release APK: $apk"
-              ls -R app/build/outputs/apk/release/ 2>/dev/null || true
-              ok=0
-            else
-              ls -la "$apk"
-            fi
-          done
-          [ "$ok" = "1" ]
-
-      - name: Verify per-APK ABIs (each split carries ONLY its own natives)
+      - name: Verify ABI (arm64-v8a ONLY — hard fail on anything else)
         working-directory: .
         run: |
           set -e
-          check() {
-            local apk="ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/release/$1"
-            local expect="$2"
-            local got
-            got=$(unzip -Z1 "$apk" | grep -E '^lib/[^/]+/' | cut -d'/' -f2 | sort -u | tr '\n' ' ' | sed 's/ *$//')
-            echo "$1 -> lib ABIs: [${got}] (expected [${expect}])"
-            if [ "$got" != "$expect" ]; then
-              echo "::error::$1 has wrong ABIs: [${got}] expected [${expect}]"
-              exit 1
-            fi
-          }
-          check app-arm64-v8a-release.apk    "arm64-v8a"
-          check app-armeabi-v7a-release.apk  "armeabi-v7a"
-          check app-x86-release.apk          "x86"
-          check app-x86_64-release.apk       "x86_64"
-          check app-universal-release.apk    "arm64-v8a armeabi-v7a x86 x86_64"
+          apk="ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/debug/app-debug.apk"
+          got=$(unzip -Z1 "$apk" | grep -E '^lib/[^/]+/' | cut -d'/' -f2 | sort -u | tr '\n' ' ' | sed 's/ *$//')
+          echo "debug APK -> lib ABIs: [${got}] (expected [arm64-v8a])"
+          if [ "$got" != "arm64-v8a" ]; then
+            echo "::error::The debug release APK must carry ONLY arm64-v8a (D-445/D-447); found [${got}]."
+            exit 1
+          fi
 
-      # THE gate that would have caught the round-34 unsigned download:
-      # every shipped APK must carry a verifiable signature. apksigner's own
-      # exit code is the gate (nonzero = verification failure); the cert-DN
-      # grep is format-agnostic ("Signer #1 certificate DN" on older
-      # build-tools, "V2 Signer: certificate DN" on 37.0.0+) — an unsigned
-      # APK prints no certificate lines at all, so a missing DN = failure.
-      - name: Verify SIGNATURES (apksigner gate — hard fail on any unsigned APK)
+      # Quality gate: the shipped APK must carry a verifiable signature (the
+      # committed debug key). An unsigned/corrupt APK must never be downloadable.
+      - name: Verify SIGNATURE (apksigner gate)
         run: |
           set -e
           APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
           echo "Using $APKSIGNER"
-          fail=0
-          for apk in app/build/outputs/apk/release/app-arm64-v8a-release.apk \
-                     app/build/outputs/apk/release/app-armeabi-v7a-release.apk \
-                     app/build/outputs/apk/release/app-x86-release.apk \
-                     app/build/outputs/apk/release/app-x86_64-release.apk \
-                     app/build/outputs/apk/release/app-universal-release.apk; do
-            echo "── Verifying $(basename "$apk")"
-            if ! "$APKSIGNER" verify --print-certs "$apk" > /tmp/certs.txt 2>&1; then
-              echo "::error::$(basename "$apk") FAILED apksigner verification (unsigned or corrupt) — refusing to publish."
-              cat /tmp/certs.txt || true
-              fail=1
-              continue
-            fi
-            grep -E "Verified using v[0-9.]+ scheme.*: true|Verifies" /tmp/certs.txt || true
-            grep -E "certificate DN" /tmp/certs.txt || {
-              echo "::error::$(basename "$apk") verified but printed NO certificate lines — refusing to publish."
-              fail=1
-            }
-          done
-          exit $fail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          if ! "$APKSIGNER" verify --print-certs "$apk" > /tmp/certs.txt 2>&1; then
+            echo "::error::The debug APK FAILED apksigner verification — refusing to publish."
+            cat /tmp/certs.txt || true
+            exit 1
+          fi
+          grep -E "certificate DN" /tmp/certs.txt || {
+            echo "::error::The debug APK verified but printed NO certificate lines — refusing to publish."
+            exit 1
+          }
+          cat /tmp/certs.txt
 
-      - name: Stage release assets (rename + checksums + ZIP)
+      - name: Stage release assets (rename + checksum)
         run: |
           set -e
-          out=app/build/outputs/apk/release
+          out=app/build/outputs/apk/debug
           stage=/tmp/anikuta-release
           rm -rf "$stage" && mkdir -p "$stage"
-          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
-            cp "$out/app-$abi-release.apk" "$stage/ani-kuta-v${VERSION}-$abi.apk"
-          done
-          cp "$out/app-universal-release.apk" "$stage/ani-kuta-v${VERSION}-universal.apk"
-          # SHA256 for every APK (inside the zip AND as a release asset).
-          ( cd "$stage" && sha256sum ani-kuta-v${VERSION}-*.apk > SHA256SUMS.txt )
+          cp "$out/app-debug.apk" "$stage/ani-kuta-v${VERSION}-debug-arm64-v8a.apk"
+          ( cd "$stage" && sha256sum ani-kuta-v${VERSION}-debug-arm64-v8a.apk > SHA256SUMS.txt )
           cat "$stage/SHA256SUMS.txt"
-          # The release ZIP: all five APKs + the checksums (D-423 — the user's
-          # "properly create a zip using GitHub Actions" instruction).
-          ( cd "$stage" && zip -j -9 "ANI-KUTA-v${VERSION}-RELEASE.zip" \
-              ani-kuta-v${VERSION}-arm64-v8a.apk \
-              ani-kuta-v${VERSION}-armeabi-v7a.apk \
-              ani-kuta-v${VERSION}-x86.apk \
-              ani-kuta-v${VERSION}-x86_64.apk \
-              ani-kuta-v${VERSION}-universal.apk \
-              SHA256SUMS.txt )
-          # D-436 (round 38): no mapping.txt anymore — the release line is
-          # NOT minified/obfuscated, so there is nothing to map.
           ls -la "$stage"
 
       - name: Create GitHub Release (stable, never prerelease)
@@ -246,7 +172,7 @@ jobs:
           if [ -z "$SUBJECT" ] || [ "$SUBJECT" = "$TAG" ]; then
             SUBJECT="ANI-KUTA v${VERSION}"
           fi
-          # Body: commits since the previous tag + the ABI table + install notes.
+          # Body: commits since the previous tag + the debug-install notes.
           PREV_TAG=$(git describe --abbrev=0 --tags "$TAG"^ 2>/dev/null || true)
           RANGE="$TAG"
           if [ -n "$PREV_TAG" ]; then RANGE="${PREV_TAG}..${TAG}"; fi
@@ -255,20 +181,18 @@ jobs:
             echo
             git log --oneline --no-decorate "$RANGE"
             echo
-            echo "## Downloads"
+            echo "## Download"
             echo
             echo "| File | For |"
             echo "| --- | --- |"
-            echo "| \`ani-kuta-v${VERSION}-arm64-v8a.apk\` | **Most phones** (64-bit ARM) — pick this if unsure |"
-            echo "| \`ani-kuta-v${VERSION}-armeabi-v7a.apk\` | Older 32-bit ARM devices |"
-            echo "| \`ani-kuta-v${VERSION}-x86_64.apk\` | Emulators, Chromebooks (64-bit x86) |"
-            echo "| \`ani-kuta-v${VERSION}-x86.apk\` | 32-bit x86 devices/boxes |"
-            echo "| \`ani-kuta-v${VERSION}-universal.apk\` | Every ABI in one APK (largest) |"
-            echo "| \`ANI-KUTA-v${VERSION}-RELEASE.zip\` | All of the above + SHA256SUMS.txt |"
+            echo "| ani-kuta-v${VERSION}-debug-arm64-v8a.apk | **The debug app (arm64-v8a phones)** — the standalone .debug build |"
             echo
-            echo "Every APK is **signed** (verified by CI before publishing) and installs over any earlier v1.x build of the same type. The in-app updater (Settings → About → Check for Updates) automatically picks the right APK for this device."
+            echo "This is the **DEBUG** release line (D-447): the standalone debug app"
+            echo "(co-installs with the release app; app id com.confused.anikuta.debug),"
+            echo "signed with the committed debug key, arm64-v8a only. The debug app"
+            echo "updates itself in-app from these releases."
             echo
-            echo "Checksums: see \`SHA256SUMS.txt\` (also inside the ZIP)."
+            echo "Checksum: see SHA256SUMS.txt."
           } > /tmp/release_body.md
           echo "Release title: $SUBJECT"
           cat /tmp/release_body.md
@@ -276,10 +200,5 @@ jobs:
             --title "$SUBJECT" \
             --notes-file /tmp/release_body.md \
             --latest \
-            "/tmp/anikuta-release/ani-kuta-v${VERSION}-arm64-v8a.apk" \
-            "/tmp/anikuta-release/ani-kuta-v${VERSION}-armeabi-v7a.apk" \
-            "/tmp/anikuta-release/ani-kuta-v${VERSION}-x86.apk" \
-            "/tmp/anikuta-release/ani-kuta-v${VERSION}-x86_64.apk" \
-            "/tmp/anikuta-release/ani-kuta-v${VERSION}-universal.apk" \
-            "/tmp/anikuta-release/ANI-KUTA-v${VERSION}-RELEASE.zip" \
+            "/tmp/anikuta-release/ani-kuta-v${VERSION}-debug-arm64-v8a.apk" \
             "/tmp/anikuta-release/SHA256SUMS.txt"

@@ -13,8 +13,12 @@ import androidx.compose.ui.graphics.Color
  * The step machine itself lives in [OnboardingScreen] as plain state; this
  * enum is the vocabulary. WELCOME is the custom animated landing page (not
  * Material-styled — the user's explicit spec), THEME is the quick theme
- * picker (applies live), the three permission steps each VERIFY real state
+ * picker (applies live), the four permission steps each VERIFY real state
  * and are SKIPPABLE, and FINISH is the summary + the exit.
+ *
+ * D-449 (round 41): OVERLAY joins the permission steps — the smart-link ad's
+ * floating return pill (D-443/D-448) needs the "Display over other apps"
+ * consent, and the v1.1.3 device round showed the wizard never asked for it.
  */
 internal enum class OnboardingStep(val isPermissionStep: Boolean) {
     WELCOME(false),
@@ -22,6 +26,7 @@ internal enum class OnboardingStep(val isPermissionStep: Boolean) {
     STORAGE(true),
     NOTIFICATIONS(true),
     BATTERY(true),
+    OVERLAY(true),
     FINISH(false);
 
     /** The 1-based position among the NON-welcome steps (progress display). */

@@ -12,10 +12,12 @@ import android.view.WindowManager
 import com.confused.anikuta.core.common.Logger
 
 /**
- * Shows/hides the floating return pill (D-443) — a system overlay window
- * (TYPE_APPLICATION_OVERLAY) that floats over the USER'S BROWSER while the
- * smart-link ad is in progress, with the min-time countdown + a "Go back"
- * button that brings ANI-KUTA back to the foreground.
+ * Shows/hides the floating return pill (D-443, D-448) — a system overlay
+ * window (TYPE_APPLICATION_OVERLAY) that floats over the USER'S BROWSER
+ * (bottom-center, a thumb-reach above the bottom edge) while the smart-link
+ * ad is in progress: a compact countdown capsule first, and once the
+ * min-time elapses the pill grows and its "Go back" button appears —
+ * tapping it brings ANI-KUTA back to the foreground.
  *
  * # Who calls it
  *
@@ -113,9 +115,13 @@ class SmartLinkReturnPillController {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            // Sit below the status bar; the capsule's self-inset keeps it clear.
-            y = (56 * density).toInt()
+            // D-448 (the v1.1.3 device round): the pill sits at the BOTTOM of
+            // the screen — "it should show at the very bottom… with some
+            // space" — not at the top. BOTTOM gravity + a positive y offset
+            // floats it a thumb-reach above the bottom edge (clear of the
+            // browser's own bottom chrome / gesture bar).
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = (48 * density).toInt()
         }
 
         try {

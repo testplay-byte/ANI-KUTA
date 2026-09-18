@@ -14,7 +14,7 @@ import org.junit.Test
 class OnboardingStepTest {
 
     @Test
-    fun `the wizard runs welcome, theme, three permission steps, finish — in order`() {
+    fun `the wizard runs welcome, theme, four permission steps, finish — in order`() {
         assertEquals(
             listOf(
                 OnboardingStep.WELCOME,
@@ -22,6 +22,7 @@ class OnboardingStepTest {
                 OnboardingStep.STORAGE,
                 OnboardingStep.NOTIFICATIONS,
                 OnboardingStep.BATTERY,
+                OnboardingStep.OVERLAY,
                 OnboardingStep.FINISH,
             ),
             OnboardingStep.ordered,
@@ -29,11 +30,12 @@ class OnboardingStepTest {
     }
 
     @Test
-    fun `the three middle steps are the skippable permission steps`() {
+    fun `the four middle steps are the skippable permission steps`() {
         OnboardingStep.ordered.forEach { step ->
             val expected = step == OnboardingStep.STORAGE ||
                 step == OnboardingStep.NOTIFICATIONS ||
-                step == OnboardingStep.BATTERY
+                step == OnboardingStep.BATTERY ||
+                step == OnboardingStep.OVERLAY
             assertEquals("isPermissionStep($step)", expected, step.isPermissionStep)
         }
     }
