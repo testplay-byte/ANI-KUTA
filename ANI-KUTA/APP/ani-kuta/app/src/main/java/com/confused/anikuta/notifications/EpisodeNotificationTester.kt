@@ -7,6 +7,7 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
+import com.confused.anikuta.core.notifications.NotificationManager
 import com.confused.anikuta.core.updates.UpdateStore
 import java.util.concurrent.TimeUnit
 
@@ -116,5 +117,9 @@ class EpisodeNotificationTester(
             Logger.i(TAG) { "test poster #$index scheduled for ${demo.title} (delay=${delayMinutes}min)" }
         }
         return scheduled
+    }
+
+    private companion object {
+        private const val TAG = "Anikuta:App:NotifTester"
     }
 }

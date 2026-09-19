@@ -28,7 +28,7 @@ class DelayedPosterTestWorker(
             val episodeNumber = inputData.getDouble(KEY_EPISODE, 1.0)
             val audioVariant = inputData.getString(KEY_VARIANT) ?: "sub"
 
-            val koin = GlobalContext.get().koin
+            val koin = GlobalContext.get()
             val contentRepository = koin.get<ContentRepository>()
             val composer = koin.get<EpisodeBannerComposer>()
             val notificationManager = koin.get<NotificationManager>()
