@@ -3059,3 +3059,15 @@ Offline-first unchanged (memory→disk→network over the 500MB cache); the
 details/episode reads stay SQLDelight-local. UpdateProgressNotifierImpl's
 large-icon path untouched (runCatching-wrapped, device-proven across
 rounds 25-47).
+
+## D-492 (round 49): release/1.1.12 — the release cut (the record lives on the branch)
+`release/1.1.12` cut from the round-49 feature head `3614ed9c` (CI green:
+run 35450863700) as ONE commit: the version bump (1.1.12/10112 in
+AndroidConfig.kt) + the branch-point record
+(`DOCUMENTATION/cloudstream-v2/41-RELEASE-1.1.12-BRANCH-POINT.md`). Tag
+`v1.1.12` carries the user-facing What's New bullets (D-466) — the headline
+says plainly that the connection was NEVER the problem; the Release APK
+workflow (run 35451348176, GREEN) published
+`ani-kuta-v1.1.12-debug-arm64-v8a.apk` (66.7 MB) + `SHA256SUMS.txt`, stable +
+`--latest` — verified via the API (assets + body). Main stays at 0.4.20/85
+(D-425). Full detail: the branch-point doc on the release branch.
