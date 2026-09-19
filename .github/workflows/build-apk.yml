@@ -30,11 +30,20 @@ name: Build APK
 
 on:
   push:
-    # 'streaming/**' — the CloudStream V2 work line (streaming/CLOUDSTREAM-V2).
-    # 'release/**' — the publishable release line (release/1.1.1 = v1.1.1).
-    # (test-feature/** was removed at the main merge, per the standing note —
-    # that branch line was merged into main back at v0.2.63.)
-    branches: [ main, 'feature/**', 'functionality/**', 'release/**', 'streaming/**' ]
+    # D-472 (the user's round-46 CI-optimization): at most TWO runs per
+    # release. (1) 'release/**' branches are REMOVED from this trigger — a
+    # release branch differs from its feature head by only the version-bump
+    # commit, and the TAG's Release APK run builds + gates the exact same
+    # code, so a separate branch run is redundant. (2) paths-ignore keeps
+    # docs / agent-context / dashboard / user-uploads edits from triggering
+    # APK builds at all (a docs push used to cost a full Gradle build).
+    branches: [ main, 'feature/**', 'functionality/**', 'streaming/**' ]
+    paths-ignore:
+      - '**.md'
+      - 'ANI-KUTA/AGENT-CONTEXT/**'
+      - 'ANI-KUTA/DASHBOARD/**'
+      - 'USER-UPLOADS/**'
+      - '.github/**'
   pull_request:
     branches: [ main ]
   workflow_dispatch:  # D-445: no inputs — the x86_64 emulator option is retired

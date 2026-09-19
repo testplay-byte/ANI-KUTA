@@ -158,6 +158,15 @@ class ReturnPillView(
             gravity = Gravity.CENTER_VERTICAL
             background = capsuleBackground
             setPadding(dp(12).toInt(), dp(8).toInt(), dp(12).toInt(), dp(8).toInt())
+            // D-473: ViewGroups clip their children to their own bounds by
+            // default — the exit bubble scales the ring past the capsule's
+            // 50dp height and the capsule CLIPPED it (the v1.1.8 "pop cut off
+            // at the top and bottom" report — the window had slack, the
+            // CAPSULE was the clipper). Both the capsule and the root allow
+            // children to draw outside their bounds; the window's slack
+            // receives the overflow.
+            clipChildren = false
+            clipToPadding = false
         }
 
         ring = CountdownRingView(context, pillColors, totalMs)
@@ -199,6 +208,10 @@ class ReturnPillView(
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT),
         )
 
+        // D-473: the root must not clip either (the capsule's own overflow
+        // lands in the root's padding + the window's slack).
+        clipChildren = false
+        clipToPadding = false
         addView(
             capsule,
             LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER),
@@ -385,12 +398,12 @@ class ReturnPillView(
         mainHandler.postDelayed({
             ring.pivotX = ring.width / 2f
             ring.pivotY = ring.height / 2f
-            ObjectAnimator.ofFloat(ring, SCALE_X, 1f, 1.45f).apply {
+            ObjectAnimator.ofFloat(ring, SCALE_X, 1f, 1.4f).apply {
                 duration = 360
                 interpolator = OvershootInterpolator(2f)
                 start()
             }
-            ObjectAnimator.ofFloat(ring, SCALE_Y, 1f, 1.45f).apply {
+            ObjectAnimator.ofFloat(ring, SCALE_Y, 1f, 1.4f).apply {
                 duration = 360
                 interpolator = OvershootInterpolator(2f)
                 start()
