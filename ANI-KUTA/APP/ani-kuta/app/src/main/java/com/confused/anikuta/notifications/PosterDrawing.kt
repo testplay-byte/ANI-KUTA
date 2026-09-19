@@ -26,6 +26,73 @@ import android.graphics.Typeface
 internal object PosterDrawing {
 
     /**
+     * D-508: the rich-style typeface resolver — ONE implementation for the
+     * composer AND the studio (WYSIWYG law). Maps the element's saved
+     * `fontKey` + `bold`/`italic` onto an android Typeface. `bold == null`
+     * means the element's FACTORY weight ([fallbackBoldDefault] — the title
+     * and the chips are bold, the episode title is regular), so a pre-D-508
+     * JSON renders exactly as it always did.
+     */
+    fun typefaceFor(fontKey: String, bold: Boolean?, italic: Boolean, fallbackBoldDefault: Boolean): Typeface {
+        val wantsBold = bold ?: fallbackBoldDefault
+        val style = when {
+            wantsBold && italic -> Typeface.BOLD_ITALIC
+            wantsBold -> Typeface.BOLD
+            italic -> Typeface.ITALIC
+            else -> Typeface.NORMAL
+        }
+        return when (fontKey) {
+            "serif" -> Typeface.create(Typeface.SERIF, style)
+            "mono" -> Typeface.create(Typeface.MONOSPACE, style)
+            "condensed" -> Typeface.create("sans-serif-condensed", style)
+            else -> Typeface.create(Typeface.DEFAULT, style)
+        }
+    }
+
+    /**
+     * D-514: the SMART ADAPTIVE SCRIM — the round-53 verdict reverses the
+     * D-503 removal: "the whole background banner will be darkened a little
+     * bit, maybe utilizing a smart algorithm ... If it is already dark then
+     * it will not be darkened but if it is lighter then it will be made
+     * darker." The background's average luminance (a 24×10 downsample,
+     * Rec. 709 weights) drives a smooth ramp:
+     *
+     *   lum ≤ 0.40  → no scrim at all (already-dark art stays untouched)
+     *   lum = 0.60  → ≈15% black
+     *   lum ≥ 1.00  → 46% black (the ceiling — "a little bit", never a void)
+     *
+     * Runs on BOTH canvases (the composer's and the studio's) through the
+     * same helper so the preview stays a faithful miniature. Every failure
+     * path is silent: a scrim must never kill a banner.
+     */
+    fun applyAdaptiveScrim(canvas: Canvas, background: android.graphics.Bitmap?, w: Float, h: Float) {
+        if (background == null || background.width <= 0 || background.height <= 0) return
+        if (background.config == android.graphics.Bitmap.Config.HARDWARE) return
+        val lum = try {
+            val probe = android.graphics.Bitmap.createScaledBitmap(background, 24, 10, true)
+            var total = 0f
+            val pixels = IntArray(24 * 10)
+            probe.getPixels(pixels, 0, 24, 0, 0, 24, 10)
+            for (px in pixels) {
+                val r = (px shr 16) and 0xFF
+                val g = (px shr 8) and 0xFF
+                val b = px and 0xFF
+                total += (0.2126f * r + 0.7152f * g + 0.0722f * b) / 255f
+            }
+            total / pixels.size
+        } catch (_: Exception) {
+            return // a failed probe degrades to "no scrim", never a failed compose
+        }
+        if (lum <= 0.40f) return
+        val scrimAlpha = (((lum - 0.40f) / 0.60f) * 0.46f).coerceIn(0f, 0.46f)
+        if (scrimAlpha <= 0.01f) return
+        canvas.drawRect(
+            0f, 0f, w, h,
+            Paint().apply { color = Color.argb((scrimAlpha * 255f).toInt(), 0, 0, 0) },
+        )
+    }
+
+    /**
      * D-493: draws [src] as a CENTER-CROP cover over a [w]×[h] canvas —
      * correct for ANY input geometry. (The full BitmapShader-smeared history
      * lives on the composer's drawCoverFit comment; the src→dst rect math is
@@ -69,9 +136,9 @@ internal object PosterDrawing {
      * Draws up to [maxLines] of word-wrapped text starting at [startY] (the
      * TOP of the text block); returns the LAST baseline. Hard-ellipsizes the
      * final line when words had to be dropped. [shadowed] applies the D-499
-     * soft dark shadow — after the D-503 scrim removal this shadow is the
-     * text's ONLY readability aid on bright art, so it stays ON for every
-     * banner text.
+     * soft dark shadow — the text's readability aid on bright art (D-514
+     * adds the adaptive scrim back as the first one), so it stays ON for
+     * every banner text unless the user turns it off in the studio.
      */
     fun drawWrappedText(
         canvas: Canvas,
@@ -145,6 +212,21 @@ internal object PosterDrawing {
             }
             lines[lines.size - 1] = "$last…"
         }
+        // D-512: the HARD per-line ellipsis — the greedy wrap can still emit
+        // a line wider than [maxWidth] when a SINGLE word overflows it (a
+        // long word landed on a fresh line). The round-53 spec: the title
+        // "will not overlap anything or show under anything ... even if it
+        // is able to show only one line or one word" — every line is
+        // ellipsized down to the available width, however narrow.
+        for (i in lines.indices) {
+            val l = lines[i]
+            if (paint.measureText(l) <= maxWidth) continue
+            var clipped = l
+            while (clipped.isNotEmpty() && paint.measureText("$clipped…") > maxWidth) {
+                clipped = clipped.dropLast(1)
+            }
+            lines[i] = "$clipped…"
+        }
         return lines
     }
 
@@ -173,10 +255,14 @@ internal object PosterDrawing {
         chipH: Float,
         padX: Float,
         corner: Float,
+        // D-508: the factory bold label — every existing caller renders
+        // unchanged; the studio/absolute mode passes the element's resolved
+        // typeface (bold/italic/font family overrides).
+        labelTypeface: Typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD),
     ): Float {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = labelSize
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            typeface = labelTypeface
             color = labelColor
         }
         val w = paint.measureText(label) + (2 * padX)
@@ -192,8 +278,8 @@ internal object PosterDrawing {
     }
 
     /** The chip row's width without drawing (studio hit-test + flow anchor math). */
-    fun chipWidth(label: String, labelSize: Float, padX: Float): Float =
-        measureText(label, labelSize, Typeface.create(Typeface.DEFAULT, Typeface.BOLD)) + (2 * padX)
+    fun chipWidth(label: String, labelSize: Float, padX: Float, labelTypeface: Typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)): Float =
+        measureText(label, labelSize, labelTypeface) + (2 * padX)
 
     /**
      * D-499: the thumbnail CARD — cover-crop into [box] (any source shape

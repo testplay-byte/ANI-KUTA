@@ -321,8 +321,23 @@ object UpdateCheckLogKey : NavKey
 /** D-477: the notification-poster customization page (live preview). */
 object NotificationPosterKey : NavKey
 
-/** D-503: the POSTER STUDIO — the forced-landscape editor for the poster's five elements. */
-object PosterCustomizeKey : NavKey
+/**
+ * D-503: the POSTER STUDIO — the forced-landscape editor for the poster's
+ * five elements.
+ *
+ * D-513: the key now CARRIES the settings screen's current preview selection
+ * (the round-53 verdict: "the exact same one should be shown as the live
+ * preview, which was being shown previously on the notification poster") —
+ * a null mainId keeps the studio's own feed-first/random pick as the
+ * fallback (a tap while the preview was still loading).
+ */
+@Serializable
+data class PosterCustomizeKey(
+    val mainId: String? = null,
+    val title: String? = null,
+    val episodeNumber: Double = 1.0,
+    val audioVariant: String = "sub",
+) : NavKey
 
 @Serializable
 object AppearanceKey : NavKey
@@ -1404,13 +1419,34 @@ fun AppRoot() {
             )
             is NotificationPosterKey -> NotificationPosterSettingsScreen(
                 onBack = pop,
-                onOpenCustomize = { backstack.add(PosterCustomizeKey) },
+                // D-513: the CURRENT preview selection rides into the studio
+                // so the editor opens on the exact content the user was just
+                // looking at (null when the preview was still loading — the
+                // studio then picks its own sample).
+                onOpenCustomize = { selection ->
+                    backstack.add(
+                        if (selection != null) {
+                            PosterCustomizeKey(
+                                mainId = selection.mainId,
+                                title = selection.title,
+                                episodeNumber = selection.episodeNumber,
+                                audioVariant = selection.audioVariant,
+                            )
+                        } else {
+                            PosterCustomizeKey()
+                        },
+                    )
+                },
             )
             // D-503: the Poster Studio — the five-element editor (drag /
             // pinch / magnetic snap), forced landscape, Save persists the
             // layout JSON + dumps it to the console log.
             is PosterCustomizeKey -> com.confused.anikuta.settings.PosterCustomizeScreen(
                 onBack = pop,
+                carriedMainId = currentKey.mainId,
+                carriedTitle = currentKey.title,
+                carriedEpisodeNumber = currentKey.episodeNumber,
+                carriedAudioVariant = currentKey.audioVariant,
             )
             is NotificationsLibraryKey -> NotificationsLibraryScreen(
                 onBack = pop,

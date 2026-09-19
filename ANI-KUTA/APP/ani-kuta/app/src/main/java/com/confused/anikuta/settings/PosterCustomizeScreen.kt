@@ -38,9 +38,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedIconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -63,6 +67,7 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import com.confused.anikuta.core.common.Logger
@@ -114,6 +119,28 @@ import org.koin.compose.koinInject
  *    full JSON to the console log so a layout can be handed back and made
  *    the shipped default (tag "Anikuta:App:PosterStudio").
  *
+ * # The round-53 refinements (D-508..D-513)
+ *
+ *  - D-508 DRAG: the position model is ABSOLUTE — the element's origin and
+ *    the finger's position anchor ONCE per gesture segment and every event
+ *    derives its raw target from that pair, so the snapped value never feeds
+ *    the accumulation. The old per-event delta loop made slow drags stick
+ *    (the magnet swallowed sub-threshold movement forever); now slow precise
+ *    drags glide and the magnet only pulls near a snap line.
+ *  - D-509: the SIZE slider moved BELOW the preview (it lived at the left
+ *    panel's bottom — the round-53 verdict says it belongs under the poster).
+ *  - D-510: the header's Back/Reset/Save are real buttons (tonal / outlined
+ *    / filled primary circles), not bare IconButtons.
+ *  - D-511: the per-element OPTIONS section — texts get the font family +
+ *    bold/italic/shadow, chips get the background color + custom label text
+ *    (comma = several tags) + label formatting.
+ *  - D-512: the D-512 hard per-line ellipsis in [PosterDrawing.wrappedLines]
+ *    keeps long titles inside their column (down to one word + "…").
+ *  - D-513: the studio is a DESIGN CANVAS — both SUB and DUB render
+ *    regardless of availability, and the canvas opens on the SAME content
+ *    the settings screen's live preview shows (the selection rides the nav
+ *    key), not a fresh random pick.
+ *
  * # Flow seeding
  *
  * While `customized=false` the preview renders the composer's FLOW layout
@@ -133,6 +160,16 @@ import org.koin.compose.koinInject
 @Composable
 fun PosterCustomizeScreen(
     onBack: () -> Unit,
+    // D-513: the settings screen's CURRENT preview selection rides the nav
+    // key — the studio opens on the exact content the user was just looking
+    // at on the notification-poster screen (the round-53 verdict: "the exact
+    // same one should be shown as the live preview ... Currently when I go
+    // to the customized one, it picks another one"). A null mainId keeps the
+    // studio's own feed-first/random pick as the fallback.
+    carriedMainId: String? = null,
+    carriedTitle: String? = null,
+    carriedEpisodeNumber: Double = 1.0,
+    carriedAudioVariant: String = "sub",
     composer: EpisodeBannerComposer = koinInject(),
     posterPrefs: NotificationPreferences = koinInject(),
     demoPicker: EpisodeDemoPicker = koinInject(),
@@ -150,18 +187,28 @@ fun PosterCustomizeScreen(
         onDispose { activity?.requestedOrientation = previous }
     }
 
-    // ── The sample on stage (feed-first → random library; the SAME helper the
-    // settings preview uses, so both screens agree on content selection) ──
+    // ── The sample on stage: the CARRIED selection first (D-513 — the same
+    // content the settings screen's live preview shows), else the shared
+    // feed-first → random helper the settings preview uses. ──
     var selection by remember { mutableStateOf<PreviewSelection?>(null) }
     LaunchedEffect(Unit) {
-        selection = withContext(Dispatchers.IO) {
-            selectPreviewContent(
-                exclude = null,
-                deck = EpisodeDemoPicker.ShuffleDeck(),
-                updateStore = updateStore,
-                contentRepository = contentRepository,
-                demoPicker = demoPicker,
+        selection = if (carriedMainId != null) {
+            PreviewSelection(
+                mainId = carriedMainId,
+                title = carriedTitle?.ifBlank { "Sample title" } ?: "Sample title",
+                episodeNumber = carriedEpisodeNumber,
+                audioVariant = carriedAudioVariant,
             )
+        } else {
+            withContext(Dispatchers.IO) {
+                selectPreviewContent(
+                    exclude = null,
+                    deck = EpisodeDemoPicker.ShuffleDeck(),
+                    updateStore = updateStore,
+                    contentRepository = contentRepository,
+                    demoPicker = demoPicker,
+                )
+            }
         }
     }
 
@@ -171,17 +218,15 @@ fun PosterCustomizeScreen(
         value = composer.loadEditorArt(sel.mainId, sel.episodeNumber)
     }
 
-    // The episode title + resolved audio variant — the exact resolves the composer runs.
-    data class SampleInfo(val episodeTitle: String?, val variant: String)
-    val sample by produceState<SampleInfo?>(null, selection) {
+    // The episode title — the same resolve the composer runs (the variant
+    // resolve is GONE from the studio: the round-53 spec renders BOTH tags
+    // here unconditionally — the studio is a design canvas, the real banner
+    // stays truthful).
+    val sample by produceState<String?>(null, selection) {
         val sel = selection ?: return@produceState
         value = withContext(Dispatchers.IO) {
-            val epTitle = dataCacheRepository.getEpisodeMetadata(sel.mainId)
+            dataCacheRepository.getEpisodeMetadata(sel.mainId)
                 .firstOrNull { abs(it.episodeNumber - sel.episodeNumber) < 0.01 }?.title
-            SampleInfo(
-                episodeTitle = epTitle,
-                variant = composer.resolveAudioVariant(sel.mainId, sel.episodeNumber, sel.audioVariant),
-            )
         }
     }
 
@@ -199,17 +244,27 @@ fun PosterCustomizeScreen(
     val sel = selection
     val displayTitle = (sel?.title ?: "Sample title").ifBlank { "Sample title" }
     val displayEpisode = sel?.episodeNumber ?: 1.0
-    val resolvedVariant = sample?.variant ?: sel?.audioVariant ?: "sub"
-    val displayEpTitle = sample?.episodeTitle
+    val displayEpTitle = sample
     val hasThumb = (art?.thumbnail != null) && posterPrefs.posterShowEpisodeThumbnail &&
         layout.thumbnail.visible
 
-    // ── The flow anchors (the un-customized look) — recomputed per sample ──
-    val flowAnchors = remember(art, displayTitle, displayEpisode, hasThumb) {
+    /** The EP chip's rendered label — the user's override wins over the factory tag. */
+    fun epTagLabel(): String =
+        layout.episodeNumber.labelOverride.ifBlank { EpisodeBannerComposer.episodeTag(displayEpisode) }
+
+    /** The audio row's rendered labels — the override list or the BOTH design-canvas default. */
+    fun audioLabels(): List<String> = chipLabelsFor(layout.audioVariant)
+
+    // ── The flow anchors (the un-customized look) — recomputed per sample;
+    // D-511: the chip label overrides re-shape the flow seed too. ──
+    val flowAnchors = remember(
+        art, displayTitle, displayEpisode, hasThumb,
+        layout.episodeNumber.labelOverride, layout.audioVariant.labelOverride,
+    ) {
         computeFlowAnchors(
             title = displayTitle,
             hasThumb = hasThumb,
-            epLabel = EpisodeBannerComposer.episodeTag(displayEpisode),
+            epLabel = epTagLabel(),
         )
     }
 
@@ -233,6 +288,27 @@ fun PosterCustomizeScreen(
         PosterElementKind.AUDIO_VARIANT ->
             layout.audioVariant.colorArgb.takeIf { it != 0L }?.toInt() ?: M.LIME.toInt()
         PosterElementKind.THUMBNAIL -> Color.WHITE
+    }
+
+    /** D-508: the render-time typeface — the shared resolver, factory weights preserved. */
+    fun typefaceOf(kind: PosterElementKind): Typeface {
+        val el = layout.element(kind)
+        return PosterDrawing.typefaceFor(
+            el.fontKey, el.bold, el.italic,
+            fallbackBoldDefault = kind != PosterElementKind.EPISODE_TITLE,
+        )
+    }
+
+    /** D-508: the render-time text shadow (the per-element toggle). */
+    fun shadowOf(kind: PosterElementKind): Boolean = layout.element(kind).shadow
+
+    /** D-508: the chip background — 0 falls back to the element's factory palette. */
+    fun chipBgOf(kind: PosterElementKind): Int {
+        val custom = layout.element(kind).chipBgArgb.takeIf { it != 0L }?.toInt()
+        return when (kind) {
+            PosterElementKind.EPISODE_NUMBER -> custom ?: M.LIME.toInt()
+            else -> custom ?: Color.argb(206, 16, 14, 24)
+        }
     }
 
     fun visibleOf(kind: PosterElementKind): Boolean = when (kind) {
@@ -273,35 +349,45 @@ fun PosterCustomizeScreen(
         val s = scaleOf(kind)
         return when (kind) {
             PosterElementKind.TITLE -> {
-                val width = (M.WIDTH - x - M.TEXT_RIGHT_MARGIN).coerceAtLeast(120f)
+                val tf = typefaceOf(PosterElementKind.TITLE)
+                // The composer's wrap width has NO floor (composeAbsolute:
+                // W - x - TEXT_RIGHT_MARGIN, bounded by the x ≤ W-120 clamp) —
+                // the 24px floor only saves the rect math from corrupt JSON.
+                val width = (M.WIDTH - x - M.TEXT_RIGHT_MARGIN).coerceAtLeast(24f)
                 val lines = PosterDrawing.wrappedLines(
-                    displayTitle, width, M.TITLE_SIZE * s, Typeface.DEFAULT_BOLD, 2,
+                    displayTitle, width, M.TITLE_SIZE * s, tf, 2,
                 )
                 val textW = lines.maxOfOrNull {
-                    PosterDrawing.measureText(it, M.TITLE_SIZE * s, Typeface.DEFAULT_BOLD)
+                    PosterDrawing.measureText(it, M.TITLE_SIZE * s, tf)
                 } ?: width
                 RectF(x, y, x + textW, y + lines.size * M.TITLE_SIZE * s * M.TITLE_LINE_HEIGHT)
             }
             PosterElementKind.EPISODE_NUMBER -> {
-                val label = EpisodeBannerComposer.episodeTag(displayEpisode)
-                val w = PosterDrawing.chipWidth(label, M.CHIP_LABEL_SIZE * s, M.CHIP_PAD_X * s)
+                val w = PosterDrawing.chipWidth(
+                    epTagLabel(), M.CHIP_LABEL_SIZE * s, M.CHIP_PAD_X * s,
+                    typefaceOf(PosterElementKind.EPISODE_NUMBER),
+                )
                 RectF(x, y, x + w, y + M.CHIP_H * s)
             }
             PosterElementKind.AUDIO_VARIANT -> {
-                // Placeholder chips widen the hit area when the resolved
-                // variant is genuinely unknown (nothing renders on the real
-                // banner — the studio keeps the element editable).
-                val chips = chipsFor(resolvedVariant).ifEmpty { listOf("SUB", "DUB") }
+                // D-513: the studio is a DESIGN CANVAS — both tags render
+                // regardless of the sample's real availability (the round-53
+                // verdict), so the element's rect is stable and editable.
+                val chips = audioLabels()
+                val labelTypeface = PosterDrawing.typefaceFor(
+                    layout.audioVariant.fontKey, layout.audioVariant.bold, layout.audioVariant.italic,
+                    fallbackBoldDefault = true,
+                )
                 val labelSize = M.CHIP_LABEL_SIZE * s
                 val w = chips.sumOf {
-                    PosterDrawing.chipWidth(it, labelSize, M.CHIP_PAD_X * s).toDouble()
+                    PosterDrawing.chipWidth(it, labelSize, M.CHIP_PAD_X * s, labelTypeface).toDouble()
                 }.toFloat() + M.CHIP_GAP * s * (chips.size - 1)
                 RectF(x, y, x + w, y + M.CHIP_H * s)
             }
             PosterElementKind.EPISODE_TITLE -> {
                 val text = displayEpTitle ?: "Episode title"
-                val width = (M.WIDTH - x - M.TEXT_RIGHT_MARGIN).coerceAtLeast(120f)
-                val textW = PosterDrawing.measureText(text, M.EPISODE_TITLE_SIZE * s, Typeface.DEFAULT)
+                val width = (M.WIDTH - x - M.TEXT_RIGHT_MARGIN).coerceAtLeast(24f)
+                val textW = PosterDrawing.measureText(text, M.EPISODE_TITLE_SIZE * s, typefaceOf(PosterElementKind.EPISODE_TITLE))
                     .coerceAtMost(width)
                 RectF(x, y, x + textW, y + M.EPISODE_TITLE_SIZE * s * M.TITLE_LINE_HEIGHT)
             }
@@ -344,15 +430,47 @@ fun PosterCustomizeScreen(
         return best to snappedLine
     }
 
-    fun moveElement(kind: PosterElementKind, dxCanvas: Float, dyCanvas: Float) {
+    /**
+     * D-508: THE DRAG FIX — the round-53 device verdict: elements "would get
+     * stuck ... if I tried to move it slowly and precisely". The D-503 loop
+     * accumulated per-event deltas THROUGH the element's snapped origin:
+     * each event read origin (already snapped), added the finger delta, and
+     * snapped it back — so any movement smaller than the 14px magnet radius
+     * was swallowed every frame and slow drags NEVER escaped. The new model
+     * is ABSOLUTE: [moveElementTo] receives the raw target position computed
+     * from the SEGMENT-START anchor (the element's origin and the finger's
+     * position captured once at gesture start / pinch→drag transition), so
+     * the snapped value never feeds the accumulation. Slow movement now
+     * glides 1:1 with the finger; the magnet only pulls while the target is
+     * genuinely CLOSE to a snap line (the small [SNAP_THRESHOLD] glue
+     * radius), exactly the "magnetic kind of effect ... smaller but there".
+     */
+    fun moveElementTo(kind: PosterElementKind, rawX: Float, rawY: Float) {
         val rect = elementRect(kind) ?: return
-        val rawX = (origin(kind).first + dxCanvas).coerceIn(0f, M.WIDTH - rect.width())
-        val rawY = (origin(kind).second + dyCanvas).coerceIn(0f, M.HEIGHT - rect.height())
+        // The BOUNDS mirror the composer's own clamps (composeAbsolute) —
+        // the studio must never allow an anchor the real banner would
+        // re-clamp behind the user's back (the round-53 WYSIWYG law).
+        val maxX = when (kind) {
+            PosterElementKind.TITLE, PosterElementKind.EPISODE_TITLE ->
+                (M.WIDTH - 120f).coerceAtLeast(0f) // the composer's x ≤ W-120
+            else ->
+                (M.WIDTH - rect.width()).coerceAtLeast(0f)
+        }
+        val maxY = when (kind) {
+            PosterElementKind.TITLE ->
+                (M.HEIGHT - M.TITLE_SIZE * scaleOf(kind)).coerceAtLeast(0f)
+            PosterElementKind.EPISODE_TITLE ->
+                (M.HEIGHT - M.EPISODE_TITLE_SIZE * scaleOf(kind)).coerceAtLeast(0f)
+            else ->
+                (M.HEIGHT - rect.height()).coerceAtLeast(0f)
+        }
+        val x = rawX.coerceIn(0f, maxX)
+        val y = rawY.coerceIn(0f, maxY)
         val others = PosterElementKind.entries.filter { it != kind }
         val xTargets = baseSnapX + others.mapNotNull { elementRect(it)?.centerX() }
         val yTargets = baseSnapY + others.mapNotNull { elementRect(it)?.centerY() }
-        val (sx, gx) = snapAxis(rawX, rect.width(), xTargets)
-        val (sy, gy) = snapAxis(rawY, rect.height(), yTargets)
+        val (sx, gx) = snapAxis(x, rect.width(), xTargets)
+        val (sy, gy) = snapAxis(y, rect.height(), yTargets)
         guides = gx to gy
         update(kind) { it.copy(x = sx, y = sy) }
     }
@@ -391,21 +509,33 @@ fun PosterCustomizeScreen(
                 .weight(0.32f)
                 .padding(8.dp),
         ) {
+            // D-510: the header's controls are REAL buttons now (the round-53
+            // verdict: "the back button ... is not proper") — a tonal Back
+            // circle, an outlined Reset, a filled primary Save. The old bare
+            // IconButtons read as decoration.
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
+                FilledTonalIconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
+                Spacer(Modifier.width(10.dp))
                 Text("Poster studio", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { resetAll() }) {
+                OutlinedIconButton(onClick = { resetAll() }) {
                     Icon(
-                        Icons.Filled.Refresh, contentDescription = "Reset to defaults",
+                        Icons.Filled.Refresh,
+                        contentDescription = "Reset to defaults",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = { save() }) {
-                    Icon(Icons.Filled.Save, contentDescription = "Save",
-                        tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(6.dp))
+                FilledIconButton(
+                    onClick = { save() },
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    Icon(Icons.Filled.Save, contentDescription = "Save")
                 }
             }
 
@@ -482,29 +612,24 @@ fun PosterCustomizeScreen(
                         Text("Reset this element's style")
                     }
                 }
-            }
 
-            // ── The SIZE slider — the very bottom, per the round-52 spec ──
-            Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                Text(
-                    "Size — ${selected.label} · ${(scaleOf(selected) * 100).roundToInt()}%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Slider(
-                    value = scaleOf(selected),
-                    onValueChange = { value ->
-                        update(selected) {
-                            it.copy(scale = value.coerceIn(MIN_SLIDER_SCALE, MAX_SLIDER_SCALE))
-                        }
-                    },
-                    valueRange = MIN_SLIDER_SCALE..MAX_SLIDER_SCALE,
-                )
-                Text(
-                    "Drag on the preview to move · pinch to resize · snaps to a fine grid",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // ── D-511: the OPTIONS section — the round-53 verdict: "the
+                // customizability options ... need to be handled much better
+                // and a bit more properly". Texts get the font family,
+                // bold/italic and the shadow; chips get the background
+                // color, the custom label text and the label formatting.
+                item {
+                    ElementOptionsSection(
+                        kind = selected,
+                        element = layout.element(selected),
+                        onFont = { key -> update(selected) { it.copy(fontKey = key) } },
+                        onBold = { b -> update(selected) { it.copy(bold = b) } },
+                        onItalic = { i -> update(selected) { it.copy(italic = i) } },
+                        onShadow = { s -> update(selected) { it.copy(shadow = s) } },
+                        onChipBg = { argb -> update(selected) { it.copy(chipBgArgb = argb) } },
+                        onLabel = { text -> update(selected) { it.copy(labelOverride = text) } },
+                    )
+                }
             }
         }
 
@@ -545,47 +670,64 @@ fun PosterCustomizeScreen(
                                     )
                                     if (dragging != null) selected = dragging
                                     var mode = Mode.DRAG
-                                    var prev = down.position
+                                    // D-508: the SEGMENT anchor — the element's
+                                    // origin and the pointer position captured ONCE
+                                    // per drag/pinch segment. Every event computes
+                                    // the raw target ABSOLUTELY from this pair (see
+                                    // moveElementTo): the snapped write-back never
+                                    // feeds the accumulation, so slow precise drags
+                                    // glide with the finger instead of sticking to
+                                    // the magnet point until a fast swipe.
+                                    var segOrigin = dragging?.let { origin(it) }
+                                    var segAnchor = down.position
                                     var prevSpan = 0f
-                                    var prevCentroid = down.position
                                     while (true) {
                                         val event = awaitPointerEvent()
                                         val pressed = event.changes.filter { it.pressed }
                                         if (pressed.isEmpty()) break
                                         if (pressed.size >= 2 && dragging != null) {
-                                            // PINCH: span ratio scales, centroid drift moves.
-                                            mode = Mode.PINCH
+                                            if (mode != Mode.PINCH) {
+                                                // PINCH START — anchor the segment once;
+                                                // from here every event derives its
+                                                // target from THIS pair.
+                                                mode = Mode.PINCH
+                                                segOrigin = origin(dragging)
+                                                segAnchor = Offset(
+                                                    (pressed[0].position.x + pressed[1].position.x) / 2f,
+                                                    (pressed[0].position.y + pressed[1].position.y) / 2f,
+                                                )
+                                                prevSpan = 0f
+                                            }
                                             val a = pressed[0].position
                                             val b = pressed[1].position
                                             val span = hypot(a.x - b.x, a.y - b.y)
                                             val centroid = Offset((a.x + b.x) / 2f, (a.y + b.y) / 2f)
                                             if (prevSpan > 0f) scaleElement(dragging, span / prevSpan)
-                                            moveElement(
-                                                dragging,
-                                                (centroid.x - prevCentroid.x) / s,
-                                                (centroid.y - prevCentroid.y) / s,
-                                            )
+                                            segOrigin?.let { base ->
+                                                moveElementTo(
+                                                    dragging,
+                                                    base.first + (centroid.x - segAnchor.x) / s,
+                                                    base.second + (centroid.y - segAnchor.y) / s,
+                                                )
+                                            }
                                             prevSpan = span
-                                            prevCentroid = centroid
                                         } else if (pressed.size == 1 && dragging != null) {
                                             val p = pressed[0]
                                             if (mode == Mode.PINCH) {
                                                 // A finger lifted out of the pinch —
-                                                // restart drag tracking from THIS
-                                                // position (a stale prev would jump
-                                                // the element).
+                                                // re-anchor from THIS position (a stale
+                                                // anchor would jump the element).
                                                 mode = Mode.DRAG
-                                                prevSpan = 0f
-                                                prev = p.position
+                                                segOrigin = origin(dragging)
+                                                segAnchor = p.position
                                             }
-                                            moveElement(
-                                                dragging,
-                                                (p.position.x - prev.x) / s,
-                                                (p.position.y - prev.y) / s,
-                                            )
-                                            prev = p.position
-                                        } else {
-                                            prev = pressed.firstOrNull()?.position ?: prev
+                                            segOrigin?.let { base ->
+                                                moveElementTo(
+                                                    dragging,
+                                                    base.first + (p.position.x - segAnchor.x) / s,
+                                                    base.second + (p.position.y - segAnchor.y) / s,
+                                                )
+                                            }
                                         }
                                         event.changes.forEach { it.consume() }
                                     }
@@ -597,13 +739,16 @@ fun PosterCustomizeScreen(
                             background = art?.background,
                             thumbnail = art?.thumbnail,
                             title = displayTitle,
-                            episodeTag = EpisodeBannerComposer.episodeTag(displayEpisode),
-                            variantChips = chipsFor(resolvedVariant),
+                            episodeTag = epTagLabel(),
+                            audioLabels = audioLabels(),
                             episodeTitle = displayEpTitle,
                             showBranding = posterPrefs.posterShowBranding,
                             origin = ::origin,
                             scaleOf = ::scaleOf,
                             colorOf = ::colorOf,
+                            typefaceOf = ::typefaceOf,
+                            shadowOf = ::shadowOf,
+                            chipBgOf = ::chipBgOf,
                             visibleOf = ::visibleOf,
                             selectedRect = elementRect(selected),
                             guides = guides,
@@ -611,13 +756,41 @@ fun PosterCustomizeScreen(
                     }
                 }
             }
+
+            // ── D-509: the SIZE slider lives BELOW the preview — the round-53
+            // verdict ("the size adjustment bar was supposed to be shown below
+            // the preview of the notification poster but it was not"). It
+            // stays bound to the selected element and reads out live %.
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp, start = 4.dp, end = 4.dp),
+            ) {
+                Text(
+                    "Size — ${selected.label} · ${(scaleOf(selected) * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Slider(
+                    value = scaleOf(selected),
+                    onValueChange = { value ->
+                        update(selected) {
+                            it.copy(scale = value.coerceIn(MIN_SLIDER_SCALE, MAX_SLIDER_SCALE))
+                        }
+                    },
+                    valueRange = MIN_SLIDER_SCALE..MAX_SLIDER_SCALE,
+                )
+                Text(
+                    "Drag on the preview to move · pinch to resize · snaps to a fine grid",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
                 sel?.let { "Preview: ${it.title}" }
                     ?: "Add anime to your library and open one once — then customize here.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
-                modifier = Modifier.padding(top = 6.dp),
+                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
             )
         }
     }
@@ -625,13 +798,16 @@ fun PosterCustomizeScreen(
 
 private enum class Mode { DRAG, PINCH }
 
-/** The chip labels the banner renders for a resolved variant. */
-private fun chipsFor(variant: String): List<String> = when (variant.trim().lowercase()) {
-    "sub" -> listOf("SUB")
-    "dub" -> listOf("DUB")
-    "both" -> listOf("SUB", "DUB")
-    else -> emptyList()
-}
+/**
+ * D-513: the studio's chip labels — the element's comma-separated override
+ * first ("Subbed, Dubbed" → two custom tags), else BOTH tags: the studio is
+ * a DESIGN CANVAS (the round-53 verdict: "both of the tags should be shown
+ * regardless of availability"), while the real banner keeps the resolved
+ * variant truth.
+ */
+private fun chipLabelsFor(el: PosterElementLayout): List<String> =
+    el.labelOverride.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        .ifEmpty { listOf("SUB", "DUB") }
 
 /** The flow layout's anchors (the composer's composeFlow math, mirrored). */
 private fun computeFlowAnchors(
@@ -773,24 +949,201 @@ private fun SwatchDot(colorArgb: Long, selected: Boolean, onPick: (Long) -> Unit
 }
 
 /**
+ * D-511: the per-element OPTIONS section — the round-53 verdict: "the
+ * customizability options ... do need to be improved. They need to be handled
+ * much better and a bit more properly." Text elements (the content title,
+ * the episode title) get the FONT family picker, the bold/italic weight and
+ * the soft-shadow toggle; chip elements (the EP tag, the SUB/DUB row) get
+ * the TAG BACKGROUND palette, the custom LABEL TEXT (a comma separates
+ * several tags on the audio row) and the label formatting. Every control
+ * writes straight into the element's layout record — the same Save path.
+ */
+@Composable
+private fun ElementOptionsSection(
+    kind: PosterElementKind,
+    element: PosterElementLayout,
+    onFont: (String) -> Unit,
+    onBold: (Boolean) -> Unit,
+    onItalic: (Boolean) -> Unit,
+    onShadow: (Boolean) -> Unit,
+    onChipBg: (Long) -> Unit,
+    onLabel: (String) -> Unit,
+) {
+    when (kind) {
+        PosterElementKind.TITLE, PosterElementKind.EPISODE_TITLE -> {
+            SectionLabel("FONT")
+            PosterElementLayout.FONT_KEYS.chunked(2).forEach { rowKeys ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    rowKeys.forEach { (key, label) ->
+                        FamilyChip(
+                            label = label,
+                            selected = element.fontKey == key,
+                            onClick = { onFont(key) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    if (rowKeys.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            MiniToggle(
+                label = "Bold",
+                checked = element.bold ?: (kind == PosterElementKind.TITLE),
+                onChecked = onBold,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            MiniToggle(
+                label = "Italic",
+                checked = element.italic,
+                onChecked = onItalic,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            MiniToggle(
+                label = "Soft shadow",
+                checked = element.shadow,
+                onChecked = onShadow,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        PosterElementKind.EPISODE_NUMBER, PosterElementKind.AUDIO_VARIANT -> {
+            SectionLabel("TAG BACKGROUND")
+            ColorSwatchGrid(
+                currentArgb = element.chipBgArgb,
+                defaultLabel = if (kind == PosterElementKind.EPISODE_NUMBER) {
+                    "A — lime (default)"
+                } else {
+                    "A — dark (default)"
+                },
+                onPick = onChipBg,
+            )
+            Spacer(Modifier.height(6.dp))
+            SectionLabel("LABEL TEXT")
+            OutlinedTextField(
+                value = element.labelOverride,
+                onValueChange = onLabel,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall,
+                placeholder = {
+                    Text(
+                        if (kind == PosterElementKind.EPISODE_NUMBER) "e.g. Episode 12" else "e.g. Subbed, Dubbed",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (kind == PosterElementKind.AUDIO_VARIANT) {
+                Text(
+                    "A comma separates tags — blank keeps the default SUB / DUB.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            MiniToggle(
+                label = "Bold label",
+                checked = element.bold ?: true,
+                onChecked = onBold,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            MiniToggle(
+                label = "Italic label",
+                checked = element.italic,
+                onChecked = onItalic,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        PosterElementKind.THUMBNAIL -> {
+            Text(
+                "The card keeps its look — position, size and visibility only.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** A small section caption inside the OPTIONS block. */
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** D-511: the compact family-selector button (filled when active). */
+@Composable
+private fun FamilyChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelMedium,
+        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+        textAlign = TextAlign.Center,
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 7.dp),
+    )
+}
+
+/** D-511: the compact labeled switch row (full-width, sidebar-friendly). */
+@Composable
+private fun MiniToggle(
+    label: String,
+    checked: Boolean,
+    onChecked: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onChecked)
+    }
+}
+
+/**
  * The studio's renderer — the composer's exact drawing sequence executed on
  * the preview canvas (already scaled into canvas space). The customizable
- * elements read their anchors through [origin]/[scaleOf]/[colorOf]/[visibleOf],
- * so flow mode and absolute mode BOTH render through this one path and
- * WYSIWYG holds. The D-503 scrim removal carries over: the art renders at
- * full brightness.
+ * elements read their anchors through [origin]/[scaleOf]/[colorOf]/
+ * [typefaceOf]/[shadowOf]/[chipBgOf]/[visibleOf], so flow mode and absolute
+ * mode BOTH render through this one path and WYSIWYG holds — including the
+ * D-514 adaptive scrim (the SAME helper the composer runs) and the D-508
+ * rich styles.
  */
 private fun DrawScope.drawPoster(
     background: android.graphics.Bitmap?,
     thumbnail: android.graphics.Bitmap?,
     title: String,
     episodeTag: String,
-    variantChips: List<String>,
+    audioLabels: List<String>,
     episodeTitle: String?,
     showBranding: Boolean,
     origin: (PosterElementKind) -> Pair<Float, Float>,
     scaleOf: (PosterElementKind) -> Float,
     colorOf: (PosterElementKind) -> Int,
+    typefaceOf: (PosterElementKind) -> Typeface,
+    shadowOf: (PosterElementKind) -> Boolean,
+    chipBgOf: (PosterElementKind) -> Int,
     visibleOf: (PosterElementKind) -> Boolean,
     selectedRect: RectF?,
     guides: Pair<Float?, Float?>,
@@ -801,64 +1154,61 @@ private fun DrawScope.drawPoster(
         canvas.save()
         canvas.scale(s, s)
 
-        // 1) The background — full-brightness art (D-503: no scrims) or the
-        //    styled fallback stage.
+        // 1) The background — the art with the D-514 SMART ADAPTIVE SCRIM
+        //    (the composer's exact call: bright art darkens by its measured
+        //    luminance, dark art stays untouched), or the styled fallback
+        //    stage when no art loaded.
         if (background != null && background.width > 0 && background.height > 0) {
             PosterDrawing.drawCoverFit(canvas, background, M.WIDTH.toFloat(), M.HEIGHT.toFloat())
+            PosterDrawing.applyAdaptiveScrim(canvas, background, M.WIDTH.toFloat(), M.HEIGHT.toFloat())
         } else {
             PosterDrawing.drawFallbackStage(canvas, M.WIDTH.toFloat(), M.HEIGHT.toFloat())
         }
 
-        // 2) Title.
+        // 2) Title — the D-508 rich style (family/weight/shadow) and the
+        //    D-512 hard-ellipsis wrap (every line truncates to the column).
         if (visibleOf(PosterElementKind.TITLE)) {
             val (x, y) = origin(PosterElementKind.TITLE)
             PosterDrawing.drawWrappedText(
                 canvas, title, x, y, M.WIDTH - x - M.TEXT_RIGHT_MARGIN,
                 M.TITLE_SIZE * scaleOf(PosterElementKind.TITLE),
-                colorOf(PosterElementKind.TITLE), Typeface.DEFAULT_BOLD, maxLines = 2, shadowed = true,
+                colorOf(PosterElementKind.TITLE), typefaceOf(PosterElementKind.TITLE),
+                maxLines = 2, shadowed = shadowOf(PosterElementKind.TITLE),
             )
         }
 
-        // 3) The [EP n] chip.
+        // 3) The EP chip — the override-aware label + the D-508 chip style.
         if (visibleOf(PosterElementKind.EPISODE_NUMBER)) {
             val (x, y) = origin(PosterElementKind.EPISODE_NUMBER)
             val sc = scaleOf(PosterElementKind.EPISODE_NUMBER)
             PosterDrawing.drawChip(
                 canvas, episodeTag, x, y,
-                fill = M.LIME.toInt(), labelColor = colorOf(PosterElementKind.EPISODE_NUMBER),
+                fill = chipBgOf(PosterElementKind.EPISODE_NUMBER),
+                labelColor = colorOf(PosterElementKind.EPISODE_NUMBER),
                 labelSize = M.CHIP_LABEL_SIZE * sc, chipH = M.CHIP_H * sc,
                 padX = M.CHIP_PAD_X * sc, corner = M.CHIP_CORNER,
+                labelTypeface = typefaceOf(PosterElementKind.EPISODE_NUMBER),
             )
         }
 
-        // 4) The audio chips — real when resolved; placeholder (both, dimmed)
-        //    when the variant is genuinely unknown so the element stays
-        //    editable and visible on the canvas.
+        // 4) The audio chips — the D-513 DESIGN-CANVAS rule: the override
+        //    list or BOTH tags, always at full strength (the old dimmed
+        //    placeholder path is gone — availability is the real banner's
+        //    concern, not the editor's).
         if (visibleOf(PosterElementKind.AUDIO_VARIANT)) {
             val (x, y) = origin(PosterElementKind.AUDIO_VARIANT)
             val sc = scaleOf(PosterElementKind.AUDIO_VARIANT)
-            val baseColor = colorOf(PosterElementKind.AUDIO_VARIANT)
             var cx = x
-            val chips = variantChips.ifEmpty { listOf("SUB", "DUB") }
-            val placeholder = variantChips.isEmpty()
-            val labelColor = if (placeholder) {
-                // Int has no copy() — dim via argb decomposition.
-                Color.argb(
-                    (Color.alpha(baseColor) * 0.55f).toInt(),
-                    Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor),
-                )
-            } else {
-                baseColor
-            }
-            chips.forEachIndexed { index, label ->
-                val fill = if (placeholder) Color.argb(120, 16, 14, 24) else Color.argb(206, 16, 14, 24)
+            audioLabels.forEachIndexed { index, label ->
                 cx += PosterDrawing.drawChip(
                     canvas, label, cx, y,
-                    fill = fill, labelColor = labelColor,
+                    fill = chipBgOf(PosterElementKind.AUDIO_VARIANT),
+                    labelColor = colorOf(PosterElementKind.AUDIO_VARIANT),
                     labelSize = M.CHIP_LABEL_SIZE * sc, chipH = M.CHIP_H * sc,
                     padX = M.CHIP_PAD_X * sc, corner = M.CHIP_CORNER,
+                    labelTypeface = typefaceOf(PosterElementKind.AUDIO_VARIANT),
                 )
-                if (index < chips.size - 1) cx += M.CHIP_GAP * sc
+                if (index < audioLabels.size - 1) cx += M.CHIP_GAP * sc
             }
         }
 
@@ -870,7 +1220,8 @@ private fun DrawScope.drawPoster(
             PosterDrawing.drawWrappedText(
                 canvas, episodeTitle ?: "Episode title", x, y,
                 M.WIDTH - x - M.TEXT_RIGHT_MARGIN, M.EPISODE_TITLE_SIZE * sc,
-                colorOf(PosterElementKind.EPISODE_TITLE), Typeface.DEFAULT, maxLines = 1, shadowed = true,
+                colorOf(PosterElementKind.EPISODE_TITLE), typefaceOf(PosterElementKind.EPISODE_TITLE),
+                maxLines = 1, shadowed = shadowOf(PosterElementKind.EPISODE_TITLE),
             )
         }
 

@@ -41,6 +41,28 @@ import kotlinx.serialization.json.Json
  * mode — the studio's visibility toggles write BOTH layers where a pref
  * exists).
  *
+ * # D-508: the RICH STYLE layer (the round-53 "quite a lot of options")
+ *
+ * Every field below the classic five is ADDITIVE with a default — older
+ * saved JSON parses untouched, and every default reproduces the factory
+ * look exactly:
+ *  - `fontKey`   — the text family ("", "condensed", "serif", "mono"; ""
+ *                  = the factory sans). Text elements only.
+ *  - `bold`      — null = the element's FACTORY weight (title/chips bold,
+ *                  the episode title regular), true/false = the user's pick.
+ *  - `italic`    — the italic toggle (factory: false everywhere).
+ *  - `shadow`    — the D-499 soft dark text shadow (factory: on — after the
+ *                  D-514 adaptive scrim it stays the second readability aid).
+ *  - `chipBgArgb`— a chip element's BACKGROUND color (0 = the factory
+ *                  palette: lime for the EP chip, dark for SUB/DUB).
+ *  - `labelOverride` — a chip's custom text. "" = the factory label
+ *                  ("EP n" / the resolved SUB/DUB row). On the audio row a
+ *                  comma-separated value renders MULTIPLE tags
+ *                  ("Subbed, Dubbed" → two chips).
+ *
+ * The factory FLOW layout ignores this layer (it is the approved look);
+ * the ABSOLUTE mode after a studio save applies every field.
+ *
  * The console log on save dumps the FULL JSON (tag `Anikuta:App:PosterStudio`)
  * — the user's explicit request, so a layout can be shared back and made the
  * shipped default.
@@ -110,6 +132,21 @@ data class PosterElementLayout(
     /** ARGB label/text color; 0 = the element's default palette. */
     val colorArgb: Long = 0L,
     val visible: Boolean = true,
+    // ── D-508: the rich style layer (all defaults = the factory look) ──
+    /** The text family: "" (factory sans) | "condensed" | "serif" | "mono". */
+    val fontKey: String = "",
+    /** null = the element's factory weight; otherwise the user's bold pick. */
+    val bold: Boolean? = null,
+    val italic: Boolean = false,
+    /** The soft dark text shadow (the D-499 readability carrier). */
+    val shadow: Boolean = true,
+    /** A chip's BACKGROUND color; 0 = the factory chip palette. */
+    val chipBgArgb: Long = 0L,
+    /**
+     * A chip's custom label; "" = the factory label. On the audio row a
+     * comma-separated value renders multiple tags.
+     */
+    val labelOverride: String = "",
 ) {
     val hasPosition: Boolean get() = x >= 0f && y >= 0f
     val hasCustomColor: Boolean get() = colorArgb != 0L
@@ -120,6 +157,9 @@ data class PosterElementLayout(
     companion object {
         const val MIN_SCALE = 0.4f
         const val MAX_SCALE = 2.5f
+
+        /** The font keys the studio's family picker offers (mirrors [PosterDrawing.typefaceFor]). */
+        val FONT_KEYS = listOf("" to "Sans", "condensed" to "Condensed", "serif" to "Serif", "mono" to "Mono")
     }
 }
 

@@ -42,11 +42,16 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   │ └─────────────┘                                        │
  *   └────────────────────────────────────────────────────────┘
  *
- * # D-503: NO SCRIMS. The device round's verdict: the background art "is
- * getting a darkening effect applied to it, which it should not". The D-499
- * right-column + bottom gradients are gone — the art renders at full
- * brightness and the D-499 soft text shadows are the text's readability
- * carrier (they were added for exactly this light-background case).
+ * # D-514: the SMART ADAPTIVE SCRIM (the round-53 verdict)
+ *
+ * The scrim story came full circle: D-499 had fixed gradients, D-503 removed
+ * them ("the art is getting a darkening effect, which it should not"), and
+ * the round-53 device round asked for a SMARTER layer back — "the whole
+ * background banner will be darkened a little bit ... If it is already dark
+ * then it will not be darkened but if it is lighter then it will be made
+ * darker." [PosterDrawing.applyAdaptiveScrim] measures the background's
+ * average luminance and draws a proportional black veil (0% ≤ lum 0.40,
+ * up to 46% at full white). The D-499 soft text shadows stay on top of it.
  *
  * # D-503: the POSTER STUDIO layout mode
  *
@@ -328,15 +333,20 @@ class EpisodeBannerComposer(
         //    test notifications live here).
         if (background != null && background.width > 0 && background.height > 0) {
             PosterDrawing.drawCoverFit(canvas, background, W.toFloat(), H.toFloat())
+            // D-514: the SMART ADAPTIVE SCRIM — the round-53 verdict reverses
+            // the D-503 removal: bright art gets darkened "a little bit" by
+            // its own measured luminance, already-dark art is left alone.
+            // The SAME helper runs on the studio's preview (WYSIWYG).
+            PosterDrawing.applyAdaptiveScrim(canvas, background, W.toFloat(), H.toFloat())
         } else {
             PosterDrawing.drawFallbackStage(canvas, W.toFloat(), H.toFloat())
         }
 
-        // 2) D-503: the D-499 scrims are GONE — the art renders undarkened;
-        //    readability rides the D-499 text shadows alone.
+        // 2) The D-499 text shadows carry readability (D-503's scrims are
+        //    replaced by the adaptive one above).
 
         if (!layout.customized) {
-            composeFlow(canvas, title, episodeNumber, audioVariant, episodeTitle, thumbnail)
+            composeFlow(canvas, title, episodeNumber, audioVariant, episodeTitle, thumbnail, layout)
         } else {
             composeAbsolute(canvas, title, episodeNumber, audioVariant, episodeTitle, thumbnail, layout)
         }
@@ -344,10 +354,11 @@ class EpisodeBannerComposer(
     }
 
     /**
-     * The FLOW layout — the v1.1.14-approved rendering, kept pixel-identical
-     * (minus the removed scrims): the text column hangs top-right when the
-     * thumbnail card is on stage and reclaims the full width when it is off;
-     * the tag row + episode title flow under the ≤2-line title.
+     * The FLOW layout — the v1.1.14-approved rendering: the text column hangs
+     * top-right when the thumbnail card is on stage and reclaims the full
+     * width when it is off; the tag row + episode title flow under the ≤2-line
+     * title. D-514: the adaptive scrim runs BEFORE this (in compose); D-508:
+     * the title now honors the config's visibility gate.
      */
     private fun composeFlow(
         canvas: Canvas,
@@ -356,6 +367,7 @@ class EpisodeBannerComposer(
         audioVariant: String,
         episodeTitle: String?,
         thumbnail: Bitmap?,
+        layout: PosterLayoutConfig,
     ) {
         val hasThumb = thumbnail != null && thumbnail.width > 0 && thumbnail.height > 0
         val textX = if (hasThumb) PosterCanvasMetrics.TEXT_X else PosterCanvasMetrics.LEFT
@@ -366,10 +378,19 @@ class EpisodeBannerComposer(
         }
 
         // The content title — bold white with a soft dark shadow, ≤2 lines.
-        val titleBottom = PosterDrawing.drawWrappedText(
-            canvas, title, textX, PosterCanvasMetrics.TOP, textWidth, PosterCanvasMetrics.TITLE_SIZE,
-            Color.WHITE, Typeface.DEFAULT_BOLD, maxLines = 2, shadowed = true,
-        ) + 18f
+        // D-508: the title now honors the studio's visibility toggle in FLOW
+        // mode too — hiding it lifts the tag row to the top instead of
+        // leaving a phantom gap (the old flow path had NO title gate at all,
+        // so the studio's toggle read as a lie until a save flipped the
+        // layout to absolute mode).
+        val titleBottom = if (layout.title.visible) {
+            PosterDrawing.drawWrappedText(
+                canvas, title, textX, PosterCanvasMetrics.TOP, textWidth, PosterCanvasMetrics.TITLE_SIZE,
+                Color.WHITE, Typeface.DEFAULT_BOLD, maxLines = 2, shadowed = true,
+            ) + 18f
+        } else {
+            PosterCanvasMetrics.TOP + 18f
+        }
 
         // The TAG ROW — [EP n] [SUB] [DUB] on one shared baseline (the tag-row
         // comment history lives in the D-499 record).
@@ -425,6 +446,12 @@ class EpisodeBannerComposer(
      * The prefs keep gating the elements they always gated (audio badge,
      * episode title, thumbnail) so the settings screen's toggles stay true
      * in both modes; the config's per-element `visible` layers on top.
+     *
+     * D-508: the RICH STYLE layer applies here — the per-element font
+     * family/bold/italic/shadow (texts), and the chip background color,
+     * custom label(s) and label formatting (chips). Every default reproduces
+     * the pre-D-508 rendering exactly, so older saved layouts upgrade
+     * invisibly.
      */
     private fun composeAbsolute(
         canvas: Canvas,
@@ -435,51 +462,62 @@ class EpisodeBannerComposer(
         thumbnail: Bitmap?,
         layout: PosterLayoutConfig,
     ) {
-        // Title.
+        // Title — the D-512 hard-ellipsis wrap keeps every line inside the
+        // element's own column: the title adjusts its LENGTH to the space
+        // (down to a single word + "…"), never paints past the right margin.
         if (layout.title.visible) {
             val el = layout.title
             val size = PosterCanvasMetrics.TITLE_SIZE * el.safeScale()
             val x = el.x.coerceIn(0f, W - 120f)
-            val y = el.y.coerceIn(0f, H - size)
+            val y = el.y.coerceIn(0f, (H - size).coerceAtLeast(0f))
             PosterDrawing.drawWrappedText(
                 canvas, title, x, y, W - x - PosterCanvasMetrics.TEXT_RIGHT_MARGIN, size,
                 el.colorArgb.takeIf { it != 0L }?.toInt() ?: Color.WHITE,
-                Typeface.DEFAULT_BOLD, maxLines = 2, shadowed = true,
+                PosterDrawing.typefaceFor(el.fontKey, el.bold, el.italic, fallbackBoldDefault = true),
+                maxLines = 2, shadowed = el.shadow,
             )
         }
 
-        // The [EP n] chip.
+        // The [EP n] chip — the user's label override ("Episode 12") wins
+        // over the factory tag; the background color rides [chipBgArgb].
         if (layout.episodeNumber.visible) {
             val el = layout.episodeNumber
             drawScaledChip(
-                canvas, episodeTag(episodeNumber), el,
-                fill = LIME_INT,
+                canvas,
+                label = el.labelOverride.ifBlank { episodeTag(episodeNumber) },
+                el = el,
+                fill = el.chipBgArgb.takeIf { it != 0L }?.toInt() ?: LIME_INT,
                 labelColor = el.colorArgb.takeIf { it != 0L }?.toInt() ?: Color.parseColor("#16141D"),
             )
         }
 
-        // The audio chips.
+        // The audio chips — the D-508 override list (comma-separated) or the
+        // resolved variant truth.
         if (layout.audioVariant.visible && preferences.posterShowAudioBadge) {
             val el = layout.audioVariant
-            val chips = when (audioVariant.trim().lowercase()) {
-                "sub" -> listOf("SUB")
-                "dub" -> listOf("DUB")
-                "both" -> listOf("SUB", "DUB")
-                else -> emptyList()
-            }
-            var cx = el.x.coerceIn(0f, W - 80f)
-            val y = el.y.coerceIn(0f, H - PosterCanvasMetrics.CHIP_H * el.safeScale())
+            val chips = audioChipLabels(el, audioVariant)
+            val s = el.safeScale()
+            val tf = PosterDrawing.typefaceFor(el.fontKey, el.bold, el.italic, fallbackBoldDefault = true)
+            // D-508 review fix: the row's start x clamps to the MEASURED row
+            // width — the whole row ends at the canvas edge, however long
+            // the custom labels are.
+            val rowWidth = chips.sumOf {
+                PosterDrawing.chipWidth(it, PosterCanvasMetrics.CHIP_LABEL_SIZE * s, PosterCanvasMetrics.CHIP_PAD_X * s, tf).toDouble()
+            }.toFloat() + PosterCanvasMetrics.CHIP_GAP * s * (chips.size - 1)
+            var cx = el.x.coerceIn(0f, (W - rowWidth).coerceAtLeast(0f))
+            val y = el.y.coerceIn(0f, (H - PosterCanvasMetrics.CHIP_H * s).coerceAtLeast(0f))
             for (label in chips) {
                 val w = PosterDrawing.drawChip(
                     canvas, label, cx, y,
-                    fill = Color.argb(206, 16, 14, 24),
+                    fill = el.chipBgArgb.takeIf { it != 0L }?.toInt() ?: Color.argb(206, 16, 14, 24),
                     labelColor = el.colorArgb.takeIf { it != 0L }?.toInt() ?: LIME_INT,
-                    labelSize = PosterCanvasMetrics.CHIP_LABEL_SIZE * el.safeScale(),
-                    chipH = PosterCanvasMetrics.CHIP_H * el.safeScale(),
-                    padX = PosterCanvasMetrics.CHIP_PAD_X * el.safeScale(),
+                    labelSize = PosterCanvasMetrics.CHIP_LABEL_SIZE * s,
+                    chipH = PosterCanvasMetrics.CHIP_H * s,
+                    padX = PosterCanvasMetrics.CHIP_PAD_X * s,
                     corner = PosterCanvasMetrics.CHIP_CORNER,
+                    labelTypeface = tf,
                 )
-                cx += w + PosterCanvasMetrics.CHIP_GAP * el.safeScale()
+                cx += w + PosterCanvasMetrics.CHIP_GAP * s
             }
         }
 
@@ -488,11 +526,12 @@ class EpisodeBannerComposer(
             val el = layout.episodeTitle
             val size = PosterCanvasMetrics.EPISODE_TITLE_SIZE * el.safeScale()
             val x = el.x.coerceIn(0f, W - 120f)
-            val y = el.y.coerceIn(0f, H - size)
+            val y = el.y.coerceIn(0f, (H - size).coerceAtLeast(0f))
             PosterDrawing.drawWrappedText(
                 canvas, episodeTitle, x, y, W - x - PosterCanvasMetrics.TEXT_RIGHT_MARGIN, size,
                 el.colorArgb.takeIf { it != 0L }?.toInt() ?: Color.argb(225, 255, 255, 255),
-                Typeface.DEFAULT, maxLines = 1, shadowed = true,
+                PosterDrawing.typefaceFor(el.fontKey, el.bold, el.italic, fallbackBoldDefault = false),
+                maxLines = 1, shadowed = el.shadow,
             )
         }
 
@@ -515,7 +554,7 @@ class EpisodeBannerComposer(
         drawBranding(canvas)
     }
 
-    /** One chip at an element's saved anchor + scale, with the element's label color. */
+    /** One chip at an element's saved anchor + scale, with the element's label color + label typeface. */
     private fun drawScaledChip(
         canvas: Canvas,
         label: String,
@@ -524,15 +563,38 @@ class EpisodeBannerComposer(
         labelColor: Int,
     ) {
         val s = el.safeScale()
+        val tf = PosterDrawing.typefaceFor(el.fontKey, el.bold, el.italic, fallbackBoldDefault = true)
+        // D-508 review fix: clamp to the MEASURED chip width, not the 80px
+        // heuristic — a long custom label must end at the canvas edge.
+        val w = PosterDrawing.chipWidth(label, PosterCanvasMetrics.CHIP_LABEL_SIZE * s, PosterCanvasMetrics.CHIP_PAD_X * s, tf)
         PosterDrawing.drawChip(
             canvas, label,
-            el.x.coerceIn(0f, W - 80f), el.y.coerceIn(0f, H - PosterCanvasMetrics.CHIP_H * s),
+            el.x.coerceIn(0f, (W - w).coerceAtLeast(0f)), el.y.coerceIn(0f, (H - PosterCanvasMetrics.CHIP_H * s).coerceAtLeast(0f)),
             fill = fill, labelColor = labelColor,
             labelSize = PosterCanvasMetrics.CHIP_LABEL_SIZE * s,
             chipH = PosterCanvasMetrics.CHIP_H * s,
             padX = PosterCanvasMetrics.CHIP_PAD_X * s,
             corner = PosterCanvasMetrics.CHIP_CORNER,
+            labelTypeface = tf,
         )
+    }
+
+    /**
+     * D-508: the audio row's labels — the user's comma-separated override
+     * first ("Subbed, Dubbed" → two custom tags), else the resolved variant
+     * truth (the D-499/D-503 union). Genuinely unknown audio still draws
+     * nothing in ABSOLUTE mode (the honest no-chip; the STUDIO always shows
+     * both placeholders so the element stays editable).
+     */
+    private fun audioChipLabels(el: PosterElementLayout, resolvedVariant: String): List<String> {
+        val custom = el.labelOverride.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        if (custom.isNotEmpty()) return custom
+        return when (resolvedVariant.trim().lowercase()) {
+            "sub" -> listOf("SUB")
+            "dub" -> listOf("DUB")
+            "both" -> listOf("SUB", "DUB")
+            else -> emptyList()
+        }
     }
 
     private fun drawBranding(canvas: Canvas) {

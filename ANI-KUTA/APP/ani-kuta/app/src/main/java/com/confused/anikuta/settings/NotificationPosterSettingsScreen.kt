@@ -12,16 +12,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -91,7 +95,10 @@ fun NotificationPosterSettingsScreen(
     onBack: () -> Unit,
     // D-503: the Customize entry — the round-52 spec places it JUST LEFT of
     // the shuffle preview button; it opens the forced-landscape Poster Studio.
-    onOpenCustomize: () -> Unit = {},
+    // D-513: the CURRENT preview selection rides along so the studio opens on
+    // the exact content on stage (null while the preview is still loading —
+    // the studio then picks its own sample).
+    onOpenCustomize: (PreviewSelection?) -> Unit = {},
     posterPrefs: NotificationPreferences = koinInject(),
     composer: EpisodeBannerComposer = koinInject(),
     demoPicker: EpisodeDemoPicker = koinInject(),
@@ -319,20 +326,27 @@ fun NotificationPosterSettingsScreen(
                             // shuffle button (the round-52 spec) and opens the
                             // Poster Studio; the shuffle tap now also plays the
                             // pulse + icon-spin feedback.
+                            // D-515: the round-53 verdict — both actions are REAL
+                            // buttons now (an outlined Customize + a filled Shuffle,
+                            // Material paddings, 40dp min touch targets), not the
+                            // borderless text links that read as labels.
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                androidx.compose.material3.TextButton(onClick = onOpenCustomize) {
+                                androidx.compose.material3.OutlinedButton(
+                                    onClick = { onOpenCustomize(selectionCache.value) },
+                                ) {
                                     Icon(
                                         imageVector = Icons.Filled.Tune,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(end = 6.dp),
+                                        modifier = Modifier.size(18.dp),
                                     )
+                                    Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
                                     androidx.compose.material3.Text("Customize")
                                 }
-                                androidx.compose.material3.TextButton(onClick = {
+                                androidx.compose.material3.Button(onClick = {
                                     shuffleExclude.value = onStageMainId.value
                                     roll++
                                     scope.launch {
@@ -352,11 +366,11 @@ fun NotificationPosterSettingsScreen(
                                     Icon(
                                         imageVector = Icons.Filled.Shuffle,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier
-                                            .padding(end = 6.dp)
+                                            .size(18.dp)
                                             .graphicsLayer { rotationZ = shuffleIconSpin.value },
                                     )
+                                    Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
                                     androidx.compose.material3.Text("Shuffle preview")
                                 }
                             }
