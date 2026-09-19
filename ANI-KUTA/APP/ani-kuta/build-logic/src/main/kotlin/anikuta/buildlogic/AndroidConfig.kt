@@ -544,14 +544,29 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10112
+    const val versionName = "1.1.12"
+    // D-492 (round 49): release/1.1.12 — cut from the round-49 FEATURE branch
+    // head 3614ed9c (the standing from-feature-branch model; main still
+    // carries NONE of this — the merge awaits the user's explicit
+    // confirmation). What the release carries (the full v1.1.4..1.1.11 set
+    // PLUS round 49): D-491 the poster pipeline's REAL root cause fixed —
+    // the v1.1.11 device logcat proved Coil's default HARDWARE decode config
+    // cannot be drawn on the composer's software canvas ("Software rendering
+    // doesn't support hardware bitmaps" at drawCenterCrop), which is what
+    // actually failed the live preview + the test notifications + the real
+    // notifications in v1.1.10/v1.1.11 (D-486's dispatcher/timeout work was
+    // real-but-orthogonal). The composer's art loads now pin
+    // bitmapConfig(ARGB_8888) (fresh decodes software-safe + the engine's
+    // isCacheValueValidForHardware memory-cache validation re-decodes
+    // hardware-backed entries from the disk cache), ensureSoftwareSafe()
+    // copy-or-null guards the never-crash guarantee, and the preview's
+    // failed message no longer blames the connection (art availability can
+    // no longer fail the banner at all — missing art composes the dark
+    // stage). Library badges APPROVED by the user's v1.1.11 round; untouched.
+    // 1.1.12 is the next number after v1.1.11; 10112 > 10111 — the debug app
+    // updates over its installed v1.1.11 in-app. Main stays at 0.4.20/85
+    // (D-425).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
