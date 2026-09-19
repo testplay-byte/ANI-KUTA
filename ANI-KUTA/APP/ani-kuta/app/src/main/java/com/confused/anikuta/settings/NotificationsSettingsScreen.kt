@@ -221,7 +221,8 @@ fun NotificationsSettingsScreen(
                                                     },
                                                     modifier = Modifier.width(200.dp),
                                                 )
-                                        )
+                                            },  // close the trailing lambda
+                                        )  // close SettingRow
                                     }
 
                                     // ── D-477: the poster customization (live preview) ──
