@@ -112,7 +112,7 @@ class UpdateStore(
         )
             .asFlow()
             .mapToList(Dispatchers.IO)
-            .map { rows -> rows.firstOrNull()?.let { it.COUNT.value.toInt() } ?: 0 }
+            .map { rows -> rows.firstOrNull()?.let { it.liveCount.toInt() } ?: 0 }
 
     // ── anime_update_state ──
 

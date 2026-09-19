@@ -61,7 +61,7 @@ ORDER BY discovered_at DESC LIMIT :limit;
 -- page observes this reactively: when the background checker discovers new
 -- episodes while the page is open, the count rises and the page auto-refreshes.
 countUnacknowledgedForMain:
-SELECT COUNT(*) FROM episode_update
+SELECT COUNT(*) AS liveCount FROM episode_update
 WHERE main_id = :mainId
   AND acknowledged = 0
   AND (new_expires_at IS NULL OR new_expires_at > :now);
