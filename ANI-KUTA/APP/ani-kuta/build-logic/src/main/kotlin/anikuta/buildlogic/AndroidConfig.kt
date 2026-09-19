@@ -544,14 +544,34 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10113
+    const val versionName = "1.1.13"
+    // D-497 (round 50): release/1.1.13 — cut from the round-50 FEATURE branch
+    // head 24be155b (the standing from-feature-branch model; main still
+    // carries NONE of this — the merge awaits the user's explicit
+    // confirmation). What the release carries (the full v1.1.4..1.1.12 set
+    // PLUS round 50, the presentation round): D-493 the banner redesigned as
+    // a real banner — canvas 1024×440 (≈21:9), the zone-anchored layout
+    // (title/EPISODE/episode-title from the top, the SUB/DUB chips + the
+    // ANI-KUTA wordmark on a shared bottom baseline, the thumbnail
+    // aspect-preserved in a 210×330 right-centered box — any shape fits,
+    // nothing can overflow), the background "glitch" root-caused (the old
+    // drawCenterCrop's BitmapShader sampled at native size — CLAMP smeared
+    // edge pixels across the banner) and replaced with src→dst cover-crop
+    // math + Scale.FILL decodes, the SUB/DUB badges normalized on the demo
+    // paths (the engine's "unknown" both-variant value) with honest no-chip
+    // on the real path; D-494 Shuffle actually shuffles (the one-shot
+    // on-stage exclusion + the selection cache — toggle flips re-render,
+    // never re-select); D-495 the test notifications redefined (two random
+    // DISTINCT library entries, any entry qualifies, pure-demo payloads when
+    // the library is empty — the tester ALWAYS delivers, full posters both
+    // times); D-496 the "EP 12.0" episode-label fix on both post paths.
+    // PROCESS (D-498, the user's standing instruction): the release IS the
+    // verification build — cut + tag directly after the implementation CI is
+    // green; the user tests on the RELEASE APK (in-app update); no separate
+    // device round on a feature build before the tag. 1.1.13 is the next
+    // number after v1.1.12; 10113 > 10112 — the debug app updates over its
+    // installed v1.1.12 in-app. Main stays at 0.4.20/85 (D-425).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
