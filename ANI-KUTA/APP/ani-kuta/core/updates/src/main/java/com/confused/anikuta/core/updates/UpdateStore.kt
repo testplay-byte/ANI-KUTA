@@ -111,8 +111,9 @@ class UpdateStore(
             now = System.currentTimeMillis(),
         )
             .asFlow()
-            .mapToList(Dispatchers.IO)
-            .map { rows -> rows.firstOrNull()?.let { it.liveCount.toInt() } ?: 0 }
+            // A single-column COUNT query resolves to a bare Long scalar —
+            // no row class (SQLDelight scalar-query semantics).
+            .map { it.executeAsOne().toInt() }
 
     // ── anime_update_state ──
 
