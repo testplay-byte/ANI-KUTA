@@ -15,8 +15,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -47,6 +47,7 @@ import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.MoreListRow
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SettingsGroupCard
+import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.notifications.TriggerState
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -190,39 +191,63 @@ fun NotificationsSettingsScreen(
                                     // between sub, dub, and both but in the notification
                                     // section it does not show those options"). Both
                                     // screens write the SAME preference keys.
-                                    SettingsGroupCard(label = "Episode type") {
+                                    //
+                                    // D-487: the block's LAYOUT now mirrors the Updates
+                                    // screen's "Episode type" block EXACTLY (the user's
+                                    // v1.1.10 round: the trailing-slot toggle was squeezed
+                                    // into the row's end) — title + description stacked at
+                                    // the top, the FULL-WIDTH SegmentedToggle BELOW them.
+                                    // Same typography as SettingRow's title/description so
+                                    // the card language stays consistent; the toggle has no
+                                    // width cap (SegmentedToggle fills its container — same
+                                    // as the Updates screen, which passes no modifier).
+                                    SettingsGroupCard(label = "Episode type", showDividers = false) {
                                         // The selection is STATE (seeded from the
                                         // shared prefs) so tapping recomposes instantly;
                                         // the prefs write keeps the two screens in sync.
                                         var audioGate by remember {
                                             mutableStateOf(updatePrefs.getCheckSub() to updatePrefs.getCheckDub())
                                         }
-                                        SettingRow(
-                                            title = "Episode type",
-                                            description = "Which releases to notify about (shared with the Updates settings)",
-                                            trailing = {
-                                                // D-484: the SAME design-system
-                                                // SegmentedToggle the Updates screen uses.
-                                                SegmentedToggle(
-                                                    options = listOf("Sub", "Dub", "Both"),
-                                                    selectedIndex = when {
-                                                        audioGate.first && !audioGate.second -> 0
-                                                        !audioGate.first && audioGate.second -> 1
-                                                        else -> 2
-                                                    },
-                                                    onSelect = { idx ->
-                                                        audioGate = when (idx) {
-                                                            0 -> true to false
-                                                            1 -> false to true
-                                                            else -> true to true
-                                                        }
-                                                        updatePrefs.setCheckSub(audioGate.first)
-                                                        updatePrefs.setCheckDub(audioGate.second)
-                                                    },
-                                                    modifier = Modifier.width(200.dp),
-                                                )
-                                            },  // close the trailing lambda
-                                        )  // close SettingRow
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        ) {
+                                            Text(
+                                                text = "Episode type",
+                                                fontFamily = RobotoFamily,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Medium,
+                                            )
+                                            Text(
+                                                text = "Which releases to notify about (shared with the Updates settings)",
+                                                fontFamily = RobotoFamily,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 13.sp,
+                                                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
+                                            )
+                                            // D-484: the SAME design-system SegmentedToggle
+                                            // the Updates screen uses — now full-width BELOW
+                                            // the text, matching the Updates block's structure.
+                                            SegmentedToggle(
+                                                options = listOf("Sub", "Dub", "Both"),
+                                                selectedIndex = when {
+                                                    audioGate.first && !audioGate.second -> 0
+                                                    !audioGate.first && audioGate.second -> 1
+                                                    else -> 2
+                                                },
+                                                onSelect = { idx ->
+                                                    audioGate = when (idx) {
+                                                        0 -> true to false
+                                                        1 -> false to true
+                                                        else -> true to true
+                                                    }
+                                                    updatePrefs.setCheckSub(audioGate.first)
+                                                    updatePrefs.setCheckDub(audioGate.second)
+                                                },
+                                            )
+                                        }
                                     }
 
                                     // ── D-477: the poster customization (live preview) ──
