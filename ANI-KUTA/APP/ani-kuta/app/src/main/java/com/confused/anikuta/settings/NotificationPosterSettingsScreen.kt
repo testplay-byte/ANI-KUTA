@@ -224,6 +224,7 @@ fun NotificationPosterSettingsScreen(
                 }
                 ScrollBlurOverlay(
                     scrollOffset = { lazyListState.firstVisibleItemScrollOffset.toFloat() },
+                    backgroundColor = MaterialTheme.colorScheme.background,
                     modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter),
                 )
             }
