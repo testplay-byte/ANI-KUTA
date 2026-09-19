@@ -85,6 +85,7 @@ fun SmartLinkAdInterstitial() {
         content = MaterialTheme.colorScheme.onSurface.toArgb(),
         accent = MaterialTheme.colorScheme.primary.toArgb(),
         onAccent = MaterialTheme.colorScheme.onPrimary.toArgb(),
+        error = MaterialTheme.colorScheme.error.toArgb(),
     )
     val pillDurationMs = repository.config.smartLink.minTimeOutsideMs
 
@@ -107,19 +108,18 @@ fun SmartLinkAdInterstitial() {
         }
     }
 
-    // D-443: the floating return pill lives over the BROWSER exactly while
-    // the ad is in progress. The SHOW is invoked directly in the Continue /
-    // Try-again tap handlers (NOT from a state-driven effect): the state
-    // flip happens in the same tap, but a recomposition could be deferred
-    // until after the browser covers the screen — the direct call runs the
-    // window-add before the transition. Every state CHANGE here hides the
-    // pill (the user is back IN the app, where the interstitial is the
-    // right surface — including the Try-again state and every cancel /
-    // completion path). The controller is a no-op when the overlay
-    // permission isn't granted (silent fallback — never blocks the flow).
+    // D-443/D-454: the floating return pill lives over the BROWSER exactly
+    // while the ad is in progress. The SHOW is invoked directly in the
+    // Continue / Try-again tap handlers (NOT from a state-driven effect):
+    // the state flip happens in the same tap, but a recomposition could be
+    // deferred until after the browser covers the screen. Every state
+    // CHANGE here hides the pill — and D-454 passes the verdict through:
+    // AdTryAgain (returned before the timer) pops the RED X; every other
+    // exit (completed / cancelled) pops the green check. The controller is
+    // a no-op when the overlay permission isn't granted.
     LaunchedEffect(state) {
         if (state !is AdGateState.AdInProgress) {
-            pillController.hide()
+            pillController.hide(returnedTooEarly = state is AdGateState.AdTryAgain)
         }
     }
 

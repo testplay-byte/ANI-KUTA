@@ -1810,3 +1810,10 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 ## Round 42 (Task 82) — the v1.1.4 device round: the icon safe-zone + the pill clipping + the bubble exit
 - **D-451:** the debug adaptive-icon background regenerated — the complete artwork (corners included) inside the launcher's safe circle, feather-blended into its own mean border color; nothing of the mascot is cropped on any side.
 - **D-452:** the pill's window padding headroom (the ready-scale/pulse no longer clip the capsule's sides) + the staged exit: label+chip collapse into the ring → the checkmark pops like a bubble → the window is removed.
+
+## Round 43 (Task 83) — the v1.1.5 device round: the pill rebuild + the icon zoom + the player UI pass
+- **D-454:** the return pill REBUILT — the window is sized ONCE (pre-measured ready shape), all grow/exit animations are pure property transforms (zero surface resizes = the stutter fix), the countdown starts on the app's actual ON_STOP (synced with the coordinator's clock), and an early return pops the RED X instead of the green check.
+- **D-455:** the debug launcher zoomed in — the adaptive background's sharp artwork 46% → 66% (a slight mask crop on all four sides is now the intent; the App Icon hero stays the full square).
+- **D-456:** the double-tap seek feedback is CUMULATIVE (+10 → +20 → +30 …) with 2× the visible hold, shared by minimized + fullscreen in the MPV stack.
+- **D-457:** the player visual pass (both stacks): lighter/more transparent play-pause glass with bigger icons, skip-button shadows, the seekbar's shadow backing + the thumb's halo/border holder, the exit-fullscreen button matching its neighbours' background.
+- **D-458:** the CS stack's fullscreen seek indicator (file-private replica, isolation preserved).

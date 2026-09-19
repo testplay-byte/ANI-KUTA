@@ -116,6 +116,10 @@ fun FullscreenControls(
 
     var isSeeking by remember { mutableStateOf(false) }
     if (isSeeking) stateHolder.updateControlsVisible(true)
+    // D-456: fullscreen previously seeked on double-tap with NO feedback at
+    // all — the shared cumulative indicator (+10 → +20 → +30 …, 2× the hold)
+    // now renders here exactly like the minimized view's.
+    val seekFeedback = rememberDoubleTapSeekState()
 
     Box(modifier = modifier.fillMaxSize()) {
         if (controlsLocked) {
@@ -159,13 +163,23 @@ fun FullscreenControls(
                             detectTapGestures(
                                 onTap = { stateHolder.updateControlsVisible(!controlsVisible) },
                                 onDoubleTap = { offset ->
-                                    if (offset.x < size.width / 2) onSeekRelative(-10)
-                                    else onSeekRelative(10)
+                                    if (offset.x < size.width / 2) {
+                                        onSeekRelative(-10)
+                                        seekFeedback.accumulate(forward = false)
+                                    } else {
+                                        onSeekRelative(10)
+                                        seekFeedback.accumulate(forward = true)
+                                    }
                                 },
                             )
                         }
                     },
             )
+
+            // D-456: the cumulative double-tap seek pill — fullscreen parity
+            // with the minimized view (renders regardless of controlsVisible,
+            // exactly like the portrait feedback did).
+            DoubleTapSeekIndicator(state = seekFeedback)
 
             // ── ERROR BANNER (non-intrusive, top-aligned) ──
             // Replaces the old full-screen PlayerErrorOverlay "dialog box".
@@ -272,7 +286,11 @@ fun FullscreenControls(
                             } else {
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    color = themedDarkGlassColor(),
+                                    // D-457: the lighter, more transparent
+                                    // play/pause glass + a soft shadow so the
+                                    // button reads on light scenes too.
+                                    color = themedPlayPauseColor(),
+                                    shadowElevation = 6.dp,
                                     modifier = Modifier
                                         .size(60.dp)
                                         .clickable { onTogglePlay() },
@@ -282,7 +300,7 @@ fun FullscreenControls(
                                             if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                             contentDescription = if (isPlaying) "Pause" else "Play",
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(32.dp),
+                                            modifier = Modifier.size(38.dp),
                                         )
                                     }
                                 }
@@ -429,6 +447,22 @@ private fun FullscreenSeekbarCustom(
             val barWidth = size.width
             val cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx(), 3.dp.toPx())
 
+            // D-457: a soft dark backing slightly larger than the track — a
+            // canvas-friendly shadow that keeps the bar legible on light
+            // scenes (two stacked translucent rounds fake the blur).
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.18f),
+                topLeft = Offset(0f, barY - 2.dp.toPx()),
+                size = Size(barWidth, barHeight + 4.dp.toPx()),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(5.dp.toPx(), 5.dp.toPx()),
+            )
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.18f),
+                topLeft = Offset(0f, barY - 1.dp.toPx()),
+                size = Size(barWidth, barHeight + 2.dp.toPx()),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+            )
+
             drawRoundRect(color = trackColor, topLeft = Offset(0f, barY), size = Size(barWidth, barHeight), cornerRadius = cornerRadius)
             // Buffer-ahead segment (drawn between progress and end)
             if (bufferProgress > progress) {
@@ -441,10 +475,35 @@ private fun FullscreenSeekbarCustom(
             }
             drawRoundRect(color = progressColor, topLeft = Offset(0f, barY), size = Size(barWidth * progress, barHeight), cornerRadius = cornerRadius)
 
+            // D-457: the thumb gets a clear "holder" treatment — a shadow
+            // halo, a light border ring, then the thumb itself — so it reads
+            // as a distinct knob sitting on the bar.
             val thumbSize = thumbSizeDp.toPx()
             val thumbX = (barWidth * progress - thumbSize / 2f).coerceAtLeast(0f)
             val thumbY = (size.height - thumbSize) / 2f
-            drawRoundRect(color = progressColor, topLeft = Offset(thumbX, thumbY), size = Size(thumbSize, thumbSize), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx(), 4.dp.toPx()))
+            val thumbRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx(), 4.dp.toPx())
+            val halo = 3.dp.toPx()
+            // The shadow halo (soft dark, slightly offset downward).
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.35f),
+                topLeft = Offset(thumbX - halo, thumbY - halo + 1.dp.toPx()),
+                size = Size(thumbSize + halo * 2, thumbSize + halo * 2),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius((4 + 3).dp.toPx(), (4 + 3).dp.toPx()),
+            )
+            // The light border ring.
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.55f),
+                topLeft = Offset(thumbX - halo, thumbY - halo),
+                size = Size(thumbSize + halo * 2, thumbSize + halo * 2),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius((4 + 3).dp.toPx(), (4 + 3).dp.toPx()),
+            )
+            // The thumb itself (slightly inset so the ring shows).
+            drawRoundRect(
+                color = progressColor,
+                topLeft = Offset(thumbX, thumbY),
+                size = Size(thumbSize, thumbSize),
+                cornerRadius = thumbRadius,
+            )
         }
 
         // Seek tooltip
@@ -499,6 +558,9 @@ private fun FSSkipButton(label: String, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = themedDarkGlassColor(),
+        // D-457: the skip buttons get a soft drop shadow so they stay clearly
+        // visible over bright scenes.
+        shadowElevation = 6.dp,
         modifier = Modifier
             .size(width = 56.dp, height = 44.dp)
             .clickable(onClick = onClick),
@@ -555,7 +617,13 @@ private fun FSTimeContainer(text: String, modifier: Modifier = Modifier) {
 private fun FSExitButton(onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+        // D-457: the exit button now carries the SAME per-button background
+        // as its neighbours (the top-right four + the bottom-right cluster's
+        // White-12% chips) — the old primary-tinted square read as
+        // "backgroundless" next to them — plus a soft shadow for light
+        // scenes.
+        color = Color.White.copy(alpha = 0.12f),
+        shadowElevation = 4.dp,
         modifier = Modifier.size(36.dp).clickable(onClick = onClick),
     ) {
         Box(contentAlignment = Alignment.Center) {

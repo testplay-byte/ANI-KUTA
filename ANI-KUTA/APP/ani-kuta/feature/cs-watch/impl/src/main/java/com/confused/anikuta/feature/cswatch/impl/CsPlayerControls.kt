@@ -44,7 +44,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -68,6 +70,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.csplayer.CsEngineState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -98,6 +103,88 @@ private fun csThemedDarkGlassColor(): Color {
     val primary = MaterialTheme.colorScheme.primary
     val darkened = lerp(primary, Color.Black, 0.55f)
     return darkened.copy(alpha = 0.62f)
+}
+
+/**
+ * D-457: the CS replica of the dedicated PLAY/PAUSE glass — lighter on the
+ * theme color (~30% toward black) + more transparent (42% alpha), with the
+ * icon enlarged at the call sites.
+ */
+@Composable
+private fun csThemedPlayPauseColor(): Color {
+    val primary = MaterialTheme.colorScheme.primary
+    val darkened = lerp(primary, Color.Black, 0.30f)
+    return darkened.copy(alpha = 0.42f)
+}
+
+/**
+ * D-456/D-458: the CS replica of the MPV stack's cumulative double-tap seek
+ * state (zero code shared with :core:player, per this file's isolation rule):
+ * consecutive same-side double-taps accumulate the pill (+10 -> +20 -> +30),
+ * the visible hold is 2x the old one (~1s hold), and every re-tap restarts
+ * the hold (cancelling the previous job — the old flicker fix).
+ */
+@Stable
+private class CsDoubleTapSeekState internal constructor(private val scope: CoroutineScope) {
+    var visible by mutableStateOf(false)
+        private set
+    var forward by mutableStateOf(true)
+        private set
+    var totalSeconds by mutableIntStateOf(0)
+        private set
+    val alpha = Animatable(0f)
+    private var job: Job? = null
+
+    fun accumulate(forward: Boolean, stepSeconds: Int = 10) {
+        val sameSide = visible && this.forward == forward
+        this.forward = forward
+        totalSeconds = if (sameSide) totalSeconds + stepSeconds else stepSeconds
+        visible = true
+        job?.cancel()
+        job = scope.launch {
+            if (alpha.value < 1f) {
+                alpha.snapTo(0f)
+                alpha.animateTo(1f, tween(120))
+            }
+            delay(1_000L)
+            alpha.animateTo(0f, tween(300))
+            visible = false
+            totalSeconds = 0
+        }
+    }
+}
+
+@Composable
+private fun rememberCsDoubleTapSeekState(): CsDoubleTapSeekState {
+    val scope = rememberCoroutineScope()
+    return remember { CsDoubleTapSeekState(scope) }
+}
+
+/** The CS seek pill — same visual language as the MPV indicator. */
+@Composable
+private fun CsDoubleTapSeekIndicator(state: CsDoubleTapSeekState, modifier: Modifier = Modifier) {
+    if (!state.visible) return
+    Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 40.dp),
+            contentAlignment = if (state.forward) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.6f * state.alpha.value),
+            ) {
+                Text(
+                    text = (if (state.forward) "+" else "-") + "${state.totalSeconds}s",
+                    color = Color.White.copy(alpha = state.alpha.value),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -134,6 +221,8 @@ internal fun CsMinimizedControls(
     var doubleTapAnim by remember { mutableStateOf<CsDoubleTapFeedback?>(null) }
     val animAlpha = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    // D-456/D-458: the cumulative seek pill (shared shape with the MPV stack).
+    val seekFeedback = rememberCsDoubleTapSeekState()
 
     fun animateFeedback(feedback: CsDoubleTapFeedback) {
         scope.launch {
@@ -156,11 +245,11 @@ internal fun CsMinimizedControls(
                         when {
                             offset.x < w / 3 -> {
                                 onSeekRelative(-10)
-                                animateFeedback(CsDoubleTapFeedback.Rewind)
+                                seekFeedback.accumulate(forward = false)
                             }
                             offset.x > w * 2f / 3f -> {
                                 onSeekRelative(10)
-                                animateFeedback(CsDoubleTapFeedback.Forward)
+                                seekFeedback.accumulate(forward = true)
                             }
                             else -> {
                                 onTogglePlay()
@@ -211,52 +300,29 @@ internal fun CsMinimizedControls(
             }
         }
 
-        // Double-tap feedback animation.
+        // Double-tap feedback — the SEEK pill is the shared cumulative
+        // indicator; the play/pause circle stays as before.
+        CsDoubleTapSeekIndicator(state = seekFeedback)
         doubleTapAnim?.let { feedback ->
-            val isCenterAnim = feedback == CsDoubleTapFeedback.Pause || feedback == CsDoubleTapFeedback.Play
-            val alignment = when (feedback) {
-                CsDoubleTapFeedback.Rewind -> Alignment.CenterStart
-                CsDoubleTapFeedback.Forward -> Alignment.CenterEnd
-                else -> Alignment.Center
-            }
-            val sidePadding = if (isCenterAnim) 0.dp else 40.dp
             Box(
                 modifier = Modifier.fillMaxSize(),
-                contentAlignment = alignment,
+                contentAlignment = Alignment.Center,
             ) {
-                if (isCenterAnim) {
-                    val icon = if (feedback == CsDoubleTapFeedback.Pause) Icons.Default.Pause else Icons.Default.PlayArrow
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.padding(horizontal = sidePadding),
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.45f * animAlpha.value),
-                            modifier = Modifier.size(48.dp),
-                        ) {}
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = animAlpha.value),
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
-                } else {
-                    val label = if (feedback == CsDoubleTapFeedback.Rewind) "-10s" else "+10s"
+                val icon = if (feedback == CsDoubleTapFeedback.Pause) Icons.Default.Pause else Icons.Default.PlayArrow
+                Box(
+                    contentAlignment = Alignment.Center,
+                ) {
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color.Black.copy(alpha = 0.6f * animAlpha.value),
-                        modifier = Modifier.padding(horizontal = sidePadding),
-                    ) {
-                        Text(
-                            text = label,
-                            color = Color.White.copy(alpha = animAlpha.value),
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
-                    }
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.45f * animAlpha.value),
+                        modifier = Modifier.size(48.dp),
+                    ) {}
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = animAlpha.value),
+                        modifier = Modifier.size(28.dp),
+                    )
                 }
             }
         }
@@ -312,7 +378,9 @@ internal fun CsMinimizedControls(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = csThemedDarkGlassColor(),
+                        // D-457: lighter + more transparent + a bigger icon
+                        // inside the same 56dp button.
+                        color = csThemedPlayPauseColor(),
                         modifier = Modifier.size(56.dp),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -320,7 +388,7 @@ internal fun CsMinimizedControls(
                                 imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (state.isPlaying) "Pause" else "Play",
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(32.dp),
+                                modifier = Modifier.size(38.dp),
                             )
                         }
                     }
@@ -353,7 +421,8 @@ internal fun CsMinimizedControls(
     }
 }
 
-private enum class CsDoubleTapFeedback { Pause, Play, Rewind, Forward }
+/** The center double-tap feedback (the seek feedback moved to [CsDoubleTapSeekState]). */
+private enum class CsDoubleTapFeedback { Pause, Play }
 
 @Composable
 private fun CsTransparentIconButton(
@@ -547,6 +616,8 @@ internal fun CsFullscreenControls(
     onSkipForward: () -> Unit,
 ) {
     var isSeeking by remember { mutableStateOf(false) }
+    // D-458: the cumulative double-tap seek state (fullscreen parity).
+    val seekFeedback = rememberCsDoubleTapSeekState()
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (locked) {
@@ -590,13 +661,22 @@ internal fun CsFullscreenControls(
                             detectTapGestures(
                                 onTap = { onToggleControls() },
                                 onDoubleTap = { offset ->
-                                    if (offset.x < size.width / 2) onSeekRelative(-10)
-                                    else onSeekRelative(10)
+                                    if (offset.x < size.width / 2) {
+                                        onSeekRelative(-10)
+                                        seekFeedback.accumulate(forward = false)
+                                    } else {
+                                        onSeekRelative(10)
+                                        seekFeedback.accumulate(forward = true)
+                                    }
                                 },
                             )
                         }
                     },
             )
+
+            // D-458: the cumulative seek pill — fullscreen parity with the
+            // minimized view (previously the fullscreen seeked silently).
+            CsDoubleTapSeekIndicator(state = seekFeedback)
 
             // ── Top elements (slide in from top) ──
             AnimatedVisibility(
@@ -688,7 +768,10 @@ internal fun CsFullscreenControls(
                             } else {
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    color = csThemedDarkGlassColor(),
+                                    // D-457: the lighter play/pause glass + a
+                                    // soft shadow for light scenes.
+                                    color = csThemedPlayPauseColor(),
+                                    shadowElevation = 6.dp,
                                     modifier = Modifier
                                         .size(60.dp)
                                         .clickable { onTogglePlay() },
@@ -698,7 +781,7 @@ internal fun CsFullscreenControls(
                                             imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                             contentDescription = if (state.isPlaying) "Pause" else "Play",
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(32.dp),
+                                            modifier = Modifier.size(38.dp),
                                         )
                                     }
                                 }
@@ -841,6 +924,22 @@ private fun CsFullscreenSeekbar(
             val barWidth = size.width
             val cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
 
+            // D-457: a soft dark backing slightly larger than the track — a
+            // canvas-friendly shadow that keeps the bar legible on light
+            // scenes (two stacked translucent rounds fake the blur).
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.18f),
+                topLeft = Offset(0f, barY - 2.dp.toPx()),
+                size = Size(barWidth, barHeight + 4.dp.toPx()),
+                cornerRadius = CornerRadius(5.dp.toPx(), 5.dp.toPx()),
+            )
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.18f),
+                topLeft = Offset(0f, barY - 1.dp.toPx()),
+                size = Size(barWidth, barHeight + 2.dp.toPx()),
+                cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+            )
+
             drawRoundRect(color = trackColor, topLeft = Offset(0f, barY), size = Size(barWidth, barHeight), cornerRadius = cornerRadius)
             // Buffer-ahead segment (drawn between progress and end)
             if (bufferProgress > progress) {
@@ -853,9 +952,24 @@ private fun CsFullscreenSeekbar(
             }
             drawRoundRect(color = progressColor, topLeft = Offset(0f, barY), size = Size(barWidth * progress, barHeight), cornerRadius = cornerRadius)
 
+            // D-457: the thumb's "holder" treatment — shadow halo, light
+            // border ring, then the thumb (mirrors the aniyomi seekbar).
             val thumbSize = thumbSizeDp.toPx()
             val thumbX = (barWidth * progress - thumbSize / 2f).coerceAtLeast(0f)
             val thumbY = (size.height - thumbSize) / 2f
+            val halo = 3.dp.toPx()
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.35f),
+                topLeft = Offset(thumbX - halo, thumbY - halo + 1.dp.toPx()),
+                size = Size(thumbSize + halo * 2, thumbSize + halo * 2),
+                cornerRadius = CornerRadius(7.dp.toPx(), 7.dp.toPx()),
+            )
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.55f),
+                topLeft = Offset(thumbX - halo, thumbY - halo),
+                size = Size(thumbSize + halo * 2, thumbSize + halo * 2),
+                cornerRadius = CornerRadius(7.dp.toPx(), 7.dp.toPx()),
+            )
             drawRoundRect(
                 color = progressColor,
                 topLeft = Offset(thumbX, thumbY),
@@ -916,6 +1030,9 @@ private fun CsFsSkipButton(label: String, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = csThemedDarkGlassColor(),
+        // D-457: a soft drop shadow so the skip buttons stay clearly visible
+        // over bright scenes.
+        shadowElevation = 6.dp,
         modifier = Modifier
             .size(width = 56.dp, height = 44.dp)
             .clickable(onClick = onClick),
@@ -972,7 +1089,10 @@ private fun CsFsTimeContainer(text: String, modifier: Modifier = Modifier) {
 private fun CsFsExitButton(onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+        // D-457: the SAME per-button background as its neighbours + a soft
+        // shadow (the old primary-tinted square read as "backgroundless").
+        color = Color.White.copy(alpha = 0.12f),
+        shadowElevation = 4.dp,
         modifier = Modifier.size(36.dp).clickable(onClick = onClick),
     ) {
         Box(contentAlignment = Alignment.Center) {

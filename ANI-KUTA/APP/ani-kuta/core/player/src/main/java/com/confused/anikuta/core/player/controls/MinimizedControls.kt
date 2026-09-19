@@ -89,6 +89,9 @@ fun MinimizedControls(
     var doubleTapAnim by remember { mutableStateOf<DoubleTapFeedback?>(null) }
     val animAlpha = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    // D-456: the cumulative double-tap seek state (+10 → +20 → +30 …, 2× the
+    // visible hold) — shared with the fullscreen controls.
+    val seekFeedback = rememberDoubleTapSeekState()
 
     Box(
         modifier = modifier
@@ -106,23 +109,11 @@ fun MinimizedControls(
                         when (zone) {
                             DoubleTapZone.LEFT -> {
                                 onSeekRelative(-10)
-                                scope.launch {
-                                    doubleTapAnim = DoubleTapFeedback.Rewind
-                                    animAlpha.snapTo(0f)
-                                    animAlpha.animateTo(1f, tween(150))
-                                    animAlpha.animateTo(0f, tween(500))
-                                    doubleTapAnim = null
-                                }
+                                seekFeedback.accumulate(forward = false)
                             }
                             DoubleTapZone.RIGHT -> {
                                 onSeekRelative(10)
-                                scope.launch {
-                                    doubleTapAnim = DoubleTapFeedback.Forward
-                                    animAlpha.snapTo(0f)
-                                    animAlpha.animateTo(1f, tween(150))
-                                    animAlpha.animateTo(0f, tween(500))
-                                    doubleTapAnim = null
-                                }
+                                seekFeedback.accumulate(forward = true)
                             }
                             DoubleTapZone.CENTER -> {
                                 onTogglePlay()
@@ -207,54 +198,30 @@ fun MinimizedControls(
             }
         }
 
-        // Double-tap feedback animation
+        // Double-tap feedback animation — the SEEK pill is the shared,
+        // cumulative D-456 indicator; the play/pause circle stays as before.
+        DoubleTapSeekIndicator(state = seekFeedback)
         doubleTapAnim?.let { feedback ->
-            val isCenterAnim = feedback == DoubleTapFeedback.Pause || feedback == DoubleTapFeedback.Play
-            val alignment = if (isCenterAnim) Alignment.Center else {
-                when (feedback) {
-                    DoubleTapFeedback.Rewind -> Alignment.CenterStart
-                    DoubleTapFeedback.Forward -> Alignment.CenterEnd
-                    else -> Alignment.Center
-                }
-            }
-            val sidePadding = if (isCenterAnim) 0.dp else 40.dp
             Box(
                 modifier = Modifier.fillMaxSize(),
-                contentAlignment = alignment,
+                contentAlignment = Alignment.Center,
             ) {
-                if (isCenterAnim) {
-                    val icon = if (feedback == DoubleTapFeedback.Pause) Icons.Default.Pause else Icons.Default.PlayArrow
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.padding(horizontal = sidePadding),
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.45f * animAlpha.value),
-                            modifier = Modifier.size(48.dp),
-                        ) {}
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = animAlpha.value),
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
-                } else {
-                    val label = if (feedback == DoubleTapFeedback.Rewind) "-10s" else "+10s"
+                val icon = if (feedback == DoubleTapFeedback.Pause) Icons.Default.Pause else Icons.Default.PlayArrow
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.padding(horizontal = 0.dp),
+                ) {
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color.Black.copy(alpha = 0.6f * animAlpha.value),
-                        modifier = Modifier.padding(horizontal = sidePadding),
-                    ) {
-                        Text(
-                            text = label,
-                            color = Color.White.copy(alpha = animAlpha.value),
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
-                    }
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.45f * animAlpha.value),
+                        modifier = Modifier.size(48.dp),
+                    ) {}
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = animAlpha.value),
+                        modifier = Modifier.size(28.dp),
+                    )
                 }
             }
         }
@@ -310,7 +277,10 @@ fun MinimizedControls(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = themedDarkGlassColor(),
+                        // D-457: the play/pause surface is LIGHTER + more
+                        // transparent than the other glass buttons, with the
+                        // icon enlarged inside the same 56dp button.
+                        color = themedPlayPauseColor(),
                         modifier = Modifier.size(56.dp),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -318,7 +288,7 @@ fun MinimizedControls(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (isPlaying) "Pause" else "Play",
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(32.dp),
+                                modifier = Modifier.size(38.dp),
                             )
                         }
                     }
@@ -352,7 +322,9 @@ fun MinimizedControls(
 }
 
 private enum class DoubleTapZone { LEFT, CENTER, RIGHT }
-private enum class DoubleTapFeedback { Pause, Play, Rewind, Forward }
+
+/** The center double-tap feedback (the seek feedback moved to [DoubleTapSeekState]). */
+private enum class DoubleTapFeedback { Pause, Play }
 
 @Composable
 private fun TransparentIconButton(
