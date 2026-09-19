@@ -544,14 +544,22 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10107
+    const val versionName = "1.1.7"
+    // D-464 (round 44): release/1.1.7 — cut from the round-44 FEATURE branch
+    // head 0db9a8c7 (the standing from-feature-branch model; main still
+    // carries NONE of this — the merge awaits the user's explicit
+    // confirmation). What the release carries (the full v1.1.4..1.1.6 set
+    // PLUS round 44): D-460 the pill's grow-clipping root-cause fix (the
+    // LayoutTransition lag removed; constant label padding; "You can go
+    // back"), D-461 the exit bubble pops dead-center (the ring slides to
+    // the window center first), D-462 the seek pill 96dp from the edges +
+    // the pulse pop on every accumulating tap, D-463 the fullscreen shadow
+    // corrections (text shadows on the skip labels, the track's shadow
+    // moved to the thumb, the exit-fullscreen button inside the cluster
+    // tray). 1.1.7 is the next number after v1.1.6; 10107 > 10106 — the
+    // debug app updates over its installed v1.1.6 in-app. Main stays at
+    // 0.4.20/85 (D-425: the bump lives on the release branch).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
