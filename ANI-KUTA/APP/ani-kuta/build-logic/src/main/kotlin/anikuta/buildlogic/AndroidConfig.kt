@@ -544,14 +544,20 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10108
+    const val versionName = "1.1.8"
+    // D-471 (round 45): release/1.1.8 — cut from the round-45 FEATURE branch
+    // head efcccf24 (the standing from-feature-branch model; main still
+    // carries NONE of this — the merge awaits the user's explicit
+    // confirmation). What the release carries (the full v1.1.4..1.1.7 set
+    // PLUS round 45): D-466 the clean user-facing What's New release notes
+    // (the body = the tag's own bullets — no git log/headers/tables), D-467
+    // the exit-fullscreen button standalone with its theme color, D-468 the
+    // pill window slack (the persistent side/top-bottom clip fixed), D-469
+    // the thumb border thinner + darker, D-470 the seek pill per-orientation
+    // side distance (portrait at the sides, fullscreen inward). 1.1.8 is
+    // the next number after v1.1.7; 10108 > 10107 — the debug app updates
+    // over its installed v1.1.7 in-app. Main stays at 0.4.20/85 (D-425).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
