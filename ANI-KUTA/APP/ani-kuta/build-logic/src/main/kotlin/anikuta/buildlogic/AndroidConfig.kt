@@ -544,14 +544,21 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10110
+    const val versionName = "1.1.10"
+    // D-485 (round 47): release/1.1.10 — cut from the round-47 FEATURE branch
+    // head 4b8961bd (the standing from-feature-branch model; main still
+    // carries NONE of this — the merge awaits the user's explicit
+    // confirmation). What the release carries (the full v1.1.4..1.1.9 set
+    // PLUS round 47): D-483 the demo content system (the preview + the test
+    // notifications fall back to random library content with cached
+    // episodes; the honest no-episodes state; the shuffle; the banner art
+    // fallback chain reaching the extras' large cover and the episode
+    // thumbnail), the staggered test posts (now + 5 minutes), the pill
+    // exit slowed ~40%, the episode-type SegmentedToggle parity, and the
+    // library badges centered at top. 1.1.10 is the next number after
+    // v1.1.9; 10110 > 10109 — the debug app updates over its installed
+    // v1.1.9 in-app. Main stays at 0.4.20/85 (D-425).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
