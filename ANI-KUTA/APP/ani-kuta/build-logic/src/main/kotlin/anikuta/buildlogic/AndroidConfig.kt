@@ -544,8 +544,40 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
+    const val versionCode = 10117
+    const val versionName = "1.1.17"
+    // D-498 (round 54): release/1.1.17 — cut from the round-54 FEATURE branch
+    // head 2b5d7730 (CI green on the FIRST implementation run, 35474291318 —
+    // the pre-push review round caught the one compile blocker before the
+    // push, saving the usual fix CI). What the release carries on top of
+    // v1.1.16 (the round-54 device round, D-518..D-521 — full detail:
+    // AGENT-CONTEXT/memory/decisions.md): D-518 THE STUDIO SHELL REBUILT —
+    // the round's named bug: the header lived inside the left panel with
+    // ZERO inset handling on a forced-landscape edge-to-edge screen, so the
+    // whole control row (Save included) rendered UNDER the status bar and
+    // Save was literally unclickable ("There should be padding at the top
+    // for the notification bar so that the buttons do not show under it");
+    // now statusBarsPadding once at the root, a full-width header bar with
+    // LABELLED reachable Reset/Save buttons, the left panel's sections on
+    // tonal SectionCards (planned structure), and the nav-bar inset on the
+    // whole body Row (SENSOR_LANDSCAPE can put the bar on either edge);
+    // D-519 THE ELEMENT-AWARE TEXT COLUMNS — "the content title is showing
+    // under some corner elements": the title/episode-title wrap width now
+    // ends BEFORE the left edge of any visible neighbour sharing the text's
+    // vertical band (PosterDrawing.awareWrapWidth — a two-pass text-driven
+    // band, left-edge-only neighbour rects, a 120px floor, mirrored
+    // composer/studio with render-exact clamps), and the composer's
+    // thumbnail render clamp was RANGE-GUARDED — the last unguarded
+    // coerceIn had made every real notification silently fall back to plain
+    // text whenever the saved thumbnail scale exceeded ~1.78×; D-520 THE
+    // SHUFFLE THAT ALWAYS SHUFFLES — the old exclude handshake silently
+    // no-op'd when the on-stage id was still null (the pulse played and
+    // nothing changed); an explicit shufflePending flag now forces a
+    // re-selection on EVERY tap and an honest progress rail docks to the
+    // preview's bottom edge while the new banner composes; D-521 THE
+    // SIMPLER DESCRIPTION — the notification reads TITLE / "New Episode"
+    // ("maybe we can simplify it more to just 'New Episode'. Let's make it
+    // simpler like that.").
     // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
     // discipline (D-425: the version never moves without the user's explicit
     // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
