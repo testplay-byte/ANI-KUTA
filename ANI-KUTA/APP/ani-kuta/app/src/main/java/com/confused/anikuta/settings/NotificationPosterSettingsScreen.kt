@@ -62,13 +62,19 @@ import org.koin.compose.koinInject
  * 3. When nothing qualifies: the "No episodes available yet" state.
  *
  * D-494 shuffle semantics: the SHUFFLE button skips the feed path entirely
- * and picks a random library item EXCLUDING the one on stage — the user's
+ * and picks a library item DIFFERENT from the one on stage — the user's
  * v1.1.12 round: "it was not shuffling between the other library items"
  * (the feed-first path always re-picked the same newest row, so the button
  * looked dead). The exclusion is one-shot: toggle flips re-render the
  * content currently on stage, they do not re-roll it.
  *
- * D-493: the preview box adopts the composer's REAL canvas ratio (≈21:9)
+ * D-499 PLANNED randomness: the shuffle no longer re-rolls dice per tap —
+ * it consumes a [EpisodeDemoPicker.ShuffleDeck] (the whole library shuffled
+ * once per cycle, reshuffled on exhaustion, never repeating immediately).
+ * The user's round-51 spec: "planned randomness rather than just simple
+ * randomness because simple randomness does not feel that random."
+ *
+ * D-493: the preview box adopts the composer's REAL canvas ratio (2.56:1)
  * so the preview shows the notification's true proportions.
  */
 @Composable
@@ -103,6 +109,11 @@ fun NotificationPosterSettingsScreen(
     val shuffleExclude = remember { mutableStateOf<String?>(null) }
     val onStageMainId = remember { mutableStateOf<String?>(null) }
 
+    // D-499: the planned-randomness deck — the shuffle session's order over
+    // the library. Lives with the screen's composition (a fresh screen open
+    // reshuffles — a new session).
+    val shuffleDeck = remember { EpisodeDemoPicker.ShuffleDeck() }
+
     // D-494: the selected payload CACHED across re-runs. A toggle flip must
     // re-render the content ON STAGE with the new prefs — it must NOT
     // re-select (the reviewer round proved a bare re-select snaps the
@@ -132,6 +143,7 @@ fun NotificationPosterSettingsScreen(
                 if (exclude != null || selection == null) {
                     selection = selectPreviewContent(
                         exclude = exclude,
+                        deck = shuffleDeck,
                         updateStore = updateStore,
                         contentRepository = contentRepository,
                         demoPicker = demoPicker,
@@ -188,10 +200,9 @@ fun NotificationPosterSettingsScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    // D-493: the preview box uses the composer's
-                                    // REAL canvas ratio (≈21:9) — the preview shows
-                                    // the notification's true proportions, and the
-                                    // old 16:9 box mis-stated them.
+                                    // D-499: the preview box uses the composer's
+                                    // REAL canvas ratio (1024×400) — the preview
+                                    // shows the notification's true proportions.
                                     .aspectRatio(
                                         EpisodeBannerComposer.CANVAS_WIDTH.toFloat() /
                                             EpisodeBannerComposer.CANVAS_HEIGHT.toFloat(),
@@ -265,8 +276,9 @@ fun NotificationPosterSettingsScreen(
                                 }
                             }
                             // The shuffle — re-rolls the random library pick (D-483),
-                            // now EXCLUDING the content on stage so every tap lands
-                            // on a DIFFERENT library item (D-494).
+                            // EXCLUDING the content on stage (D-494) and walking the
+                            // library in a PLANNED shuffled order (D-499): every item
+                            // appears once per deck cycle before any repeat.
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End,
@@ -309,7 +321,7 @@ fun NotificationPosterSettingsScreen(
                             )
                             PosterSwitchRow(
                                 title = "Episode thumbnail",
-                                description = "The episode's own thumbnail chip on the right (when the source provides one)",
+                                description = "The episode's own thumbnail card on the left (when the source provides one)",
                                 checked = showThumbState,
                                 onChecked = {
                                     posterPrefs.posterShowEpisodeThumbnail = it
@@ -380,16 +392,17 @@ private data class PreviewSelection(
 )
 
 /**
- * D-483/D-494: the preview's content selection — runs on Dispatchers.IO
- * (the caller's context). [exclude] == null means a screen-open pass:
- * feed-first, then the random-library fallback. A non-null [exclude] means a
- * SHUFFLE tap: the feed path is skipped entirely and a random library item
- * EXCLUDING the one on stage is picked — the user asked for the shuffle to
- * cycle through LIBRARY items, and the feed always re-picked the same newest
- * row (the button looked dead). Returns null when nothing qualifies.
+ * D-483/D-494/D-499: the preview's content selection — runs on
+ * Dispatchers.IO (the caller's context). [exclude] == null means a
+ * screen-open pass: feed-first, then the random-library fallback. A non-null
+ * [exclude] means a SHUFFLE tap: the feed path is skipped entirely and the
+ * [EpisodeDemoPicker.ShuffleDeck] serves the next eligible library item (a
+ * different one from the on-stage entry — the exclusion filters it).
+ * Returns null when nothing qualifies.
  */
 private suspend fun selectPreviewContent(
     exclude: String?,
+    deck: EpisodeDemoPicker.ShuffleDeck,
     updateStore: com.confused.anikuta.core.updates.UpdateStore,
     contentRepository: com.confused.anikuta.core.content.ContentRepository,
     demoPicker: EpisodeDemoPicker,
@@ -412,10 +425,15 @@ private suspend fun selectPreviewContent(
         }
     }
 
-    // 2) The library fallback: a random content WITH episodes — on a shuffle
-    //    tap, a DIFFERENT one than on stage (D-494). The demo shows
-    //    "EPISODE N" of a random library anime — no invented episode title.
-    val demo = demoPicker.pickRandom(excludeMainId = exclude) ?: return null
+    // 2) The library fallback — PLANNED randomness on a shuffle tap (D-499:
+    //    the deck walk; [exclude] filters the on-stage id), a fresh random
+    //    on a screen open. The demo shows "EPISODE N" of a random library
+    //    anime — no invented episode title.
+    val demo = if (exclude != null) {
+        demoPicker.pickRandomPlanned(deck, excludeMainId = exclude)
+    } else {
+        demoPicker.pickRandom(excludeMainId = null)
+    } ?: return null
     return PreviewSelection(
         mainId = demo.mainId,
         title = demo.title,

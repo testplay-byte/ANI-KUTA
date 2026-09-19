@@ -1618,6 +1618,14 @@ fun AppRoot() {
         // In debug builds it renders the draggable squircle bubble.
         DebugBubbleHost()
 
+        // D-500: the in-app heads-up episode banner — the composed poster
+        // slides in from the top on WHATEVER screen the user is on when an
+        // episode notification posts (real + test). Foreground-only by
+        // construction: the host collects under repeatOnLifecycle(STARTED),
+        // so backgrounded posts stay system-notification-only. A sibling of
+        // the debug bubble in the overlay stack.
+        com.confused.anikuta.notifications.InAppBannerHost()
+
         // ── Task 53 / RC-6: the CS resolve sheet (AnymeX entry pattern) ──
         // Overlay sibling of the nav content: the details page stays visible
         // underneath while streams resolve in this bottom sheet; a selection

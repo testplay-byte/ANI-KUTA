@@ -37,6 +37,12 @@ class NotificationManager(
     // config). Null = the plain BigTextStyle notification (also the fallback
     // whenever the banner composition fails).
     private val artProvider: NotificationArtProvider? = null,
+    // D-500: the in-app heads-up banner controller. Every episode post (real
+    // + test) emits an event carrying the SAME composed banner bitmap the
+    // system notification renders — the app's root overlay shows it while the
+    // user is on ANY screen. Null-safe: an absent controller never breaks
+    // posting (the emit is tryEmit fire-and-forget).
+    private val inAppBanner: InAppBannerController? = null,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Notifications"
@@ -163,11 +169,15 @@ class NotificationManager(
         // D-477: the poster path — when the art provider is present and the
         // poster style is enabled, compose the episode banner and render it
         // via BigPictureStyle. Any failure falls back to the plain text style.
+        // D-500: the composed bitmap is captured in [composedBanner] so the
+        // in-app banner (below) shows the SAME image the notification renders.
         var style: NotificationCompat.Style = NotificationCompat.BigTextStyle().bigText(text)
+        var composedBanner: android.graphics.Bitmap? = null
         if (artProvider != null && preferences.posterEnabled) {
             try {
                 val banner = artProvider.buildEpisodeBanner(mainId, title, episodeNumber, audioVariant)
                 if (banner != null) {
+                    composedBanner = banner
                     style = NotificationCompat.BigPictureStyle()
                         .bigPicture(banner)
                         .bigLargeIcon(null as? android.graphics.Bitmap)
@@ -192,6 +202,21 @@ class NotificationManager(
 
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(notifId, notification)
+
+        // D-500: surface the same banner IN-APP while the user is on any
+        // screen. [banner] is the composed poster when the poster path ran
+        // (null otherwise → the card renders the text-only layout). A
+        // backgrounded app has no STARTED collector — the event drops and the
+        // system notification stays the only surface, which is exactly right.
+        inAppBanner?.show(
+            InAppBannerEvent(
+                id = System.nanoTime(),
+                bitmap = composedBanner,
+                title = title,
+                text = text,
+                mainId = mainId,
+            ),
+        )
 
         // 7. Record in dedup log.
         configStore.recordSent(mainId, episodeNumber, audioVariant, triggerType)
@@ -315,11 +340,15 @@ class NotificationManager(
             append(" is now available")
         }
 
+        // D-500: the composed bitmap rides to the in-app banner too (same
+        // capture pattern as [postNotification] above).
         var style: NotificationCompat.Style = NotificationCompat.BigTextStyle().bigText(text)
+        var composedBanner: android.graphics.Bitmap? = null
         if (artProvider != null && preferences.posterEnabled) {
             try {
                 val banner = artProvider.buildEpisodeBanner(mainId, title, episodeNumber, audioVariant)
                 if (banner != null) {
+                    composedBanner = banner
                     style = NotificationCompat.BigPictureStyle()
                         .bigPicture(banner)
                         .bigLargeIcon(null as? android.graphics.Bitmap)
@@ -343,6 +372,20 @@ class NotificationManager(
 
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(notifId, notification)
+
+        // D-500: the test path emits the in-app banner too — this is the
+        // device report's fix: "Send test notifications" while the app is
+        // open now SHOWS the composed banner on screen, not just a shade entry.
+        inAppBanner?.show(
+            InAppBannerEvent(
+                id = System.nanoTime(),
+                bitmap = composedBanner,
+                title = title,
+                text = text,
+                mainId = mainId,
+            ),
+        )
+
         Logger.i(TAG) { "poster test notification posted: mainId=$mainId ep=$episodeNumber" }
     }
 

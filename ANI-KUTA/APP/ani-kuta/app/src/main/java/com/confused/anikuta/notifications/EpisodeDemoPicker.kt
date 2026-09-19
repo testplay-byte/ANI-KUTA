@@ -28,6 +28,14 @@ import com.confused.anikuta.core.datacache.DataCacheRepository
  * random test notification." A pure demo has a blank mainId: the composer
  * finds no art and renders the styled fallback stage, and the notification
  * is clearly a test — no library content is impersonated.
+ *
+ * D-499: [ShuffleDeck] + [pickRandomPlanned] — the user's round-51 shuffle
+ * spec: "We need to use better randomness handling… planned randomness
+ * rather than just simple randomness because simple randomness does not
+ * feel that random." A shuffled DECK of the whole library, consumed in
+ * order and reshuffled on exhaustion, guarantees uniform coverage (every
+ * library item appears once per cycle before any repeat) and no immediate
+ * repeat across a reshuffle — planned, well-thought-of randomness.
  */
 class EpisodeDemoPicker(
     private val contentRepository: ContentRepository,
@@ -66,6 +74,96 @@ class EpisodeDemoPicker(
             }
         }
         return null
+    }
+
+    /**
+     * D-499: PLANNED randomness — the deck-driven Shuffle. The deck orders
+     * the whole library once per cycle; [next] serves the next ELIGIBLE id
+     * (cached episodes + a title — the same gate as [pickRandom]), so the
+     * user walks the library in a shuffled order instead of re-rolling dice
+     * that keep landing on the same few entries. [excludeMainId] stays as a
+     * belt-and-braces filter (the deck normally already avoids it).
+     *
+     * D-494's no-op-shuffle rule is PRESERVED: when the deck has nothing
+     * else to serve (e.g. a single-entry library whose only entry is on
+     * stage), the fallback re-picks a random entry — the exclusion is a
+     * PREFERENCE, never an empty preview.
+     */
+    fun pickRandomPlanned(deck: ShuffleDeck, excludeMainId: String? = null): Demo? {
+        val library = contentRepository.getLibraryMainIds()
+        val fromDeck = deck.next(library) { mainId ->
+            mainId != excludeMainId &&
+                dataCacheRepository.getEpisodeMetadata(mainId).isNotEmpty() &&
+                contentRepository.getMainEntryByMainId(mainId)?.title != null
+        }?.let { mainId -> buildDemo(mainId) }
+        return fromDeck ?: pickRandom(excludeMainId = null)
+    }
+
+    /** Builds the Demo payload for a known-eligible mainId (latest cached episode); null when the cache raced clear. */
+    private fun buildDemo(mainId: String): Demo? {
+        val episodes = dataCacheRepository.getEpisodeMetadata(mainId)
+        val latest = episodes.maxByOrNull { it.episodeNumber } ?: return null
+        val title = contentRepository.getMainEntryByMainId(mainId)?.title
+        return Demo(
+            mainId = mainId,
+            title = title ?: "",
+            episodeNumber = latest.episodeNumber.toDouble(),
+            audioVariant = listOf("sub", "dub").random(),
+        )
+    }
+
+    /**
+     * D-499: the PLANNED-randomness deck. A shuffled queue of the library,
+     * consumed one id per Shuffle tap; reshuffled on exhaustion with a
+     * no-immediate-repeat guard (a fresh deck never STARTS with the last
+     * served id). Stale ids (removed from the library) are pruned on every
+     * call; ids added to the library join on the next refill.
+     *
+     * Owned by the preview screen (remember { }) — it lives as long as the
+     * screen's composition, which is exactly the shuffle session's lifetime.
+     * The eligibility decision stays with the CALLER (a lambda) so the deck
+     * itself never touches the database.
+     */
+    class ShuffleDeck {
+        private var queue: ArrayDeque<String> = ArrayDeque()
+        private var lastServed: String? = null
+
+        /**
+         * The next eligible id, or null after two full refills yield nothing
+         * (an empty/never-eligible library). [isEligible] filters drained ids.
+         * Synchronized: rapid shuffle taps can overlap two produceState passes
+         * on the IO dispatcher — the deck's queue/refill must stay atomic.
+         */
+        @Synchronized
+        fun next(currentLibrary: List<String>, isEligible: (String) -> Boolean): String? {
+            val live = currentLibrary.toSet()
+            queue.removeAll { it !in live }
+
+            repeat(2) { // two passes: drain this deck, refill once, drain again
+                while (queue.isNotEmpty()) {
+                    val id = queue.removeFirst()
+                    if (isEligible(id)) {
+                        lastServed = id
+                        return id
+                    }
+                }
+                refill(currentLibrary)
+            }
+            return null
+        }
+
+        /** Fisher-Yates via kotlin.random; a fresh deck never starts with the last served id. */
+        private fun refill(library: List<String>) {
+            val shuffled = library.toMutableList().apply { shuffle() }
+            val last = lastServed
+            if (shuffled.size > 1 && last != null && shuffled.first() == last) {
+                // Swap the head into a random later position — no immediate repeat.
+                val swapIndex = (1 until shuffled.size).random()
+                shuffled[0] = shuffled[swapIndex].also { shuffled[swapIndex] = shuffled[0] }
+            }
+            queue.clear()
+            queue.addAll(shuffled)
+        }
     }
 
     /**

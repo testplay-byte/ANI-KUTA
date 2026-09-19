@@ -320,13 +320,31 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
 
             // D-477/D-478: the poster-banner composer (NotificationArtProvider)
             // + the real-sample test notifications (the last two updated contents).
+            // D-499: the composer gains the update store — the SUB/DUB chip
+            // truth comes from the feed's per-variant rows.
             single {
                 com.confused.anikuta.notifications.EpisodeBannerComposer(
                     androidContext(),
                     get(),
                     get(),
                     get(),
+                    get(),
                 )
+            }
+            // D-500 CRITICAL WIRING FIX: Koin indexes a definition under its
+            // CONCRETE type only — NotificationsModule's
+            // getOrNull<NotificationArtProvider>() NEVER resolved the composer,
+            // so every SYSTEM notification (real + test) has been falling back
+            // to the plain text style since D-477. The device round's exact
+            // words — the test "showed the notification itself properly but it
+            // apparently did not show the banner alongside it" and "it never
+            // shows banner notifications at all" — are this dead seam's
+            // signature (the live preview always worked because it injects the
+            // CONCRETE EpisodeBannerComposer). The explicit interface binding
+            // makes the poster path (and with it the D-499 chip truth + the
+            // D-500 in-app banner bitmap) actually reachable at runtime.
+            single<com.confused.anikuta.core.notifications.NotificationArtProvider> {
+                get<com.confused.anikuta.notifications.EpisodeBannerComposer>()
             }
             single { com.confused.anikuta.notifications.EpisodeDemoPicker(get(), get()) }
             // D-495: the tester's new selection spec — random LIBRARY entries

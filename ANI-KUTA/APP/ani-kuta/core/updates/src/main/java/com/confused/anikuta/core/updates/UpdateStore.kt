@@ -66,6 +66,18 @@ class UpdateStore(
     fun getAllUpdates(limit: Long = 100): List<EpisodeUpdate> =
         database.episodeUpdateQueries.getAllUpdates(limit).executeAsList().map { it.toEpisodeUpdate() }
 
+    /**
+     * D-499: the DISTINCT audio variants recorded for one (mainId, episodeNumber).
+     * The engine inserts SUB + DUB of the same episode as SEPARATE rows, so
+     * both rows present = the episode released in both variants. Empty list =
+     * no feed evidence (the episode was never detected) — the caller's own
+     * variant stands. BLOCKING query — callers keep it on Dispatchers.IO.
+     * (Single-column SELECT → SQLDelight resolves the query to Query<String>
+     * — executeAsList() IS the List<String>, no row mapping.)
+     */
+    fun getVariantsForEpisode(mainId: String, episodeNumber: Double): List<String> =
+        database.episodeUpdateQueries.getVariantsForEpisode(mainId, episodeNumber).executeAsList()
+
     /** Acknowledge all updates for an anime (user opened the details page). */
     fun acknowledgeUpdatesByMainId(mainId: String) {
         val now = System.currentTimeMillis()

@@ -82,6 +82,16 @@ UPDATE episode_update SET acknowledged = 1, acknowledged_at = :timestamp WHERE m
 deleteAllUpdates:
 DELETE FROM episode_update;
 
+-- D-499: the DISTINCT audio variants RECORDED for one (main_id, episode_number).
+-- WHY: the engine inserts SUB + DUB of the same episode as SEPARATE rows (the
+-- table header above), so this query is the chip-truth source for the episode
+-- banner: both rows exist → the episode released in both variants → the banner
+-- shows BOTH chips. Empty result → the feed has no evidence for this episode
+-- (never detected) → the caller's own variant stands. ABS() because REAL.
+getVariantsForEpisode:
+SELECT DISTINCT audio_variant FROM episode_update
+WHERE main_id = :mainId AND ABS(episode_number - :episodeNumber) < 0.01;
+
 -- Retention cleanup: delete acknowledged updates older than the cutoff (M9 — 7-day retention).
 deleteOldAcknowledged:
 DELETE FROM episode_update WHERE acknowledged = 1 AND acknowledged_at < :cutoff;
