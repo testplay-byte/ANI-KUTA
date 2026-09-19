@@ -544,14 +544,34 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10114
+    const val versionName = "1.1.14"
+    // D-502 (round 51): release/1.1.14 — cut from the round-51 FEATURE branch
+    // head 5141d1f1 (the standing from-feature-branch model; main still
+    // carries NONE of this — the merge awaits the user's explicit
+    // confirmation). What the release carries (the full v1.1.4..1.1.13 set
+    // PLUS round 51): D-499 the banner v3 — canvas 1024×400, the layout
+    // mirrored (the episode thumbnail as a LEFT-side CARD: a fixed 16:9
+    // 400×225 box, cover-cropped so ANY source shape fills it — too-wide art
+    // crops to the normal thumbnail size — rounded, dark-bordered,
+    // drop-shadowed; no thumbnail available → the banner composes without
+    // it), the text column top-right with the bold shadow-backed title, the
+    // episode number as a TAG chip in the [EP n][SUB][DUB] tag row, and the
+    // SUB/DUB chip truth resolved from the update feed's per-variant rows
+    // (a dual-variant episode renders BOTH chips); D-500 THE DEAD SEAM —
+    // NotificationsModule's getOrNull<NotificationArtProvider>() never
+    // resolved the composer (Koin indexes by concrete type; the explicit
+    // single<NotificationArtProvider> binding was missing), so EVERY system
+    // notification since D-477 fell back to plain text — fixed, and the
+    // user's feature request built on top: the IN-APP heads-up banner
+    // (InAppBannerController + InAppBannerHost — the composed banner slides
+    // in on whatever screen the user is on, foreground-only, 5s auto-dismiss);
+    // D-501 the planned-randomness ShuffleDeck (the library shuffled once per
+    // cycle, no immediate repeats, the no-op fallback preserved). RELEASE-FIRST
+    // (D-498): the release IS the verification build — the user's device
+    // round happens on THIS APK via the in-app updater. 1.1.14 is the next
+    // number after v1.1.13; 10114 > 10113 — the debug app updates over its
+    // installed v1.1.13 in-app. Main stays at 0.4.20/85 (D-425).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
