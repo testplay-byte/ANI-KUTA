@@ -4,18 +4,15 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.RadialGradient
 import android.graphics.RectF
-import android.graphics.Shader
 import android.graphics.Typeface
+import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.common.parseAudioAvailability
 import com.confused.anikuta.core.content.ContentRepository
+import com.confused.anikuta.core.datacache.CachedEpisodeMetadata
 import com.confused.anikuta.core.datacache.DataCacheRepository
 import com.confused.anikuta.core.notifications.NotificationArtProvider
 import com.confused.anikuta.core.preferences.NotificationPreferences
-import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.updates.UpdateStore
 import coil3.imageLoader
 import coil3.request.ImageRequest
@@ -33,17 +30,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * of [NotificationArtProvider] (Coil + the customization config live here;
  * :core:notifications stays image-loader-free).
  *
- * # The composed layout (D-499) — 1024×400, mirrored, tag-first
- *
- * v1.1.13's canvas (1024×440) was APPROVED in shape but the device round
- * asked for a little less height, the thumbnail on the LEFT, a bigger
- * thumbnail with a dark border/shadow, the episode number as a proper TAG,
- * and bolder, shadow-backed text. The canvas is now 1024×400 (2.56:1) and
- * the layout mirrors:
+ * # The composed layout (D-499, scrim removal D-503) — 1024×400, mirrored
  *
  *   ┌────────────────────────────────────────────────────────┐
  *   │ background art (cover-cropped, center-weighted)        │
- *   │ ░░ right scrim (text column) · bottom scrim ░░         │
  *   │ ┌─────────────┐   CONTENT TITLE   bold 44, ≤2, shadow  │
  *   │ │ EPISODE     │   [EP 12] [SUB] [DUB]   the TAG ROW    │
  *   │ │ THUMBNAIL   │   Episode title  26px, 1 line, shadow  │
@@ -52,40 +42,53 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   │ └─────────────┘                                        │
  *   └────────────────────────────────────────────────────────┘
  *
- * The thumbnail box is FIXED 16:9 (the normal episode-still shape) and the
- * source art is COVER-CROPPED into it — a way-too-wide banner still crops
- * down to the normal thumbnail shape (the user's explicit rule), a portrait
- * cover crops its middle band, a square crops slightly. It is also drawn
- * with a dark border + a soft drop shadow so it reads as a highlighted card.
+ * # D-503: NO SCRIMS. The device round's verdict: the background art "is
+ * getting a darkening effect applied to it, which it should not". The D-499
+ * right-column + bottom gradients are gone — the art renders at full
+ * brightness and the D-499 soft text shadows are the text's readability
+ * carrier (they were added for exactly this light-background case).
  *
- * The EPISODE number is no longer a 58px hero line: it is the FIRST TAG in
- * the tag row ("EP 12" / "EP 12.5" — D-496 formatting), a lime chip like the
- * SUB/DUB chips but filled primary — the "proper tag experience" the user
- * asked for.
+ * # D-503: the POSTER STUDIO layout mode
  *
- * # The SUB/DUB chip truth (D-499)
+ * The composer renders in one of two modes, decided by the persisted
+ * [PosterLayoutConfig]:
+ *  - FLOW (customized=false, the factory + v1.1.14-approved look): the title
+ *    hangs top-right and the tag row + episode title flow under it, the
+ *    thumbnail is the vertically-centered left card. Adaptive — a 2-line
+ *    title pushes the chips down.
+ *  - ABSOLUTE (customized=true, after a Poster Studio save): every element
+ *    draws at its configured anchor with its configured scale/color — the
+ *    exact positions the user pinned on the studio's preview, which is THIS
+ *    canvas rendered through the shared [PosterDrawing] primitives, so WYSIWYG
+ *    holds to the pixel.
  *
- * The engine inserts SUB and DUB of the same episode as SEPARATE feed rows,
- * so the banner no longer trusts the single row's variant alone: it queries
- * the feed for ALL variants recorded for (mainId, episodeNumber) and unions
- * them with the passed-in variant. A dual-variant release renders BOTH chips;
- * a sub-only release renders SUB only. Empty evidence (never-detected
- * episode) → the passed variant stands, and "unknown" still draws nothing
- * (honest — real posts never lie; demos normalize before this point).
+ * # The SUB/DUB chip truth (D-499, widened D-503)
  *
- * Every element is toggled by [NotificationPreferences]'s poster keys —
- * the same config the customization page's live preview renders with, so
- * what the user tunes is EXACTLY what the notification shows. The canvas
- * size is exposed via [Companion.CANVAS_WIDTH]/[Companion.CANVAS_HEIGHT]
- * so the preview box shows the notification's TRUE proportions.
+ * The device round kept seeing a single chip on dual-variant content. The
+ * feed union alone is thinner than reality — a sub release posts before any
+ * dub row exists, and 'initial' batches record one variant. The resolver now
+ * unions THREE evidence layers: the passed variant, the feed's per-variant
+ * rows for (mainId, episode), and — new — the EPISODE CACHE's own row parsed
+ * with [parseAudioAvailability], the SAME parser the details page renders its
+ * per-episode SUB/DUB pills from (what the user cross-checks against).
+ * Both available → BOTH chips; one → one; genuinely nothing → no chip.
+ *
+ * # The thumbnail chain (D-503)
+ *
+ * The episode's own still loads first (with one retry for transient CDN
+ * blips — the round's "some content shows no thumbnail though it exists"),
+ * then falls down the content's own art (extras large cover → cover →
+ * banner) so the left card stays on stage for entries whose cache rows have
+ * a null thumbnail_url. Nothing loads → the banner composes WITHOUT the
+ * card (the graceful path), never a failure.
  */
 class EpisodeBannerComposer(
     private val context: Context,
     private val contentRepository: ContentRepository,
     private val dataCacheRepository: DataCacheRepository,
     private val preferences: NotificationPreferences,
-    // D-499: the update feed is the SUB/DUB chip-truth source (separate rows
-    // per variant — see [resolveAudioVariant]).
+    // D-499: the update feed is one of the SUB/DUB chip-truth sources (separate
+    // rows per variant — see [resolveAudioVariant]).
     private val updateStore: UpdateStore,
 ) : NotificationArtProvider {
 
@@ -169,29 +172,19 @@ class EpisodeBannerComposer(
             val epMeta = dataCacheRepository.getEpisodeMetadata(mainId)
                 .firstOrNull { kotlin.math.abs(it.episodeNumber - episodeNumber) < 0.01 }
             val episodeTitle = overrideEpisodeTitle ?: epMeta?.title
-            val thumbUrl = overrideEpisodeThumbUrl ?: epMeta?.thumbnailUrl
 
-            // D-499: the chip truth — ALL variants the feed recorded for this
-            // episode, unioned with the passed-in variant. The user's report:
-            // the banner showed SUB only while the episode clearly had a dub
-            // too; the feed's separate per-variant rows are the evidence.
-            val resolvedVariant = resolveAudioVariant(mainId, episodeNumber, audioVariant)
+            // D-503: the chip truth — feed variants ∪ the episode row's own
+            // audio parse ∪ the passed variant. See [resolveAudioVariant].
+            val resolvedVariant = resolveAudioVariant(mainId, episodeNumber, audioVariant, epMeta)
 
-            // The thumb doubles as the background of last resort — a real
-            // image always beats the styled stage.
-            val background = backgroundUrl?.let { loadBitmap(it, W, H, Scale.FILL) }
-                ?: thumbUrl?.let { loadBitmap(it, W, H, Scale.FILL) }
-            // D-499: the thumbnail loads at 2× its BOX (800×450) with
-            // Scale.FILL — the decode already covers the 16:9 box so
-            // drawThumbBox's crop math stays exact (the D-493 background
-            // lesson applied to the thumb: a fit-box decode of a wide still
-            // upscaled muddy into the box).
-            // The "if available" rule is preserved downstream: a null URL, a
-            // failed load, or a timed-out load all yield null — the banner
-            // simply composes WITHOUT the thumb card, never a failure.
-            val thumb = if (preferences.posterShowEpisodeThumbnail && thumbUrl != null) {
-                loadBitmap(thumbUrl, THUMB_BOX_W * 2, THUMB_BOX_H * 2, Scale.FILL)
-            } else null
+            // D-503: the thumb chain — the episode's still (with one retry),
+            // then the content's own art. The thumb doubles as the background
+            // of last resort — a real image always beats the styled stage.
+            val thumb = loadThumbBitmap(
+                primaryUrl = overrideEpisodeThumbUrl ?: epMeta?.thumbnailUrl,
+                fallbacks = listOfNotNull(extras?.coverUrlLarge, coverUrl, bannerUrl),
+            )
+            val background = backgroundUrl?.let { loadBitmap(it, W, H, Scale.FILL) } ?: thumb
 
             compose(
                 background = background,
@@ -200,6 +193,8 @@ class EpisodeBannerComposer(
                 audioVariant = resolvedVariant,
                 episodeTitle = episodeTitle,
                 thumbnail = thumb,
+                layout = PosterLayoutConfig.fromJsonOrNull(preferences.posterLayoutJson)
+                    ?: PosterLayoutConfig.DEFAULT,
             )
         } catch (e: CancellationException) {
             // The caller's scope died (the preview left composition). Rethrow
@@ -215,35 +210,96 @@ class EpisodeBannerComposer(
     }
 
     /**
-     * D-499: the SUB/DUB truth for one episode. The feed keeps SEPARATE rows
-     * per variant (episodeUpdate.sq: "sub + dub of the same episode are
-     * distinct rows"), so DISTINCT(audio_variant) for (mainId, episode) is
-     * the ground evidence: both rows → "both". The passed variant (the
-     * notifying row's own variant, or the demo's normalized pick) unions in
-     * so a notification never LOSES its own variant. No feed evidence (the
-     * episode was never detected — e.g. the preview's library-random demo) →
-     * the passed variant stands untouched; "unknown" stays unknown (the real
-     * path's honest no-chip).
+     * D-503: the studio's art loader — the EXACT same loads compose() runs
+     * (background chain + thumb chain), minus the text/labels. The studio
+     * renders the art once and then moves ELEMENTS over it live; re-running
+     * the full compose per drag frame would thrash Coil and the software
+     * canvas for zero fidelity gain (the elements themselves render through
+     * the shared [PosterDrawing], so what the studio draws IS the composer's
+     * drawing).
      */
-    private suspend fun resolveAudioVariant(mainId: String, episodeNumber: Double, passed: String): String {
+    data class PosterEditorArt(val background: Bitmap?, val thumbnail: Bitmap?)
+
+    suspend fun loadEditorArt(mainId: String, episodeNumber: Double): PosterEditorArt =
+        withContext(Dispatchers.IO) {
+            val details = contentRepository.getContentDetails(mainId)
+            val bannerUrl = details?.dataBannerUrl
+            val coverUrl = details?.dataCoverUrl
+            val extras = details?.let {
+                com.confused.anikuta.core.content.DataSourceExtras.fromJson(it.dataExtraJson)
+            }
+            val backgroundUrl = when (preferences.posterBackgroundSource) {
+                "cover" -> coverUrl ?: bannerUrl ?: extras?.coverUrlLarge
+                else -> bannerUrl ?: coverUrl ?: extras?.coverUrlLarge
+            }
+            val epMeta = dataCacheRepository.getEpisodeMetadata(mainId)
+                .firstOrNull { kotlin.math.abs(it.episodeNumber - episodeNumber) < 0.01 }
+            val thumb = loadThumbBitmap(
+                primaryUrl = epMeta?.thumbnailUrl,
+                fallbacks = listOfNotNull(extras?.coverUrlLarge, coverUrl, bannerUrl),
+            )
+            val background = backgroundUrl?.let { loadBitmap(it, W, H, Scale.FILL) } ?: thumb
+            PosterEditorArt(background = background, thumbnail = thumb)
+        }
+
+    /**
+     * The SUB/DUB truth for one episode — public so the Poster Studio's
+     * preview resolves chips through the SAME resolver the real banner uses.
+     *
+     * The evidence union (D-499 + D-503):
+     *  1. the feed's DISTINCT audio_variant rows for (mainId, episode) —
+     *     the engine inserts SUB + DUB of the same episode as separate rows;
+     *  2. the EPISODE CACHE row's own audio parse — [parseAudioAvailability]
+     *     over scanlator + the extension's original episode name, the same
+     *     call the details page renders its per-episode pills from. This is
+     *     the layer that was missing: a sub-only feed record next to a
+     *     dub-available cache row rendered SUB only on the device;
+     *  3. the passed variant (the notifying row's own variant, or the demo's
+     *     normalized pick) — a notification never LOSES its own variant; a
+     *     passed "both" carries both even against a thinner record.
+     *
+     * "unknown" with NO evidence anywhere still resolves to unknown — the
+     * honest no-chip for real posts (demos normalize before this point).
+     */
+    suspend fun resolveAudioVariant(
+        mainId: String,
+        episodeNumber: Double,
+        passed: String,
+        epMeta: CachedEpisodeMetadata? = null,
+    ): String {
         val passedNorm = passed.trim().lowercase()
         if (mainId.isBlank()) return passedNorm // pure-demo payload — no feed to consult
-        val feedVariants = try {
+        val resolved = try {
             updateStore.getVariantsForEpisode(mainId, episodeNumber)
                 .mapTo(mutableSetOf()) { it.trim().lowercase() }
         } catch (e: Exception) {
             // A blocked/closed DB read must NEVER fail the banner — degrade
             // to the passed variant (the pre-D-499 behavior).
             Logger.w(TAG) { "variant lookup failed (${e.javaClass.simpleName}) — using the passed variant" }
-            emptySet()
+            mutableSetOf()
         }
-        val resolved = feedVariants.filterTo(mutableSetOf()) { it == "sub" || it == "dub" }
+        resolved.retainAll { it == "sub" || it == "dub" }
         when (passedNorm) {
             "sub", "dub" -> resolved.add(passedNorm)
             // A passed "both" carries BOTH variants in itself — it must never
             // be downgraded by a thinner feed record (a notification never
             // loses its own variant).
             "both" -> { resolved.add("sub"); resolved.add("dub") }
+        }
+        // D-503: the episode cache's own row — the user-visible truth on the
+        // details page. Never throws into the banner path: guarded like the
+        // feed read (a failed parse just contributes nothing).
+        if (epMeta != null) {
+            try {
+                val audio = parseAudioAvailability(
+                    scanlator = epMeta.scanlator,
+                    episodeName = epMeta.sourceName ?: epMeta.title ?: "",
+                )
+                if (audio.hasSub) resolved.add("sub")
+                if (audio.hasDub) resolved.add("dub")
+            } catch (e: Exception) {
+                Logger.w(TAG) { "episode-cache audio parse failed (${e.javaClass.simpleName})" }
+            }
         }
         return when {
             "sub" in resolved && "dub" in resolved -> "both"
@@ -262,6 +318,7 @@ class EpisodeBannerComposer(
         audioVariant: String,
         episodeTitle: String?,
         thumbnail: Bitmap?,
+        layout: PosterLayoutConfig,
     ): Bitmap {
         val bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -270,324 +327,263 @@ class EpisodeBannerComposer(
         //    text always has a stage even with no image at all (the pure-demo
         //    test notifications live here).
         if (background != null && background.width > 0 && background.height > 0) {
-            drawCoverFit(canvas, background)
+            PosterDrawing.drawCoverFit(canvas, background, W.toFloat(), H.toFloat())
         } else {
-            drawFallbackStage(canvas)
+            PosterDrawing.drawFallbackStage(canvas, W.toFloat(), H.toFloat())
         }
 
-        // 2) The scrims — RIGHT-anchored for the text column (D-499: the
-        //    thumbnail moved LEFT, so the text and its scrim mirrored) plus
-        //    the bottom gradient for the branding.
-        drawScrims(canvas)
+        // 2) D-503: the D-499 scrims are GONE — the art renders undarkened;
+        //    readability rides the D-499 text shadows alone.
 
-        // D-499: the text column hangs from the top-right when the thumbnail
-        // card is on stage, and reclaims the full width when it is off.
-        // (A null thumbnail also covers the thumb-disabled preference and the
-        // "no thumbnail available" case — no separate preference check.)
-        val hasThumb = thumbnail != null && thumbnail.width > 0 && thumbnail.height > 0
-        val textX = if (hasThumb) TEXT_X else LEFT
-        val textWidth = if (hasThumb) TEXT_W else W - LEFT - 36f
-
-        // 3) The content title — bold white with a soft dark shadow (the
-        //    user's rule: readable on a LIGHT background too), ≤2 lines.
-        val titleBottom = drawWrappedText(
-            canvas, title, textX, TOP, textWidth, 44f,
-            Color.WHITE, Typeface.DEFAULT_BOLD, maxLines = 2, shadowed = true,
-        ) + 18f
-
-        // 4) The TAG ROW — [EP n] [SUB] [DUB]. The episode number is a proper
-        //    TAG now (the user: "a proper tag kind of experience"), rendered
-        //    as the row's first chip: lime-filled, dark bold label. The audio
-        //    chips follow: dark fill, lime label (the lime-on-lime of two
-        //    identical chip styles would blur the hierarchy).
-        drawTagRow(canvas, episodeNumber, audioVariant, textX, titleBottom)
-
-        // 5) The episode title — soft white, 1 line (config-gated), under the
-        //    tag row.
-        if (preferences.posterShowEpisodeTitle && !episodeTitle.isNullOrBlank()) {
-            drawWrappedText(
-                canvas, episodeTitle, textX, titleBottom + CHIP_H + 16f, textWidth, 26f,
-                Color.argb(225, 255, 255, 255), Typeface.DEFAULT, maxLines = 1, shadowed = true,
-            )
+        if (!layout.customized) {
+            composeFlow(canvas, title, episodeNumber, audioVariant, episodeTitle, thumbnail)
+        } else {
+            composeAbsolute(canvas, title, episodeNumber, audioVariant, episodeTitle, thumbnail, layout)
         }
-
-        finish(canvas, thumbnail)
         return bitmap
     }
 
-    private fun finish(canvas: Canvas, thumbnail: Bitmap?) {
-        // 6) The episode thumbnail — a LEFT-side card now (the user: "shown
-        //    on the left side rather than on the right side"), BIGGER
-        //    (400×225 vs the old 210×330 — landscape, the normal episode-still
-        //    shape), rounded, dark-bordered, drop-shadowed, cover-cropped:
-        //    a way-too-wide source crops down to the normal thumbnail size
-        //    inside the fixed 16:9 box.
-        if (thumbnail != null && thumbnail.width > 0 && thumbnail.height > 0) {
-            drawThumbBox(canvas, thumbnail)
+    /**
+     * The FLOW layout — the v1.1.14-approved rendering, kept pixel-identical
+     * (minus the removed scrims): the text column hangs top-right when the
+     * thumbnail card is on stage and reclaims the full width when it is off;
+     * the tag row + episode title flow under the ≤2-line title.
+     */
+    private fun composeFlow(
+        canvas: Canvas,
+        title: String,
+        episodeNumber: Double,
+        audioVariant: String,
+        episodeTitle: String?,
+        thumbnail: Bitmap?,
+    ) {
+        val hasThumb = thumbnail != null && thumbnail.width > 0 && thumbnail.height > 0
+        val textX = if (hasThumb) PosterCanvasMetrics.TEXT_X else PosterCanvasMetrics.LEFT
+        val textWidth = if (hasThumb) {
+            W - PosterCanvasMetrics.TEXT_X - PosterCanvasMetrics.TEXT_RIGHT_MARGIN
+        } else {
+            W - PosterCanvasMetrics.LEFT - PosterCanvasMetrics.TEXT_RIGHT_MARGIN
         }
 
-        // 7) The ANI-KUTA branding wordmark (config-gated) — bottom-right,
-        //    with the same shadow treatment so it survives bright art.
+        // The content title — bold white with a soft dark shadow, ≤2 lines.
+        val titleBottom = PosterDrawing.drawWrappedText(
+            canvas, title, textX, PosterCanvasMetrics.TOP, textWidth, PosterCanvasMetrics.TITLE_SIZE,
+            Color.WHITE, Typeface.DEFAULT_BOLD, maxLines = 2, shadowed = true,
+        ) + 18f
+
+        // The TAG ROW — [EP n] [SUB] [DUB] on one shared baseline (the tag-row
+        // comment history lives in the D-499 record).
+        val labelSize = PosterCanvasMetrics.CHIP_LABEL_SIZE
+        val epLabel = episodeTag(episodeNumber)
+        PosterDrawing.drawChip(
+            canvas, epLabel, textX, titleBottom,
+            fill = LIME_INT, labelColor = Color.parseColor("#16141D"),
+            labelSize = labelSize, chipH = PosterCanvasMetrics.CHIP_H,
+            padX = PosterCanvasMetrics.CHIP_PAD_X, corner = PosterCanvasMetrics.CHIP_CORNER,
+        )
+        var cx = textX + PosterDrawing.chipWidth(epLabel, labelSize, PosterCanvasMetrics.CHIP_PAD_X) +
+            PosterCanvasMetrics.CHIP_GAP
+
+        if (preferences.posterShowAudioBadge) {
+            val chips = when (audioVariant.trim().lowercase()) {
+                "sub" -> listOf("SUB")
+                "dub" -> listOf("DUB")
+                "both" -> listOf("SUB", "DUB")
+                else -> emptyList() // honest: genuinely unknown audio draws nothing
+            }
+            for (label in chips) {
+                PosterDrawing.drawChip(
+                    canvas, label, cx, titleBottom,
+                    fill = Color.argb(206, 16, 14, 24), labelColor = LIME_INT,
+                    labelSize = labelSize, chipH = PosterCanvasMetrics.CHIP_H,
+                    padX = PosterCanvasMetrics.CHIP_PAD_X, corner = PosterCanvasMetrics.CHIP_CORNER,
+                )
+                cx += PosterDrawing.chipWidth(label, labelSize, PosterCanvasMetrics.CHIP_PAD_X) +
+                    PosterCanvasMetrics.CHIP_GAP
+            }
+        }
+
+        // The episode title — soft white, 1 line (config-gated), under the tag row.
+        if (preferences.posterShowEpisodeTitle && !episodeTitle.isNullOrBlank()) {
+            PosterDrawing.drawWrappedText(
+                canvas, episodeTitle, textX, titleBottom + PosterCanvasMetrics.CHIP_H + 16f, textWidth,
+                PosterCanvasMetrics.EPISODE_TITLE_SIZE, Color.argb(225, 255, 255, 255),
+                Typeface.DEFAULT, maxLines = 1, shadowed = true,
+            )
+        }
+
+        // The thumbnail card + branding.
+        if (hasThumb) {
+            drawFlowThumbBox(canvas, thumbnail!!)
+        }
+        drawBranding(canvas)
+    }
+
+    /**
+     * The ABSOLUTE layout — the Poster Studio's saved anchors. Every visible
+     * element draws at its configured x/y with its configured scale/color.
+     * The prefs keep gating the elements they always gated (audio badge,
+     * episode title, thumbnail) so the settings screen's toggles stay true
+     * in both modes; the config's per-element `visible` layers on top.
+     */
+    private fun composeAbsolute(
+        canvas: Canvas,
+        title: String,
+        episodeNumber: Double,
+        audioVariant: String,
+        episodeTitle: String?,
+        thumbnail: Bitmap?,
+        layout: PosterLayoutConfig,
+    ) {
+        // Title.
+        if (layout.title.visible) {
+            val el = layout.title
+            val size = PosterCanvasMetrics.TITLE_SIZE * el.safeScale()
+            val x = el.x.coerceIn(0f, W - 120f)
+            val y = el.y.coerceIn(0f, H - size)
+            PosterDrawing.drawWrappedText(
+                canvas, title, x, y, W - x - PosterCanvasMetrics.TEXT_RIGHT_MARGIN, size,
+                el.colorArgb.takeIf { it != 0L }?.toInt() ?: Color.WHITE,
+                Typeface.DEFAULT_BOLD, maxLines = 2, shadowed = true,
+            )
+        }
+
+        // The [EP n] chip.
+        if (layout.episodeNumber.visible) {
+            val el = layout.episodeNumber
+            drawScaledChip(
+                canvas, episodeTag(episodeNumber), el,
+                fill = LIME_INT,
+                labelColor = el.colorArgb.takeIf { it != 0L }?.toInt() ?: Color.parseColor("#16141D"),
+            )
+        }
+
+        // The audio chips.
+        if (layout.audioVariant.visible && preferences.posterShowAudioBadge) {
+            val el = layout.audioVariant
+            val chips = when (audioVariant.trim().lowercase()) {
+                "sub" -> listOf("SUB")
+                "dub" -> listOf("DUB")
+                "both" -> listOf("SUB", "DUB")
+                else -> emptyList()
+            }
+            var cx = el.x.coerceIn(0f, W - 80f)
+            val y = el.y.coerceIn(0f, H - PosterCanvasMetrics.CHIP_H * el.safeScale())
+            for (label in chips) {
+                val w = PosterDrawing.drawChip(
+                    canvas, label, cx, y,
+                    fill = Color.argb(206, 16, 14, 24),
+                    labelColor = el.colorArgb.takeIf { it != 0L }?.toInt() ?: LIME_INT,
+                    labelSize = PosterCanvasMetrics.CHIP_LABEL_SIZE * el.safeScale(),
+                    chipH = PosterCanvasMetrics.CHIP_H * el.safeScale(),
+                    padX = PosterCanvasMetrics.CHIP_PAD_X * el.safeScale(),
+                    corner = PosterCanvasMetrics.CHIP_CORNER,
+                )
+                cx += w + PosterCanvasMetrics.CHIP_GAP * el.safeScale()
+            }
+        }
+
+        // The episode title.
+        if (layout.episodeTitle.visible && preferences.posterShowEpisodeTitle && !episodeTitle.isNullOrBlank()) {
+            val el = layout.episodeTitle
+            val size = PosterCanvasMetrics.EPISODE_TITLE_SIZE * el.safeScale()
+            val x = el.x.coerceIn(0f, W - 120f)
+            val y = el.y.coerceIn(0f, H - size)
+            PosterDrawing.drawWrappedText(
+                canvas, episodeTitle, x, y, W - x - PosterCanvasMetrics.TEXT_RIGHT_MARGIN, size,
+                el.colorArgb.takeIf { it != 0L }?.toInt() ?: Color.argb(225, 255, 255, 255),
+                Typeface.DEFAULT, maxLines = 1, shadowed = true,
+            )
+        }
+
+        // The thumbnail card — at its saved anchor, scaled.
+        val hasThumb = thumbnail != null && thumbnail.width > 0 && thumbnail.height > 0 &&
+            layout.thumbnail.visible && preferences.posterShowEpisodeThumbnail
+        if (hasThumb) {
+            val el = layout.thumbnail
+            val s = el.safeScale()
+            val w = PosterCanvasMetrics.THUMB_BOX_W * s
+            val h = PosterCanvasMetrics.THUMB_BOX_H * s
+            val x = el.x.coerceIn(0f, W - w)
+            val y = el.y.coerceIn(0f, H - h)
+            PosterDrawing.drawThumbCard(
+                canvas, thumbnail!!, RectF(x, y, x + w, y + h),
+                PosterCanvasMetrics.THUMB_CORNER,
+            )
+        }
+
+        drawBranding(canvas)
+    }
+
+    /** One chip at an element's saved anchor + scale, with the element's label color. */
+    private fun drawScaledChip(
+        canvas: Canvas,
+        label: String,
+        el: PosterElementLayout,
+        fill: Int,
+        labelColor: Int,
+    ) {
+        val s = el.safeScale()
+        PosterDrawing.drawChip(
+            canvas, label,
+            el.x.coerceIn(0f, W - 80f), el.y.coerceIn(0f, H - PosterCanvasMetrics.CHIP_H * s),
+            fill = fill, labelColor = labelColor,
+            labelSize = PosterCanvasMetrics.CHIP_LABEL_SIZE * s,
+            chipH = PosterCanvasMetrics.CHIP_H * s,
+            padX = PosterCanvasMetrics.CHIP_PAD_X * s,
+            corner = PosterCanvasMetrics.CHIP_CORNER,
+        )
+    }
+
+    private fun drawBranding(canvas: Canvas) {
+        // The ANI-KUTA branding wordmark (config-gated) — bottom-right, with
+        // the same shadow treatment so it survives bright art.
         if (preferences.posterShowBranding) {
-            val brand = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            val brand = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.argb(140, 255, 255, 255)
                 textSize = 24f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 letterSpacing = 0.08f
                 setShadowLayer(6f, 0f, 2f, Color.argb(160, 0, 0, 0))
+                isAntiAlias = true
             }
-            canvas.drawText("ANI-KUTA", W - 40f - brand.measureText("ANI-KUTA"), H - 24f, brand)
+            canvas.drawText(
+                "ANI-KUTA", W - 40f - brand.measureText("ANI-KUTA"), H - 24f, brand,
+            )
         }
     }
 
-    // ── drawing helpers ─────────────────────────────────────────────────────
+    // ── art loading ────────────────────────────────────────────────────────
 
     /**
-     * D-499: the tag row — the episode-number chip + the audio chips on one
-     * shared baseline. The EP chip is the lime-filled primary tag; the audio
-     * chips are dark-filled with lime labels ("both" renders both). Zone
-     * layout keeps the row's Y independent of the text above: it sits under
-     * the ≤2-line title, and the stack (48 + 2×53 + 18 + 54 + …) can never
-     * overflow the 400px canvas.
+     * D-503: the thumbnail chain. The episode's own still loads first — with
+     * ONE retry (the device round's "some content shows no thumbnail though
+     * it exists" was transient CDN silence as often as a missing URL; a dead
+     * URL fails fast, so the retry only costs time in the genuinely-slow
+     * case) — then the content's own art keeps the left card on stage for
+     * rows with a null thumbnail_url. Every miss hands control to the next
+     * link; an empty chain returns null and the banner composes without the
+     * card (never a failure).
      */
-    private fun drawTagRow(canvas: Canvas, episodeNumber: Double, audioVariant: String, x: Float, top: Float) {
-        // The label template is a LOCAL paint (Paint is not thread-safe for
-        // even read-shaped calls; the composer runs on arbitrary threads).
-        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 30f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    private suspend fun loadThumbBitmap(primaryUrl: String?, fallbacks: List<String?>): Bitmap? {
+        if (!preferences.posterShowEpisodeThumbnail) return null
+        val w = (PosterCanvasMetrics.THUMB_BOX_W * 2).toInt()
+        val h = (PosterCanvasMetrics.THUMB_BOX_H * 2).toInt()
+        if (primaryUrl != null) {
+            val first = loadBitmap(primaryUrl, w, h, Scale.FILL)
+            if (first != null) return first
+            // One retry — the D-491 lesson: a hardware/cache hiccup is not a
+            // missing image.
+            val retried = loadBitmap(primaryUrl, w, h, Scale.FILL, timeoutMs = RETRY_TIMEOUT_MS)
+            if (retried != null) return retried
         }
-        // The EP chip first — the row's anchor (drawn even when the audio
-        // badge is disabled: the number is the banner's core tag, the user's
-        // "proper tag kind of experience" for the episode number).
-        val epLabel = episodeTag(episodeNumber)
-        drawChip(canvas, labelPaint, epLabel, x, top, fill = LIME, labelColor = Color.parseColor("#16141D"))
-        var cx = x + labelPaint.measureText(epLabel) + (2 * CHIP_PAD_X) + CHIP_GAP
-
-        if (!preferences.posterShowAudioBadge) return
-        val chips = when (audioVariant.trim().lowercase()) {
-            "sub" -> listOf("SUB")
-            "dub" -> listOf("DUB")
-            "both" -> listOf("SUB", "DUB")
-            else -> return // honest: genuinely unknown audio draws nothing
+        for (fallback in fallbacks) {
+            if (fallback.isNullOrBlank() || fallback == primaryUrl) continue
+            val loaded = loadBitmap(fallback, w, h, Scale.FILL, timeoutMs = FALLBACK_TIMEOUT_MS)
+            if (loaded != null) return loaded
         }
-        for (label in chips) {
-            drawChip(canvas, labelPaint, label, cx, top, fill = Color.argb(206, 16, 14, 24), labelColor = LIME)
-            cx += labelPaint.measureText(label) + (2 * CHIP_PAD_X) + CHIP_GAP
-        }
+        return null
     }
-
-    /**
-     * One rounded chip with a soft lift shadow and a FontMetrics-centered
-     * bold label (the D-493 centering rule — the old textSize/3 guess sat
-     * labels visibly low). [template] carries the shared label metrics.
-     */
-    private fun drawChip(canvas: Canvas, template: Paint, label: String, x: Float, top: Float, fill: Int, labelColor: Int) {
-        val paint = Paint(template).apply { color = labelColor }
-        val w = paint.measureText(label) + (2 * CHIP_PAD_X)
-        val rect = RectF(x, top, x + w, top + CHIP_H)
-        val chipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = fill
-            setShadowLayer(10f, 0f, 4f, Color.argb(120, 0, 0, 0))
-        }
-        canvas.drawRoundRect(rect, 16f, 16f, chipPaint)
-        val fm = paint.fontMetrics
-        canvas.drawText(label, x + CHIP_PAD_X, rect.centerY() - (fm.ascent + fm.descent) / 2f, paint)
-    }
-
-    /**
-     * D-499: the thumbnail CARD — cover-crop into the fixed 16:9 box (any
-     * source shape crops to the normal thumbnail size), rounded corners,
-     * dark border, soft drop shadow.
-     */
-    private fun drawThumbBox(canvas: Canvas, src: Bitmap) {
-        val box = RectF(
-            MARGIN, (H - THUMB_BOX_H) / 2f,
-            MARGIN + THUMB_BOX_W, (H - THUMB_BOX_H) / 2f + THUMB_BOX_H,
-        )
-
-        // The drop shadow — two stacked translucent rounded rects slightly
-        // larger and lower than the box (a fake blur, exact on the software
-        // canvas, no RenderScript).
-        val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(90, 0, 0, 0) }
-        canvas.drawRoundRect(
-            RectF(box.left - 6f, box.top + 8f, box.right + 6f, box.bottom + 14f), 26f, 26f, shadow,
-        )
-        shadow.color = Color.argb(60, 0, 0, 0)
-        canvas.drawRoundRect(
-            RectF(box.left - 12f, box.top + 14f, box.right + 12f, box.bottom + 22f), 32f, 32f, shadow,
-        )
-
-        // The art — COVER-CROP into the box: the source scales until it
-        // covers, centered, then the rounded clip trims the overflow. A
-        // too-wide banner crops horizontally, a portrait cover crops its
-        // middle band — the box's shape ALWAYS wins (the user's rule).
-        val srcW = src.width.toFloat()
-        val srcH = src.height.toFloat()
-        val scale = maxOf(box.width() / srcW, box.height() / srcH)
-        val dw = srcW * scale
-        val dh = srcH * scale
-        val dx = box.centerX() - dw / 2f
-        val dy = box.centerY() - dh / 2f
-        val clip = Path().apply {
-            addRoundRect(box, THUMB_CORNER, THUMB_CORNER, Path.Direction.CCW)
-        }
-        canvas.save()
-        canvas.clipPath(clip)
-        canvas.drawBitmap(
-            src, null,
-            RectF(dx, dy, dx + dw, dy + dh),
-            Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG).apply { isDither = true },
-        )
-        canvas.restore()
-
-        // The dark border — the "well-highlighted" card edge the user asked
-        // for (a dark hairline reads on ANY art underneath).
-        val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(235, 12, 10, 18)
-            style = Paint.Style.STROKE
-            strokeWidth = 6f
-        }
-        canvas.drawRoundRect(box, THUMB_CORNER, THUMB_CORNER, border)
-    }
-
-    /**
-     * D-493: draws [src] as a CENTER-CROP cover over the full canvas — the
-     * image pipeline's one gate every background passes through, correct for
-     * ANY input geometry (portrait poster, landscape banner, square logo,
-     * smaller or larger than the canvas).
-     *
-     * WHY THIS REPLACED THE SHADER: v1.1.12 used a BitmapShader WITHOUT a
-     * local scale matrix. A shader samples its bitmap at the bitmap's NATIVE
-     * pixel size, so when the source was smaller than the canvas — which is
-     * every portrait cover against a 1024-wide banner — the drawn rect
-     * exceeded the bitmap and TileMode.CLAMP smeared the right/bottom edge
-     * pixels across the rest of the banner. That was the device round's
-     * "glitched background". The src→dst rect math below scales the bitmap
-     * itself, so there is no native-size trap to fall into.
-     */
-    private fun drawCoverFit(canvas: Canvas, src: Bitmap) {
-        val srcW = src.width.toFloat()
-        val srcH = src.height.toFloat()
-        val scale = maxOf(W / srcW, H / srcH)
-        val dw = srcW * scale
-        val dh = srcH * scale
-        val dx = (W - dw) / 2f
-        val dy = (H - dh) / 2f
-        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG).apply { isDither = true }
-        canvas.drawBitmap(src, null, RectF(dx, dy, dx + dw, dy + dh), paint)
-    }
-
-    /**
-     * D-493: the no-art stage — a vertical dark gradient plus a soft lime
-     * glow. The pure-demo test notifications (empty library) compose here; a
-     * styled stage beats a flat rectangle the same way a real image beats
-     * the stage.
-     */
-    private fun drawFallbackStage(canvas: Canvas) {
-        val vertical = LinearGradient(
-            0f, 0f, 0f, H.toFloat(),
-            intArrayOf(Color.parseColor("#221E2E"), Color.parseColor("#14111C")),
-            null,
-            Shader.TileMode.CLAMP,
-        )
-        canvas.drawRect(0f, 0f, W.toFloat(), H.toFloat(), Paint().apply { shader = vertical })
-
-        val glow = RadialGradient(
-            W * 0.12f, H * 0.12f, W * 0.5f,
-            Color.argb(26, 177, 242, 86), Color.argb(0, 177, 242, 86),
-            Shader.TileMode.CLAMP,
-        )
-        canvas.drawRect(0f, 0f, W.toFloat(), H.toFloat(), Paint().apply { shader = glow })
-    }
-
-    /** The right text-column scrim + the bottom branding scrim (D-499). */
-    private fun drawScrims(canvas: Canvas) {
-        val right = LinearGradient(
-            W * 0.10f, 0f, W.toFloat(), 0f,
-            intArrayOf(Color.argb(0, 10, 9, 14), Color.argb(140, 10, 9, 14), Color.argb(228, 10, 9, 14)),
-            floatArrayOf(0f, 0.5f, 1f),
-            Shader.TileMode.CLAMP,
-        )
-        canvas.drawRect(0f, 0f, W.toFloat(), H.toFloat(), Paint().apply { shader = right })
-
-        val bottom = LinearGradient(
-            0f, H * 0.5f, 0f, H.toFloat(),
-            Color.argb(0, 10, 9, 14), Color.argb(150, 10, 9, 14),
-            Shader.TileMode.CLAMP,
-        )
-        canvas.drawRect(0f, H * 0.5f, W.toFloat(), H.toFloat(), Paint().apply { shader = bottom })
-    }
-
-    /**
-     * Draws up to [maxLines] of word-wrapped text starting at [startY] (the
-     * TOP of the text block); returns the LAST baseline. When words had to
-     * be dropped, the final line is hard-ellipsized to fit [maxWidth] — the
-     * old length-heuristic ellipsis could fire on texts it never truncated.
-     * [shadowed] applies the D-499 soft dark shadow (readability on light
-     * background art).
-     */
-    private fun drawWrappedText(
-        canvas: Canvas,
-        text: String,
-        x: Float,
-        startY: Float,
-        maxWidth: Float,
-        textSize: Float,
-        color: Int,
-        typeface: Typeface,
-        maxLines: Int,
-        shadowed: Boolean = false,
-    ): Float {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = color
-            this.textSize = textSize
-            this.typeface = typeface
-            if (shadowed) setShadowLayer(8f, 0f, 3f, Color.argb(180, 0, 0, 0))
-        }
-        val words = text.split(" ").filter { it.isNotBlank() }
-        val lines = mutableListOf<String>()
-        var truncated = false
-        var line = StringBuilder()
-        for (word in words) {
-            val candidate = if (line.isEmpty()) word else "$line $word"
-            if (paint.measureText(candidate) > maxWidth && line.isNotEmpty()) {
-                lines.add(line.toString())
-                line = StringBuilder(word)
-                if (lines.size == maxLines) {
-                    truncated = true
-                    break
-                }
-            } else {
-                line = StringBuilder(candidate)
-            }
-        }
-        if (!truncated && line.isNotEmpty()) lines.add(line.toString())
-        if (truncated) {
-            // Ellipsize the last line until the marker fits.
-            var last = lines.last()
-            while (last.isNotEmpty() && paint.measureText("$last…") > maxWidth) {
-                last = last.dropLast(1)
-            }
-            lines[lines.size - 1] = "$last…"
-        }
-
-        var baseline = startY + textSize
-        for (l in lines) {
-            canvas.drawText(l, x, baseline, paint)
-            baseline += textSize * 1.22f
-        }
-        return baseline - textSize * 1.22f
-    }
-
-    /**
-     * D-496: the number formatting — whole numbers drop the decimal
-     * ("EP 12"), fractional specials survive ("EP 12.5"). D-499 renders it
-     * as the tag row's first chip (the old 58px "EPISODE 12" hero line is
-     * retired — the user wanted a proper tag).
-     */
-    private fun episodeTag(n: Double): String =
-        if (n == n.toInt().toDouble()) "EP ${n.toInt()}" else "EP $n"
 
     /**
      * Loads an image with Coil at the requested size, bitmap result only.
@@ -622,6 +618,7 @@ class EpisodeBannerComposer(
         width: Int,
         height: Int,
         scale: Scale = Scale.FIT,
+        timeoutMs: Long = ART_LOAD_TIMEOUT_MS,
     ): Bitmap? = try {
         val request = ImageRequest.Builder(context)
             .data(url)
@@ -629,7 +626,7 @@ class EpisodeBannerComposer(
             .scale(scale)
             .bitmapConfig(Bitmap.Config.ARGB_8888)
             .build()
-        withTimeoutOrNull(ART_LOAD_TIMEOUT_MS) {
+        withTimeoutOrNull(timeoutMs) {
             context.imageLoader.execute(request).image?.toBitmap().ensureSoftwareSafe()
         }
     } catch (e: CancellationException) {
@@ -659,46 +656,56 @@ class EpisodeBannerComposer(
         }
     }
 
+    /** The flow layout's vertically-centered left thumb box. */
+    private fun drawFlowThumbBox(canvas: Canvas, src: Bitmap) {
+        PosterDrawing.drawThumbCard(
+            canvas, src,
+            RectF(
+                PosterCanvasMetrics.THUMB_DEFAULT_X,
+                PosterCanvasMetrics.THUMB_DEFAULT_Y,
+                PosterCanvasMetrics.THUMB_DEFAULT_X + PosterCanvasMetrics.THUMB_BOX_W,
+                PosterCanvasMetrics.THUMB_DEFAULT_Y + PosterCanvasMetrics.THUMB_BOX_H,
+            ),
+            PosterCanvasMetrics.THUMB_CORNER,
+        )
+    }
+
     // The companion itself is PUBLIC on purpose: Kotlin forbids accessing
     // members through a private companion's class-name facade, and the
-    // customization page's preview reads CANVAS_WIDTH/CANVAS_HEIGHT across
-    // files. Every member below is explicitly private except those two
-    // consts, so only they leak.
+    // Poster Studio reads CANVAS_WIDTH/CANVAS_HEIGHT/episodeTag/wrappedLines
+    // across files. Every member below is explicitly scoped, so only the
+    // studio-facing ones leak.
     companion object {
         private const val TAG = "Anikuta:App:BannerComposer"
 
-        // Public for the customization page's preview box — the preview must
-        // render the notification's TRUE proportions (D-499: 1024×400, 2.56:1
-        // — the v1.1.13 device round asked for a little less height than the
-        // approved 1024×440).
-        const val CANVAS_WIDTH = 1024
-        const val CANVAS_HEIGHT = 400
+        // Public for the studio's preview box — the preview must render the
+        // notification's TRUE proportions (1024×400, 2.56:1 — D-499).
+        const val CANVAS_WIDTH = PosterCanvasMetrics.WIDTH
+        const val CANVAS_HEIGHT = PosterCanvasMetrics.HEIGHT
 
         private const val W = CANVAS_WIDTH
         private const val H = CANVAS_HEIGHT
 
-        private const val MARGIN = 28f
-        private const val LEFT = 44f
-        private const val TOP = 48f
+        private val LIME_INT = Color.parseColor("#B1F256")
 
-        // D-499: the LEFT thumbnail card — a fixed 16:9 box (the normal
-        // episode-still shape) at 2× the old chip's area; too-wide sources
-        // crop down to it (see [drawThumbBox]). The text column mirrors to
-        // the right of it.
-        private const val THUMB_BOX_W = 400
-        private const val THUMB_BOX_H = 225
-        private const val THUMB_CORNER = 20f
-        private const val TEXT_X = MARGIN + THUMB_BOX_W + 28f   // 456
-        private const val TEXT_W = W - TEXT_X - 36f             // 532
+        /** D-496/D-499: the EP chip's label — "EP 12" / "EP 12.5" (no trailing .0). Public for the studio. */
+        fun episodeTag(n: Double): String =
+            if (n == n.toInt().toDouble()) "EP ${n.toInt()}" else "EP $n"
 
-        // The tag row ([EP n] [SUB] [DUB]).
-        private const val CHIP_H = 54f
-        private const val CHIP_PAD_X = 26f
-        private const val CHIP_GAP = 12f
-
-        private val LIME = Color.parseColor("#B1F256")
+        /**
+         * The wrap-measure the studio uses to hit-test and flow-seed the
+         * title — the SAME greedy algorithm [PosterDrawing.wrappedLines]
+         * runs at draw time, so the studio's element rects match the
+         * composer's rendered text to the pixel.
+         */
+        fun wrappedLines(text: String, maxWidth: Float, textSize: Float, maxLines: Int): List<String> =
+            PosterDrawing.wrappedLines(text, maxWidth, textSize, Typeface.DEFAULT_BOLD, maxLines)
 
         /** D-486: the per-image hard ceiling (ms) — see [loadBitmap]. */
         private const val ART_LOAD_TIMEOUT_MS = 12_000L
+
+        /** D-503: the thumb retry + fallback ceilings (a slow CDN must not stack 12s windows per link). */
+        private const val RETRY_TIMEOUT_MS = 8_000L
+        private const val FALLBACK_TIMEOUT_MS = 6_000L
     }
 }

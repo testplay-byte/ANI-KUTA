@@ -37,8 +37,10 @@ import java.util.concurrent.TimeUnit
  * the D-483 feed-first rule; the user's round-50 spec replaces it — the feed
  * remains the PREVIEW's initial-selection source).
  *
- * Delivery is STAGGERED: the first posts immediately, the second 5 MINUTES
- * later via WorkManager (survives app death).
+ * Delivery is STAGGERED: the first posts immediately, the second 30 SECONDS
+ * later via WorkManager (survives app death) — D-503: the user moved the
+ * stagger up from 5 minutes ("have that one sent after 30 seconds rather
+ * than 5 minutes").
  */
 class EpisodeNotificationTester(
     private val context: Context,
@@ -50,9 +52,9 @@ class EpisodeNotificationTester(
 
     /**
      * Posts up to [count] test poster notifications (1 now + the rest
-     * staggered 5 minutes apart). Returns how many were scheduled. Always
-     * ≥ 1 when notifications are permitted (D-495) — the empty-library demo
-     * guarantees a payload.
+     * staggered 30 seconds apart — D-503). Returns how many were scheduled.
+     * Always ≥ 1 when notifications are permitted (D-495) — the empty-library
+     * demo guarantees a payload.
      *
      * D-486: the library scan below is BLOCKING SQLDelight reads — they run
      * on Dispatchers.IO, not the caller's main-dispatch
@@ -108,8 +110,11 @@ class EpisodeNotificationTester(
 
         var scheduled = 0
         demos.take(count).forEachIndexed { index, demo ->
-            val delayMinutes = index * 5L  // 1st: now · 2nd: 5 min · (3rd: 10 …)
-            if (delayMinutes == 0L) {
+            // D-503: the stagger moved from 5 MINUTES to 30 SECONDS (the
+            // user's round-52 spec) — the WorkManager path is kept so the
+            // second post still survives app death.
+            val delaySeconds = index * 30L  // 1st: now · 2nd: 30 s · (3rd: 60 …)
+            if (delaySeconds == 0L) {
                 // The FIRST test posts immediately.
                 notificationManager.postPosterNotification(
                     notifId = 990 + index,
@@ -119,13 +124,13 @@ class EpisodeNotificationTester(
                     audioVariant = demo.audioVariant,
                 )
             } else {
-                // The SECOND (and any later) test: WorkManager, 5 minutes
+                // The SECOND (and any later) test: WorkManager, 30 seconds
                 // apart, surviving app death — the payload rides the work
                 // data and the worker re-composes the banner at fire time.
                 // D-495: the TITLE rides too — a pure demo has no library
                 // row to look it up from at fire time.
                 val request = OneTimeWorkRequestBuilder<DelayedPosterTestWorker>()
-                    .setInitialDelay(delayMinutes, TimeUnit.MINUTES)
+                    .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
                     .setInputData(
                         workDataOf(
                             DelayedPosterTestWorker.KEY_MAIN_ID to demo.mainId,
@@ -142,7 +147,7 @@ class EpisodeNotificationTester(
                 )
             }
             scheduled++
-            Logger.i(TAG) { "test poster #$index scheduled for ${demo.title} (delay=${delayMinutes}min)" }
+            Logger.i(TAG) { "test poster #$index scheduled for ${demo.title} (delay=${delaySeconds}s)" }
         }
         scheduled
     }

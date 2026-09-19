@@ -1,5 +1,10 @@
 package com.confused.anikuta.settings
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +21,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -25,11 +31,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -42,6 +50,7 @@ import com.confused.anikuta.core.preferences.NotificationPreferences
 import com.confused.anikuta.notifications.EpisodeBannerComposer
 import com.confused.anikuta.notifications.EpisodeDemoPicker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 
@@ -80,6 +89,9 @@ import org.koin.compose.koinInject
 @Composable
 fun NotificationPosterSettingsScreen(
     onBack: () -> Unit,
+    // D-503: the Customize entry — the round-52 spec places it JUST LEFT of
+    // the shuffle preview button; it opens the forced-landscape Poster Studio.
+    onOpenCustomize: () -> Unit = {},
     posterPrefs: NotificationPreferences = koinInject(),
     composer: EpisodeBannerComposer = koinInject(),
     demoPicker: EpisodeDemoPicker = koinInject(),
@@ -113,6 +125,15 @@ fun NotificationPosterSettingsScreen(
     // the library. Lives with the screen's composition (a fresh screen open
     // reshuffles — a new session).
     val shuffleDeck = remember { EpisodeDemoPicker.ShuffleDeck() }
+
+    // D-503: the SHUFFLE FEEDBACK — the device round: "I should be given an
+    // animation so that I know that the shuffling did happen." Three stacked
+    // cues on every shuffle tap: the preview box pulses, the shuffle icon
+    // spins a full turn, and the new banner crossfades in when the compose
+    // lands (the Crossfade around the preview Image below).
+    val scope = rememberCoroutineScope()
+    val shufflePulse = remember { Animatable(1f) }
+    val shuffleIconSpin = remember { Animatable(0f) }
 
     // D-494: the selected payload CACHED across re-runs. A toggle flip must
     // re-render the content ON STAGE with the new prefs — it must NOT
@@ -208,7 +229,13 @@ fun NotificationPosterSettingsScreen(
                                             EpisodeBannerComposer.CANVAS_HEIGHT.toFloat(),
                                     )
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    // D-503: the shuffle pulse (see the scope above).
+                                    .graphicsLayer {
+                                        val p = shufflePulse.value
+                                        scaleX = p
+                                        scaleY = p
+                                    },
                             ) {
                                 val result = preview
                                 when {
@@ -261,12 +288,21 @@ fun NotificationPosterSettingsScreen(
                                         }
                                     }
                                     result.banner != null -> {
-                                        Image(
-                                            bitmap = result.banner.asImageBitmap(),
-                                            contentDescription = "Notification poster preview",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
+                                        // D-503: the shuffle crossfade — the composed
+                                        // banner fades through when the re-compose
+                                        // lands (also smooths toggle-flip re-renders).
+                                        Crossfade(
+                                            targetState = result.banner,
+                                            animationSpec = tween(300),
+                                            label = "banner",
+                                        ) { banner ->
+                                            Image(
+                                                bitmap = banner.asImageBitmap(),
+                                                contentDescription = "Notification poster preview",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        }
                                     }
                                     else -> {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -279,19 +315,47 @@ fun NotificationPosterSettingsScreen(
                             // EXCLUDING the content on stage (D-494) and walking the
                             // library in a PLANNED shuffled order (D-499): every item
                             // appears once per deck cycle before any repeat.
+                            // D-503: the CUSTOMIZE button sits just LEFT of the
+                            // shuffle button (the round-52 spec) and opens the
+                            // Poster Studio; the shuffle tap now also plays the
+                            // pulse + icon-spin feedback.
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End,
                             ) {
+                                androidx.compose.material3.TextButton(onClick = onOpenCustomize) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Tune,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                    )
+                                    androidx.compose.material3.Text("Customize")
+                                }
                                 androidx.compose.material3.TextButton(onClick = {
                                     shuffleExclude.value = onStageMainId.value
                                     roll++
+                                    scope.launch {
+                                        shufflePulse.snapTo(0.965f)
+                                        shufflePulse.animateTo(
+                                            1f,
+                                            spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                                        )
+                                    }
+                                    scope.launch {
+                                        shuffleIconSpin.animateTo(
+                                            shuffleIconSpin.value + 360f,
+                                            tween(550),
+                                        )
+                                    }
                                 }) {
                                     Icon(
                                         imageVector = Icons.Filled.Shuffle,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(end = 6.dp),
+                                        modifier = Modifier
+                                            .padding(end = 6.dp)
+                                            .graphicsLayer { rotationZ = shuffleIconSpin.value },
                                     )
                                     androidx.compose.material3.Text("Shuffle preview")
                                 }
@@ -371,10 +435,12 @@ fun NotificationPosterSettingsScreen(
 /**
  * D-493: the DEMO paths normalize the engine's "unknown" audio variant to a
  * random sub/dub so the preview's badge always renders (the composer draws
- * no chip for unknown — honest for real notifications, invisible for a
+ * no chip for unknown — honest for a real notification, invisible for a
  * demo). Real notifications keep the engine's value untouched.
+ * D-503: internal (was file-private) — the Poster Studio's preview selects
+ * content through the SAME helper so both screens agree on what's on stage.
  */
-private fun String.normalizeForDemo(): String = when (trim().lowercase()) {
+internal fun String.normalizeForDemo(): String = when (trim().lowercase()) {
     "sub" -> "sub"
     "dub" -> "dub"
     else -> listOf("sub", "dub").random()
@@ -384,7 +450,7 @@ private fun String.normalizeForDemo(): String = when (trim().lowercase()) {
  * D-494: the payload the preview renders — cached across toggle-flip
  * re-runs (see [selectionCache] at the call site).
  */
-private data class PreviewSelection(
+internal data class PreviewSelection(
     val mainId: String,
     val title: String,
     val episodeNumber: Double,
@@ -400,7 +466,7 @@ private data class PreviewSelection(
  * different one from the on-stage entry — the exclusion filters it).
  * Returns null when nothing qualifies.
  */
-private suspend fun selectPreviewContent(
+internal suspend fun selectPreviewContent(
     exclude: String?,
     deck: EpisodeDemoPicker.ShuffleDeck,
     updateStore: com.confused.anikuta.core.updates.UpdateStore,

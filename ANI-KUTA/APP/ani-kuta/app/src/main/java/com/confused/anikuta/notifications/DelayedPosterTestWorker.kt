@@ -9,9 +9,10 @@ import com.confused.anikuta.core.notifications.NotificationManager
 import org.koin.core.context.GlobalContext
 
 /**
- * D-483: posts the SECOND test poster notification, 5 minutes after the
- * first — the staggered delivery the user expects ("one test notification
- * now and the other one 5 minutes later"). Scheduled by
+ * D-483: posts the SECOND test poster notification, 30 seconds after the
+ * first (D-503 moved the stagger up from 5 minutes) — the staggered delivery
+ * the user expects ("one test notification now and the other one 30 seconds
+ * later"). Scheduled by
  * [EpisodeNotificationTester.postRecentUpdateNotifications] with the demo
  * payload in the work input data; resolves its collaborators from Koin
  * (the same GlobalContext pattern as DelayedTestNotificationWorker).
@@ -55,7 +56,7 @@ class DelayedPosterTestWorker(
                 episodeNumber = episodeNumber,
                 audioVariant = audioVariant,
             )
-            Logger.i(TAG) { "the delayed (5 min) test poster posted for $title" }
+            Logger.i(TAG) { "the delayed (30 s) test poster posted for $title" }
             Result.success()
         } catch (e: Exception) {
             Logger.e(TAG, e) { "the delayed test poster failed: ${e.message}" }

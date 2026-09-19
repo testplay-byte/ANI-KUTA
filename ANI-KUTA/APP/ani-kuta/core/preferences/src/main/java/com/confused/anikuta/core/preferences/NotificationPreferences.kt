@@ -151,6 +151,17 @@ class NotificationPreferences(private val store: PreferenceStore) {
         get() = store.getBoolean(KEY_POSTER_BRANDING, true)
         set(value) = store.putBoolean(KEY_POSTER_BRANDING, value)
 
+    /**
+     * D-503: the Poster Studio's persisted layout (see PosterLayoutConfig in
+     * :app) — one JSON blob for the five customizable banner elements
+     * (position/scale/color/visibility). Empty string = the factory flow
+     * layout. Parsed leniently by the composer: a garbled save degrades to
+     * the DEFAULT config, never to a broken banner.
+     */
+    var posterLayoutJson: String
+        get() = store.getString(KEY_POSTER_LAYOUT_JSON, "")
+        set(value) = store.putString(KEY_POSTER_LAYOUT_JSON, value)
+
     // ── Library customization toggle (D-193 v2) ────────────────────────────────
     // When OFF (default): the default triggers above apply to every anime in the
     // library. No per-anime notification UI appears on the details page.
@@ -171,6 +182,7 @@ private companion object {
         private const val KEY_POSTER_THUMB = "notif_poster_thumb"
         private const val KEY_POSTER_AUDIO_BADGE = "notif_poster_audio_badge"
         private const val KEY_POSTER_BRANDING = "notif_poster_branding"
+        private const val KEY_POSTER_LAYOUT_JSON = "notif_poster_layout_json"
         private const val KEY_ENABLED = "notif_master_enabled"
         private const val KEY_DEF_SCHEDULE = "notif_def_schedule"
         private const val KEY_DEF_WATCHABLE = "notif_def_watchable"

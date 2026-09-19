@@ -37,16 +37,22 @@ class NotificationManager(
     // config). Null = the plain BigTextStyle notification (also the fallback
     // whenever the banner composition fails).
     private val artProvider: NotificationArtProvider? = null,
-    // D-500: the in-app heads-up banner controller. Every episode post (real
-    // + test) emits an event carrying the SAME composed banner bitmap the
-    // system notification renders — the app's root overlay shows it while the
-    // user is on ANY screen. Null-safe: an absent controller never breaks
-    // posting (the emit is tryEmit fire-and-forget).
-    private val inAppBanner: InAppBannerController? = null,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Notifications"
-        const val CHANNEL_ID = "anikuta_new_episodes"  // public — the :app tester reuses the channel (D-478)
+
+        /**
+         * D-503: the channel id moved to `_high` — channels are immutable
+         * after creation, and the ORIGINAL `anikuta_new_episodes` channel was
+         * created at IMPORTANCE_DEFAULT, which NEVER produces the heads-up
+         * popup (the device round: "it does not show me the notification as a
+         * device popup"). The new id is created at IMPORTANCE_HIGH (heads-up)
+         * and [ensureChannel] deletes the legacy channel so the settings app
+         * never shows two "New episodes" rows. Public — the :app tester
+         * reuses the channel (D-478).
+         */
+        const val CHANNEL_ID = "anikuta_new_episodes_high"
+        private const val CHANNEL_ID_LEGACY = "anikuta_new_episodes"
         private const val CHANNEL_NAME = "New episodes"
         private const val CHANNEL_ID_SILENT = "anikuta_new_episodes_silent"
         private const val CHANNEL_NAME_SILENT = "New episodes (silent)"
@@ -164,13 +170,11 @@ class NotificationManager(
         val text = "EP ${episodeLabel(episodeNumber)}${if (displayAudio.isNotBlank()) " · $displayAudio" else ""} is now available"
         val channel = if (silent) CHANNEL_ID_SILENT else CHANNEL_ID
         val priority = if (silent) NotificationCompat.PRIORITY_LOW
-        else NotificationCompat.PRIORITY_DEFAULT
+        else NotificationCompat.PRIORITY_HIGH
 
         // D-477: the poster path — when the art provider is present and the
         // poster style is enabled, compose the episode banner and render it
         // via BigPictureStyle. Any failure falls back to the plain text style.
-        // D-500: the composed bitmap is captured in [composedBanner] so the
-        // in-app banner (below) shows the SAME image the notification renders.
         var style: NotificationCompat.Style = NotificationCompat.BigTextStyle().bigText(text)
         var composedBanner: android.graphics.Bitmap? = null
         if (artProvider != null && preferences.posterEnabled) {
@@ -178,11 +182,18 @@ class NotificationManager(
                 val banner = artProvider.buildEpisodeBanner(mainId, title, episodeNumber, audioVariant)
                 if (banner != null) {
                     composedBanner = banner
+                    // D-503: THE CLEAN BANNER — when a banner composed, it IS
+                    // the notification. The old .setBigContentTitle(title) +
+                    // .setSummaryText(text) re-introduced both lines INSIDE the
+                    // expanded BigPicture layout (the device round: content
+                    // name on top, then "EP n · DUB is now available", then the
+                    // banner — "not good"), so they are gone, and the builder
+                    // title/text collapse to empty strings for the same reason.
+                    // The collapsed shade card intentionally shows just the app
+                    // header; expanding it shows the banner, nothing else.
                     style = NotificationCompat.BigPictureStyle()
                         .bigPicture(banner)
                         .bigLargeIcon(null as? android.graphics.Bitmap)
-                        .setBigContentTitle(title)
-                        .setSummaryText(text)
                 }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "poster banner composition failed — falling back to text style" }
@@ -191,8 +202,8 @@ class NotificationManager(
 
         val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(text)
+            .setContentTitle(if (composedBanner != null) "" else title)
+            .setContentText(if (composedBanner != null) "" else text)
             .setStyle(style)
             .setPriority(priority)
             .setAutoCancel(true)
@@ -203,21 +214,6 @@ class NotificationManager(
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(notifId, notification)
 
-        // D-500: surface the same banner IN-APP while the user is on any
-        // screen. [banner] is the composed poster when the poster path ran
-        // (null otherwise → the card renders the text-only layout). A
-        // backgrounded app has no STARTED collector — the event drops and the
-        // system notification stays the only surface, which is exactly right.
-        inAppBanner?.show(
-            InAppBannerEvent(
-                id = System.nanoTime(),
-                bitmap = composedBanner,
-                title = title,
-                text = text,
-                mainId = mainId,
-            ),
-        )
-
         // 7. Record in dedup log.
         configStore.recordSent(mainId, episodeNumber, audioVariant, triggerType)
 
@@ -227,17 +223,23 @@ class NotificationManager(
 
     private fun ensureChannel() {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (nm.getNotificationChannel(CHANNEL_ID) == null) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_DEFAULT,
-            ).apply {
-                description = "Notifications for new episode releases"
-            }
-            nm.createNotificationChannel(channel)
-            Logger.i(TAG) { "Notification channel created: $CHANNEL_ID" }
+        // D-503: one-time retirement of the DEFAULT-importance channel (see
+        // [CHANNEL_ID_LEGACY]) — delete AFTER creating the replacement so a
+        // notification posted between the two steps still has a home.
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = "Notifications for new episode releases"
+            enableVibration(true)
         }
+        nm.createNotificationChannel(channel)
+        if (nm.getNotificationChannel(CHANNEL_ID_LEGACY) != null) {
+            nm.deleteNotificationChannel(CHANNEL_ID_LEGACY)
+            Logger.i(TAG) { "legacy notification channel deleted: $CHANNEL_ID_LEGACY" }
+        }
+        Logger.i(TAG) { "Notification channel ensured (HIGH/heads-up): $CHANNEL_ID" }
     }
 
     /** Low-importance channel for SILENT trigger notifications (no sound). */
@@ -340,8 +342,8 @@ class NotificationManager(
             append(" is now available")
         }
 
-        // D-500: the composed bitmap rides to the in-app banner too (same
-        // capture pattern as [postNotification] above).
+        // D-503: the clean-banner rule applies to the test path too — the
+        // composed bitmap is the whole notification, no text above it.
         var style: NotificationCompat.Style = NotificationCompat.BigTextStyle().bigText(text)
         var composedBanner: android.graphics.Bitmap? = null
         if (artProvider != null && preferences.posterEnabled) {
@@ -352,8 +354,6 @@ class NotificationManager(
                     style = NotificationCompat.BigPictureStyle()
                         .bigPicture(banner)
                         .bigLargeIcon(null as? android.graphics.Bitmap)
-                        .setBigContentTitle(title)
-                        .setSummaryText(text)
                 }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "poster banner composition failed — falling back to text style" }
@@ -362,10 +362,10 @@ class NotificationManager(
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(text)
+            .setContentTitle(if (composedBanner != null) "" else title)
+            .setContentText(if (composedBanner != null) "" else text)
             .setStyle(style)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(createDetailsPendingIntent(mainId))
             .build()
@@ -373,18 +373,11 @@ class NotificationManager(
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(notifId, notification)
 
-        // D-500: the test path emits the in-app banner too — this is the
-        // device report's fix: "Send test notifications" while the app is
-        // open now SHOWS the composed banner on screen, not just a shade entry.
-        inAppBanner?.show(
-            InAppBannerEvent(
-                id = System.nanoTime(),
-                bitmap = composedBanner,
-                title = title,
-                text = text,
-                mainId = mainId,
-            ),
-        )
+        // D-503: the D-500 in-app overlay emission is GONE — the user's
+        // verdict: "the banner shows at the top of the app itself, which is
+        // kind of not what I wanted. I wanted the banner to be shown as a
+        // notification." The HIGH-importance channel (see [ensureChannel])
+        // now delivers the real Android heads-up popup instead.
 
         Logger.i(TAG) { "poster test notification posted: mainId=$mainId ep=$episodeNumber" }
     }

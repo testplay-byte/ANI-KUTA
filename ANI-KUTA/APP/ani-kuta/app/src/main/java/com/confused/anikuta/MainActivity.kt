@@ -321,6 +321,9 @@ object UpdateCheckLogKey : NavKey
 /** D-477: the notification-poster customization page (live preview). */
 object NotificationPosterKey : NavKey
 
+/** D-503: the POSTER STUDIO — the forced-landscape editor for the poster's five elements. */
+object PosterCustomizeKey : NavKey
+
 @Serializable
 object AppearanceKey : NavKey
 
@@ -1401,6 +1404,13 @@ fun AppRoot() {
             )
             is NotificationPosterKey -> NotificationPosterSettingsScreen(
                 onBack = pop,
+                onOpenCustomize = { backstack.add(PosterCustomizeKey) },
+            )
+            // D-503: the Poster Studio — the five-element editor (drag /
+            // pinch / magnetic snap), forced landscape, Save persists the
+            // layout JSON + dumps it to the console log.
+            is PosterCustomizeKey -> com.confused.anikuta.settings.PosterCustomizeScreen(
+                onBack = pop,
             )
             is NotificationsLibraryKey -> NotificationsLibraryScreen(
                 onBack = pop,
@@ -1618,13 +1628,11 @@ fun AppRoot() {
         // In debug builds it renders the draggable squircle bubble.
         DebugBubbleHost()
 
-        // D-500: the in-app heads-up episode banner — the composed poster
-        // slides in from the top on WHATEVER screen the user is on when an
-        // episode notification posts (real + test). Foreground-only by
-        // construction: the host collects under repeatOnLifecycle(STARTED),
-        // so backgrounded posts stay system-notification-only. A sibling of
-        // the debug bubble in the overlay stack.
-        com.confused.anikuta.notifications.InAppBannerHost()
+        // D-503: the D-500 in-app heads-up banner host is GONE — the user's
+        // verdict: "the banner shows at the top of the app itself, which is
+        // kind of not what I wanted. I wanted the banner to be shown as a
+        // notification." Notifications now rely on the HIGH-importance
+        // system channel for the real Android heads-up popup.
 
         // ── Task 53 / RC-6: the CS resolve sheet (AnymeX entry pattern) ──
         // Overlay sibling of the nav content: the details page stays visible
