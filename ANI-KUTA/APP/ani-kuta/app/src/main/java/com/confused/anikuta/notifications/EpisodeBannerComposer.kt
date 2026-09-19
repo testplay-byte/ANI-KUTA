@@ -17,6 +17,7 @@ import com.confused.anikuta.core.preferences.NotificationPreferences
 import com.confused.anikuta.core.common.Logger
 import coil3.imageLoader
 import coil3.request.ImageRequest
+import coil3.request.bitmapConfig
 import coil3.toBitmap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -335,23 +336,60 @@ class EpisodeBannerComposer(
      * notification for minutes on a dead CDN. On timeout the null return
      * hands control to the caller's fallback chain (thumb as background,
      * then the flat dark stage) and compose() still returns a banner.
+     *
+     * D-491 — SOFTWARE-SAFE DECODE. The v1.1.11 device round proved the
+     * real root cause of every "Couldn't load the preview art" report:
+     * Coil decodes into Bitmap.Config.HARDWARE by default on API 26+, and
+     * a HARDWARE bitmap cannot be drawn on the software canvas compose()
+     * paints on — the device threw "Software rendering doesn't support
+     * hardware bitmaps" inside drawCenterCrop, the catch nulled the whole
+     * banner, and the UI then blamed the user's (perfectly fine) connection.
+     * The comment that stood here before claimed toBitmap() converts
+     * hardware bitmaps — it does NOT: for a BitmapImage it returns the
+     * bitmap as-is (verified against coil3 3.0.4 bytecode). The request now
+     * pins bitmapConfig(ARGB_8888), which fixes BOTH art sources: fresh
+     * decodes come out software-safe, and the engine's memory-cache hit
+     * validation (MemoryCacheService.isCacheValueValidForHardware) rejects
+     * hardware-backed entries this request can't use and re-decodes them
+     * from the disk cache instead — so the UI's own image loads can never
+     * poison the composer. [ensureSoftwareSafe] is the last line of
+     * defense: art must never crash the banner again, whatever slips
+     * through in a future Coil version.
      */
     private suspend fun loadBitmap(url: String, width: Int, height: Int): Bitmap? = try {
-        // The exact proven coil3 pattern from UpdateProgressNotifierImpl
-        // (execute -> image -> toBitmap). No allowHardware needed: coil3's
-        // toBitmap converts hardware bitmaps, which Canvas drawing requires.
         val request = ImageRequest.Builder(context)
             .data(url)
             .size(width, height)
+            .bitmapConfig(Bitmap.Config.ARGB_8888)
             .build()
         withTimeoutOrNull(ART_LOAD_TIMEOUT_MS) {
-            context.imageLoader.execute(request).image?.toBitmap()
+            context.imageLoader.execute(request).image?.toBitmap().ensureSoftwareSafe()
         }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         Logger.w(TAG) { "art load failed for $url: ${e.message}" }
         null
+    }
+
+    /**
+     * D-491: guarantees the bitmap can be drawn on the composer's software
+     * canvas. With bitmapConfig(ARGB_8888) this is a no-op pass-through for
+     * every normal load; it only does work if a HARDWARE bitmap still slips
+     * through some future path — then it is copied to ARGB_8888, and if even
+     * the copy fails, null hands control to the caller's fallback chain
+     * (thumb -> flat dark stage). The banner always renders something and
+     * the notification never dies over art.
+     */
+    private fun Bitmap?.ensureSoftwareSafe(): Bitmap? {
+        val bmp = this ?: return null
+        if (bmp.config != Bitmap.Config.HARDWARE) return bmp
+        return try {
+            bmp.copy(Bitmap.Config.ARGB_8888, false)
+        } catch (e: Exception) {
+            Logger.w(TAG) { "hardware→software bitmap copy failed: ${e.message}" }
+            null
+        }
     }
 
     private companion object {

@@ -105,3 +105,21 @@ never commit logs.
 - The version bump lives ONLY on the release branches (D-425 discipline).
 - Release notes = the tag annotation body (D-466) — the workflow turns them
   into the GitHub release body the app displays.
+
+## 6. RESOLVED (round 49, D-491) — the §2a root-cause hypotheses were NOT the cause
+The v1.1.11 device logcat (the user's round) delivered the definitive answer:
+`IllegalArgumentException: Software rendering doesn't support hardware
+bitmaps` at `EpisodeBannerComposer.drawCenterCrop` ← compose ← buildBanner.
+Coil decodes into `Bitmap.Config.HARDWARE` by default on API 26+; a HARDWARE
+bitmap cannot be drawn on the composer's SOFTWARE canvas
+(`Bitmap.createBitmap`) — the first draw threw, the catch nulled the banner,
+and the UI blamed the connection. This doc's §2a hypotheses (main-thread
+blocking DB reads) were real-but-orthogonal: D-486 fixed them, and the
+device STILL failed — the bitmap config was the missing layer. The fix:
+`bitmapConfig(ARGB_8888)` at the loadBitmap choke point (+ the engine's
+`isCacheValueValidForHardware` memory-cache validation) + `ensureSoftwareSafe()`
+copy-or-null as the never-crash last line. The "toBitmap converts hardware
+bitmaps" comment that justified the old code was false — verified against
+the coil3 3.0.4 bytecode (BitmapImage is returned as-is). Lesson for the
+next agent: a catch-only-null failure mode HIDES the real exception class —
+round 48's exception-class-in-log discipline is what finally cracked this.

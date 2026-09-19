@@ -3022,3 +3022,40 @@ workflow (run 35448588733, GREEN) published
 `ani-kuta-v1.1.11-debug-arm64-v8a.apk` (66.7 MB) + `SHA256SUMS.txt`, stable +
 `--latest` — verified via the API (assets + body). Main stays at 0.4.20/85
 (D-425). Full detail: the branch-point doc on the release branch.
+
+## D-491 (round 49): the poster pipeline's REAL root cause — hardware bitmaps on a software canvas (device-proven)
+THE V1.1.11 DEVICE ROUND: the preview, the test notifications and the real
+notifications STILL failed identically — and this time the user's logcat
+delivered the exception CLASS + the full stack:
+`IllegalArgumentException: Software rendering doesn't support hardware
+bitmaps` at `EpisodeBannerComposer.drawCenterCrop` (the BitmapShader
+drawRect) ← compose ← buildBanner. THE MECHANISM: Coil decodes into
+`Bitmap.Config.HARDWARE` by default on API 26+; a HARDWARE bitmap can only
+be drawn on a hardware-accelerated canvas, and the composer paints on a
+SOFTWARE canvas (`Bitmap.createBitmap` 1024×576 ARGB_8888) — the first draw
+with the art threw, the catch nulled the whole banner, and the preview's
+failed message blamed the user's (perfectly fine) connection. D-486's
+dispatcher/timeout hardening was correct but orthogonal to THIS cause — and
+the code comment claiming "toBitmap() converts hardware bitmaps" was FALSE
+(verified against the coil3 3.0.4 bytecode: for a BitmapImage, toBitmap
+returns the bitmap AS-IS; the applyCanvas conversion path only serves
+drawable images). THE FIX (three layers, all in loadBitmap — the single
+choke point every external bitmap enters through): (1) the ImageRequest pins
+`bitmapConfig(ARGB_8888)` — fresh decodes come out software-safe; (2) the
+engine's memory-cache hit validation (`MemoryCacheService.
+isCacheValueValidForHardware`, verified in the 3.0.4 bytecode: "Cached
+bitmap is hardware-backed, which is incompatible with the request") rejects
+hardware-backed entries the request can't use and re-decodes from the disk
+cache — the UI's own image loads can never poison the composer; (3)
+`ensureSoftwareSafe()` — the last line of defense: any HARDWARE bitmap that
+still slips through some future path is copied to ARGB_8888 (copy failure →
+null → the fallback chain thumb → flat dark stage still yields a banner;
+art must never crash the banner again). THE PREVIEW'S FAILED MESSAGE
+reworded honestly ("The preview hit an unexpected error — tap Shuffle to try
+again"): with art availability no longer able to fail the banner (missing
+art composes the dark stage internally), failed=true can only mean an
+internal exception — there is no connection angle to report at all.
+Offline-first unchanged (memory→disk→network over the 500MB cache); the
+details/episode reads stay SQLDelight-local. UpdateProgressNotifierImpl's
+large-icon path untouched (runCatching-wrapped, device-proven across
+rounds 25-47).

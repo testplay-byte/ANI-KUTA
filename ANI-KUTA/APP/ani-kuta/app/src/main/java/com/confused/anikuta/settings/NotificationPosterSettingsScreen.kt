@@ -200,7 +200,17 @@ fun NotificationPosterSettingsScreen(
                                     result.failed -> {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             androidx.compose.material3.Text(
-                                                "Couldn't load the preview art — check your connection and try the shuffle.",
+                                                // D-491: an honest internal-error message.
+                                                // The old text blamed the connection — the
+                                                // v1.1.11 device round proved that state was
+                                                // a rendering bug (hardware bitmaps on a
+                                                // software canvas), NOT a network problem.
+                                                // Post-fix, failed=true only means an
+                                                // unexpected composer exception: art is never
+                                                // a failure anymore (missing art composes the
+                                                // dark-stage banner internally), so there is
+                                                // no connection angle to report at all.
+                                                "The preview hit an unexpected error — tap Shuffle to try again.",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.padding(20.dp),
