@@ -66,7 +66,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import com.confused.anikuta.core.common.Logger
-import com.confused.anikuta.core.notifications.EpisodeBannerComposer
+// D-503 CI fix: the composer lives in :app's notifications package — the
+// round-51 import sat one line away (core.notifications) and every
+// PosterEditorArt/loadEditorArt/resolveAudioVariant reference collapsed.
+import com.confused.anikuta.notifications.EpisodeBannerComposer
 import com.confused.anikuta.core.preferences.NotificationPreferences
 import com.confused.anikuta.notifications.EpisodeDemoPicker
 import com.confused.anikuta.notifications.PosterCanvasMetrics as M
