@@ -92,6 +92,74 @@ internal object PosterDrawing {
         )
     }
 
+    // ── D-519: the ELEMENT-AWARE text column ──
+    // The round-54 verdict: the title "is not aware of the elements
+    // surrounding it, so it does not adjust its length properly ... the
+    // content title is showing under some corner elements". In ABSOLUTE
+    // mode the text's wrap width used to run to the right margin no matter
+    // what — so a chip or the thumbnail pinned anywhere on the text's row
+    // was painted ON TOP of the text (later draw order). [awareWrapWidth]
+    // ends the column BEFORE the left edge of any element sharing the
+    // text's vertical band.
+
+    /** Breathing room between the text column and a neighbouring element's left edge. */
+    const val AWARE_TEXT_GAP = 24f
+
+    /**
+     * The narrowest column the awareness ever produces. A neighbour closer
+     * than this is IGNORED (the texts keep their full width) — truncating a
+     * 44px title to a 40px column would shred it to one glyph, and the user
+     * can simply move the elements apart instead.
+     */
+    const val AWARE_MIN_WIDTH = 120f
+
+    /**
+     * The wrap width for a text element whose block starts at ([x], [y]).
+     * [others] carries the other VISIBLE elements' rects — ONLY left/top/bottom
+     * are read (right/width are irrelevant, so callers pass left-edge-only
+     * rects and no neighbour measurement is needed — the function stays
+     * deterministic and identical on the composer AND the studio preview,
+     * the WYSIWYG law).
+     *
+     * The band is TWO-PASS and text-driven: the text is first wrapped at the
+     * FULL width to learn how many lines it actually occupies ([maxLines]
+     * capped), the band is that height, and only then do the neighbours'
+     * left edges constrain the column. A one-line title is never shrunk by
+     * chips that merely sit BELOW it (they don't intersect a one-line band),
+     * while a genuinely two-line title is protected for both of its rows.
+     *
+     * Rules per other element:
+     *  - its vertical band must actually overlap the text's band — elements
+     *    clearly above/below the block never constrain it;
+     *  - the candidate width (its left edge minus the gap) must be a REAL
+     *    reduction: at least [AWARE_MIN_WIDTH] and narrower than the current
+     *    width. Anything closer than the floor (or entirely to the text's
+     *    left) is skipped rather than collapsing the column to the minimum.
+     */
+    fun awareWrapWidth(
+        text: String,
+        x: Float,
+        y: Float,
+        fullWidth: Float,
+        textSize: Float,
+        typeface: Typeface,
+        maxLines: Int,
+        lineHeightFactor: Float,
+        others: List<RectF>,
+    ): Float {
+        val linesAtFull = wrappedLines(text, fullWidth, textSize, typeface, maxLines).size
+        val bandHeight = linesAtFull * textSize * lineHeightFactor
+        var width = fullWidth
+        val bandBottom = y + bandHeight
+        for (r in others) {
+            if (r.top >= bandBottom || r.bottom <= y) continue // bands never meet — no constraint
+            val candidate = r.left - AWARE_TEXT_GAP - x
+            if (candidate < AWARE_MIN_WIDTH || candidate >= width) continue
+            width = candidate
+        }
+        return width
+    }
+
     /**
      * D-493: draws [src] as a CENTER-CROP cover over a [w]×[h] canvas —
      * correct for ANY input geometry. (The full BitmapShader-smeared history

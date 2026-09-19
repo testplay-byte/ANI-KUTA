@@ -462,19 +462,95 @@ class EpisodeBannerComposer(
         thumbnail: Bitmap?,
         layout: PosterLayoutConfig,
     ) {
+        val titleEl = layout.title
+        val epEl = layout.episodeNumber
+        val audioEl = layout.audioVariant
+        val epTitleEl = layout.episodeTitle
+        val thumbEl = layout.thumbnail
+
+        // The RENDER conditions, lifted so the D-519 awareness sees exactly
+        // what this function will actually paint (an invisible element never
+        // constrains a text column).
+        val audioVisible = audioEl.visible && preferences.posterShowAudioBadge
+        val epTitleVisible = epTitleEl.visible && preferences.posterShowEpisodeTitle && !episodeTitle.isNullOrBlank()
+        val thumbVisible = thumbnail != null && thumbnail.width > 0 && thumbnail.height > 0 &&
+            thumbEl.visible && preferences.posterShowEpisodeThumbnail
+
+        // D-519: the ELEMENT-AWARE text columns. The round-54 verdict: the
+        // title "is not aware of the elements surrounding it ... the content
+        // title is showing under some corner elements". Each text element's
+        // wrap width now ends BEFORE the left edge of every other visible
+        // element sharing its vertical band (chips pinned at the corners, a
+        // mid-row thumbnail card) instead of running underneath them. The
+        // awareness rects carry ONLY left/top/bottom (see [PosterDrawing.awareWrapWidth])
+        // — left-edge + band, and the STUDIO builds the exact same list so
+        // the preview stays WYSIWYG. Two deliberate divergences, both in the
+        // studio's favour: a blank episode title renders a placeholder there
+        // but nothing on the real banner, and the studio's dashed thumbnail
+        // placeholder (no art) never narrows a column either.
+        // The review fix: every anchor is clamped EXACTLY as the render path
+        // clamps it — legacy/hand-edited JSON can carry out-of-range anchors
+        // (the studio cannot produce one; its move bounds mirror these
+        // clamps), and an awareness rect must never sit where nothing draws.
+        fun awarenessRects(exclude: PosterElementKind): List<RectF> = buildList {
+            if (epEl.visible && exclude != PosterElementKind.EPISODE_NUMBER) {
+                val s = epEl.safeScale()
+                val tf = PosterDrawing.typefaceFor(epEl.fontKey, epEl.bold, epEl.italic, fallbackBoldDefault = true)
+                val w = PosterDrawing.chipWidth(
+                    epEl.labelOverride.ifBlank { episodeTag(episodeNumber) },
+                    PosterCanvasMetrics.CHIP_LABEL_SIZE * s, PosterCanvasMetrics.CHIP_PAD_X * s, tf,
+                )
+                val x = epEl.x.coerceIn(0f, (W - w).coerceAtLeast(0f))
+                val y = epEl.y.coerceIn(0f, (H - PosterCanvasMetrics.CHIP_H * s).coerceAtLeast(0f))
+                add(RectF(x, y, x, y + PosterCanvasMetrics.CHIP_H * s))
+            }
+            if (audioVisible && exclude != PosterElementKind.AUDIO_VARIANT) {
+                val s = audioEl.safeScale()
+                val tf = PosterDrawing.typefaceFor(audioEl.fontKey, audioEl.bold, audioEl.italic, fallbackBoldDefault = true)
+                val chips = audioChipLabels(audioEl, audioVariant)
+                val rowWidth = if (chips.isEmpty()) 0f else chips.sumOf {
+                    PosterDrawing.chipWidth(
+                        it, PosterCanvasMetrics.CHIP_LABEL_SIZE * s, PosterCanvasMetrics.CHIP_PAD_X * s, tf,
+                    ).toDouble()
+                }.toFloat() + PosterCanvasMetrics.CHIP_GAP * s * (chips.size - 1)
+                val x = audioEl.x.coerceIn(0f, (W - rowWidth).coerceAtLeast(0f))
+                val y = audioEl.y.coerceIn(0f, (H - PosterCanvasMetrics.CHIP_H * s).coerceAtLeast(0f))
+                add(RectF(x, y, x, y + PosterCanvasMetrics.CHIP_H * s))
+            }
+            if (epTitleVisible && exclude != PosterElementKind.EPISODE_TITLE) {
+                val s = epTitleEl.safeScale()
+                val size = PosterCanvasMetrics.EPISODE_TITLE_SIZE * s
+                val x = epTitleEl.x.coerceIn(0f, W - 120f)
+                val y = epTitleEl.y.coerceIn(0f, (H - size).coerceAtLeast(0f))
+                add(RectF(x, y, x, y + size * PosterCanvasMetrics.TITLE_LINE_HEIGHT))
+            }
+            if (thumbVisible) {
+                val s = thumbEl.safeScale()
+                val x = thumbEl.x.coerceIn(0f, (W - PosterCanvasMetrics.THUMB_BOX_W * s).coerceAtLeast(0f))
+                val y = thumbEl.y.coerceIn(0f, (H - PosterCanvasMetrics.THUMB_BOX_H * s).coerceAtLeast(0f))
+                add(RectF(x, y, x, y + PosterCanvasMetrics.THUMB_BOX_H * s))
+            }
+        }
+
         // Title — the D-512 hard-ellipsis wrap keeps every line inside the
-        // element's own column: the title adjusts its LENGTH to the space
-        // (down to a single word + "…"), never paints past the right margin.
-        if (layout.title.visible) {
-            val el = layout.title
-            val size = PosterCanvasMetrics.TITLE_SIZE * el.safeScale()
-            val x = el.x.coerceIn(0f, W - 120f)
-            val y = el.y.coerceIn(0f, (H - size).coerceAtLeast(0f))
+        // element's own D-519 AWARE column: the title adjusts its LENGTH to
+        // the space its neighbours leave (down to a single word + "…"),
+        // never paints past the right margin and never under a pinned chip.
+        if (titleEl.visible) {
+            val size = PosterCanvasMetrics.TITLE_SIZE * titleEl.safeScale()
+            val x = titleEl.x.coerceIn(0f, W - 120f)
+            val y = titleEl.y.coerceIn(0f, (H - size).coerceAtLeast(0f))
+            val width = PosterDrawing.awareWrapWidth(
+                title, x, y, W - x - PosterCanvasMetrics.TEXT_RIGHT_MARGIN, size,
+                PosterDrawing.typefaceFor(titleEl.fontKey, titleEl.bold, titleEl.italic, fallbackBoldDefault = true),
+                2, PosterCanvasMetrics.TITLE_LINE_HEIGHT,
+                awarenessRects(PosterElementKind.TITLE),
+            )
             PosterDrawing.drawWrappedText(
-                canvas, title, x, y, W - x - PosterCanvasMetrics.TEXT_RIGHT_MARGIN, size,
-                el.colorArgb.takeIf { it != 0L }?.toInt() ?: Color.WHITE,
-                PosterDrawing.typefaceFor(el.fontKey, el.bold, el.italic, fallbackBoldDefault = true),
-                maxLines = 2, shadowed = el.shadow,
+                canvas, title, x, y, width, size,
+                titleEl.colorArgb.takeIf { it != 0L }?.toInt() ?: Color.WHITE,
+                PosterDrawing.typefaceFor(titleEl.fontKey, titleEl.bold, titleEl.italic, fallbackBoldDefault = true),
+                maxLines = 2, shadowed = titleEl.shadow,
             )
         }
 
@@ -521,30 +597,42 @@ class EpisodeBannerComposer(
             }
         }
 
-        // The episode title.
-        if (layout.episodeTitle.visible && preferences.posterShowEpisodeTitle && !episodeTitle.isNullOrBlank()) {
-            val el = layout.episodeTitle
-            val size = PosterCanvasMetrics.EPISODE_TITLE_SIZE * el.safeScale()
-            val x = el.x.coerceIn(0f, W - 120f)
-            val y = el.y.coerceIn(0f, (H - size).coerceAtLeast(0f))
+        // The episode title — the D-519 aware column too (a pinned chip row
+        // above/below no longer swallows its tail).
+        if (epTitleVisible) {
+            val size = PosterCanvasMetrics.EPISODE_TITLE_SIZE * epTitleEl.safeScale()
+            val x = epTitleEl.x.coerceIn(0f, W - 120f)
+            val y = epTitleEl.y.coerceIn(0f, (H - size).coerceAtLeast(0f))
+            val width = PosterDrawing.awareWrapWidth(
+                episodeTitle!!, x, y, W - x - PosterCanvasMetrics.TEXT_RIGHT_MARGIN, size,
+                PosterDrawing.typefaceFor(epTitleEl.fontKey, epTitleEl.bold, epTitleEl.italic, fallbackBoldDefault = false),
+                1, PosterCanvasMetrics.TITLE_LINE_HEIGHT,
+                awarenessRects(PosterElementKind.EPISODE_TITLE),
+            )
             PosterDrawing.drawWrappedText(
-                canvas, episodeTitle, x, y, W - x - PosterCanvasMetrics.TEXT_RIGHT_MARGIN, size,
-                el.colorArgb.takeIf { it != 0L }?.toInt() ?: Color.argb(225, 255, 255, 255),
-                PosterDrawing.typefaceFor(el.fontKey, el.bold, el.italic, fallbackBoldDefault = false),
-                maxLines = 1, shadowed = el.shadow,
+                canvas, episodeTitle!!, x, y, width, size,
+                epTitleEl.colorArgb.takeIf { it != 0L }?.toInt() ?: Color.argb(225, 255, 255, 255),
+                PosterDrawing.typefaceFor(epTitleEl.fontKey, epTitleEl.bold, epTitleEl.italic, fallbackBoldDefault = false),
+                maxLines = 1, shadowed = epTitleEl.shadow,
             )
         }
 
-        // The thumbnail card — at its saved anchor, scaled.
-        val hasThumb = thumbnail != null && thumbnail.width > 0 && thumbnail.height > 0 &&
-            layout.thumbnail.visible && preferences.posterShowEpisodeThumbnail
+        // The thumbnail card — at its saved anchor, scaled (the D-519
+        // thumbVisible lift is the same condition this used to recompute).
+        // D-519 review fix: the clamps are RANGE-GUARDED like every other
+        // one — at scale > ~1.78 the box is TALLER than the canvas
+        // (225 × 2.0 = 450 > 400), the unguarded coerceIn(0f, negative)
+        // threw IllegalArgumentException, and the whole real notification
+        // silently fell back to plain text while the studio preview (whose
+        // slider maxes at 2.0×) still showed a banner.
+        val hasThumb = thumbVisible
         if (hasThumb) {
             val el = layout.thumbnail
             val s = el.safeScale()
             val w = PosterCanvasMetrics.THUMB_BOX_W * s
             val h = PosterCanvasMetrics.THUMB_BOX_H * s
-            val x = el.x.coerceIn(0f, W - w)
-            val y = el.y.coerceIn(0f, H - h)
+            val x = el.x.coerceIn(0f, (W - w).coerceAtLeast(0f))
+            val y = el.y.coerceIn(0f, (H - h).coerceAtLeast(0f))
             PosterDrawing.drawThumbCard(
                 canvas, thumbnail!!, RectF(x, y, x + w, y + h),
                 PosterCanvasMetrics.THUMB_CORNER,

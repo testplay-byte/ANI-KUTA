@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
@@ -125,8 +126,25 @@ fun NotificationPosterSettingsScreen(
     // pass consumes the value (picking a DIFFERENT library item) and clears
     // it. Plain mutable states — deliberately NOT produceState keys: they
     // are read/written inside the producer, never drive it.
-    val shuffleExclude = remember { mutableStateOf<String?>(null) }
     val onStageMainId = remember { mutableStateOf<String?>(null) }
+    val shufflePending = remember { mutableStateOf(false) }
+    var shuffling by remember { mutableStateOf(false) }
+
+    // D-520: the SHUFFLE REQUEST flag + the in-flight state — the round-54
+    // verdict: the shuffle button "was giving me a bad experience". Two
+    // defects drove it:
+    //  1) the old handshake (exclude = the on-stage id) silently DEGRADED
+    //     into a no-op whenever the on-stage id was still null — a tap that
+    //     landed before the first compose finished produced a null exclude,
+    //     which the producer read as "not a shuffle tap" and REUSED the
+    //     cached selection: the pulse played and NOTHING changed;
+    //  2) the compose can take seconds (a first-pick's art over the
+    //     network) with zero visible progress — the preview just sat on the
+    //     old content.
+    // The flag now forces a re-selection on EVERY tap (a null on-stage id
+    // still requests the deck path via the "" sentinel — it excludes
+    // nothing and never matches a real id), and [shuffling] drives an
+    // honest progress rail on the preview for the whole compose.
 
     // D-499: the planned-randomness deck — the shuffle session's order over
     // the library. Lives with the screen's composition (a fresh screen open
@@ -152,32 +170,36 @@ fun NotificationPosterSettingsScreen(
 
     data class Preview(val banner: android.graphics.Bitmap?, val failed: Boolean, val hasContent: Boolean)
     val preview by produceState(Preview(null, failed = false, hasContent = true), posterEnabled, showEpTitleState, showThumbState, showBadgeState, showBrandingState, backgroundSource, roll) {
-        value = try {
-            // D-486: the feed/title/picker reads are BLOCKING SQLDelight
-            // queries (the picker alone does 1 + 2N queries over the
-            // library) — they belong on IO, not the produceState's main
-            // dispatcher. (The composer handles its own IO offload.)
-            withContext(Dispatchers.IO) {
-                // D-494: consume the one-shot shuffle exclusion FIRST —
-                // cleared immediately so it can never leak into a later pass.
-                val exclude = shuffleExclude.value
-                shuffleExclude.value = null
-
-                // Re-select ONLY on a screen open (no cached selection yet)
-                // or a Shuffle tap; a toggle flip reuses the cached payload
-                // so the content on stage never changes under the user's
-                // fingers while they flip composition switches.
-                var selection = selectionCache.value
-                if (exclude != null || selection == null) {
-                    selection = selectPreviewContent(
-                        exclude = exclude,
-                        deck = shuffleDeck,
-                        updateStore = updateStore,
-                        contentRepository = contentRepository,
-                        demoPicker = demoPicker,
-                    )
-                    selectionCache.value = selection
-                }
+        // D-520: consume the shuffle request FIRST, on the main thread —
+        // a tap mid-flight cancels this producer and the next pass re-reads
+        // the flag, so a request can never leak into an unrelated pass.
+        val isShuffle = shufflePending.value
+        shufflePending.value = false
+        if (isShuffle) shuffling = true
+        try {
+            value = try {
+                // D-486: the feed/title/picker reads are BLOCKING SQLDelight
+                // queries (the picker alone does 1 + 2N queries over the
+                // library) — they belong on IO, not the produceState's main
+                // dispatcher. (The composer handles its own IO offload.)
+                withContext(Dispatchers.IO) {
+                    // D-520: a shuffle tap ALWAYS re-selects — the ""
+                    // sentinel (excludes nothing, matches no real id) keeps
+                    // the deck path alive even when nothing is on stage yet.
+                    // A toggle flip still reuses the cached payload so the
+                    // content on stage never changes under the user's
+                    // fingers while they flip composition switches.
+                    var selection = selectionCache.value
+                    if (isShuffle || selection == null) {
+                        selection = selectPreviewContent(
+                            exclude = if (isShuffle) (onStageMainId.value ?: "") else null,
+                            deck = shuffleDeck,
+                            updateStore = updateStore,
+                            contentRepository = contentRepository,
+                            demoPicker = demoPicker,
+                        )
+                        selectionCache.value = selection
+                    }
 
                 val onStage = selection
                 if (onStage == null) {
@@ -199,11 +221,17 @@ fun NotificationPosterSettingsScreen(
                 )
                 Preview(banner, failed = banner == null, hasContent = true)
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Logger.w("Anikuta:Settings") { "poster preview failed (${e.javaClass.simpleName}): ${e.message}" }
-            Preview(null, failed = true, hasContent = true)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Logger.w("Anikuta:Settings") { "poster preview failed (${e.javaClass.simpleName}): ${e.message}" }
+                Preview(null, failed = true, hasContent = true)
+            }
+        } finally {
+            // D-520: the rail retires the moment the pass lands — including
+            // when a newer tap/toggle CANCELS this pass (finally runs on
+            // cancellation; the next pass re-arms the flag if it is a shuffle).
+            if (isShuffle) shuffling = false
         }
     }
 
@@ -310,6 +338,19 @@ fun NotificationPosterSettingsScreen(
                                                 modifier = Modifier.fillMaxSize(),
                                             )
                                         }
+                                        // D-520: the honest shuffle progress — a slim
+                                        // rail docked to the preview's bottom edge
+                                        // while a shuffle tap's compose is in flight
+                                        // (the old preview just sat on the old
+                                        // content for the whole art load — the
+                                        // "bad experience" report's second half).
+                                        if (shuffling) {
+                                            LinearProgressIndicator(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .align(Alignment.BottomCenter),
+                                            )
+                                        }
                                     }
                                     else -> {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -347,7 +388,13 @@ fun NotificationPosterSettingsScreen(
                                     androidx.compose.material3.Text("Customize")
                                 }
                                 androidx.compose.material3.Button(onClick = {
-                                    shuffleExclude.value = onStageMainId.value
+                                    // D-520: request a FORCED re-selection — the
+                                    // flag survives a null on-stage id, so every
+                                    // tap changes the content (the old
+                                    // exclude-based handshake silently no-op'd
+                                    // when a tap landed before the first compose
+                                    // finished).
+                                    shufflePending.value = true
                                     roll++
                                     scope.launch {
                                         shufflePulse.snapTo(0.965f)

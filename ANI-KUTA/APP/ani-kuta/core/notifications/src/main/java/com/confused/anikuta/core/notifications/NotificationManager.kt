@@ -83,17 +83,16 @@ class NotificationManager(
         }
 
         /**
-         * D-516: the short description — "New episode available for" + the
-         * first two words of the content (the user's exact wording: "We
-         * should say 'new episode available for' then the first two words or
-         * so of the content").
+         * D-521: the short description — just "New Episode". The round-54
+         * verdict simplifies the round-53 wording: "it was showing me the
+         * title of the content there but below it it was showing 'New
+         * Episode Available' followed by the name of it ... the bottom
+         * description could be made simpler ... maybe we can simplify it
+         * more to just 'New Episode'. Let's make it simpler like that."
+         * The headline above it already carries the content's name, so the
+         * description keeps two words and nothing else.
          */
-        fun shortDescription(title: String): String {
-            val words = title.replace('\n', ' ').trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-            if (words.isEmpty()) return "New episode available"
-            val head = words.take(2).joinToString(" ")
-            return "New episode available for $head${if (words.size > 2) "…" else ""}"
-        }
+        fun shortDescription(): String = "New Episode"
     }
 
     init {
@@ -216,10 +215,11 @@ class NotificationManager(
                     // as "the notification, no image": the collapsed card
                     // must carry the content's title, and the expanded shade
                     // must still deliver the banner. The builder title/text
-                    // are BACK (one-line title + "New episode available for
-                    // …"), the BigPicture style stays clean (no
-                    // bigContentTitle/summaryText — expanding shows the image
-                    // under the inherited title, not the old three-stack).
+                    // are BACK (one-line title + the description — D-521
+                    // simplified that line to "New Episode"), the BigPicture
+                    // style stays clean (no bigContentTitle/summaryText —
+                    // expanding shows the image under the inherited title,
+                    // not the old three-stack).
                     style = NotificationCompat.BigPictureStyle()
                         .bigPicture(banner)
                         .bigLargeIcon(null as? android.graphics.Bitmap)
@@ -234,7 +234,7 @@ class NotificationManager(
             // D-516: title + short description on BOTH presentations (see the
             // block above) — the banner==null fallback keeps its fuller text.
             .setContentTitle(if (composedBanner != null) headline(title) else title)
-            .setContentText(if (composedBanner != null) shortDescription(title) else text)
+            .setContentText(if (composedBanner != null) shortDescription() else text)
             .setStyle(style)
             .setPriority(priority)
             .setAutoCancel(true)
@@ -394,7 +394,7 @@ class NotificationManager(
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(if (composedBanner != null) headline(title) else title)
-            .setContentText(if (composedBanner != null) shortDescription(title) else text)
+            .setContentText(if (composedBanner != null) shortDescription() else text)
             .setStyle(style)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)

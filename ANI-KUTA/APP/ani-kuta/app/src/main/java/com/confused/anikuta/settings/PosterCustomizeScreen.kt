@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,20 +33,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedIconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -140,6 +144,24 @@ import org.koin.compose.koinInject
  *    regardless of availability, and the canvas opens on the SAME content
  *    the settings screen's live preview shows (the selection rides the nav
  *    key), not a fresh random pick.
+ *
+ * # The round-54 refinements (D-518/D-519)
+ *
+ *  - D-518 THE SHELL: the round-54 device round found the screen "not well
+ *    managed ... not considering the layout, the UI, the top notification
+ *    area" — the header lived inside the left panel with ZERO inset
+ *    handling on a forced-landscape edge-to-edge screen, so the whole
+ *    control row (Save included) rendered UNDER the status bar and Save
+ *    was literally unclickable. The screen is now the canonical editor
+ *    shell: statusBarsPadding once at the root, a full-width header bar
+ *    (back · title · labelled Reset and Save buttons), then the two-pane
+ *    body with the left panel's sections on tonal cards and the right
+ *    pane's slider strip above a navigationBarsPadding.
+ *  - D-519 THE AWARE COLUMNS: the title/episode-title wrap width now ends
+ *    BEFORE the left edge of any other visible element sharing its vertical
+ *    band ([PosterDrawing.awareWrapWidth], mirrored between the composer's
+ *    composeAbsolute and this preview) — the title no longer paints under
+ *    corner-pinned chips or a mid-row thumbnail card.
  *
  * # Flow seeding
  *
@@ -319,6 +341,67 @@ fun PosterCustomizeScreen(
         PosterElementKind.THUMBNAIL -> layout.thumbnail.visible && posterPrefs.posterShowEpisodeThumbnail
     }
 
+    // ── D-519: the ELEMENT-AWARE text columns (the studio's half) ──
+    // (Declared BEFORE elementRect, which calls awareWidthFor — a local fun
+    // is only visible below its declaration point.) The composer's
+    // composeAbsolute builds its neighbour list inline; the studio builds
+    // THE SAME list here — every VISIBLE element's left edge + vertical
+    // band at its current origin/scale (see the composer for why the rects
+    // carry no width). [PosterDrawing.awareWrapWidth] then ends each text
+    // column before the first neighbour that shares its band, on BOTH the
+    // real banner and this preview, whatever the content.
+    fun awarenessRects(exclude: PosterElementKind): List<RectF> = buildList {
+        if (exclude != PosterElementKind.EPISODE_NUMBER && visibleOf(PosterElementKind.EPISODE_NUMBER)) {
+            val (x, y) = origin(PosterElementKind.EPISODE_NUMBER)
+            add(RectF(x, y, x, y + M.CHIP_H * scaleOf(PosterElementKind.EPISODE_NUMBER)))
+        }
+        if (exclude != PosterElementKind.AUDIO_VARIANT && visibleOf(PosterElementKind.AUDIO_VARIANT)) {
+            val (x, y) = origin(PosterElementKind.AUDIO_VARIANT)
+            add(RectF(x, y, x, y + M.CHIP_H * scaleOf(PosterElementKind.AUDIO_VARIANT)))
+        }
+        if (exclude != PosterElementKind.EPISODE_TITLE && visibleOf(PosterElementKind.EPISODE_TITLE)) {
+            val (x, y) = origin(PosterElementKind.EPISODE_TITLE)
+            add(
+                RectF(
+                    x, y, x,
+                    y + M.EPISODE_TITLE_SIZE * scaleOf(PosterElementKind.EPISODE_TITLE) * M.TITLE_LINE_HEIGHT,
+                ),
+            )
+        }
+        // The thumbnail constrains only when a REAL banner would draw the
+        // card — the studio's dashed placeholder (no art loaded) is an
+        // editing affordance the composer never paints (D-519 review fix:
+        // the preview must predict the REAL banner, so the placeholder
+        // doesn't narrow the title here either).
+        if (hasThumb) {
+            val (x, y) = origin(PosterElementKind.THUMBNAIL)
+            add(RectF(x, y, x, y + M.THUMB_BOX_H * scaleOf(PosterElementKind.THUMBNAIL)))
+        }
+    }
+
+    /** The D-519 wrap width a text element renders with (its band + its neighbours' left edges). */
+    fun awareWidthFor(kind: PosterElementKind): Float {
+        val (x, y) = origin(kind)
+        val s = scaleOf(kind)
+        val fullWidth = M.WIDTH - x - M.TEXT_RIGHT_MARGIN
+        return when (kind) {
+            PosterElementKind.TITLE -> PosterDrawing.awareWrapWidth(
+                displayTitle, x, y, fullWidth,
+                M.TITLE_SIZE * s, typefaceOf(kind), 2, M.TITLE_LINE_HEIGHT, awarenessRects(kind),
+            )
+            else -> PosterDrawing.awareWrapWidth(
+                displayEpTitle ?: "Episode title", x, y, fullWidth,
+                M.EPISODE_TITLE_SIZE * s, typefaceOf(kind), 1, M.TITLE_LINE_HEIGHT, awarenessRects(kind),
+            )
+        }
+    }
+
+    // D-519 review fix: the widths are computed ONCE per state change in
+    // composition — not per draw frame inside the Canvas lambda (the
+    // round-53 lesson: per-frame Paint measuring during drags costs frames).
+    val titleWrapWidth = awareWidthFor(PosterElementKind.TITLE)
+    val episodeTitleWrapWidth = awareWidthFor(PosterElementKind.EPISODE_TITLE)
+
     /**
      * The first edit converts the config to ABSOLUTE: every element without
      * a position is seeded at its CURRENT flow anchor — the poster never
@@ -350,10 +433,11 @@ fun PosterCustomizeScreen(
         return when (kind) {
             PosterElementKind.TITLE -> {
                 val tf = typefaceOf(PosterElementKind.TITLE)
-                // The composer's wrap width has NO floor (composeAbsolute:
-                // W - x - TEXT_RIGHT_MARGIN, bounded by the x ≤ W-120 clamp) —
-                // the 24px floor only saves the rect math from corrupt JSON.
-                val width = (M.WIDTH - x - M.TEXT_RIGHT_MARGIN).coerceAtLeast(24f)
+                // D-519: the AWARE wrap width — the same neighbour-aware
+                // column the composer's composeAbsolute renders with, so the
+                // outline/hit-test wrap EXACTLY what the preview draws. The
+                // 24px floor only saves the rect math from corrupt JSON.
+                val width = awareWidthFor(PosterElementKind.TITLE).coerceAtLeast(24f)
                 val lines = PosterDrawing.wrappedLines(
                     displayTitle, width, M.TITLE_SIZE * s, tf, 2,
                 )
@@ -386,11 +470,13 @@ fun PosterCustomizeScreen(
             }
             PosterElementKind.EPISODE_TITLE -> {
                 val text = displayEpTitle ?: "Episode title"
-                val width = (M.WIDTH - x - M.TEXT_RIGHT_MARGIN).coerceAtLeast(24f)
+                // D-519: the aware column, same as the composer renders it.
+                val width = awareWidthFor(PosterElementKind.EPISODE_TITLE).coerceAtLeast(24f)
                 val textW = PosterDrawing.measureText(text, M.EPISODE_TITLE_SIZE * s, typefaceOf(PosterElementKind.EPISODE_TITLE))
                     .coerceAtMost(width)
                 RectF(x, y, x + textW, y + M.EPISODE_TITLE_SIZE * s * M.TITLE_LINE_HEIGHT)
             }
+
             PosterElementKind.THUMBNAIL ->
                 RectF(x, y, x + M.THUMB_BOX_W * s, y + M.THUMB_BOX_H * s)
         }
@@ -500,116 +586,161 @@ fun PosterCustomizeScreen(
         Toast.makeText(context, "Reset to the default poster layout", Toast.LENGTH_SHORT).show()
     }
 
-    // ── The landscape two-pane layout ──
-    Row(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        // ── LEFT: the editing panel (~32%) ──
-        Column(
+    // ── The landscape studio shell (D-518) ──
+    // The round-54 verdict: the screen "does not look that well managed ...
+    // You are not considering the layout, the UI, the top notification area
+    // ... There should be padding at the top for the notification bar so
+    // that the buttons do not show under it. The save button: I am unable
+    // to click the save button due to it being under the notification bar."
+    // Root cause: the header row lived INSIDE the left panel with ZERO
+    // inset handling on a forced-landscape edge-to-edge screen — the whole
+    // control row (Save included) rendered under the status bar. The shell
+    // is now the canonical editor shape:
+    //
+    //   ┌───────────────────────────────────────────────────────────┐
+    //   │ statusBarsPadding → HEADER: back · title · RESET · SAVE   │
+    //   ├──────────────────┬────────────────────────────────────────┤
+    //   │ LEFT: the element│ RIGHT: the editable live preview, the  │
+    //   │ cards (elements, │ size-slider strip, the sample caption  │
+    //   │ color, options)  │ (navigationBarsPadding clears the pill)│
+    //   └──────────────────┴────────────────────────────────────────┘
+    //
+    // The header spans the FULL width so the primary actions get room, and
+    // Save/Reset are LABELLED buttons — reachable below the notification
+    // bar with honest ≥40dp touch targets (the round-54 verdict names the
+    // unclickable Save specifically).
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding(),
+    ) {
+        // ── The full-width header bar (D-518) ──
+        Row(
             modifier = Modifier
-                .fillMaxHeight()
-                .weight(0.32f)
-                .padding(8.dp),
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            // D-510: the header's controls are REAL buttons now (the round-53
-            // verdict: "the back button ... is not proper") — a tonal Back
-            // circle, an outlined Reset, a filled primary Save. The old bare
-            // IconButtons read as decoration.
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                FilledTonalIconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-                Spacer(Modifier.width(10.dp))
-                Text("Poster studio", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.weight(1f))
-                OutlinedIconButton(onClick = { resetAll() }) {
-                    Icon(
-                        Icons.Filled.Refresh,
-                        contentDescription = "Reset to defaults",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.width(6.dp))
-                FilledIconButton(
-                    onClick = { save() },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
-                ) {
-                    Icon(Icons.Filled.Save, contentDescription = "Save")
-                }
+            FilledTonalIconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
-
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text("Poster studio", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Drag to move · pinch to resize",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            OutlinedButton(onClick = { resetAll() }) {
+                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                Text("Reset")
+            }
+            Spacer(Modifier.width(8.dp))
+            Button(
+                onClick = { save() },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
             ) {
-                item {
-                    Text(
-                        "ELEMENTS",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                items(PosterElementKind.entries) { kind ->
-                    ElementRow(
-                        kind = kind,
-                        selected = selected == kind,
-                        visible = visibleOf(kind),
-                        colorSet = layout.element(kind).hasCustomColor,
-                        onSelect = { selected = kind },
-                        onVisibleChange = { visible ->
-                            update(kind) { it.copy(visible = visible) }
-                            // Keep the v1.1.14 pref in step where one exists —
-                            // the toggle stays true on the settings screen too.
-                            when (kind) {
-                                PosterElementKind.AUDIO_VARIANT -> posterPrefs.posterShowAudioBadge = visible
-                                PosterElementKind.EPISODE_TITLE -> posterPrefs.posterShowEpisodeTitle = visible
-                                PosterElementKind.THUMBNAIL -> posterPrefs.posterShowEpisodeThumbnail = visible
-                                else -> Unit
+                Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                Text("Save")
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                // D-518 review fix: the nav-bar inset on the whole BODY —
+                // in SENSOR_LANDSCAPE the bar/pill can sit on EITHER vertical
+                // edge (3-button nav follows the rotation), so both panes
+                // must clear it, not just the right one.
+                .navigationBarsPadding(),
+        ) {
+            // ── LEFT: the editing panel (~34%) — the sections live on tonal
+            // cards (D-518: the panel must read as planned structure, not a
+            // raw list pinned under the status bar).
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .weight(0.34f)
+                    .padding(start = 10.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+            ) {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    item {
+                        SectionCard(label = "ELEMENTS") {
+                            // A plain for-loop — `items {}` is a LazyListScope
+                            // extension and cannot run inside the card's plain
+                            // composable lambda (five rows; laziness irrelevant).
+                            for (kind in PosterElementKind.entries) {
+                                ElementRow(
+                                    kind = kind,
+                                    selected = selected == kind,
+                                    visible = visibleOf(kind),
+                                    colorSet = layout.element(kind).hasCustomColor,
+                                    onSelect = { selected = kind },
+                                    onVisibleChange = { visible ->
+                                        update(kind) { it.copy(visible = visible) }
+                                        // Keep the v1.1.14 pref in step where one exists —
+                                        // the toggle stays true on the settings screen too.
+                                        when (kind) {
+                                            PosterElementKind.AUDIO_VARIANT -> posterPrefs.posterShowAudioBadge = visible
+                                            PosterElementKind.EPISODE_TITLE -> posterPrefs.posterShowEpisodeTitle = visible
+                                            PosterElementKind.THUMBNAIL -> posterPrefs.posterShowEpisodeThumbnail = visible
+                                            else -> Unit
+                                        }
+                                    },
+                                )
+                                if (selected == kind) {
+                                    Text(
+                                        "x ${origin(kind).first.roundToInt()} · y ${origin(kind).second.roundToInt()}" +
+                                            " · ${(scaleOf(kind) * 100).roundToInt()}%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 16.dp),
+                                    )
+                                }
                             }
-                        },
-                    )
-                    if (selected == kind) {
-                        Text(
-                            "x ${origin(kind).first.roundToInt()} · y ${origin(kind).second.roundToInt()}" +
-                                " · ${(scaleOf(kind) * 100).roundToInt()}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 16.dp),
-                        )
+                        }
                     }
-                }
 
                 item {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "COLOR",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (selected == PosterElementKind.THUMBNAIL) {
-                        Text(
-                            "The thumbnail card keeps its border — position and size only.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        ColorSwatchGrid(
-                            currentArgb = layout.element(selected).colorArgb,
-                            defaultLabel = when (selected) {
-                                PosterElementKind.EPISODE_NUMBER -> "A — dark (default)"
-                                PosterElementKind.AUDIO_VARIANT -> "A — lime (default)"
-                                else -> "A — white (default)"
-                            },
-                            onPick = { argb -> update(selected) { it.copy(colorArgb = argb) } },
-                        )
-                    }
-                    TextButton(onClick = {
-                        // Style-only reset: keeps the pinned position, restores
-                        // the factory scale/color/visibility.
-                        update(selected) { PosterElementLayout(x = it.x, y = it.y, visible = it.visible) }
-                    }) {
-                        Text("Reset this element's style")
+                    SectionCard(label = "COLOR") {
+                        if (selected == PosterElementKind.THUMBNAIL) {
+                            Text(
+                                "The thumbnail card keeps its border — position and size only.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            ColorSwatchGrid(
+                                currentArgb = layout.element(selected).colorArgb,
+                                defaultLabel = when (selected) {
+                                    PosterElementKind.EPISODE_NUMBER -> "A — dark (default)"
+                                    PosterElementKind.AUDIO_VARIANT -> "A — lime (default)"
+                                    else -> "A — white (default)"
+                                },
+                                onPick = { argb -> update(selected) { it.copy(colorArgb = argb) } },
+                            )
+                        }
+                        TextButton(onClick = {
+                            // Style-only reset: keeps the pinned position, restores
+                            // the factory scale/color/visibility.
+                            update(selected) { PosterElementLayout(x = it.x, y = it.y, visible = it.visible) }
+                        }) {
+                            Text("Reset this element's style")
+                        }
                     }
                 }
 
@@ -619,26 +750,30 @@ fun PosterCustomizeScreen(
                 // bold/italic and the shadow; chips get the background
                 // color, the custom label text and the label formatting.
                 item {
-                    ElementOptionsSection(
-                        kind = selected,
-                        element = layout.element(selected),
-                        onFont = { key -> update(selected) { it.copy(fontKey = key) } },
-                        onBold = { b -> update(selected) { it.copy(bold = b) } },
-                        onItalic = { i -> update(selected) { it.copy(italic = i) } },
-                        onShadow = { s -> update(selected) { it.copy(shadow = s) } },
-                        onChipBg = { argb -> update(selected) { it.copy(chipBgArgb = argb) } },
-                        onLabel = { text -> update(selected) { it.copy(labelOverride = text) } },
-                    )
+                    SectionCard(label = "OPTIONS") {
+                        ElementOptionsSection(
+                            kind = selected,
+                            element = layout.element(selected),
+                            onFont = { key -> update(selected) { it.copy(fontKey = key) } },
+                            onBold = { b -> update(selected) { it.copy(bold = b) } },
+                            onItalic = { i -> update(selected) { it.copy(italic = i) } },
+                            onShadow = { s -> update(selected) { it.copy(shadow = s) } },
+                            onChipBg = { argb -> update(selected) { it.copy(chipBgArgb = argb) } },
+                            onLabel = { text -> update(selected) { it.copy(labelOverride = text) } },
+                        )
+                    }
                 }
             }
         }
 
-        // ── RIGHT: the editable live preview (~68%) ──
+        // ── RIGHT: the editable live preview (~66%) — the D-518 shell keeps
+        // the gesture/draw logic untouched; only the furniture around the
+        // canvas changed. (The nav-bar inset lives on the body Row above.)
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .weight(0.68f)
-                .padding(vertical = 12.dp, horizontal = 4.dp),
+                .weight(0.66f)
+                .padding(start = 6.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -750,6 +885,8 @@ fun PosterCustomizeScreen(
                             shadowOf = ::shadowOf,
                             chipBgOf = ::chipBgOf,
                             visibleOf = ::visibleOf,
+                            titleWrapWidth = titleWrapWidth,
+                            episodeTitleWrapWidth = episodeTitleWrapWidth,
                             selectedRect = elementRect(selected),
                             guides = guides,
                         )
@@ -761,8 +898,13 @@ fun PosterCustomizeScreen(
             // verdict ("the size adjustment bar was supposed to be shown below
             // the preview of the notification poster but it was not"). It
             // stays bound to the selected element and reads out live %.
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp, start = 4.dp, end = 4.dp),
+            // D-518: the strip sits on its own tonal card, matching the left
+            // panel's sections — one visual language across the studio.
+            SectionCard(
+                label = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
             ) {
                 Text(
                     "Size — ${selected.label} · ${(scaleOf(selected) * 100).roundToInt()}%",
@@ -790,13 +932,45 @@ fun PosterCustomizeScreen(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
-                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+                modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
             )
+        }
         }
     }
 }
 
 private enum class Mode { DRAG, PINCH }
+
+/**
+ * D-518: the studio panel's section card — a tonal, rounded container that
+ * gives the left panel its planned structure (ELEMENTS / COLOR / OPTIONS)
+ * and houses the slider strip under the preview. A null [label] renders no
+ * header (the slider strip is the one headerless card).
+ */
+@Composable
+private fun SectionCard(
+    label: String?,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        tonalElevation = 2.dp,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            if (label != null) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+            content()
+        }
+    }
+}
 
 /**
  * D-513: the studio's chip labels — the element's comma-separated override
@@ -1145,6 +1319,11 @@ private fun DrawScope.drawPoster(
     shadowOf: (PosterElementKind) -> Boolean,
     chipBgOf: (PosterElementKind) -> Int,
     visibleOf: (PosterElementKind) -> Boolean,
+    // D-519: the element-AWARE wrap widths (awareWidthFor →
+    // PosterDrawing.awareWrapWidth) — the preview wraps EXACTLY where the
+    // real banner wraps, per layout + content.
+    titleWrapWidth: Float,
+    episodeTitleWrapWidth: Float,
     selectedRect: RectF?,
     guides: Pair<Float?, Float?>,
 ) {
@@ -1165,12 +1344,15 @@ private fun DrawScope.drawPoster(
             PosterDrawing.drawFallbackStage(canvas, M.WIDTH.toFloat(), M.HEIGHT.toFloat())
         }
 
-        // 2) Title — the D-508 rich style (family/weight/shadow) and the
-        //    D-512 hard-ellipsis wrap (every line truncates to the column).
+        // 2) Title — the D-508 rich style (family/weight/shadow), the
+        //    D-512 hard-ellipsis wrap (every line truncates to the column)
+        //    and the D-519 AWARE column (the wrap width ends before any
+        //    neighbour sharing the title's band — same number the composer
+        //    renders with).
         if (visibleOf(PosterElementKind.TITLE)) {
             val (x, y) = origin(PosterElementKind.TITLE)
             PosterDrawing.drawWrappedText(
-                canvas, title, x, y, M.WIDTH - x - M.TEXT_RIGHT_MARGIN,
+                canvas, title, x, y, titleWrapWidth,
                 M.TITLE_SIZE * scaleOf(PosterElementKind.TITLE),
                 colorOf(PosterElementKind.TITLE), typefaceOf(PosterElementKind.TITLE),
                 maxLines = 2, shadowed = shadowOf(PosterElementKind.TITLE),
@@ -1213,13 +1395,13 @@ private fun DrawScope.drawPoster(
         }
 
         // 5) The episode title (a placeholder text when the sample has none —
-        //    the element stays positionable).
+        //    the element stays positionable). D-519: the aware column.
         if (visibleOf(PosterElementKind.EPISODE_TITLE)) {
             val (x, y) = origin(PosterElementKind.EPISODE_TITLE)
             val sc = scaleOf(PosterElementKind.EPISODE_TITLE)
             PosterDrawing.drawWrappedText(
                 canvas, episodeTitle ?: "Episode title", x, y,
-                M.WIDTH - x - M.TEXT_RIGHT_MARGIN, M.EPISODE_TITLE_SIZE * sc,
+                episodeTitleWrapWidth, M.EPISODE_TITLE_SIZE * sc,
                 colorOf(PosterElementKind.EPISODE_TITLE), typefaceOf(PosterElementKind.EPISODE_TITLE),
                 maxLines = 1, shadowed = shadowOf(PosterElementKind.EPISODE_TITLE),
             )
