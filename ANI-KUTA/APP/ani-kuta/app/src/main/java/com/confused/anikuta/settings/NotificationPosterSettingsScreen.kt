@@ -205,17 +205,19 @@ fun NotificationPosterSettingsScreen(
                                 }
                             }
                             // The shuffle — re-rolls the random library pick (D-483).
-                            androidx.compose.material3.TextButton(
-                                onClick = { roll++ },
-                                modifier = Modifier.align(Alignment.Horizontal.End),
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
                             ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Shuffle,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(end = 6.dp),
-                                )
-                                androidx.compose.material3.Text("Shuffle preview")
+                                androidx.compose.material3.TextButton(onClick = { roll++ }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Shuffle,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                    )
+                                    androidx.compose.material3.Text("Shuffle preview")
+                                }
                             }
                         }
                     }
