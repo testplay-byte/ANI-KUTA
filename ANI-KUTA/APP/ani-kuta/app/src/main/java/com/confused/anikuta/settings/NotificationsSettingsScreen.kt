@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -200,31 +201,26 @@ fun NotificationsSettingsScreen(
                                             title = "Episode type",
                                             description = "Which releases to notify about (shared with the Updates settings)",
                                             trailing = {
-                                                Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-                                                    listOf("Sub" to (true to false), "Both" to (true to true), "Dub" to (false to true)).forEach { (label, value) ->
-                                                        val selected = audioGate == value
-                                                        Surface(
-                                                            shape = RoundedCornerShape(8.dp),
-                                                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                                            modifier = Modifier
-                                                                .clickable {
-                                                                    audioGate = value
-                                                                    updatePrefs.setCheckSub(value.first)
-                                                                    updatePrefs.setCheckDub(value.second)
-                                                                }
-                                                                .padding(1.dp),
-                                                        ) {
-                                                            Text(
-                                                                text = label,
-                                                                fontSize = 12.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                                            )
+                                                // D-484: the SAME design-system
+                                                // SegmentedToggle the Updates screen uses.
+                                                SegmentedToggle(
+                                                    options = listOf("Sub", "Dub", "Both"),
+                                                    selectedIndex = when {
+                                                        audioGate.first && !audioGate.second -> 0
+                                                        !audioGate.first && audioGate.second -> 1
+                                                        else -> 2
+                                                    },
+                                                    onSelect = { idx ->
+                                                        audioGate = when (idx) {
+                                                            0 -> true to false
+                                                            1 -> false to true
+                                                            else -> true to true
                                                         }
-                                                    }
-                                                }
-                                            },
+                                                        updatePrefs.setCheckSub(audioGate.first)
+                                                        updatePrefs.setCheckDub(audioGate.second)
+                                                    },
+                                                    modifier = Modifier.width(200.dp),
+                                                )
                                         )
                                     }
 

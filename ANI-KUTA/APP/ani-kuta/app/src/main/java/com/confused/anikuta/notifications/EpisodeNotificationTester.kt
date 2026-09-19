@@ -1,25 +1,29 @@
 package com.confused.anikuta.notifications
 
 import android.content.Context
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import com.confused.anikuta.core.content.ContentRepository
-import com.confused.anikuta.core.notifications.NotificationManager
-import com.confused.anikuta.core.updates.UpdateStore
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.content.ContentRepository
+import com.confused.anikuta.core.updates.UpdateStore
+import java.util.concurrent.TimeUnit
 
 /**
- * D-478: the "Send test notification" action, REDEFINED — instead of two
- * hardcoded sample strings ("Demon Slayer — Episode 6 DUB"), the tester posts
- * poster-style notifications built from the USER'S OWN last two updated
- * contents (the newest rows in the episode_update feed): real cover/banner
- * art, real episode numbers, real audio variants, real episode titles.
+ * D-478/D-483: the "Send test notifications" action — poster notifications
+ * built from REAL content:
  *
- * The user thereby sees EXACTLY what future notifications will look like for
- * content they actually follow — different for every user, changing as their
- * library updates.
+ * 1. Feed-first: the newest rows of the episode_update feed (the contents
+ *    whose episodes the checker actually found), latest two distinct.
+ * 2. Library fallback: when the feed has nothing usable, pick random
+ *    LIBRARY content that HAS cached episodes (via [EpisodeDemoPicker]) —
+ *    the user's round-47 spec: "pick one of the contents from the user's
+ *    library randomly… use the latest episode of that as the notification
+ *    demo."
  *
- * Falls back to the old sample when the feed is empty (a fresh install).
+ * Delivery is STAGGERED per the user's spec: the first posts immediately,
+ * the second 5 MINUTES later via WorkManager (survives app death).
  */
 class EpisodeNotificationTester(
     private val context: Context,
@@ -27,15 +31,15 @@ class EpisodeNotificationTester(
     private val contentRepository: ContentRepository,
     private val composer: EpisodeBannerComposer,
     private val notificationManager: NotificationManager,
+    private val demoPicker: EpisodeDemoPicker,
 ) {
 
     /**
-     * Posts up to [count] poster notifications built from the most recently
-     * updated contents (distinct by mainId, newest first). Returns how many
-     * were posted.
+     * Posts up to [count] test poster notifications (1 now + the rest
+     * staggered 5 minutes apart). Returns how many were scheduled.
      */
     suspend fun postRecentUpdateNotifications(count: Int = 2): Int {
-        // The POST_NOTIFICATIONS gate (Android 13+) — same check the old test flow did.
+        // The POST_NOTIFICATIONS gate (Android 13+).
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             val granted = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -49,73 +53,68 @@ class EpisodeNotificationTester(
             return 0
         }
 
-        val feed = updateStore.getAllUpdates(limit = 50L)
-        // The latest row per content (distinct mainId, newest first).
-        val latestPerContent = LinkedHashSet<String>().also { seen ->
-            feed.forEach { row -> if (row.mainId !in seen) seen.add(row.mainId) }
-        }.take(count)
-
-        if (latestPerContent.isEmpty()) {
-            Logger.i(TAG) { "test: the update feed is empty — falling back to the sample" }
-            notificationManager.postSingleTestNotification(
-                notifId = 999,
-                title = "New episode available",
-                text = "Demon Slayer — Episode 6 DUB",
-            )
-            return 1
+        // ── The demo set: feed-first, then the random library fallback. ──
+        val demos = mutableListOf<EpisodeDemoPicker.Demo>()
+        val seen = LinkedHashSet<String>()
+        updateStore.getAllUpdates(limit = 50L).forEach { row ->
+            if (row.mainId !in seen) {
+                seen.add(row.mainId)
+                val title = contentRepository.getMainEntryByMainId(row.mainId)?.title ?: return@forEach
+                demos.add(
+                    EpisodeDemoPicker.Demo(
+                        mainId = row.mainId,
+                        title = title,
+                        episodeNumber = row.episodeNumber,
+                        audioVariant = row.audioVariant.ifBlank { "sub" },
+                    ),
+                )
+            }
+        }
+        if (demos.size < count) {
+            // Top up from the LIBRARY (random eligible content with episodes).
+            demos.addAll(demoPicker.pickRandomDistinct(count - demos.size))
+        }
+        val trimmed = demos.take(count)
+        if (trimmed.isEmpty()) {
+            Logger.i(TAG) { "test: no feed rows AND no eligible library content — nothing to demo" }
+            return 0
         }
 
-        var posted = 0
-        latestPerContent.forEachIndexed { index, mainId ->
-            val row = feed.first { it.mainId == mainId }
-            // The title lives on main_entry (ContentRecord) — ContentDetails
-            // deliberately doesn't carry it (see ContentModels.kt's header).
-            val title = contentRepository.getMainEntryByMainId(mainId)?.title ?: "Unknown anime"
-            val displayAudio = when (row.audioVariant) {
-                "sub" -> "SUB"
-                "dub" -> "DUB"
-                else -> ""
-            }
-            val text = "EP ${row.episodeNumber.toInt()}" +
-                (if (displayAudio.isNotBlank()) " · $displayAudio" else "") +
-                " is now available"
-
-            // The composed banner — the same art the real notifications use.
-            val banner = composer.buildBanner(
-                mainId = mainId,
-                title = title,
-                episodeNumber = row.episodeNumber,
-                audioVariant = row.audioVariant,
-            )
-
-            val style = if (banner != null) {
-                NotificationCompat.BigPictureStyle()
-                    .bigPicture(banner)
-                    .bigLargeIcon(null as? android.graphics.Bitmap)
-                    .setBigContentTitle(title)
-                    .setSummaryText(text)
+        var scheduled = 0
+        trimmed.forEachIndexed { index, demo ->
+            val delayMinutes = index * 5L  // 1st: now · 2nd: 5 min · (3rd: 10 …)
+            if (delayMinutes == 0L) {
+                // The FIRST test posts immediately.
+                notificationManager.postPosterNotification(
+                    notifId = 990 + index,
+                    mainId = demo.mainId,
+                    title = demo.title,
+                    episodeNumber = demo.episodeNumber,
+                    audioVariant = demo.audioVariant,
+                )
             } else {
-                NotificationCompat.BigTextStyle().bigText(text)
+                // The SECOND (and any later) test: WorkManager, 5 minutes
+                // apart, surviving app death — the payload rides the work
+                // data and the worker re-composes the banner at fire time.
+                val request = OneTimeWorkRequestBuilder<DelayedPosterTestWorker>()
+                    .setInitialDelay(delayMinutes, TimeUnit.MINUTES)
+                    .setInputData(
+                        workDataOf(
+                            DelayedPosterTestWorker.KEY_MAIN_ID to demo.mainId,
+                            DelayedPosterTestWorker.KEY_EPISODE to demo.episodeNumber,
+                            DelayedPosterTestWorker.KEY_VARIANT to demo.audioVariant,
+                        ),
+                    )
+                    .build()
+                WorkManager.getInstance(context).enqueueUniqueWork(
+                    "anikuta_test_poster_delayed_$index",
+                    ExistingWorkPolicy.REPLACE,
+                    request,
+                )
             }
-
-            val notification = NotificationCompat.Builder(context, NotificationManager.CHANNEL_ID)
-                .setSmallIcon(com.confused.anikuta.core.notifications.R.drawable.ic_notification)
-                .setContentTitle(title)
-                .setContentText(text)
-                .setStyle(style)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .setAutoCancel(true)
-                .build()
-
-            NotificationManagerCompat.from(context).notify(TEST_ID_BASE + index, notification)
-            posted++
-            Logger.i(TAG) { "test: posted a poster notification for $title (mainId=$mainId)" }
+            scheduled++
+            Logger.i(TAG) { "test poster #$index scheduled for ${demo.title} (delay=${delayMinutes}min)" }
         }
-        return posted
-    }
-
-    private companion object {
-        private const val TAG = "Anikuta:App:NotifTester"
-        private const val TEST_ID_BASE = 900
+        return scheduled
     }
 }

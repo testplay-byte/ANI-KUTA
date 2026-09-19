@@ -370,8 +370,8 @@ class ReturnPillView(
         // The label + chip fade + collapse horizontally into the ring.
         label.pivotX = 0f
         chipView?.pivotX = 0f
-        label.animate().scaleX(0.4f).alpha(0f).setDuration(160).start()
-        chipView?.animate()?.scaleX(0.4f)?.alpha(0f)?.setDuration(160)?.start()
+        label.animate().scaleX(0.4f).alpha(0f).setDuration(220).start()
+        chipView?.animate()?.scaleX(0.4f)?.alpha(0f)?.setDuration(220)?.start()
 
         // D-461: the ring sits at the capsule's LEFT while ready — slide it
         // to the WINDOW's horizontal center as the rest dissolves, so the
@@ -379,7 +379,7 @@ class ReturnPillView(
         // report). delta = window center - current ring center (root coords).
         val ringCenterX = capsule.left + ring.left + ring.width / 2f
         val slideDelta = width / 2f - ringCenterX
-        ring.animate().translationX(slideDelta).setDuration(220)
+        ring.animate().translationX(slideDelta).setDuration(300)
             .setInterpolator(AnimationUtils.loadInterpolator(viewContext, android.R.interpolator.fast_out_slow_in))
             .start()
 
@@ -399,19 +399,19 @@ class ReturnPillView(
             ring.pivotX = ring.width / 2f
             ring.pivotY = ring.height / 2f
             ObjectAnimator.ofFloat(ring, SCALE_X, 1f, 1.4f).apply {
-                duration = 360
+                duration = 480
                 interpolator = OvershootInterpolator(2f)
                 start()
             }
             ObjectAnimator.ofFloat(ring, SCALE_Y, 1f, 1.4f).apply {
-                duration = 360
+                duration = 480
                 interpolator = OvershootInterpolator(2f)
                 start()
             }
-            ring.animate().alpha(0f).setStartDelay(160).setDuration(240).start()
-        }, 240)
+            ring.animate().alpha(0f).setStartDelay(200).setDuration(320).start()
+        }, 320)
 
-        mainHandler.postDelayed({ onEnd() }, 700)
+        mainHandler.postDelayed({ onEnd() }, 900)
     }
 
     private fun cancelAnimators() {

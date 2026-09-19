@@ -148,7 +148,7 @@ class LibraryViewModel(
     private val _episodeBadgeMode = MutableStateFlow(EpisodeBadgeMode.OFF)
     val episodeBadgeMode: StateFlow<EpisodeBadgeMode> = _episodeBadgeMode
 
-    private val _episodeBadgePosition = MutableStateFlow(BadgePosition.TOP_END)
+    private val _episodeBadgePosition = MutableStateFlow(BadgePosition.TOP_CENTER)
     val episodeBadgePosition: StateFlow<BadgePosition> = _episodeBadgePosition
 
     private val _showScoreBadge = MutableStateFlow(false)
@@ -1084,8 +1084,8 @@ class LibraryViewModel(
             .getString(KEY_EPISODE_BADGE_MODE, EpisodeBadgeMode.OFF.name)
             .let { runCatching { EpisodeBadgeMode.valueOf(it) }.getOrDefault(EpisodeBadgeMode.OFF) }
         _episodeBadgePosition.value = preferenceStore
-            .getString(KEY_EPISODE_BADGE_POS, BadgePosition.TOP_END.name)
-            .let { runCatching { BadgePosition.valueOf(it) }.getOrDefault(BadgePosition.TOP_END) }
+            .getString(KEY_EPISODE_BADGE_POS, BadgePosition.TOP_CENTER.name)
+            .let { runCatching { BadgePosition.valueOf(it) }.getOrDefault(BadgePosition.TOP_CENTER) }
 
         _showScoreBadge.value = preferenceStore.getBoolean(KEY_SHOW_SCORE_BADGE, false)
         _scoreBadgePosition.value = preferenceStore
@@ -1275,6 +1275,7 @@ enum class ReleasedAudioFilter {
 
 enum class BadgePosition {
     TOP_START,
+    TOP_CENTER,
     TOP_END,
     BOTTOM_START,
     BOTTOM_END,

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,19 +14,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.common.Logger
@@ -35,67 +40,93 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SettingsGroupCard
 import com.confused.anikuta.core.preferences.NotificationPreferences
 import com.confused.anikuta.notifications.EpisodeBannerComposer
+import com.confused.anikuta.notifications.EpisodeDemoPicker
 import org.koin.compose.koinInject
 
 /**
- * D-477: the notification-poster customization page — reached from the
+ * D-477/D-483: the notification-poster customization page — reached from the
  * Notifications settings ("Notification poster").
  *
  * # The live preview
  *
  * The preview is NOT a mock-up — it calls the SAME [EpisodeBannerComposer]
- * the real notifications use, with the SAME preference keys, re-composed
- * every time a toggle changes (produceState keyed on the config). It uses
- * the user's most recently updated content when the update feed has one
- * (real art + real episode numbers), so "what you tune is what you'll get".
+ * the real notifications use, with the SAME preference keys.
+ *
+ * D-483 content selection (the user's spec):
+ * 1. Feed-first: the newest detected update (real art, real episode).
+ * 2. Otherwise: a RANDOM library content that HAS cached episodes — its
+ *    latest episode — re-rolled EVERY time the screen opens (and via the
+ *    shuffle action). Content with no episodes / unlinked is never picked.
+ * 3. When nothing qualifies: the "No episodes available yet" state.
  */
 @Composable
 fun NotificationPosterSettingsScreen(
     onBack: () -> Unit,
     posterPrefs: NotificationPreferences = koinInject(),
     composer: EpisodeBannerComposer = koinInject(),
-    contentRepository: com.confused.anikuta.core.content.ContentRepository = koinInject(),
+    demoPicker: EpisodeDemoPicker = koinInject(),
     updateStore: com.confused.anikuta.core.updates.UpdateStore = koinInject(),
+    contentRepository: com.confused.anikuta.core.content.ContentRepository = koinInject(),
 ) {
     val posterEnabled by posterPrefs.posterEnabledFlow().collectAsStateWithLifecycle(true)
     val lazyListState = rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
-    val context = LocalContext.current
 
-    // Local toggle snapshots — the composer reads the store synchronously,
-    // so the preview re-composes via these keys.
-    var showEpTitleState by remember { androidx.compose.runtime.mutableStateOf(posterPrefs.posterShowEpisodeTitle) }
-    var showThumbState by remember { androidx.compose.runtime.mutableStateOf(posterPrefs.posterShowEpisodeThumbnail) }
-    var showBadgeState by remember { androidx.compose.runtime.mutableStateOf(posterPrefs.posterShowAudioBadge) }
-    var showBrandingState by remember { androidx.compose.runtime.mutableStateOf(posterPrefs.posterShowBranding) }
-    var backgroundSource by remember { androidx.compose.runtime.mutableStateOf(posterPrefs.posterBackgroundSource) }
+    var showEpTitleState by remember { mutableStateOf(posterPrefs.posterShowEpisodeTitle) }
+    var showThumbState by remember { mutableStateOf(posterPrefs.posterShowEpisodeThumbnail) }
+    var showBadgeState by remember { mutableStateOf(posterPrefs.posterShowAudioBadge) }
+    var showBrandingState by remember { mutableStateOf(posterPrefs.posterShowBranding) }
+    var backgroundSource by remember { mutableStateOf(posterPrefs.posterBackgroundSource) }
 
-    // The live preview — re-composed whenever any toggle changes. Sample =
-    // the newest row in the update feed (the user's own content); a graceful
-    // built-in sample when the feed is empty.
-    data class Preview(val banner: android.graphics.Bitmap?, val failed: Boolean)
-    val preview by produceState(Preview(null, failed = false), posterEnabled, showEpTitleState, showThumbState, showBadgeState, showBrandingState, backgroundSource) {
+    // D-483: the roll counter — every screen open (and every shuffle tap)
+    // increments it, producing a NEW random library pick each time.
+    var roll by remember { mutableIntStateOf(0) }
+
+    data class Preview(val banner: android.graphics.Bitmap?, val failed: Boolean, val hasContent: Boolean)
+    val preview by produceState(Preview(null, failed = false, hasContent = true), posterEnabled, showEpTitleState, showThumbState, showBadgeState, showBrandingState, backgroundSource, roll) {
         value = try {
-            val feed = updateStore.getAllUpdates(limit = 1)
-            val row = feed.firstOrNull()
-            val mainId = row?.mainId ?: ""
-            // The real title lives on main_entry (ContentRecord).
-            val effectiveTitle = if (mainId.isBlank()) "Sample Anime Title" else {
-                contentRepository.getMainEntryByMainId(mainId)?.title ?: "Sample Anime Title"
+            // 1) Feed-first: the newest detected update.
+            val feedRow = updateStore.getAllUpdates(limit = 1L).firstOrNull()
+            var mainId = feedRow?.mainId ?: ""
+            var title = if (mainId.isBlank()) "" else {
+                contentRepository.getMainEntryByMainId(mainId)?.title
+            } ?: ""
+            var episodeNumber = feedRow?.episodeNumber ?: 12.0
+            var audioVariant = feedRow?.audioVariant ?: "sub"
+            var overrideEpisodeTitle: String? = null
+
+            // 2) The library fallback: a random content WITH episodes.
+            if (mainId.isBlank()) {
+                val demo = demoPicker.pickRandom()
+                if (demo != null) {
+                    mainId = demo.mainId
+                    title = demo.title
+                    episodeNumber = demo.episodeNumber
+                    audioVariant = demo.audioVariant
+                    // The demo shows "EPISODE N" of a random library anime —
+                    // no invented episode title.
+                    overrideEpisodeTitle = null
+                }
             }
+
+            if (mainId.isBlank()) {
+                // 3) Nothing qualifies — the "no episodes" state.
+                value = Preview(null, failed = false, hasContent = false)
+                return@produceState
+            }
+
             val banner = composer.buildBanner(
                 mainId = mainId,
-                title = effectiveTitle,
-                episodeNumber = row?.episodeNumber ?: 12.0,
-                audioVariant = row?.audioVariant ?: "sub",
-                overrideTitle = if (mainId.isBlank()) "Sample Anime Title" else null,
-                overrideEpisodeTitle = if (mainId.isBlank()) "Sample episode title" else null,
+                title = title.ifBlank { "Unknown title" },
+                episodeNumber = episodeNumber,
+                audioVariant = audioVariant,
+                overrideEpisodeTitle = overrideEpisodeTitle,
             )
-            Preview(banner, failed = false)
+            Preview(banner, failed = banner == null, hasContent = true)
         } catch (e: Exception) {
             Logger.w("Anikuta:Settings") { "poster preview failed: ${e.message}" }
-            Preview(null, failed = true)
+            Preview(null, failed = true, hasContent = true)
         }
     }
 
@@ -114,7 +145,7 @@ fun NotificationPosterSettingsScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 110.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    // ── The live preview ──
+                    // ── The live preview + shuffle ──
                     item {
                         SettingsGroupCard(label = "Live preview") {
                             Box(
@@ -127,7 +158,7 @@ fun NotificationPosterSettingsScreen(
                                 val result = preview
                                 when {
                                     !posterEnabled -> {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             androidx.compose.material3.Text(
                                                 "Poster notifications are off",
                                                 style = MaterialTheme.typography.bodyMedium,
@@ -135,7 +166,30 @@ fun NotificationPosterSettingsScreen(
                                             )
                                         }
                                     }
-                                    !result.failed && result.banner != null -> {
+                                    result.failed && !result.hasContent -> {
+                                        // D-483: the honest "no episodes" state —
+                                        // no feed updates AND no library content
+                                        // with cached episodes.
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            androidx.compose.material3.Text(
+                                                "No episodes available yet — add anime to your library and open them once to cache episodes.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(20.dp),
+                                            )
+                                        }
+                                    }
+                                    result.failed -> {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            androidx.compose.material3.Text(
+                                                "Couldn't load the preview art — check your connection and try the shuffle.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(20.dp),
+                                            )
+                                        }
+                                    }
+                                    result.banner != null -> {
                                         Image(
                                             bitmap = result.banner.asImageBitmap(),
                                             contentDescription = "Notification poster preview",
@@ -143,22 +197,25 @@ fun NotificationPosterSettingsScreen(
                                             modifier = Modifier.fillMaxSize(),
                                         )
                                     }
-                                    result.failed -> {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                                            androidx.compose.material3.Text(
-                                                "Preview needs your latest update's art — open a Library anime once to cache it.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.padding(16.dp),
-                                            )
-                                        }
-                                    }
                                     else -> {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             androidx.compose.material3.CircularProgressIndicator()
                                         }
                                     }
                                 }
+                            }
+                            // The shuffle — re-rolls the random library pick (D-483).
+                            androidx.compose.material3.TextButton(
+                                onClick = { roll++ },
+                                modifier = Modifier.align(Alignment.End),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Shuffle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(end = 6.dp),
+                                )
+                                androidx.compose.material3.Text("Shuffle preview")
                             }
                         }
                     }
@@ -225,7 +282,7 @@ fun NotificationPosterSettingsScreen(
                 ScrollBlurOverlay(
                     scrollOffset = { lazyListState.firstVisibleItemScrollOffset.toFloat() },
                     backgroundColor = MaterialTheme.colorScheme.background,
-                    modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter),
+                    modifier = Modifier.align(Alignment.TopCenter),
                 )
             }
         }
@@ -239,12 +296,12 @@ private fun PosterSwitchRow(
     checked: Boolean,
     onChecked: (Boolean) -> Unit,
 ) {
-    androidx.compose.foundation.layout.Row(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             androidx.compose.material3.Text(

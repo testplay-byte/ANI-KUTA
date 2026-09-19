@@ -4380,6 +4380,7 @@ private fun BoxScope.CoverBadgeRow(
 ) {
     val alignment = when (position) {
         BadgePosition.TOP_START -> Alignment.TopStart
+        BadgePosition.TOP_CENTER -> Alignment.TopCenter
         BadgePosition.TOP_END -> Alignment.TopEnd
         BadgePosition.BOTTOM_START -> Alignment.BottomStart
         BadgePosition.BOTTOM_END -> Alignment.BottomEnd
@@ -4391,6 +4392,8 @@ private fun BoxScope.CoverBadgeRow(
         BadgePosition.TOP_END -> RoundedCornerShape(topEnd = coverCornerRadius)
         BadgePosition.BOTTOM_START -> RoundedCornerShape(bottomStart = coverCornerRadius)
         BadgePosition.BOTTOM_END -> RoundedCornerShape(bottomEnd = coverCornerRadius)
+        // D-483: centered at the top — no cover corner to match.
+        BadgePosition.TOP_CENTER -> RoundedCornerShape(0.dp)
     }
     Surface(
         modifier = Modifier.align(alignment),

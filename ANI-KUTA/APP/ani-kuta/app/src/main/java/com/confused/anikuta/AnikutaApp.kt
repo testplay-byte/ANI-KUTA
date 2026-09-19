@@ -328,9 +328,11 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                     get(),
                 )
             }
+            single { com.confused.anikuta.notifications.EpisodeDemoPicker(get(), get()) }
             single {
                 com.confused.anikuta.notifications.EpisodeNotificationTester(
                     androidContext(),
+                    get(),
                     get(),
                     get(),
                     get(),

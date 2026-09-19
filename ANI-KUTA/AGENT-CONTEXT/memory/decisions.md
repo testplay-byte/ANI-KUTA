@@ -2980,3 +2980,15 @@ The badges' "sharp" look came from the 45° pointed tips + outlines. The badge s
 
 ## D-481 (round 46): the poster customization page with LIVE PREVIEW
 `NotificationPosterSettingsScreen` (Notifications → "Notification poster"): toggles for every composition element + a LIVE PREVIEW that calls the SAME composer the real notifications use, re-composed on every toggle change, using the user's most recently updated content (real art) — what you tune is exactly what you'll get. A graceful empty-feed sample keeps the preview usable on fresh installs.
+
+## D-483 (round 47): the v1.1.9 device round — the demo content system + the staggered test posts + the centered badges
+The user's v1.1.9 device round fixes:
+1. **The pill exit slowed** ~40% (the fade 160→220ms, the center-slide 220→300ms, the pop 360→480ms, the full exit 700→900ms).
+2. **The episode-type toggle** on the Notifications screen now uses the design-system SegmentedToggle (the same control as the Updates screen) — the hand-rolled chip row is gone.
+3. **The demo content system (`EpisodeDemoPicker`)**: when the update feed has nothing usable (freshly-added library anime with no detected episodes), BOTH the poster preview and the test notifications fall back to a RANDOM LIBRARY content that HAS cached episodes — its latest cached episode as the demo — re-rolled per screen open and via a "Shuffle preview" action. Content with no episodes / unlinked is never picked; when nothing qualifies, the preview shows the honest "No episodes available yet" state.
+4. **The banner art fallback chain**: banner → cover → `DataSourceExtras.coverUrlLarge` (AniList's large art, parsed from dataExtraJson — the fresh-library case's actual art source) → the episode thumbnail as the background of last resort. This was why the v1.1.9 test notifications showed no banner: freshly-added content has no cached data-axis art yet.
+5. **The staggered test posts**: the first test poster immediately, the SECOND 5 minutes later via `DelayedPosterTestWorker` (WorkManager, Koin GlobalContext pattern, payload in the work data, survives app death) — the user's "one test notification now and the other one 5 minutes later".
+6. **The library badges centered at top**: BadgePosition gains TOP_CENTER; the episode badge's default + prefs fallback move TOP_END → TOP_CENTER; CoverBadgeRow handles the centered alignment (no cover-corner clip needed).
+
+## D-484 (round 47): the episode-type control = the design-system SegmentedToggle
+The hand-rolled chip row on the Notifications screen replaced with the SAME SegmentedToggle component the Updates screen uses (options Sub/Dub/Both, 200dp wide) — visual parity between the two screens, per the user's "could be made better, just like how it is in the updates."

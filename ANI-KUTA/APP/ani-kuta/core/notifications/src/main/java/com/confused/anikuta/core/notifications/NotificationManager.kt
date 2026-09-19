@@ -282,6 +282,62 @@ class NotificationManager(
     fun areNotificationsEnabled(): Boolean = preferences.notificationsEnabled
 
     /**
+     * D-483: posts a poster notification for ARBITRARY content (no gates, no
+     * dedup) — the test path's direct posting primitive. Same banner
+     * composition + BigPictureStyle as [postNotification]; id comes from the
+     * caller so the immediate + delayed test posts stay distinct.
+     */
+    suspend fun postPosterNotification(
+        notifId: Int,
+        mainId: String,
+        title: String,
+        episodeNumber: Double,
+        audioVariant: String,
+    ) {
+        if (!areNotificationsEnabled()) return
+        ensureChannel()
+
+        val text = buildString {
+            append("EP ${episodeNumber.toInt()}")
+            when (audioVariant) {
+                "sub" -> append(" · SUB")
+                "dub" -> append(" · DUB")
+            }
+            append(" is now available")
+        }
+
+        var style: NotificationCompat.Style = NotificationCompat.BigTextStyle().bigText(text)
+        if (artProvider != null && preferences.posterEnabled) {
+            try {
+                val banner = artProvider.buildEpisodeBanner(mainId, title, episodeNumber, audioVariant)
+                if (banner != null) {
+                    style = NotificationCompat.BigPictureStyle()
+                        .bigPicture(banner)
+                        .bigLargeIcon(null as? android.graphics.Bitmap)
+                        .setBigContentTitle(title)
+                        .setSummaryText(text)
+                }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "poster banner composition failed — falling back to text style" }
+            }
+        }
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(style)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(createDetailsPendingIntent(mainId))
+            .build()
+
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(notifId, notification)
+        Logger.i(TAG) { "poster test notification posted: mainId=$mainId ep=$episodeNumber" }
+    }
+
+    /**
      * Posts a single test notification with the given content. Called by [postTestNotification]
      * + by [DelayedTestNotificationWorker].
      */

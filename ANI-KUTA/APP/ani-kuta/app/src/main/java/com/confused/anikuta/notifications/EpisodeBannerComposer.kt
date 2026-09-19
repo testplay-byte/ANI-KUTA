@@ -80,11 +80,17 @@ class EpisodeBannerComposer(
             val bannerUrl = details?.dataBannerUrl
             val coverUrl = details?.dataCoverUrl
 
-            // The background source per the user's config: banner first
-            // (falling back to the cover) or always the cover.
+            // D-486: the background fallback chain — banner -> cover -> the
+            // data-source extras' large cover (AniList's big art lives there)
+            // -> the episode's own thumbnail. Freshly-added library content
+            // often has no cached details art, which is why the v1.1.9 test
+            // notifications showed no banner.
+            val extras = details?.let {
+                com.confused.anikuta.core.content.DataSourceExtras.fromJson(it.dataExtraJson)
+            }
             val backgroundUrl = when (preferences.posterBackgroundSource) {
-                "cover" -> coverUrl
-                else -> bannerUrl ?: coverUrl
+                "cover" -> coverUrl ?: bannerUrl ?: extras?.coverUrlLarge
+                else -> bannerUrl ?: coverUrl ?: extras?.coverUrlLarge
             }
 
             // The episode's own title + thumbnail from the metadata cache.
@@ -93,7 +99,10 @@ class EpisodeBannerComposer(
             val episodeTitle = overrideEpisodeTitle ?: epMeta?.title
             val thumbUrl = overrideEpisodeThumbUrl ?: epMeta?.thumbnailUrl
 
+            // The thumb doubles as the background of last resort — a real
+            // image always beats a flat dark rectangle.
             val background = backgroundUrl?.let { loadBitmap(it, W, H) }
+                ?: thumbUrl?.let { loadBitmap(it, W, H) }
             val thumb = if (preferences.posterShowEpisodeThumbnail && thumbUrl != null) {
                 loadBitmap(thumbUrl, THUMB_W * 2, THUMB_W * 2)
             } else null
