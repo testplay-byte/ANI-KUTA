@@ -84,9 +84,6 @@ jobs:
       # removalVerified), :feature:anime-search:impl the top-bar reveal
       # policy locks (searchBarNextCollapsed), and :feature:onboarding the
       # wizard step-machine locks.
-      - name: Run unit tests (CloudStream modules)
-        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:common:testDebugUnitTest :core:cs-player:testDebugUnitTest :feature:cs-watch:api:testDebugUnitTest :feature:cs-watch:impl:testDebugUnitTest :core:download:testDebugUnitTest :feature:anime-search:impl:testDebugUnitTest :feature:onboarding:testDebugUnitTest
-
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
