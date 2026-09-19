@@ -544,14 +544,42 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10115
+    const val versionName = "1.1.15"
+    // D-507 (round 52): release/1.1.15 — cut from the round-52 FEATURE branch
+    // head 048f9422 (the standing from-feature-branch model; main still
+    // carries NONE of this — the merge awaits the user's explicit
+    // confirmation). What the release carries (the full v1.1.4..1.1.14 set
+    // PLUS round 52): D-503 the CLEAN banner — when a banner composes the
+    // notification renders ONLY the banner (BigPictureStyle without
+    // bigContentTitle/summaryText, empty builder title/text on both post
+    // paths; a failed compose keeps the old text card) — and the REAL
+    // Android heads-up popup: the channel moved to `anikuta_new_episodes_high`
+    // at IMPORTANCE_HIGH (the DEFAULT-importance channel never pops
+    // heads-up; the legacy channel is deleted), PRIORITY_HIGH builders, and
+    // the D-500 in-app overlay RETIRED (InAppBannerController/Host deleted —
+    // the user: "I wanted the banner to be shown as a notification"); D-504
+    // the SUB/DUB chip truth widened (feed rows ∪ the episode cache's own
+    // parseAudioAvailability — the details page's pill parser — ∪ the passed
+    // variant: a dual-variant episode renders BOTH chips) + the thumbnail
+    // evidence chain (episode still + one retry → extras large cover → cover
+    // → banner) + THE SCRIMS REMOVED (full-brightness art, the D-499 shadows
+    // carry readability); D-505 the POSTER STUDIO — the Customize button
+    // left of Shuffle preview opens a forced-landscape editor (five elements,
+    // drag anywhere, pinch resize, magnetic snapping 8px grid + 14px
+    // key-line magnetism with lime guides, per-element visibility + 12-swatch
+    // palette + style reset, the bottom size slider, flow-seeding on first
+    // edit) whose Save persists PosterLayoutConfig JSON
+    // (notif_poster_layout_json) and dumps the FULL JSON to the console log
+    // (Anikuta:App:PosterStudio) so the user's layout can become the shipped
+    // default — the composer renders it in ABSOLUTE mode on every real
+    // notification; D-506 the shuffle feedback (pulse + icon spin + banner
+    // crossfade) and the 30-second test stagger (was 5 minutes).
+    // RELEASE-FIRST (D-498): the release IS the verification build — the
+    // user's device round happens on THIS APK via the in-app updater.
+    // 1.1.15 is the next number after v1.1.14; 10115 > 10114 — the debug app
+    // updates over its installed v1.1.14 in-app. Main stays at 0.4.20/85
+    // (D-425).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
