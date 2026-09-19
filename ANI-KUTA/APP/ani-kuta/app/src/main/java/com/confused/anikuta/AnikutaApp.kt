@@ -329,10 +329,15 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 )
             }
             single { com.confused.anikuta.notifications.EpisodeDemoPicker(get(), get()) }
+            // D-495: the tester's new selection spec — random LIBRARY entries
+            // (any entry, not just episode-cached ones) + the pure-demo
+            // payloads when the library is empty. The deps follow the new
+            // constructor: repository, data cache, notification manager,
+            // demo picker (the unused composer dep + the update store are
+            // gone — the feed no longer feeds the test path).
             single {
                 com.confused.anikuta.notifications.EpisodeNotificationTester(
                     androidContext(),
-                    get(),
                     get(),
                     get(),
                     get(),

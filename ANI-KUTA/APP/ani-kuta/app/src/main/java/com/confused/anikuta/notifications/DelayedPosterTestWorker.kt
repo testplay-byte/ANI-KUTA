@@ -16,6 +16,11 @@ import org.koin.core.context.GlobalContext
  * payload in the work input data; resolves its collaborators from Koin
  * (the same GlobalContext pattern as DelayedTestNotificationWorker).
  * Survives app death.
+ *
+ * D-495: the TITLE rides the work data too — the round-50 selection spec
+ * added PURE-DEMO payloads (empty library) whose title has no library row
+ * to look up at fire time; the repo lookup remains the fallback for older
+ * work still in the queue.
  */
 class DelayedPosterTestWorker(
     appContext: Context,
@@ -38,7 +43,11 @@ class DelayedPosterTestWorker(
                 return Result.success()
             }
 
-            val title = contentRepository.getMainEntryByMainId(mainId)?.title ?: "Unknown anime"
+            // D-495: work-data title first (pure demos have no library row),
+            // then the repo lookup (older queued work), then a safe label.
+            val title = inputData.getString(KEY_TITLE)
+                ?: contentRepository.getMainEntryByMainId(mainId)?.title
+                ?: "Unknown anime"
             notificationManager.postPosterNotification(
                 notifId = 998,
                 mainId = mainId,
@@ -57,6 +66,7 @@ class DelayedPosterTestWorker(
     companion object {
         private const val TAG = "Anikuta:App:DelayedPoster"
         const val KEY_MAIN_ID = "demo_main_id"
+        const val KEY_TITLE = "demo_title"
         const val KEY_EPISODE = "demo_episode"
         const val KEY_VARIANT = "demo_variant"
     }

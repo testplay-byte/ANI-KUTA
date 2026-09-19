@@ -45,6 +45,14 @@ class NotificationManager(
         private const val CHANNEL_ID_SILENT = "anikuta_new_episodes_silent"
         private const val CHANNEL_NAME_SILENT = "New episodes (silent)"
         private const val NOTIFICATION_ID_BASE = 30000
+
+        /**
+         * D-496: episode numbers render without the Double trailing ".0"
+         * ("EP 12", never "EP 12.0") and fractional specials survive
+         * untruncated ("EP 12.5").
+         */
+        fun episodeLabel(n: Double): String =
+            if (n == n.toInt().toDouble()) n.toInt().toString() else n.toString()
     }
 
     init {
@@ -146,7 +154,8 @@ class NotificationManager(
         //    otherwise the default channel (sound + popup).
         val notifId = (NOTIFICATION_ID_BASE + (mainId.hashCode() and 0x3FFF) + episodeNumber.toInt()).coerceAtMost(Int.MAX_VALUE)
         val displayAudio = if (audioVariant == "sub") "SUB" else if (audioVariant == "dub") "DUB" else ""
-        val text = "EP $episodeNumber${if (displayAudio.isNotBlank()) " · $displayAudio" else ""} is now available"
+        // D-496: "EP 12" not "EP 12.0" (Double toString), and 12.5 stays 12.5.
+        val text = "EP ${episodeLabel(episodeNumber)}${if (displayAudio.isNotBlank()) " · $displayAudio" else ""} is now available"
         val channel = if (silent) CHANNEL_ID_SILENT else CHANNEL_ID
         val priority = if (silent) NotificationCompat.PRIORITY_LOW
         else NotificationCompat.PRIORITY_DEFAULT
@@ -298,8 +307,8 @@ class NotificationManager(
         ensureChannel()
 
         val text = buildString {
-            append("EP ${episodeNumber.toInt()}")
-            when (audioVariant) {
+            append("EP ${episodeLabel(episodeNumber)}")
+            when (audioVariant.trim().lowercase()) {
                 "sub" -> append(" · SUB")
                 "dub" -> append(" · DUB")
             }

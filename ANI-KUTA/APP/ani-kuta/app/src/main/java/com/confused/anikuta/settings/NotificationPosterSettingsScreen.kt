@@ -60,6 +60,16 @@ import org.koin.compose.koinInject
  *    latest episode — re-rolled EVERY time the screen opens (and via the
  *    shuffle action). Content with no episodes / unlinked is never picked.
  * 3. When nothing qualifies: the "No episodes available yet" state.
+ *
+ * D-494 shuffle semantics: the SHUFFLE button skips the feed path entirely
+ * and picks a random library item EXCLUDING the one on stage — the user's
+ * v1.1.12 round: "it was not shuffling between the other library items"
+ * (the feed-first path always re-picked the same newest row, so the button
+ * looked dead). The exclusion is one-shot: toggle flips re-render the
+ * content currently on stage, they do not re-roll it.
+ *
+ * D-493: the preview box adopts the composer's REAL canvas ratio (≈21:9)
+ * so the preview shows the notification's true proportions.
  */
 @Composable
 fun NotificationPosterSettingsScreen(
@@ -81,9 +91,25 @@ fun NotificationPosterSettingsScreen(
     var showBrandingState by remember { mutableStateOf(posterPrefs.posterShowBranding) }
     var backgroundSource by remember { mutableStateOf(posterPrefs.posterBackgroundSource) }
 
-    // D-483: the roll counter — every screen open (and every shuffle tap)
-    // increments it, producing a NEW random library pick each time.
+    // D-483/D-494: the roll counter — a SHUFFLE tap increments it (a screen
+    // open starts at 0), producing a fresh random library pick per tap.
     var roll by remember { mutableIntStateOf(0) }
+
+    // D-494: the one-shot shuffle exclusion. The Shuffle button records the
+    // content currently on stage, then bumps [roll]; the next produceState
+    // pass consumes the value (picking a DIFFERENT library item) and clears
+    // it. Plain mutable states — deliberately NOT produceState keys: they
+    // are read/written inside the producer, never drive it.
+    val shuffleExclude = remember { mutableStateOf<String?>(null) }
+    val onStageMainId = remember { mutableStateOf<String?>(null) }
+
+    // D-494: the selected payload CACHED across re-runs. A toggle flip must
+    // re-render the content ON STAGE with the new prefs — it must NOT
+    // re-select (the reviewer round proved a bare re-select snaps the
+    // preview back to the feed row / re-rolls a random item / re-randomizes
+    // the demo chip on every flip). Only a screen open (no cache yet) or a
+    // Shuffle tap (exclusion set) produces a NEW selection.
+    val selectionCache = remember { mutableStateOf<PreviewSelection?>(null) }
 
     data class Preview(val banner: android.graphics.Bitmap?, val failed: Boolean, val hasContent: Boolean)
     val preview by produceState(Preview(null, failed = false, hasContent = true), posterEnabled, showEpTitleState, showThumbState, showBadgeState, showBrandingState, backgroundSource, roll) {
@@ -93,44 +119,43 @@ fun NotificationPosterSettingsScreen(
             // library) — they belong on IO, not the produceState's main
             // dispatcher. (The composer handles its own IO offload.)
             withContext(Dispatchers.IO) {
-                // 1) Feed-first: the newest detected update.
-                val feedRow = updateStore.getAllUpdates(limit = 1L).firstOrNull()
-                var mainId = feedRow?.mainId ?: ""
-                var title = if (mainId.isBlank()) "" else {
-                    contentRepository.getMainEntryByMainId(mainId)?.title
-                } ?: ""
-                var episodeNumber = feedRow?.episodeNumber ?: 12.0
-                var audioVariant = feedRow?.audioVariant ?: "sub"
-                var overrideEpisodeTitle: String? = null
+                // D-494: consume the one-shot shuffle exclusion FIRST —
+                // cleared immediately so it can never leak into a later pass.
+                val exclude = shuffleExclude.value
+                shuffleExclude.value = null
 
-                // 2) The library fallback: a random content WITH episodes.
-                if (mainId.isBlank()) {
-                    val demo = demoPicker.pickRandom()
-                    if (demo != null) {
-                        mainId = demo.mainId
-                        title = demo.title
-                        episodeNumber = demo.episodeNumber
-                        audioVariant = demo.audioVariant
-                        // The demo shows "EPISODE N" of a random library anime —
-                        // no invented episode title.
-                        overrideEpisodeTitle = null
-                    }
+                // Re-select ONLY on a screen open (no cached selection yet)
+                // or a Shuffle tap; a toggle flip reuses the cached payload
+                // so the content on stage never changes under the user's
+                // fingers while they flip composition switches.
+                var selection = selectionCache.value
+                if (exclude != null || selection == null) {
+                    selection = selectPreviewContent(
+                        exclude = exclude,
+                        updateStore = updateStore,
+                        contentRepository = contentRepository,
+                        demoPicker = demoPicker,
+                    )
+                    selectionCache.value = selection
                 }
 
-                if (mainId.isBlank()) {
-                    // 3) Nothing qualifies — the "no episodes" state.
+                val onStage = selection
+                if (onStage == null) {
+                    // Nothing qualifies — the "no episodes" state.
                     // failed = false on purpose: this is an honest empty
                     // state, not a failure (D-486: the old UI gated this
                     // state on failed=true, which made it unreachable).
+                    onStageMainId.value = null
                     return@withContext Preview(null, failed = false, hasContent = false)
                 }
 
+                onStageMainId.value = onStage.mainId
+
                 val banner = composer.buildBanner(
-                    mainId = mainId,
-                    title = title.ifBlank { "Unknown title" },
-                    episodeNumber = episodeNumber,
-                    audioVariant = audioVariant,
-                    overrideEpisodeTitle = overrideEpisodeTitle,
+                    mainId = onStage.mainId,
+                    title = onStage.title.ifBlank { "Unknown title" },
+                    episodeNumber = onStage.episodeNumber,
+                    audioVariant = onStage.audioVariant,
                 )
                 Preview(banner, failed = banner == null, hasContent = true)
             }
@@ -163,7 +188,14 @@ fun NotificationPosterSettingsScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .aspectRatio(16f / 9f)
+                                    // D-493: the preview box uses the composer's
+                                    // REAL canvas ratio (≈21:9) — the preview shows
+                                    // the notification's true proportions, and the
+                                    // old 16:9 box mis-stated them.
+                                    .aspectRatio(
+                                        EpisodeBannerComposer.CANVAS_WIDTH.toFloat() /
+                                            EpisodeBannerComposer.CANVAS_HEIGHT.toFloat(),
+                                    )
                                     .clip(RoundedCornerShape(14.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant),
                             ) {
@@ -232,12 +264,17 @@ fun NotificationPosterSettingsScreen(
                                     }
                                 }
                             }
-                            // The shuffle — re-rolls the random library pick (D-483).
+                            // The shuffle — re-rolls the random library pick (D-483),
+                            // now EXCLUDING the content on stage so every tap lands
+                            // on a DIFFERENT library item (D-494).
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End,
                             ) {
-                                androidx.compose.material3.TextButton(onClick = { roll++ }) {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    shuffleExclude.value = onStageMainId.value
+                                    roll++
+                                }) {
                                     Icon(
                                         imageVector = Icons.Filled.Shuffle,
                                         contentDescription = null,
@@ -317,6 +354,74 @@ fun NotificationPosterSettingsScreen(
             }
         }
     }
+}
+
+/**
+ * D-493: the DEMO paths normalize the engine's "unknown" audio variant to a
+ * random sub/dub so the preview's badge always renders (the composer draws
+ * no chip for unknown — honest for real notifications, invisible for a
+ * demo). Real notifications keep the engine's value untouched.
+ */
+private fun String.normalizeForDemo(): String = when (trim().lowercase()) {
+    "sub" -> "sub"
+    "dub" -> "dub"
+    else -> listOf("sub", "dub").random()
+}
+
+/**
+ * D-494: the payload the preview renders — cached across toggle-flip
+ * re-runs (see [selectionCache] at the call site).
+ */
+private data class PreviewSelection(
+    val mainId: String,
+    val title: String,
+    val episodeNumber: Double,
+    val audioVariant: String,
+)
+
+/**
+ * D-483/D-494: the preview's content selection — runs on Dispatchers.IO
+ * (the caller's context). [exclude] == null means a screen-open pass:
+ * feed-first, then the random-library fallback. A non-null [exclude] means a
+ * SHUFFLE tap: the feed path is skipped entirely and a random library item
+ * EXCLUDING the one on stage is picked — the user asked for the shuffle to
+ * cycle through LIBRARY items, and the feed always re-picked the same newest
+ * row (the button looked dead). Returns null when nothing qualifies.
+ */
+private suspend fun selectPreviewContent(
+    exclude: String?,
+    updateStore: com.confused.anikuta.core.updates.UpdateStore,
+    contentRepository: com.confused.anikuta.core.content.ContentRepository,
+    demoPicker: EpisodeDemoPicker,
+): PreviewSelection? {
+    if (exclude == null) {
+        // 1) Feed-first (D-483): the newest detected update.
+        val feedRow = updateStore.getAllUpdates(limit = 1L).firstOrNull()
+        if (feedRow != null) {
+            val feedTitle = contentRepository.getMainEntryByMainId(feedRow.mainId)?.title
+            if (feedTitle != null) {
+                // D-493: normalize "unknown" for the demo chip — see
+                // [normalizeForDemo].
+                return PreviewSelection(
+                    mainId = feedRow.mainId,
+                    title = feedTitle,
+                    episodeNumber = feedRow.episodeNumber,
+                    audioVariant = feedRow.audioVariant.normalizeForDemo(),
+                )
+            }
+        }
+    }
+
+    // 2) The library fallback: a random content WITH episodes — on a shuffle
+    //    tap, a DIFFERENT one than on stage (D-494). The demo shows
+    //    "EPISODE N" of a random library anime — no invented episode title.
+    val demo = demoPicker.pickRandom(excludeMainId = exclude) ?: return null
+    return PreviewSelection(
+        mainId = demo.mainId,
+        title = demo.title,
+        episodeNumber = demo.episodeNumber,
+        audioVariant = demo.audioVariant,
+    )
 }
 
 @Composable

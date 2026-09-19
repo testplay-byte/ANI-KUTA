@@ -7,45 +7,57 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
+import com.confused.anikuta.core.datacache.DataCacheRepository
 import com.confused.anikuta.core.notifications.NotificationManager
-import com.confused.anikuta.core.updates.UpdateStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 /**
- * D-478/D-483: the "Send test notifications" action — poster notifications
- * built from REAL content:
+ * D-478/D-483/D-495: the "Send test notifications" action.
  *
- * 1. Feed-first: the newest rows of the episode_update feed (the contents
- *    whose episodes the checker actually found), latest two distinct.
- * 2. Library fallback: when the feed has nothing usable, pick random
- *    LIBRARY content that HAS cached episodes (via [EpisodeDemoPicker]) —
- *    the user's round-47 spec: "pick one of the contents from the user's
- *    library randomly… use the latest episode of that as the notification
- *    demo."
+ * # The round-50 selection spec (the user's own words)
  *
- * Delivery is STAGGERED per the user's spec: the first posts immediately,
- * the second 5 MINUTES later via WorkManager (survives app death).
+ * - "If there are some entries saved in the library, then it should randomly
+ *   pick one of the entries for the first notification and should randomly
+ *   pick another entry for the second notification." → the LIBRARY is the
+ *   demo source: [count] distinct random entries (ANY entry qualifies — the
+ *   old cached-episodes gate is gone; an entry without cached episodes still
+ *   has cover art in the details row and composes a full banner). When the
+ *   library has fewer entries than requested, the same entries cycle with a
+ *   different cached episode where possible, so the second post still goes
+ *   out instead of silently not happening.
+ * - "If there are no entries in the library, then the test notification
+ *   should just show a random test notification." → [EpisodeDemoPicker.pickPureDemo]:
+ *   a built-in demo payload that composes on the composer's styled no-art
+ *   stage. The tester can therefore ALWAYS deliver — the old "no feed rows
+ *   AND no eligible library content — nothing to demo" silent bail is gone.
+ *
+ * The episode_update FEED is deliberately no longer consulted here (it was
+ * the D-483 feed-first rule; the user's round-50 spec replaces it — the feed
+ * remains the PREVIEW's initial-selection source).
+ *
+ * Delivery is STAGGERED: the first posts immediately, the second 5 MINUTES
+ * later via WorkManager (survives app death).
  */
 class EpisodeNotificationTester(
     private val context: Context,
-    private val updateStore: UpdateStore,
     private val contentRepository: ContentRepository,
-    private val composer: EpisodeBannerComposer,
+    private val dataCacheRepository: DataCacheRepository,
     private val notificationManager: NotificationManager,
     private val demoPicker: EpisodeDemoPicker,
 ) {
 
     /**
      * Posts up to [count] test poster notifications (1 now + the rest
-     * staggered 5 minutes apart). Returns how many were scheduled.
+     * staggered 5 minutes apart). Returns how many were scheduled. Always
+     * ≥ 1 when notifications are permitted (D-495) — the empty-library demo
+     * guarantees a payload.
      *
-     * D-486: the feed scan + library top-up below are BLOCKING SQLDelight
-     * reads — they run on Dispatchers.IO, not the caller's main-dispatch
-     * rememberCoroutineScope (the same main-thread failure class the
-     * v1.1.10 device round exposed in the preview; the composer offloads
-     * itself, this wrapper covers the tester's own reads).
+     * D-486: the library scan below is BLOCKING SQLDelight reads — they run
+     * on Dispatchers.IO, not the caller's main-dispatch
+     * rememberCoroutineScope (the composer offloads itself, this wrapper
+     * covers the tester's own reads).
      */
     suspend fun postRecentUpdateNotifications(count: Int = 2): Int = withContext(Dispatchers.IO) {
         // The POST_NOTIFICATIONS gate (Android 13+).
@@ -62,35 +74,40 @@ class EpisodeNotificationTester(
             return@withContext 0
         }
 
-        // ── The demo set: feed-first, then the random library fallback. ──
+        // ── The demo set: random LIBRARY entries (D-495), pure-demo top-up. ──
         val demos = mutableListOf<EpisodeDemoPicker.Demo>()
-        val seen = LinkedHashSet<String>()
-        updateStore.getAllUpdates(limit = 50L).forEach { row ->
-            if (row.mainId !in seen) {
-                seen.add(row.mainId)
-                val title = contentRepository.getMainEntryByMainId(row.mainId)?.title ?: return@forEach
-                demos.add(
-                    EpisodeDemoPicker.Demo(
-                        mainId = row.mainId,
-                        title = title,
-                        episodeNumber = row.episodeNumber,
-                        audioVariant = row.audioVariant.ifBlank { "sub" },
-                    ),
-                )
-            }
+        for (mainId in contentRepository.getLibraryMainIds().shuffled()) {
+            if (demos.size >= count) break
+            val title = contentRepository.getMainEntryByMainId(mainId)?.title ?: continue
+            val episodes = dataCacheRepository.getEpisodeMetadata(mainId)
+            demos.add(
+                EpisodeDemoPicker.Demo(
+                    mainId = mainId,
+                    title = title,
+                    // The entry's latest cached episode; an entry whose
+                    // episodes were never cached still demos fine (the
+                    // banner just shows the episode number, no ep title).
+                    episodeNumber = episodes.maxByOrNull { it.episodeNumber }?.episodeNumber?.toDouble() ?: 1.0,
+                    audioVariant = listOf("sub", "dub").random(),
+                ),
+            )
         }
-        if (demos.size < count) {
-            // Top up from the LIBRARY (random eligible content with episodes).
-            demos.addAll(demoPicker.pickRandomDistinct(count - demos.size))
+        // Fewer entries than requested → cycle them with a different episode
+        // where the cache offers one, so both posts never read identically.
+        var cycle = 0
+        while (demos.isNotEmpty() && demos.size < count) {
+            val base = demos[cycle % demos.size]
+            demos.add(base.copy(episodeNumber = nextEpisodeVariant(base.mainId, base.episodeNumber)))
+            cycle++
         }
-        val trimmed = demos.take(count)
-        if (trimmed.isEmpty()) {
-            Logger.i(TAG) { "test: no feed rows AND no eligible library content — nothing to demo" }
-            return@withContext 0
+        // D-495: EMPTY library → random pure-demo notifications. Always
+        // something to show.
+        while (demos.size < count) {
+            demos.add(demoPicker.pickPureDemo())
         }
 
         var scheduled = 0
-        trimmed.forEachIndexed { index, demo ->
+        demos.take(count).forEachIndexed { index, demo ->
             val delayMinutes = index * 5L  // 1st: now · 2nd: 5 min · (3rd: 10 …)
             if (delayMinutes == 0L) {
                 // The FIRST test posts immediately.
@@ -105,11 +122,14 @@ class EpisodeNotificationTester(
                 // The SECOND (and any later) test: WorkManager, 5 minutes
                 // apart, surviving app death — the payload rides the work
                 // data and the worker re-composes the banner at fire time.
+                // D-495: the TITLE rides too — a pure demo has no library
+                // row to look it up from at fire time.
                 val request = OneTimeWorkRequestBuilder<DelayedPosterTestWorker>()
                     .setInitialDelay(delayMinutes, TimeUnit.MINUTES)
                     .setInputData(
                         workDataOf(
                             DelayedPosterTestWorker.KEY_MAIN_ID to demo.mainId,
+                            DelayedPosterTestWorker.KEY_TITLE to demo.title,
                             DelayedPosterTestWorker.KEY_EPISODE to demo.episodeNumber,
                             DelayedPosterTestWorker.KEY_VARIANT to demo.audioVariant,
                         ),
@@ -125,6 +145,19 @@ class EpisodeNotificationTester(
             Logger.i(TAG) { "test poster #$index scheduled for ${demo.title} (delay=${delayMinutes}min)" }
         }
         scheduled
+    }
+
+    /**
+     * A different cached episode of the same entry (for cycled re-posts) —
+     * the base's own episode is filtered out so the second post never reads
+     * identically; falls back to the base episode only when the cache has
+     * nothing else (single/zero cached episodes).
+     */
+    private fun nextEpisodeVariant(mainId: String, fallback: Double): Double {
+        val others = dataCacheRepository.getEpisodeMetadata(mainId)
+            .map { it.episodeNumber.toDouble() }
+            .filter { it != fallback }
+        return if (others.isNotEmpty()) others.random() else fallback
     }
 
     private companion object {

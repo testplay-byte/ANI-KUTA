@@ -123,3 +123,14 @@ bitmaps" comment that justified the old code was false — verified against
 the coil3 3.0.4 bytecode (BitmapImage is returned as-is). Lesson for the
 next agent: a catch-only-null failure mode HIDES the real exception class —
 round 48's exception-class-in-log discipline is what finally cracked this.
+
+
+## 7. ROUND 50 (D-493..D-496) — the presentation round: what changed after the pipeline went green
+The v1.1.12 device round approved the PIPELINE (posters render end-to-end) and flagged the PRESENTATION. What the next agent must know:
+- **The canvas is 1024×440 (≈21:9)** — `EpisodeBannerComposer.CANVAS_WIDTH/HEIGHT` (PUBLIC consts; the companion is public on purpose — Kotlin forbids cross-file access through a private companion's facade). The preview box reads them for its aspectRatio.
+- **The layout is zone-anchored** (text from the top; the chip row + branding on a shared bottom baseline; the thumbnail aspect-preserved in a 210×330 box) — never re-introduce a flow layout that lets text push elements off-canvas.
+- **Never use a BitmapShader without a local matrix for the cover-crop** — the v1.1.12 "glitched background" was a shader sampling at native size + CLAMP edge smear. The current `drawCoverFit` (src→dst rect math) is the keeper; background loads pass `coil3.size.Scale.FILL`.
+- **The badge truth table**: the engine's `audioVariant` ∈ {"sub", "dub", "unknown"}; "unknown" means both-variants-or-unparsed. DEMO paths (preview feed-first, `normalizeForDemo`; the picker's random variant) normalize to sub/dub so the demo always shows a chip; the REAL path passes the engine value through untouched (unknown → no chip, honest — real posts only ever carry sub/dub anyway).
+- **The preview's selection flow**: `selectPreviewContent` (file-level in NotificationPosterSettingsScreen.kt) — screen open: feed-first → library-random; SHUFFLE: library-random EXCLUDING the on-stage id (one-shot `shuffleExclude` ref, consumed at the top of the produceState pass); TOGGLE FLIPS: re-render the CACHED `PreviewSelection` (never re-select). The refs/cache are deliberately NOT produceState keys.
+- **The tester spec** (EpisodeNotificationTester): the feed is NOT consulted; random distinct library entries (ANY entry qualifies); cycling when the library is small; `pickPureDemo()` when the library is EMPTY (blank mainId → the styled no-art stage; the title rides KEY_TITLE in the work data). The tester ALWAYS posts ≥1 when notifications are permitted.
+- **Episode labels**: `episodeLabel` in NotificationManager's companion + the composer's `episodeLabel` — "EP 12"/"EP 12.5", never "EP 12.0".
