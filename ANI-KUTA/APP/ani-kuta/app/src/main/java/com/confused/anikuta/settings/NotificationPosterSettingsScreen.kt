@@ -207,7 +207,7 @@ fun NotificationPosterSettingsScreen(
                             // The shuffle — re-rolls the random library pick (D-483).
                             androidx.compose.material3.TextButton(
                                 onClick = { roll++ },
-                                modifier = Modifier.align(Alignment.End),
+                                modifier = Modifier.align(Alignment.Horizontal.End),
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.Shuffle,
