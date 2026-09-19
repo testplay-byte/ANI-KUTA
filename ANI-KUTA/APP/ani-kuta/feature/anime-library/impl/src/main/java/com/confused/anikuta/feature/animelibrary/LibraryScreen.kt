@@ -3177,7 +3177,10 @@ private fun LibraryGridCard(
     onClick: (LibraryEntry) -> Unit,
     onLongClick: (LibraryEntry) -> Unit,
     episodeBadgeMode: EpisodeBadgeMode = EpisodeBadgeMode.OFF,
-    episodeBadgePosition: BadgePosition = BadgePosition.TOP_END,
+    // D-488: the episode badge's default follows the D-483 centered-at-top
+    // decision (was TOP_END — a stale default that contradicted the
+    // ViewModel's own TOP_CENTER fallback).
+    episodeBadgePosition: BadgePosition = BadgePosition.TOP_CENTER,
     showScoreBadge: Boolean = false,
     scoreBadgePosition: BadgePosition = BadgePosition.TOP_START,
     releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
@@ -3383,16 +3386,23 @@ private fun LibraryGridCard(
                     }
 
                     if (topStartBadges.isNotEmpty()) {
+                        // D-488: the positions come from the user's setting
+                        // (the ViewModel state this card receives) — the old
+                        // hard-coded TOP_START/TOP_END made the TOP_CENTER
+                        // default dead code ("centered at top" never reached
+                        // the screen in v1.1.10). The bucket names
+                        // (topStart/topEnd) are historical — they hold the
+                        // score-group and episode-group badges respectively.
                         CoverBadgeRow(
                             badges = topStartBadges,
-                            position = BadgePosition.TOP_START,
+                            position = scoreBadgePosition,
                             coverCornerRadius = badgeCornerRadius,
                         )
                     }
                     if (topEndBadges.isNotEmpty()) {
                         CoverBadgeRow(
                             badges = topEndBadges,
-                            position = BadgePosition.TOP_END,
+                            position = episodeBadgePosition,
                             coverCornerRadius = badgeCornerRadius,
                         )
                     }
@@ -3520,16 +3530,18 @@ private fun LibraryGridCard(
                 }
 
                 if (topStartBadges.isNotEmpty()) {
+                    // D-488: user-setting-driven positions (see the comfortable
+                    // branch note) — the compact/COVER_ONLY grid shares the fix.
                     CoverBadgeRow(
                         badges = topStartBadges,
-                        position = BadgePosition.TOP_START,
+                        position = scoreBadgePosition,
                         coverCornerRadius = badgeCornerRadius,
                     )
                 }
                 if (topEndBadges.isNotEmpty()) {
                     CoverBadgeRow(
                         badges = topEndBadges,
-                        position = BadgePosition.TOP_END,
+                        position = episodeBadgePosition,
                         coverCornerRadius = badgeCornerRadius,
                     )
                 }
@@ -4402,7 +4414,14 @@ private fun BoxScope.CoverBadgeRow(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 4.dp),
+            // D-488: the centered row floats 4dp INSIDE the top edge (the
+            // D-480 "floating pill" language) — corner rows stay flush so
+            // their outer corner keeps matching the cover's rounding.
+            modifier = Modifier.padding(
+                start = 4.dp,
+                end = 4.dp,
+                top = if (position == BadgePosition.TOP_CENTER) 4.dp else 0.dp,
+            ),
         ) {
             badges.forEachIndexed { idx, badge ->
                 if (idx > 0) {
