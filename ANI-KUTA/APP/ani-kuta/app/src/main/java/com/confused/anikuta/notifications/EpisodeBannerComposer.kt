@@ -70,7 +70,7 @@ class EpisodeBannerComposer(
      * The full composition. [overrideTitle]/[overrideEpisodeTitle] let the
      * live preview render with arbitrary sample text.
      *
-     * D-485: the whole body runs on Dispatchers.IO — the v1.1.10 device
+     * D-486: the whole body runs on Dispatchers.IO — the v1.1.10 device
      * round showed this chain throwing under the preview's MAIN-dispatch
      * produceState (and the tester's rememberCoroutineScope): the blocking
      * SQLDelight reads (getContentDetails / getEpisodeMetadata) ran on the
@@ -327,7 +327,7 @@ class EpisodeBannerComposer(
     /**
      * Loads an image with Coil at the requested size, bitmap result only.
      *
-     * D-485 — offline-first AND time-bounded: Coil already resolves in
+     * D-486 — offline-first AND time-bounded: Coil already resolves in
      * memory -> disk -> network order, so locally cached art (the 500MB
      * disk cache in AnikutaApp) is served instantly and offline; the
      * [withTimeoutOrNull] exists for the NEVER-cached case — the image
@@ -361,7 +361,7 @@ class EpisodeBannerComposer(
         private const val THUMB_W = 220
         private val LIME = Color.parseColor("#B1F256")
 
-        /** D-485: the per-image hard ceiling (ms) — see [loadBitmap]. */
+        /** D-486: the per-image hard ceiling (ms) — see [loadBitmap]. */
         private const val ART_LOAD_TIMEOUT_MS = 12_000L
     }
 }

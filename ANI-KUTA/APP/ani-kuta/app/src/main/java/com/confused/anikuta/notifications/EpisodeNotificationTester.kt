@@ -41,7 +41,7 @@ class EpisodeNotificationTester(
      * Posts up to [count] test poster notifications (1 now + the rest
      * staggered 5 minutes apart). Returns how many were scheduled.
      *
-     * D-485: the feed scan + library top-up below are BLOCKING SQLDelight
+     * D-486: the feed scan + library top-up below are BLOCKING SQLDelight
      * reads — they run on Dispatchers.IO, not the caller's main-dispatch
      * rememberCoroutineScope (the same main-thread failure class the
      * v1.1.10 device round exposed in the preview; the composer offloads

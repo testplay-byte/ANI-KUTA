@@ -192,7 +192,7 @@ fun NotificationsSettingsScreen(
                                     // section it does not show those options"). Both
                                     // screens write the SAME preference keys.
                                     //
-                                    // D-487: the block's LAYOUT now mirrors the Updates
+                                    // D-488: the block's LAYOUT now mirrors the Updates
                                     // screen's "Episode type" block EXACTLY (the user's
                                     // v1.1.10 round: the trailing-slot toggle was squeezed
                                     // into the row's end) — title + description stacked at

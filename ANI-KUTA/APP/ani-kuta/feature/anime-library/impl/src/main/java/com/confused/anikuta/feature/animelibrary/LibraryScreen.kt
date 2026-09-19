@@ -3177,7 +3177,7 @@ private fun LibraryGridCard(
     onClick: (LibraryEntry) -> Unit,
     onLongClick: (LibraryEntry) -> Unit,
     episodeBadgeMode: EpisodeBadgeMode = EpisodeBadgeMode.OFF,
-    // D-488: the episode badge's default follows the D-483 centered-at-top
+    // D-489: the episode badge's default follows the D-483 centered-at-top
     // decision (was TOP_END — a stale default that contradicted the
     // ViewModel's own TOP_CENTER fallback).
     episodeBadgePosition: BadgePosition = BadgePosition.TOP_CENTER,
@@ -3386,7 +3386,7 @@ private fun LibraryGridCard(
                     }
 
                     if (topStartBadges.isNotEmpty()) {
-                        // D-488: the positions come from the user's setting
+                        // D-489: the positions come from the user's setting
                         // (the ViewModel state this card receives) — the old
                         // hard-coded TOP_START/TOP_END made the TOP_CENTER
                         // default dead code ("centered at top" never reached
@@ -3530,7 +3530,7 @@ private fun LibraryGridCard(
                 }
 
                 if (topStartBadges.isNotEmpty()) {
-                    // D-488: user-setting-driven positions (see the comfortable
+                    // D-489: user-setting-driven positions (see the comfortable
                     // branch note) — the compact/COVER_ONLY grid shares the fix.
                     CoverBadgeRow(
                         badges = topStartBadges,
@@ -4414,7 +4414,7 @@ private fun BoxScope.CoverBadgeRow(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            // D-488: the centered row floats 4dp INSIDE the top edge (the
+            // D-489: the centered row floats 4dp INSIDE the top edge (the
             // D-480 "floating pill" language) — corner rows stay flush so
             // their outer corner keeps matching the cover's rounding.
             modifier = Modifier.padding(

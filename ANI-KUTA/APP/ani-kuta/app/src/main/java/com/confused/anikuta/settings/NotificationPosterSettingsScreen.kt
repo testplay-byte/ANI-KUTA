@@ -88,7 +88,7 @@ fun NotificationPosterSettingsScreen(
     data class Preview(val banner: android.graphics.Bitmap?, val failed: Boolean, val hasContent: Boolean)
     val preview by produceState(Preview(null, failed = false, hasContent = true), posterEnabled, showEpTitleState, showThumbState, showBadgeState, showBrandingState, backgroundSource, roll) {
         value = try {
-            // D-485: the feed/title/picker reads are BLOCKING SQLDelight
+            // D-486: the feed/title/picker reads are BLOCKING SQLDelight
             // queries (the picker alone does 1 + 2N queries over the
             // library) — they belong on IO, not the produceState's main
             // dispatcher. (The composer handles its own IO offload.)
@@ -120,7 +120,7 @@ fun NotificationPosterSettingsScreen(
                 if (mainId.isBlank()) {
                     // 3) Nothing qualifies — the "no episodes" state.
                     // failed = false on purpose: this is an honest empty
-                    // state, not a failure (D-485: the old UI gated this
+                    // state, not a failure (D-486: the old UI gated this
                     // state on failed=true, which made it unreachable).
                     return@withContext Preview(null, failed = false, hasContent = false)
                 }
@@ -178,7 +178,7 @@ fun NotificationPosterSettingsScreen(
                                             )
                                         }
                                     }
-                                    // D-485: the empty state is gated on
+                                    // D-486: the empty state is gated on
                                     // hasContent ALONE — the old
                                     // (failed && !hasContent) ordering made
                                     // it unreachable (the empty path sets
