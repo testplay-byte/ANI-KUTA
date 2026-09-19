@@ -1,0 +1,24 @@
+<!--
+  ANI-KUTA notification small icon (D-474)
+  Glyph: the kawaii mascot mouth simplified to a bold monochrome mark.
+  The white shape is the open-mouth cavity with the mascot's characteristic
+  up-turned corner spikes; knocked out of it (alpha cutouts, fillType evenOdd)
+  are (1) the big lobe-shaped tongue low in the mouth and (2) the two small
+  upper fangs hanging from the lip. Pure white #FFFFFFFF on transparent, no
+  tint, no gradients: the system alpha-masks and recolors notification small
+  icons, so color is supplied by the notification builder (Material You /
+  colorControlNormal), never by this file. Designed for a 24dp grid with
+  ~2dp side padding; all sub-paths are closed and the fang cutouts hug the
+  upper-lip curve (quadratic approximations of the lip cubic) so they read
+  as notches, never as floating specks.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M2,7.5 C6.5,10.8 9.5,11.4 12,11.4 C14.5,11.4 17.5,10.8 22,7.5 C21.4,13.5 18.5,19.5 12,19.5 C5.5,19.5 2.6,13.5 2,7.5 Z M5.8,13.5 C7.6,13 9.8,12.85 12,12.85 C14.2,12.85 16.4,13 18.2,13.5 C17.4,16.9 15.2,18.3 12,18.3 C8.8,18.3 6.6,16.9 5.8,13.5 Z M6.32,10.14 Q7.27,10.58 8.23,10.87 L7.15,12.45 Z M15.77,10.87 Q16.73,10.58 17.68,10.14 L16.85,12.45 Z" />
+</vector>

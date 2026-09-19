@@ -317,6 +317,26 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 com.confused.anikuta.notifications.UpdateProgressNotifierImpl(androidContext())
             }
             single { UpdateCheckLogStore(androidContext()) }
+
+            // D-477/D-478: the poster-banner composer (NotificationArtProvider)
+            // + the real-sample test notifications (the last two updated contents).
+            single {
+                com.confused.anikuta.notifications.EpisodeBannerComposer(
+                    androidContext(),
+                    get(),
+                    get(),
+                    get(),
+                )
+            }
+            single {
+                com.confused.anikuta.notifications.EpisodeNotificationTester(
+                    androidContext(),
+                    get(),
+                    get(),
+                    get(),
+                    get(),
+                )
+            }
             single<com.confused.anikuta.core.updates.UpdateCheckLogger> {
                 get<com.confused.anikuta.settings.UpdateCheckLogStore>()
             }

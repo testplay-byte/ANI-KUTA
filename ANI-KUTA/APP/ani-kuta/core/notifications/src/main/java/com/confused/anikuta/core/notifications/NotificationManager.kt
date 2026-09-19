@@ -1,5 +1,7 @@
 package com.confused.anikuta.core.notifications
 
+import com.confused.anikuta.core.notifications.R
+
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -31,10 +33,14 @@ class NotificationManager(
     // both). If the user picked "Sub only", a new dub episode is still inserted
     // into the feed but no notification is posted for it.
     private val updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences? = null,
+    // D-477: the poster art provider (:app impl — Coil + the customization
+    // config). Null = the plain BigTextStyle notification (also the fallback
+    // whenever the banner composition fails).
+    private val artProvider: NotificationArtProvider? = null,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Notifications"
-        private const val CHANNEL_ID = "anikuta_new_episodes"
+        const val CHANNEL_ID = "anikuta_new_episodes"  // public — the :app tester reuses the channel (D-478)
         private const val CHANNEL_NAME = "New episodes"
         private const val CHANNEL_ID_SILENT = "anikuta_new_episodes_silent"
         private const val CHANNEL_NAME_SILENT = "New episodes (silent)"
@@ -145,11 +151,30 @@ class NotificationManager(
         val priority = if (silent) NotificationCompat.PRIORITY_LOW
         else NotificationCompat.PRIORITY_DEFAULT
 
+        // D-477: the poster path — when the art provider is present and the
+        // poster style is enabled, compose the episode banner and render it
+        // via BigPictureStyle. Any failure falls back to the plain text style.
+        var style: NotificationCompat.Style = NotificationCompat.BigTextStyle().bigText(text)
+        if (artProvider != null && preferences.posterEnabled) {
+            try {
+                val banner = artProvider.buildEpisodeBanner(mainId, title, episodeNumber, audioVariant)
+                if (banner != null) {
+                    style = NotificationCompat.BigPictureStyle()
+                        .bigPicture(banner)
+                        .bigLargeIcon(null as? android.graphics.Bitmap)
+                        .setBigContentTitle(title)
+                        .setSummaryText(text)
+                }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "poster banner composition failed — falling back to text style" }
+            }
+        }
+
         val notification = NotificationCompat.Builder(context, channel)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setStyle(style)
             .setPriority(priority)
             .setAutoCancel(true)
             // D-193 Phase 7: tap action — deep-link to MainActivity (which opens the details page).
@@ -264,7 +289,7 @@ class NotificationManager(
         ensureChannel()
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))

@@ -6,6 +6,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,9 +19,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
@@ -29,7 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.BackAction
@@ -65,8 +74,14 @@ import org.koin.compose.viewmodel.koinViewModel
 fun NotificationsSettingsScreen(
     onBack: () -> Unit,
     onOpenLibrary: () -> Unit,
+    onOpenPosterSettings: () -> Unit,
     viewModel: NotificationsSettingsViewModel = koinViewModel(),
     notificationManager: com.confused.anikuta.core.notifications.NotificationManager = koinInject(),
+    // D-478: the real-sample tester.
+    tester: com.confused.anikuta.notifications.EpisodeNotificationTester = koinInject(),
+    // D-476: the episode-type toggle reads/writes the SHARED UpdatePreferences
+    // (the SAME keys the Updates settings screen writes).
+    updatePrefs: com.confused.anikuta.core.preferences.UpdatePreferences = koinInject(),
 ) {
     val masterEnabled by viewModel.masterEnabled.collectAsStateWithLifecycle()
     val defaults by viewModel.defaults.collectAsStateWithLifecycle()
@@ -168,11 +183,58 @@ fun NotificationsSettingsScreen(
                                         )
                                     }
 
-                                    // ── Test ──
+                                    // ── D-476: the global episode type — the SAME
+                                    // Sub/Dub/Both gate the Updates screen sets (the
+                                    // user: "in the updates there are options to switch
+                                    // between sub, dub, and both but in the notification
+                                    // section it does not show those options"). Both
+                                    // screens write the SAME preference keys.
+                                    SettingsGroupCard(label = "Episode type") {
+                                        SettingRow(
+                                            title = "Episode type",
+                                            description = "Which releases to notify about (shared with the Updates settings)",
+                                            trailing = {
+                                                val current = updatePrefs.getCheckSub() to updatePrefs.getCheckDub()
+                                                Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+                                                    listOf("Sub" to (true to false), "Both" to (true to true), "Dub" to (false to true)).forEach { (label, value) ->
+                                                        val selected = current == value
+                                                        Surface(
+                                                            shape = RoundedCornerShape(8.dp),
+                                                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                            modifier = Modifier
+                                                                .clickable {
+                                                                    updatePrefs.setCheckSub(value.first)
+                                                                    updatePrefs.setCheckDub(value.second)
+                                                                }
+                                                                .padding(1.dp),
+                                                        ) {
+                                                            Text(
+                                                                text = label,
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                        )
+                                    }
+
+                                    // ── D-477: the poster customization (live preview) ──
+                                    MoreListRow(
+                                        icon = Icons.Filled.Image,
+                                        title = "Notification poster",
+                                        subtitle = "Customize the episode banner + live preview",
+                                        onClick = onOpenPosterSettings,
+                                    )
+
+                                    // ── Test (D-478: the last two updated contents) ──
                                     SettingsGroupCard(label = "Test") {
                                         SettingRow(
-                                            title = "Send test notification",
-                                            description = "Posts a demo + delayed notification (60s)",
+                                            title = "Send test notifications",
+                                            description = "Poster notifications built from your last two updated contents",
                                             trailing = {
                                                 Icon(
                                                     imageVector = Icons.Filled.Send,
@@ -184,8 +246,8 @@ fun NotificationsSettingsScreen(
                                             onClick = {
                                                 scope.launch {
                                                     try {
-                                                        notificationManager.postTestNotification()
-                                                        Logger.i("Anikuta:Settings") { "Test notification sent" }
+                                                        val posted = tester.postRecentUpdateNotifications()
+                                                        Logger.i("Anikuta:Settings") { "Test notifications posted: $posted" }
                                                     } catch (e: Exception) {
                                                         Logger.e("Anikuta:Settings", e) { "Test notification failed" }
                                                     }

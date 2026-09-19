@@ -107,28 +107,17 @@ fun SettingsScreen(
                         )
                     }
 
-                    // ── Updates (D-388, round 25) — the update-check engine's
-                    // own settings page: mode, interval, categories, check-now,
-                    // and the update-check history. ──
+                    // ── D-476: ONE combined row — updates + notifications are
+                    // one feature (the checker feeds the alerts; the settings
+                    // share the Sub/Dub/Both gate). The Notifications page is
+                    // reachable from inside the Updates settings page. ──
                     item {
-                        SettingsSectionLabel("Updates")
-                        MoreListRow(
-                            icon = Icons.Filled.Update,
-                            title = "Updates",
-                            subtitle = "Episode update checks, schedule, history",
-                            onClick = onOpenUpdates,
-                        )
-                    }
-
-                    // ── Notifications (Phase NOTIF) — new-episode ALERTS (the
-                    // master toggle, per-anime config, test notification). ──
-                    item {
-                        SettingsSectionLabel("Notifications")
+                        SettingsSectionLabel("Updates & Notifications")
                         MoreListRow(
                             icon = Icons.Filled.Notifications,
-                            title = "Notifications",
-                            subtitle = "New-episode alerts, per-anime config",
-                            onClick = onOpenNotifications,
+                            title = "Updates & Notifications",
+                            subtitle = "Update checks, schedule, poster alerts",
+                            onClick = onOpenUpdates,
                         )
                     }
 

@@ -99,6 +99,21 @@ class UpdateStore(
             .mapToList(Dispatchers.IO)
             .map { list -> list.map { it.toEpisodeUpdate() } }
 
+    /**
+     * D-475: observe the count of LIVE unacknowledged updates for ONE anime,
+     * reactively. The details page collects this for its current mainId —
+     * when the background checker discovers episodes while the page is open,
+     * the count rises and the page auto-refreshes its episode list.
+     */
+    fun observeUnacknowledgedCountForMain(mainId: String): Flow<Int> =
+        database.episodeUpdateQueries.countUnacknowledgedForMain(
+            mainId = mainId,
+            now = System.currentTimeMillis(),
+        )
+            .asFlow()
+            .mapToList(Dispatchers.IO)
+            .map { rows -> rows.firstOrNull()?.let { it.COUNT.value.toInt() } ?: 0 }
+
     // ── anime_update_state ──
 
     /** Get the update state for an anime (null if not in the library). */

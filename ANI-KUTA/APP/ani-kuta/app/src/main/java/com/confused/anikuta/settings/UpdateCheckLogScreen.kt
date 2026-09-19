@@ -430,6 +430,25 @@ private fun CheckSessionCard(
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // D-479: sessions that found new episodes get a lime
+                    // highlight chip in the header — the user can spot the
+                    // productive checks at a glance in the history list.
+                    if (entry.totalNewEpisodes > 0) {
+                        Spacer(Modifier.height(4.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(6.dp),
+                        ) {
+                            Text(
+                                text = "+${entry.totalNewEpisodes} new episode" + if (entry.totalNewEpisodes > 1) "s" else "",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
                 }
                 OutcomeDot(success = entry.success, outcome = null)
             }

@@ -2956,3 +2956,27 @@ The user's round-46 instruction: ~5 Actions runs per release is too many; docs p
 
 ## D-473 (round 46): the pill pop's top/bottom clip — the CAPSULE was the clipper
 The v1.1.8 device round: the pop still clipped top/bottom even with the window slack. ROOT CAUSE: ViewGroups clip children to their own bounds BY DEFAULT — the exit bubble scales the 34dp ring to ~49dp inside the capsule's ~50dp height, and the capsule's default clipping shaved the overflow (the window had slack, the CAPSULE was the clipper). FIX: clipChildren=false + clipToPadding=false on BOTH the capsule and the root — the ring's overflow now draws into the padding + the window slack. The pop peak trimmed 1.45 → 1.4.
+
+## D-474 (round 46): the dedicated notification icon
+The stock `android.R.drawable.ic_dialog_info` ("inverted i") replaced with a purpose-built monochrome vector (`ic_notification.xml`, now in :core:notifications/res/drawable): the kawaii mouth + tongue glyph as a white alpha-masked silhouette (the tongue is a transparency cutout), designed for 24dp legibility. Wired into the episode notifications AND the test path; the check-progress notifications keep their sync icons (they're status, not identity).
+
+## D-475 (round 46): updates now APPLY to the content — the details page auto-refreshes
+ROOT CAUSE (the explore map): the update checker writes ONLY `episode_update`/`anime_update_state`; the details page reads the episode cache with an in-memory StateFlow and never observes either — new episodes appeared only after a manual refresh. FIX: a reactive observer — `countUnacknowledgedForMain` (SQLDelight) + `UpdateStore.observeUnacknowledgedCountForMain(mainId): Flow<Int>` + DetailsViewModel collects it for the current mainId (flatMapLatest over the mainId flow): when the count RISES above the page-open baseline (and no refresh is running), `refreshEpisodesListNow()` fires — the episode list updates LIVE. The baseline rule (first emission recorded, no refresh) prevents pre-existing older rows from firing; `onEpisodesRefreshed` rows are always pre-acknowledged so the page's own writes can't loop the observer.
+
+## D-476 (round 46): the settings IA — Updates & Notifications combined + the shared Sub/Dub/Both gate surfaced in notifications
+The Settings hub's two rows merged into ONE "Updates & Notifications" row → UpdatesSettingsScreen (whose trailing Notifications row remains — they're one feature, one flow). The Sub/Dub/Both episode-type SegmentedToggle now ALSO renders on NotificationsSettingsScreen, reading/writing the SAME `update_check_sub/dub` keys as the Updates screen — one gate, visible in both places (the user: "the notification section does not show those options").
+
+## D-477 (round 46): POSTER notifications — the composed episode banner
+The new-episode notifications render a composed 16:9 BANNER via BigPictureStyle instead of plain text. Architecture: `NotificationArtProvider` (interface, :core:notifications — a nullable constructor seam) + `EpisodeBannerComposer` (:app — Coil + the config): background = banner art (or cover per the "prefer cover" toggle) center-cropped; a left dark scrim; the content title (2-line wrap); "EPISODE N" in the lime accent; the episode title (from the episode metadata cache); a SUB/DUB lime chip; the episode's own thumbnail chip (from the cache's thumbnail_url) when the source provides one; an ANI-KUTA wordmark. Failures fall back to the plain text style — the banner can never break a notification. Config keys in NotificationPreferences (posterEnabled / backgroundSource / showEpisodeTitle / showEpisodeThumbnail / showAudioBadge / showBranding).
+
+## D-478 (round 46): the test notifications use the last two updated contents
+"Send test notifications" no longer posts hardcoded samples: `EpisodeNotificationTester` (:app) reads the newest rows of the episode_update feed, takes the last TWO distinct contents, and posts real poster notifications (real art, real episode numbers, real SUB/DUB, real titles) — different for every user, matching exactly what future alerts look like. Falls back to the old sample when the feed is empty.
+
+## D-479 (round 46): the update-check history — the productive-check highlight
+Sessions that found new episodes get a lime "+N new episodes" chip in the session header (the screen already carried covers, per-session summaries, outcome chips, and the smart-schedule panel — this adds the at-a-glance productive-check signal the user asked for).
+
+## D-480 (round 46): the library episode badges — soft theme pills
+The badges' "sharp" look came from the 45° pointed tips + outlines. The badge system is redesigned as fully-rounded PILLS: the pointed machinery removed, the 1dp outlines removed, a soft 2dp shadow for legibility on art, the sub/dub split-pill keeps its diagonal two-color fill inside the rounded shape, and the row floats 4dp inside the cover edge. The customize-sheet options are untouched.
+
+## D-481 (round 46): the poster customization page with LIVE PREVIEW
+`NotificationPosterSettingsScreen` (Notifications → "Notification poster"): toggles for every composition element + a LIVE PREVIEW that calls the SAME composer the real notifications use, re-composed on every toggle change, using the user's most recently updated content (real art) — what you tune is exactly what you'll get. A graceful empty-feed sample keeps the preview usable on fresh installs.

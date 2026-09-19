@@ -1830,3 +1830,15 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **D-468:** the pill window +40dp/24dp slack (the exact-fit window was the persistent clip).
 - **D-469:** the thumb border 2dp + black-40% (thinner + darker).
 - **D-470:** the seek pill per-orientation side distance (portrait 40dp at the sides, fullscreen 96dp inward).
+
+## Round 46 (Task 86) — the CI optimization + the updates/notifications overhaul + the library badges
+- **D-472:** CI runs per release cut to TWO (release-branch builds dropped, docs pushes ignored).
+- **D-473:** the pill pop's top/bottom clip fixed (ViewGroup child clipping).
+- **D-474:** the dedicated notification icon (kawaii mouth glyph, monochrome vector).
+- **D-475:** updates now APPLY — the details page auto-refreshes when the checker discovers episodes (a reactive unacknowledged-count observer).
+- **D-476:** the settings IA combined (one "Updates & Notifications" row) + the Sub/Dub/Both gate surfaced on the Notifications screen.
+- **D-477:** POSTER notifications (the composed episode banner: art + scrim + titles + audio chip + episode thumbnail, BigPictureStyle, full fallback) + the customization config.
+- **D-478:** the test notifications use the last two updated contents (real art + real data).
+- **D-479:** the history's productive-check highlight chip.
+- **D-480:** the library episode badges redesigned as soft theme pills.
+- **D-481:** the poster customization page with a live preview (the same composer the notifications use).

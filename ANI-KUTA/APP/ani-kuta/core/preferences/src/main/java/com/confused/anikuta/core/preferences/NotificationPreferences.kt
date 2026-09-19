@@ -118,6 +118,39 @@ class NotificationPreferences(private val store: PreferenceStore) {
             store.booleanFlow(KEY_DEF_DUB, false),
         ) { sub, dub -> AudioPref.fromBooleans(sub, dub) }
 
+    // ── D-477: the poster-notification customization ──────────────────────────
+    // The episode notifications render a composed BANNER (cover art + scrim +
+    // titles + SUB/DUB badge + optional episode thumbnail) instead of plain
+    // text. These keys drive both the composer (:app) and the live preview.
+
+    var posterEnabled: Boolean
+        get() = store.getBoolean(KEY_POSTER_ENABLED, true)
+        set(value) = store.putBoolean(KEY_POSTER_ENABLED, value)
+
+    fun posterEnabledFlow(): Flow<Boolean> = store.booleanFlow(KEY_POSTER_ENABLED, true)
+
+    /** Background art preference: "banner" (default — falls back to cover),
+     * "cover" (always the poster art). */
+    var posterBackgroundSource: String
+        get() = store.getString(KEY_POSTER_BACKGROUND, "banner")
+        set(value) = store.putString(KEY_POSTER_BACKGROUND, value)
+
+    var posterShowEpisodeTitle: Boolean
+        get() = store.getBoolean(KEY_POSTER_EP_TITLE, true)
+        set(value) = store.putBoolean(KEY_POSTER_EP_TITLE, value)
+
+    var posterShowEpisodeThumbnail: Boolean
+        get() = store.getBoolean(KEY_POSTER_THUMB, true)
+        set(value) = store.putBoolean(KEY_POSTER_THUMB, value)
+
+    var posterShowAudioBadge: Boolean
+        get() = store.getBoolean(KEY_POSTER_AUDIO_BADGE, true)
+        set(value) = store.putBoolean(KEY_POSTER_AUDIO_BADGE, value)
+
+    var posterShowBranding: Boolean
+        get() = store.getBoolean(KEY_POSTER_BRANDING, true)
+        set(value) = store.putBoolean(KEY_POSTER_BRANDING, value)
+
     // ── Library customization toggle (D-193 v2) ────────────────────────────────
     // When OFF (default): the default triggers above apply to every anime in the
     // library. No per-anime notification UI appears on the details page.
@@ -131,7 +164,13 @@ class NotificationPreferences(private val store: PreferenceStore) {
     fun libraryCustomizationEnabledFlow(): Flow<Boolean> =
         store.booleanFlow(KEY_LIBRARY_CUSTOM, false)
 
-    companion object {
+private companion object {
+        private const val KEY_POSTER_ENABLED = "notif_poster_enabled"
+        private const val KEY_POSTER_BACKGROUND = "notif_poster_background"
+        private const val KEY_POSTER_EP_TITLE = "notif_poster_ep_title"
+        private const val KEY_POSTER_THUMB = "notif_poster_thumb"
+        private const val KEY_POSTER_AUDIO_BADGE = "notif_poster_audio_badge"
+        private const val KEY_POSTER_BRANDING = "notif_poster_branding"
         private const val KEY_ENABLED = "notif_master_enabled"
         private const val KEY_DEF_SCHEDULE = "notif_def_schedule"
         private const val KEY_DEF_WATCHABLE = "notif_def_watchable"

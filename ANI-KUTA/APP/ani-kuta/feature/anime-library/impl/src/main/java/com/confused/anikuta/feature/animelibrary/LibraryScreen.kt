@@ -4392,11 +4392,6 @@ private fun BoxScope.CoverBadgeRow(
         BadgePosition.BOTTOM_START -> RoundedCornerShape(bottomStart = coverCornerRadius)
         BadgePosition.BOTTOM_END -> RoundedCornerShape(bottomEnd = coverCornerRadius)
     }
-    // Which chip is nearest the cover center (the innermost chip) — that one
-    // gets the pointed tip. For END-aligned rows the FIRST chip is innermost
-    // (point on its START side); for START-aligned rows the LAST chip is
-    // innermost (point on its END side).
-    val pointFirstChip = position == BadgePosition.TOP_END || position == BadgePosition.BOTTOM_END
     Surface(
         modifier = Modifier.align(alignment),
         color = Color.Transparent,
@@ -4404,6 +4399,7 @@ private fun BoxScope.CoverBadgeRow(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 4.dp),
         ) {
             badges.forEachIndexed { idx, badge ->
                 if (idx > 0) {
@@ -4416,16 +4412,10 @@ private fun BoxScope.CoverBadgeRow(
                     )
                 }
 
-                // D-252: this chip carries the pointed tip when it is the
-                // innermost one. Extra horizontal padding keeps the content
-                // clear of the transparent 45° tip (tip depth ≈ height/2 ≈ 7dp).
-                val isPointedChip = if (pointFirstChip) idx == 0 else idx == badges.lastIndex
-                val pointedShape = when {
-                    !isPointedChip -> null
-                    pointFirstChip -> PointedTagShape(PointedSide.START)
-                    else -> PointedTagShape(PointedSide.END)
-                }
-                val tipPadding = if (isPointedChip) 4.dp else 0.dp
+                // D-480: SOFT PILLS — the 45° pointed tips are gone (the user:
+                // the badges "look sharp" and don't match the theme). Every chip
+                // is a fully-rounded pill; legibility on busy art comes from a
+                // soft shadow instead of outlines.
 
                 if (badge.secondary != null) {
                     // ── Compound badge: single Surface with split background ──
@@ -4440,17 +4430,15 @@ private fun BoxScope.CoverBadgeRow(
                     // a pointed shape. Fix: clip(pointedShape) BEFORE drawBehind in
                     // the modifier chain, so the halves are trimmed to the tip.
                     //
-                    // D-257: 1dp outline (content color @ 50%) drawn after the fills
-                    // so the badge reads crisp against busy cover art (device
-                    // feedback: tags need borders). Follows the exact PointedTagShape
-                    // geometry (tip = h/2, 45°) — a Surface border param can't be
-                    // used here because the paint is hand-drawn.
+                    // (The D-257 hand-drawn outline was removed in D-480 —
+                    // the soft pill + shadow replace it.)
                     val sec = badge.secondary
-                    val compoundShape = pointedShape ?: RoundedCornerShape(0.dp)
+                    val compoundShape = RoundedCornerShape(50)
                     val outlineColor = badge.contentColor.copy(alpha = 0.5f)
                     Surface(
                         color = Color.Transparent,
-                        shape = RoundedCornerShape(0.dp),
+                        shape = compoundShape,
+                        shadowElevation = 2.dp,
                         modifier = Modifier
                             .clip(compoundShape)
                             .drawBehind {
@@ -4484,53 +4472,12 @@ private fun BoxScope.CoverBadgeRow(
                                     strokeWidth = 0.8.dp.toPx(),
                                 )
 
-                                // D-257: outline following the pointed geometry —
-                                // mirrors PointedTagShape (tip = h/2, 45° taper).
-                                // The outer half of the stroke is clipped by the
-                                // shape clip above, so the visible line is ~0.5dp.
-                                val outlinePath = Path().apply {
-                                    val tip = h * 0.5f
-                                    when {
-                                        pointedShape == null -> {
-                                            // Flat rectangle.
-                                            moveTo(0f, 0f)
-                                            lineTo(w, 0f)
-                                            lineTo(w, h)
-                                            lineTo(0f, h)
-                                            close()
-                                        }
-                                        pointFirstChip -> {
-                                            // PointedSide.START — left end tapers
-                                            // to a point at the vertical center.
-                                            moveTo(0f, h / 2f)
-                                            lineTo(tip, 0f)
-                                            lineTo(w, 0f)
-                                            lineTo(w, h)
-                                            lineTo(tip, h)
-                                            close()
-                                        }
-                                        else -> {
-                                            // PointedSide.END — right end tapers.
-                                            moveTo(0f, 0f)
-                                            lineTo(w - tip, 0f)
-                                            lineTo(w, h / 2f)
-                                            lineTo(w - tip, h)
-                                            lineTo(0f, h)
-                                            close()
-                                        }
-                                    }
-                                }
-                                drawPath(
-                                    path = outlinePath,
-                                    color = outlineColor,
-                                    style = Stroke(width = 1.dp.toPx()),
-                                )
                             },
                     ) {
                         Row(
                             modifier = Modifier.padding(
-                                start = 4.dp + tipPadding,
-                                end = 4.dp + tipPadding,
+                                start = 6.dp,
+                                end = 6.dp,
                                 top = 1.dp,
                                 bottom = 1.dp,
                             ),
@@ -4585,16 +4532,15 @@ private fun BoxScope.CoverBadgeRow(
                     // D-257: 1dp border (content color @ 50%) so the tag reads
                     // crisp against busy cover art (device feedback: tags need
                     // borders) — same treatment as the Browse score tag.
-                    val chipShape = pointedShape ?: RoundedCornerShape(0.dp)
                     Surface(
                         color = badge.containerColor,
-                        shape = chipShape,
-                        border = BorderStroke(1.dp, badge.contentColor.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(50),
+                        shadowElevation = 2.dp,
                     ) {
                         Row(
                             modifier = Modifier.padding(
-                                start = 5.dp + tipPadding,
-                                end = 5.dp + tipPadding,
+                                start = 6.dp,
+                                end = 6.dp,
                                 top = 1.dp,
                                 bottom = 1.dp,
                             ),

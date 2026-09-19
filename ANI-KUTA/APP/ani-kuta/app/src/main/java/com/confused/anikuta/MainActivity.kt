@@ -119,6 +119,7 @@ import com.confused.anikuta.settings.UpdatesSettingsScreen
 import com.confused.anikuta.settings.PlayerSettingsScreen
 import com.confused.anikuta.settings.NotificationsSettingsScreen
 import com.confused.anikuta.settings.NotificationsLibraryScreen
+import com.confused.anikuta.settings.NotificationPosterSettingsScreen
 import com.confused.anikuta.settings.VideoCachingScreen
 import com.confused.anikuta.settings.ThemeMode
 import com.confused.anikuta.settings.ThemePreferences
@@ -316,6 +317,9 @@ object UpdateCategoriesKey : NavKey
 // "Update check history") — every check session from the JSON log store.
 @Serializable
 object UpdateCheckLogKey : NavKey
+
+/** D-477: the notification-poster customization page (live preview). */
+object NotificationPosterKey : NavKey
 
 @Serializable
 object AppearanceKey : NavKey
@@ -1393,6 +1397,10 @@ fun AppRoot() {
             is NotificationsKey -> NotificationsSettingsScreen(
                 onBack = pop,
                 onOpenLibrary = { backstack.add(NotificationsLibraryKey) },
+                onOpenPosterSettings = { backstack.add(NotificationPosterKey) },
+            )
+            is NotificationPosterKey -> NotificationPosterSettingsScreen(
+                onBack = pop,
             )
             is NotificationsLibraryKey -> NotificationsLibraryScreen(
                 onBack = pop,

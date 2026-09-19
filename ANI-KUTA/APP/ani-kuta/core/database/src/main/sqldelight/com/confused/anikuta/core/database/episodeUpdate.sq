@@ -57,6 +57,15 @@ WHERE acknowledged = 0
   AND (new_expires_at IS NULL OR new_expires_at > :now)
 ORDER BY discovered_at DESC LIMIT :limit;
 
+-- D-475: the count of LIVE unacknowledged rows for ONE anime — the details
+-- page observes this reactively: when the background checker discovers new
+-- episodes while the page is open, the count rises and the page auto-refreshes.
+countUnacknowledgedForMain:
+SELECT COUNT(*) FROM episode_update
+WHERE main_id = :mainId
+  AND acknowledged = 0
+  AND (new_expires_at IS NULL OR new_expires_at > :now);
+
 -- Get all updates (New + Earlier), ordered by discovered_at DESC.
 getAllUpdates:
 SELECT * FROM episode_update ORDER BY discovered_at DESC LIMIT :limit;

@@ -202,6 +202,33 @@ class DetailsViewModel(
     // D-228: Reactive mainId — drives downloadStates + watchProgress.
     private val _mainIdFlow = MutableStateFlow<String?>(null)
 
+    // D-475: LIVE UPDATE APPLIER — when the background update checker discovers
+    // new episodes for the anime currently on screen, the unacknowledged-count
+    // flow for this mainId rises and the episode list auto-refreshes (once per
+    // batch, never while a refresh is already running). Fixes "updates do not
+    // get applied to the actual content — the details page stays stale until I
+    // refresh". flatMapLatest re-subscribes per mainId; the baseline (first
+    // emission) is recorded without triggering a refresh so pre-existing older
+    // rows don't fire it.
+    private val newEpisodeSignal: Flow<Int> = _mainIdFlow
+        .flatMapLatest { mainId ->
+            if (mainId.isNullOrBlank()) flowOf(0)
+            else updateStore.observeUnacknowledgedCountForMain(mainId)
+        }
+
+    init {
+        viewModelScope.launch {
+            var lastCount = -1
+            newEpisodeSignal.collect { count ->
+                if (count > 0 && count > lastCount && lastCount >= 0 && !_isRefreshing.value) {
+                    Logger.i(TAG) { "D-475: $count unacknowledged update(s) for the open anime — auto-refreshing episodes" }
+                    refreshEpisodesListNow()
+                }
+                lastCount = count
+            }
+        }
+    }
+
     /**
      * D.6: Per-episode download states — collected from [DownloadManager.episodeDownloadStates]
      * + mapped to the sealed [EpisodeDownloadState] (NOT the core typealias — that one

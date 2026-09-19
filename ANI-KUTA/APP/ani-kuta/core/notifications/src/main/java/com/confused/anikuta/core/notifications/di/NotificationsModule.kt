@@ -8,5 +8,7 @@ import org.koin.dsl.module
 
 val notificationsModule = module {
     single { NotificationConfigStore(get()) }
-    single { NotificationManager(get(), get(), get(), get(), get<UpdatePreferences>()) }
+    // D-477: the poster art provider (:app's EpisodeBannerComposer) rides the
+    // nullable seam — when absent, notifications fall back to plain text.
+    single { NotificationManager(get(), get(), get(), get(), get<UpdatePreferences>(), getOrNull()) }
 }
