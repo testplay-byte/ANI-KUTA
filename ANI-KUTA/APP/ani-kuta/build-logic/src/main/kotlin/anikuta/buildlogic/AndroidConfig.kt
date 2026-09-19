@@ -544,14 +544,43 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10116
+    const val versionName = "1.1.16"
+    // D-517 (round 53): release/1.1.16 — cut from the round-53 FEATURE branch
+    // head 3cb5adcc (the standing from-feature-branch model; main still
+    // carries NONE of this — the merge awaits the user's explicit
+    // confirmation). What the release carries on top of v1.1.15 (the full
+    // round-53 device round, D-508..D-516 — full detail:
+    // AGENT-CONTEXT/memory/decisions.md): D-508 THE STUDIO DRAG REBUILT —
+    // absolute segment anchors (the element's origin + the finger position
+    // captured once per drag/pinch segment; the snapped write-back never
+    // feeds the accumulation) fix the round's headline: "if I tried to move
+    // it slowly and precisely, it would never allow me to get out of an
+    // area" — slow precise drags now glide 1:1 and the magnet only pulls
+    // near a snap line; D-509 the SIZE slider lives BELOW the preview (it
+    // was at the left panel's bottom); D-510 the studio header's
+    // Back/Reset/Save are REAL buttons (tonal/outlined/filled primary);
+    // D-511 the per-element OPTIONS — texts get the font family
+    // (sans/condensed/serif/mono) + bold/italic/soft-shadow, chips get the
+    // tag BACKGROUND color + custom comma-separated LABEL text
+    // ("Subbed, Dubbed" → two tags) + label formatting; every style is a
+    // backward-compatible PosterElementLayout field (old saved JSON parses
+    // untouched) and renders through ONE shared PosterDrawing.typefaceFor;
+    // D-512 the HARD per-line ellipsis — long titles truncate to their
+    // column ("the first half of the title and then show the dots"), never
+    // paint past the margins, down to one word + "…"; D-513 the studio is a
+    // DESIGN CANVAS (BOTH SUB and DUB render regardless of availability) and
+    // opens on the settings screen's EXACT preview selection (it rides the
+    // nav key — no more "it picks another one"); D-514 the SMART ADAPTIVE
+    // SCRIM returns by measured luminance (bright art darkens up to 46%,
+    // already-dark art untouched — the round's reversal of the D-503
+    // removal); D-515 the Customize/Shuffle actions are REAL buttons
+    // (outlined + filled, Material paddings); D-516 the notification's
+    // one-line content title + "New episode available for …" (the first two
+    // words) ride BOTH banner post paths again — the heads-up card carries
+    // the title, the expanded shade shows the banner under it (the D-503
+    // empty-title experiment ends — the device round: the popup "was not
+    // expanded … it only showed me the notification").
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
