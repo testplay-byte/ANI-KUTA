@@ -18,6 +18,10 @@ import com.confused.anikuta.core.common.Logger
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.toBitmap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * D-477: composes the episode-notification BANNER — a 16:9 poster image the
@@ -65,8 +69,41 @@ class EpisodeBannerComposer(
     /**
      * The full composition. [overrideTitle]/[overrideEpisodeTitle] let the
      * live preview render with arbitrary sample text.
+     *
+     * D-485: the whole body runs on Dispatchers.IO — the v1.1.10 device
+     * round showed this chain throwing under the preview's MAIN-dispatch
+     * produceState (and the tester's rememberCoroutineScope): the blocking
+     * SQLDelight reads (getContentDetails / getEpisodeMetadata) ran on the
+     * main thread there, colliding with concurrent writers (the update
+     * worker, the download scanner) — the catch turned that into a null
+     * banner, which the UI showed as "Couldn't load the preview art" and
+     * the test notifications rendered as plain text. The composer now owns
+     * its dispatcher, so EVERY caller (preview on Main, tester on Main,
+     * the real notification path in a WorkManager worker) gets the same
+     * off-main guarantee without each call site having to remember.
      */
     suspend fun buildBanner(
+        mainId: String,
+        title: String,
+        episodeNumber: Double,
+        audioVariant: String,
+        overrideTitle: String? = null,
+        overrideEpisodeTitle: String? = null,
+        overrideEpisodeThumbUrl: String? = null,
+    ): Bitmap? = withContext(Dispatchers.IO) {
+        buildBannerInternal(
+            mainId = mainId,
+            title = title,
+            episodeNumber = episodeNumber,
+            audioVariant = audioVariant,
+            overrideTitle = overrideTitle,
+            overrideEpisodeTitle = overrideEpisodeTitle,
+            overrideEpisodeThumbUrl = overrideEpisodeThumbUrl,
+        )
+    }
+
+    /** The actual composition — always called on Dispatchers.IO (see [buildBanner]). */
+    private suspend fun buildBannerInternal(
         mainId: String,
         title: String,
         episodeNumber: Double,
@@ -80,11 +117,11 @@ class EpisodeBannerComposer(
             val bannerUrl = details?.dataBannerUrl
             val coverUrl = details?.dataCoverUrl
 
-            // D-486: the background fallback chain — banner -> cover -> the
-            // data-source extras' large cover (AniList's big art lives there)
-            // -> the episode's own thumbnail. Freshly-added library content
-            // often has no cached details art, which is why the v1.1.9 test
-            // notifications showed no banner.
+            // D-483 (item 4): the background fallback chain — banner -> cover
+            // -> the data-source extras' large cover (AniList's big art lives
+            // there) -> the episode's own thumbnail. Freshly-added library
+            // content often has no cached details art, which is why the
+            // v1.1.9 test notifications showed no banner.
             val extras = details?.let {
                 com.confused.anikuta.core.content.DataSourceExtras.fromJson(it.dataExtraJson)
             }
@@ -115,8 +152,15 @@ class EpisodeBannerComposer(
                 episodeTitle = episodeTitle,
                 thumbnail = thumb,
             )
+        } catch (e: CancellationException) {
+            // The caller's scope died (the preview left composition). Rethrow
+            // so coroutine cancellation stays honest — never swallow it.
+            throw e
         } catch (e: Exception) {
-            Logger.e(TAG, e) { "banner composition failed for mainId=$mainId" }
+            // The exception CLASS is in the message on purpose: the device
+            // round-trip is one logcat line, and "failed for mainId" without
+            // the class name forced a full stack-trace hunt last round.
+            Logger.e(TAG, e) { "banner composition failed (${e.javaClass.simpleName}) for mainId=$mainId" }
             null
         }
     }
@@ -280,7 +324,18 @@ class EpisodeBannerComposer(
         return baseline - textSize * 1.25f
     }
 
-    /** Loads an image with Coil at the requested size, bitmap result only. */
+    /**
+     * Loads an image with Coil at the requested size, bitmap result only.
+     *
+     * D-485 — offline-first AND time-bounded: Coil already resolves in
+     * memory -> disk -> network order, so locally cached art (the 500MB
+     * disk cache in AnikutaApp) is served instantly and offline; the
+     * [withTimeoutOrNull] exists for the NEVER-cached case — the image
+     * client's 30s-connect/60s-read ladder must not wedge a preview or a
+     * notification for minutes on a dead CDN. On timeout the null return
+     * hands control to the caller's fallback chain (thumb as background,
+     * then the flat dark stage) and compose() still returns a banner.
+     */
     private suspend fun loadBitmap(url: String, width: Int, height: Int): Bitmap? = try {
         // The exact proven coil3 pattern from UpdateProgressNotifierImpl
         // (execute -> image -> toBitmap). No allowHardware needed: coil3's
@@ -289,7 +344,11 @@ class EpisodeBannerComposer(
             .data(url)
             .size(width, height)
             .build()
-        context.imageLoader.execute(request).image?.toBitmap()
+        withTimeoutOrNull(ART_LOAD_TIMEOUT_MS) {
+            context.imageLoader.execute(request).image?.toBitmap()
+        }
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         Logger.w(TAG) { "art load failed for $url: ${e.message}" }
         null
@@ -301,5 +360,8 @@ class EpisodeBannerComposer(
         private const val H = 576
         private const val THUMB_W = 220
         private val LIME = Color.parseColor("#B1F256")
+
+        /** D-485: the per-image hard ceiling (ms) — see [loadBitmap]. */
+        private const val ART_LOAD_TIMEOUT_MS = 12_000L
     }
 }

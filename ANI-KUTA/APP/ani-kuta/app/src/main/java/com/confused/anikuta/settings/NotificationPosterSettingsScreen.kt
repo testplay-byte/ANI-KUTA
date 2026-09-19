@@ -41,6 +41,8 @@ import com.confused.anikuta.core.designsystem.component.SettingsGroupCard
 import com.confused.anikuta.core.preferences.NotificationPreferences
 import com.confused.anikuta.notifications.EpisodeBannerComposer
 import com.confused.anikuta.notifications.EpisodeDemoPicker
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 
 /**
@@ -86,46 +88,56 @@ fun NotificationPosterSettingsScreen(
     data class Preview(val banner: android.graphics.Bitmap?, val failed: Boolean, val hasContent: Boolean)
     val preview by produceState(Preview(null, failed = false, hasContent = true), posterEnabled, showEpTitleState, showThumbState, showBadgeState, showBrandingState, backgroundSource, roll) {
         value = try {
-            // 1) Feed-first: the newest detected update.
-            val feedRow = updateStore.getAllUpdates(limit = 1L).firstOrNull()
-            var mainId = feedRow?.mainId ?: ""
-            var title = if (mainId.isBlank()) "" else {
-                contentRepository.getMainEntryByMainId(mainId)?.title
-            } ?: ""
-            var episodeNumber = feedRow?.episodeNumber ?: 12.0
-            var audioVariant = feedRow?.audioVariant ?: "sub"
-            var overrideEpisodeTitle: String? = null
+            // D-485: the feed/title/picker reads are BLOCKING SQLDelight
+            // queries (the picker alone does 1 + 2N queries over the
+            // library) — they belong on IO, not the produceState's main
+            // dispatcher. (The composer handles its own IO offload.)
+            withContext(Dispatchers.IO) {
+                // 1) Feed-first: the newest detected update.
+                val feedRow = updateStore.getAllUpdates(limit = 1L).firstOrNull()
+                var mainId = feedRow?.mainId ?: ""
+                var title = if (mainId.isBlank()) "" else {
+                    contentRepository.getMainEntryByMainId(mainId)?.title
+                } ?: ""
+                var episodeNumber = feedRow?.episodeNumber ?: 12.0
+                var audioVariant = feedRow?.audioVariant ?: "sub"
+                var overrideEpisodeTitle: String? = null
 
-            // 2) The library fallback: a random content WITH episodes.
-            if (mainId.isBlank()) {
-                val demo = demoPicker.pickRandom()
-                if (demo != null) {
-                    mainId = demo.mainId
-                    title = demo.title
-                    episodeNumber = demo.episodeNumber
-                    audioVariant = demo.audioVariant
-                    // The demo shows "EPISODE N" of a random library anime —
-                    // no invented episode title.
-                    overrideEpisodeTitle = null
+                // 2) The library fallback: a random content WITH episodes.
+                if (mainId.isBlank()) {
+                    val demo = demoPicker.pickRandom()
+                    if (demo != null) {
+                        mainId = demo.mainId
+                        title = demo.title
+                        episodeNumber = demo.episodeNumber
+                        audioVariant = demo.audioVariant
+                        // The demo shows "EPISODE N" of a random library anime —
+                        // no invented episode title.
+                        overrideEpisodeTitle = null
+                    }
                 }
-            }
 
-            if (mainId.isBlank()) {
-                // 3) Nothing qualifies — the "no episodes" state.
-                value = Preview(null, failed = false, hasContent = false)
-                return@produceState
-            }
+                if (mainId.isBlank()) {
+                    // 3) Nothing qualifies — the "no episodes" state.
+                    // failed = false on purpose: this is an honest empty
+                    // state, not a failure (D-485: the old UI gated this
+                    // state on failed=true, which made it unreachable).
+                    return@withContext Preview(null, failed = false, hasContent = false)
+                }
 
-            val banner = composer.buildBanner(
-                mainId = mainId,
-                title = title.ifBlank { "Unknown title" },
-                episodeNumber = episodeNumber,
-                audioVariant = audioVariant,
-                overrideEpisodeTitle = overrideEpisodeTitle,
-            )
-            Preview(banner, failed = banner == null, hasContent = true)
+                val banner = composer.buildBanner(
+                    mainId = mainId,
+                    title = title.ifBlank { "Unknown title" },
+                    episodeNumber = episodeNumber,
+                    audioVariant = audioVariant,
+                    overrideEpisodeTitle = overrideEpisodeTitle,
+                )
+                Preview(banner, failed = banner == null, hasContent = true)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Logger.w("Anikuta:Settings") { "poster preview failed: ${e.message}" }
+            Logger.w("Anikuta:Settings") { "poster preview failed (${e.javaClass.simpleName}): ${e.message}" }
             Preview(null, failed = true, hasContent = true)
         }
     }
@@ -166,7 +178,13 @@ fun NotificationPosterSettingsScreen(
                                             )
                                         }
                                     }
-                                    result.failed && !result.hasContent -> {
+                                    // D-485: the empty state is gated on
+                                    // hasContent ALONE — the old
+                                    // (failed && !hasContent) ordering made
+                                    // it unreachable (the empty path sets
+                                    // failed=false) and rendered an eternal
+                                    // spinner instead of the honest message.
+                                    !result.hasContent -> {
                                         // D-483: the honest "no episodes" state —
                                         // no feed updates AND no library content
                                         // with cached episodes.

@@ -9,6 +9,8 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.notifications.NotificationManager
 import com.confused.anikuta.core.updates.UpdateStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 /**
@@ -38,20 +40,26 @@ class EpisodeNotificationTester(
     /**
      * Posts up to [count] test poster notifications (1 now + the rest
      * staggered 5 minutes apart). Returns how many were scheduled.
+     *
+     * D-485: the feed scan + library top-up below are BLOCKING SQLDelight
+     * reads — they run on Dispatchers.IO, not the caller's main-dispatch
+     * rememberCoroutineScope (the same main-thread failure class the
+     * v1.1.10 device round exposed in the preview; the composer offloads
+     * itself, this wrapper covers the tester's own reads).
      */
-    suspend fun postRecentUpdateNotifications(count: Int = 2): Int {
+    suspend fun postRecentUpdateNotifications(count: Int = 2): Int = withContext(Dispatchers.IO) {
         // The POST_NOTIFICATIONS gate (Android 13+).
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             val granted = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
             if (!granted) {
                 Logger.w(TAG) { "test: POST_NOTIFICATIONS not granted" }
-                return 0
+                return@withContext 0
             }
         }
         if (!notificationManager.areNotificationsEnabled()) {
             Logger.w(TAG) { "test: notifications master toggle is OFF" }
-            return 0
+            return@withContext 0
         }
 
         // ── The demo set: feed-first, then the random library fallback. ──
@@ -78,7 +86,7 @@ class EpisodeNotificationTester(
         val trimmed = demos.take(count)
         if (trimmed.isEmpty()) {
             Logger.i(TAG) { "test: no feed rows AND no eligible library content — nothing to demo" }
-            return 0
+            return@withContext 0
         }
 
         var scheduled = 0
@@ -116,7 +124,7 @@ class EpisodeNotificationTester(
             scheduled++
             Logger.i(TAG) { "test poster #$index scheduled for ${demo.title} (delay=${delayMinutes}min)" }
         }
-        return scheduled
+        scheduled
     }
 
     private companion object {
