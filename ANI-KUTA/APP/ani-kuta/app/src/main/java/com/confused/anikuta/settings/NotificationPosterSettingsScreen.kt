@@ -463,8 +463,13 @@ internal fun String.normalizeForDemo(): String = when (trim().lowercase()) {
 /**
  * D-494: the payload the preview renders — cached across toggle-flip
  * re-runs (see [selectionCache] at the call site).
+ *
+ * PUBLIC (the round-53 CI fix): the D-503 `internal` mark collided with the
+ * D-513 signature change — the public composable's `onOpenCustomize`
+ * parameter now exposes this type to MainActivity, and Kotlin forbids a
+ * public function exposing an internal parameter type argument.
  */
-internal data class PreviewSelection(
+data class PreviewSelection(
     val mainId: String,
     val title: String,
     val episodeNumber: Double,
