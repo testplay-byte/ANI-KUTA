@@ -59,13 +59,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -133,13 +136,27 @@ private class CsDoubleTapSeekState internal constructor(private val scope: Corou
     var totalSeconds by mutableIntStateOf(0)
         private set
     val alpha = Animatable(0f)
+
+    /** The switch pulse (D-462) — a separate job so the hold's cancellation
+     * never kills it. */
+    val pulse = Animatable(1f)
+
     private var job: Job? = null
+    private var pulseJob: Job? = null
 
     fun accumulate(forward: Boolean, stepSeconds: Int = 10) {
         val sameSide = visible && this.forward == forward
         this.forward = forward
         totalSeconds = if (sameSide) totalSeconds + stepSeconds else stepSeconds
         visible = true
+        if (sameSide) {
+            pulseJob?.cancel()
+            pulseJob = scope.launch {
+                pulse.snapTo(1f)
+                pulse.animateTo(1.12f, tween(90))
+                pulse.animateTo(1f, tween(140))
+            }
+        }
         job?.cancel()
         job = scope.launch {
             if (alpha.value < 1f) {
@@ -168,12 +185,16 @@ private fun CsDoubleTapSeekIndicator(state: CsDoubleTapSeekState, modifier: Modi
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 40.dp),
+                .padding(horizontal = 96.dp),
             contentAlignment = if (state.forward) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = Color.Black.copy(alpha = 0.6f * state.alpha.value),
+                modifier = Modifier.graphicsLayer {
+                    scaleX = state.pulse.value
+                    scaleY = state.pulse.value
+                },
             ) {
                 Text(
                     text = (if (state.forward) "+" else "-") + "${state.totalSeconds}s",
@@ -768,10 +789,9 @@ internal fun CsFullscreenControls(
                             } else {
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    // D-457: the lighter play/pause glass + a
-                                    // soft shadow for light scenes.
+                                    // D-457/D-463: the lighter play/pause
+                                    // glass (the D-463 block shadow removed).
                                     color = csThemedPlayPauseColor(),
-                                    shadowElevation = 6.dp,
                                     modifier = Modifier
                                         .size(60.dp)
                                         .clickable { onTogglePlay() },
@@ -837,9 +857,16 @@ internal fun CsFullscreenControls(
                                     ) {
                                         CsFsSpeedButton(speed = currentSpeed, onClick = onSpeedClick)
                                         CsFsSkipIconButton(onClick = onSkipForward)
+                                        // D-463: the exit joins the SAME tray as
+                                        // its neighbours (the user's round-44 spec)
+                                        // with the plain chip style, no shadow.
+                                        CsFsSmallButton(
+                                            icon = Icons.Default.FullscreenExit,
+                                            contentDescription = "Exit fullscreen",
+                                            onClick = onMinimize,
+                                        )
                                     }
                                 }
-                                CsFsExitButton(onClick = onMinimize)
                                 CsFsTimeContainer(text = formatCsTime(state.durationMs))
                             }
                         }
@@ -924,22 +951,8 @@ private fun CsFullscreenSeekbar(
             val barWidth = size.width
             val cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
 
-            // D-457: a soft dark backing slightly larger than the track — a
-            // canvas-friendly shadow that keeps the bar legible on light
-            // scenes (two stacked translucent rounds fake the blur).
-            drawRoundRect(
-                color = Color.Black.copy(alpha = 0.18f),
-                topLeft = Offset(0f, barY - 2.dp.toPx()),
-                size = Size(barWidth, barHeight + 4.dp.toPx()),
-                cornerRadius = CornerRadius(5.dp.toPx(), 5.dp.toPx()),
-            )
-            drawRoundRect(
-                color = Color.Black.copy(alpha = 0.18f),
-                topLeft = Offset(0f, barY - 1.dp.toPx()),
-                size = Size(barWidth, barHeight + 2.dp.toPx()),
-                cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-            )
-
+            // D-463: the track's dark backing was REMOVED (the user: the
+            // darker shadow belonged on the thumb, not the bar).
             drawRoundRect(color = trackColor, topLeft = Offset(0f, barY), size = Size(barWidth, barHeight), cornerRadius = cornerRadius)
             // Buffer-ahead segment (drawn between progress and end)
             if (bufferProgress > progress) {
@@ -957,12 +970,14 @@ private fun CsFullscreenSeekbar(
             val thumbSize = thumbSizeDp.toPx()
             val thumbX = (barWidth * progress - thumbSize / 2f).coerceAtLeast(0f)
             val thumbY = (size.height - thumbSize) / 2f
-            val halo = 3.dp.toPx()
+            // D-463: the thumb carries the DARKER shadow now (moved here
+            // from the track) + the light border ring stays.
+            val halo = 4.dp.toPx()
             drawRoundRect(
-                color = Color.Black.copy(alpha = 0.35f),
+                color = Color.Black.copy(alpha = 0.5f),
                 topLeft = Offset(thumbX - halo, thumbY - halo + 1.dp.toPx()),
                 size = Size(thumbSize + halo * 2, thumbSize + halo * 2),
-                cornerRadius = CornerRadius(7.dp.toPx(), 7.dp.toPx()),
+                cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx()),
             )
             drawRoundRect(
                 color = Color.White.copy(alpha = 0.55f),
@@ -1030,9 +1045,6 @@ private fun CsFsSkipButton(label: String, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = csThemedDarkGlassColor(),
-        // D-457: a soft drop shadow so the skip buttons stay clearly visible
-        // over bright scenes.
-        shadowElevation = 6.dp,
         modifier = Modifier
             .size(width = 56.dp, height = 44.dp)
             .clickable(onClick = onClick),
@@ -1043,6 +1055,15 @@ private fun CsFsSkipButton(label: String, onClick: () -> Unit) {
                 color = Color.White,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
+                // D-463: the shadow lives on the TEXT (a soft drop under the
+                // glyphs for legibility), NOT on the button block.
+                style = TextStyle(
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.7f),
+                        offset = Offset(0f, 2f),
+                        blurRadius = 8f,
+                    ),
+                ),
             )
         }
     }
@@ -1082,22 +1103,6 @@ private fun CsFsTimeContainer(text: String, modifier: Modifier = Modifier) {
         modifier = modifier,
     ) {
         Text(text = text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-    }
-}
-
-@Composable
-private fun CsFsExitButton(onClick: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        // D-457: the SAME per-button background as its neighbours + a soft
-        // shadow (the old primary-tinted square read as "backgroundless").
-        color = Color.White.copy(alpha = 0.12f),
-        shadowElevation = 4.dp,
-        modifier = Modifier.size(36.dp).clickable(onClick = onClick),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.FullscreenExit, contentDescription = "Exit fullscreen", tint = Color.White, modifier = Modifier.size(18.dp))
-        }
     }
 }
 

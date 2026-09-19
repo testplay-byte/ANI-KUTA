@@ -1817,3 +1817,9 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **D-456:** the double-tap seek feedback is CUMULATIVE (+10 → +20 → +30 …) with 2× the visible hold, shared by minimized + fullscreen in the MPV stack.
 - **D-457:** the player visual pass (both stacks): lighter/more transparent play-pause glass with bigger icons, skip-button shadows, the seekbar's shadow backing + the thumb's halo/border holder, the exit-fullscreen button matching its neighbours' background.
 - **D-458:** the CS stack's fullscreen seek indicator (file-private replica, isolation preserved).
+
+## Round 44 (Task 84) — the v1.1.6 device round: the pill container fix + the centered exit + the fullscreen shadow corrections
+- **D-460:** the pill's grow clipping root-caused (LayoutTransition bounds lag) and removed; constant label padding; "You can go back" (no "now").
+- **D-461:** the exit bubble slides the ring to the window center, then pops.
+- **D-462:** the seek pill 96dp from the edges + a pulse pop on every accumulating tap (both stacks).
+- **D-463:** the fullscreen shadows corrected — text shadows on the skip labels (block shadows removed), the track backing removed and the dark shadow moved to the thumb, the exit-fullscreen button inside the cluster tray with the plain chip style.

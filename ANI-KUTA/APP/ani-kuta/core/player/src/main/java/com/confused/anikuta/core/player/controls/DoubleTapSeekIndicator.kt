@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,7 +64,13 @@ class DoubleTapSeekState internal constructor(private val scope: CoroutineScope)
     /** The pill's shared alpha (driven by the hold animation). */
     val alpha = Animatable(0f)
 
+    /** The switch pulse — the pill pops (1 -> 1.12 -> 1) every time an
+     * accumulating tap raises the total (D-462: "+20 switches with an
+     * animation"). A SEPARATE job so the hold's cancellation never kills it. */
+    val pulse = Animatable(1f)
+
     private var job: Job? = null
+    private var pulseJob: Job? = null
 
     /**
      * Registers one double-tap seek of [stepSeconds] in [forward] direction:
@@ -75,6 +82,15 @@ class DoubleTapSeekState internal constructor(private val scope: CoroutineScope)
         this.forward = forward
         totalSeconds = if (sameSide) totalSeconds + stepSeconds else stepSeconds
         visible = true
+        if (sameSide) {
+            // D-462: the value switched — pop the pill.
+            pulseJob?.cancel()
+            pulseJob = scope.launch {
+                pulse.snapTo(1f)
+                pulse.animateTo(1.12f, tween(90))
+                pulse.animateTo(1f, tween(140))
+            }
+        }
         job?.cancel()
         job = scope.launch {
             if (alpha.value < 1f) {
@@ -119,12 +135,16 @@ fun DoubleTapSeekIndicator(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 40.dp),
+                .padding(horizontal = 96.dp),
             contentAlignment = if (state.forward) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = Color.Black.copy(alpha = 0.6f * state.alpha.value),
+                modifier = Modifier.graphicsLayer {
+                    scaleX = state.pulse.value
+                    scaleY = state.pulse.value
+                },
             ) {
                 Text(
                     text = (if (state.forward) "+" else "-") + "${state.totalSeconds}s",

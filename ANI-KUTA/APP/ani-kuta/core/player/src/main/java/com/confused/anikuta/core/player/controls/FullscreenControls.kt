@@ -51,10 +51,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -286,11 +288,9 @@ fun FullscreenControls(
                             } else {
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    // D-457: the lighter, more transparent
-                                    // play/pause glass + a soft shadow so the
-                                    // button reads on light scenes too.
+                                    // D-457/D-463: the lighter play/pause
+                                    // glass (the D-463 block shadow removed).
                                     color = themedPlayPauseColor(),
-                                    shadowElevation = 6.dp,
                                     modifier = Modifier
                                         .size(60.dp)
                                         .clickable { onTogglePlay() },
@@ -360,9 +360,12 @@ fun FullscreenControls(
                                         FSSpeedButton(speed = currentSpeed, onClick = onSpeedClick)
                                         FSSmallButton(icon = Icons.Default.RotateRight, contentDescription = "Rotate", onClick = onRotateClick)
                                         FSSkipIconButton(onClick = onSkipForward)
+                                        // D-463: the exit joins the SAME tray as
+                                        // its neighbours with the plain chip
+                                        // style, no shadow.
+                                        FSSmallButton(icon = Icons.Default.FullscreenExit, contentDescription = "Exit fullscreen", onClick = onMinimize)
                                     }
                                 }
-                                FSExitButton(onClick = onMinimize)
                                 FSTimeContainer(text = formatTime(duration))
                             }
                         }
@@ -447,22 +450,8 @@ private fun FullscreenSeekbarCustom(
             val barWidth = size.width
             val cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx(), 3.dp.toPx())
 
-            // D-457: a soft dark backing slightly larger than the track — a
-            // canvas-friendly shadow that keeps the bar legible on light
-            // scenes (two stacked translucent rounds fake the blur).
-            drawRoundRect(
-                color = Color.Black.copy(alpha = 0.18f),
-                topLeft = Offset(0f, barY - 2.dp.toPx()),
-                size = Size(barWidth, barHeight + 4.dp.toPx()),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(5.dp.toPx(), 5.dp.toPx()),
-            )
-            drawRoundRect(
-                color = Color.Black.copy(alpha = 0.18f),
-                topLeft = Offset(0f, barY - 1.dp.toPx()),
-                size = Size(barWidth, barHeight + 2.dp.toPx()),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-            )
-
+            // D-463: the track's dark backing was REMOVED (the user: the
+            // darker shadow belonged on the thumb, not the bar).
             drawRoundRect(color = trackColor, topLeft = Offset(0f, barY), size = Size(barWidth, barHeight), cornerRadius = cornerRadius)
             // Buffer-ahead segment (drawn between progress and end)
             if (bufferProgress > progress) {
@@ -482,13 +471,14 @@ private fun FullscreenSeekbarCustom(
             val thumbX = (barWidth * progress - thumbSize / 2f).coerceAtLeast(0f)
             val thumbY = (size.height - thumbSize) / 2f
             val thumbRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx(), 4.dp.toPx())
-            val halo = 3.dp.toPx()
-            // The shadow halo (soft dark, slightly offset downward).
+            // D-463: the thumb carries the DARKER shadow now (moved here
+            // from the track) + the light border ring stays.
+            val halo = 4.dp.toPx()
             drawRoundRect(
-                color = Color.Black.copy(alpha = 0.35f),
+                color = Color.Black.copy(alpha = 0.5f),
                 topLeft = Offset(thumbX - halo, thumbY - halo + 1.dp.toPx()),
                 size = Size(thumbSize + halo * 2, thumbSize + halo * 2),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius((4 + 3).dp.toPx(), (4 + 3).dp.toPx()),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
             )
             // The light border ring.
             drawRoundRect(
@@ -558,9 +548,6 @@ private fun FSSkipButton(label: String, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = themedDarkGlassColor(),
-        // D-457: the skip buttons get a soft drop shadow so they stay clearly
-        // visible over bright scenes.
-        shadowElevation = 6.dp,
         modifier = Modifier
             .size(width = 56.dp, height = 44.dp)
             .clickable(onClick = onClick),
@@ -571,6 +558,15 @@ private fun FSSkipButton(label: String, onClick: () -> Unit) {
                 color = Color.White,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
+                // D-463: the shadow lives on the TEXT (a soft drop under the
+                // glyphs for legibility), NOT on the button block.
+                style = TextStyle(
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.7f),
+                        offset = Offset(0f, 2f),
+                        blurRadius = 8f,
+                    ),
+                ),
             )
         }
     }
@@ -610,25 +606,6 @@ private fun FSTimeContainer(text: String, modifier: Modifier = Modifier) {
         modifier = modifier,
     ) {
         Text(text = text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-    }
-}
-
-@Composable
-private fun FSExitButton(onClick: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        // D-457: the exit button now carries the SAME per-button background
-        // as its neighbours (the top-right four + the bottom-right cluster's
-        // White-12% chips) — the old primary-tinted square read as
-        // "backgroundless" next to them — plus a soft shadow for light
-        // scenes.
-        color = Color.White.copy(alpha = 0.12f),
-        shadowElevation = 4.dp,
-        modifier = Modifier.size(36.dp).clickable(onClick = onClick),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.FullscreenExit, contentDescription = "Exit fullscreen", tint = Color.White, modifier = Modifier.size(18.dp))
-        }
     }
 }
 

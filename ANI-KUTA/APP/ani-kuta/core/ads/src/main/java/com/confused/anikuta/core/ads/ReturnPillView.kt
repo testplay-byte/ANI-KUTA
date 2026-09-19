@@ -3,7 +3,6 @@ package com.confused.anikuta.core.ads
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.AnimatorSet
-import android.animation.LayoutTransition
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.Context
@@ -66,7 +65,7 @@ data class ReturnPillColors(
  * stutter. The rebuilt pill resizes its window EXACTLY ZERO times:
  *
  * 1. The view tree is built in the READY shape (label reading the longer
- *    "You can go back now" + the chip present) and MEASURED before the
+ *    "You can go back" + the chip present) and MEASURED before the
  *    window is added — the controller sizes the window to that measured
  *    size once, and the surface never changes again.
  * 2. The counting presentation is pure transforms inside the fixed window:
@@ -138,7 +137,7 @@ class ReturnPillView(
         // D-452/D-454 headroom: the grow overshoot + pulse enlarge the capsule
         // BEYOND its laid-out bounds; the (fixed) window carries this padding
         // so every scale stays fully inside the surface.
-        val padH = dp(20).toInt()
+        val padH = dp(24).toInt()
         val padV = dp(8).toInt()
         setPadding(padH, padV, padH, padV)
 
@@ -149,22 +148,16 @@ class ReturnPillView(
             setStroke(dp(1).toInt(), withAlpha(pillColors.content, 0x14))
         }
 
-        // LayoutTransition animates the ONE in-surface relayout (chip
-        // GONE→VISIBLE at the grow). No window resize is ever involved.
-        val transition = LayoutTransition().apply {
-            setDuration(LayoutTransition.APPEARING, 240)
-            setDuration(LayoutTransition.CHANGE_APPEARING, 260)
-            setInterpolator(LayoutTransition.APPEARING, OvershootInterpolator(1.2f))
-            setInterpolator(LayoutTransition.CHANGE_APPEARING,
-                AnimationUtils.loadInterpolator(viewContext, android.R.interpolator.fast_out_slow_in))
-        }
-
+        // D-460: NO LayoutTransition — its animated bounds lagged one frame
+        // behind the chip/label becoming visible, so the text painted OUTSIDE
+        // the still-narrow rounded rect (the v1.1.6 "text outside the
+        // container" report). The grow is now a single-frame relayout with a
+        // scale compensation + a chip fade-in (see enterReadyState).
         capsule = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = capsuleBackground
             setPadding(dp(12).toInt(), dp(8).toInt(), dp(12).toInt(), dp(8).toInt())
-            layoutTransition = transition
         }
 
         ring = CountdownRingView(context, pillColors, totalMs)
@@ -174,7 +167,9 @@ class ReturnPillView(
             textSize = 13f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             text = COUNTDOWN_LABEL
-            setPadding(dp(10).toInt(), 0, dp(2).toInt(), 0)
+            // D-460: CONSTANT padding (no ready-state swap) so the measured
+            // window size always matches the laid-out content exactly.
+            setPadding(dp(10).toInt(), 0, dp(6).toInt(), 0)
         }
 
         capsule.addView(
@@ -197,6 +192,7 @@ class ReturnPillView(
                 setColor(pillColors.accent)
             }
             setPadding(dp(14).toInt(), dp(8).toInt(), dp(14).toInt(), dp(8).toInt())
+            alpha = 0f  // fades in at the grow (D-460)
         }
         capsule.addView(
             chipView,
@@ -267,11 +263,10 @@ class ReturnPillView(
     private fun enterReadyState() {
         if (isReady || isExiting) return
         isReady = true
-        Logger.d(TAG) { "countdown finished — ready state (Go back now active)" }
+        Logger.d(TAG) { "countdown finished — ready state (Go back active)" }
 
         countingWidth = capsule.width
         label.text = READY_LABEL
-        label.setPadding(dp(10).toInt(), 0, dp(6).toInt(), 0)
         ring.showCheckmark()
         chipView?.visibility = VISIBLE
         // The relayout lands on the next layout pass; compensate THIS frame
@@ -290,6 +285,8 @@ class ReturnPillView(
                 interpolator = OvershootInterpolator(1.1f)
                 start()
             }
+            // The chip fades in once the capsule is at its final width (D-460).
+            chipView?.animate()?.alpha(1f)?.setDuration(200)?.setStartDelay(120)?.start()
             startPulse()
         }
 
@@ -363,6 +360,16 @@ class ReturnPillView(
         label.animate().scaleX(0.4f).alpha(0f).setDuration(160).start()
         chipView?.animate()?.scaleX(0.4f)?.alpha(0f)?.setDuration(160)?.start()
 
+        // D-461: the ring sits at the capsule's LEFT while ready — slide it
+        // to the WINDOW's horizontal center as the rest dissolves, so the
+        // bubble pops dead-center (the v1.1.6 "pop plays on the left half"
+        // report). delta = window center - current ring center (root coords).
+        val ringCenterX = capsule.left + ring.left + ring.width / 2f
+        val slideDelta = width / 2f - ringCenterX
+        ring.animate().translationX(slideDelta).setDuration(220)
+            .setInterpolator(AnimationUtils.loadInterpolator(viewContext, android.R.interpolator.fast_out_slow_in))
+            .start()
+
         // The capsule's background dissolves (no empty rounded rect remains).
         // GradientDrawable has no float-alpha property pair for ObjectAnimator,
         // so a ValueAnimator drives setAlpha(Int) directly.
@@ -413,7 +420,7 @@ class ReturnPillView(
     private companion object {
         private const val TAG = "Anikuta:Core:Ads:ReturnPill"
         private const val COUNTDOWN_LABEL = "Stay a moment…"
-        private const val READY_LABEL = "You can go back now"
+        private const val READY_LABEL = "You can go back"
         /** The counting presentation's scale (visibly smaller than ready — D-448). */
         private const val COUNT_SCALE = 0.92f
         /** The ready-state size bump (D-448: "the size will slightly increase"). */
