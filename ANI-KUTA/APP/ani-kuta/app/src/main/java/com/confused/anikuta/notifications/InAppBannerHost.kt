@@ -116,11 +116,17 @@ fun InAppBannerHost(controller: InAppBannerController = koinInject()) {
             contentAlignment = Alignment.TopCenter,
         ) {
             val event = current
-            if (event != null) {
-                if (event.bitmap != null && event.bitmap.width > 0 && event.bitmap.height > 0) {
+            // Local capture for the null check: `event.bitmap` is a public
+            // property declared in :core:notifications — Kotlin cannot smart
+            // cast across modules, so the bitmap must be captured into a
+            // LOCAL val before the width/height guards (CI round 1's lesson).
+            val bannerBitmap = event?.bitmap
+            when {
+                event == null -> {}
+                bannerBitmap != null && bannerBitmap.width > 0 && bannerBitmap.height > 0 -> {
                     // The poster card: the notification's own banner, 1:1.
                     Image(
-                        bitmap = event.bitmap.asImageBitmap(),
+                        bitmap = bannerBitmap.asImageBitmap(),
                         contentDescription = "New episode banner — ${event.title}",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
@@ -134,7 +140,8 @@ fun InAppBannerHost(controller: InAppBannerController = koinInject()) {
                             .clip(RoundedCornerShape(18.dp))
                             .clickable { visible = false },
                     )
-                } else {
+                }
+                else -> {
                     // The text card: a post without a composed banner still
                     // surfaces in-app (never fully silent).
                     Row(
