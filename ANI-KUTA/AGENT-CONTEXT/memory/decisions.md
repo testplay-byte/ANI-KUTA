@@ -3011,3 +3011,14 @@ THE v1.1.10 DISCONNECT: "centered at top" shipped the TOP_CENTER enum + the View
 > it never got a decisions.md entry on this line. To keep the D-space unique
 > this round's entries START at D-486; a `grep D-485` lands on the
 > release/1.1.10 branch point, not on any round-48 work.
+
+## D-490 (round 48): release/1.1.11 — the release cut (the record lives on the branch)
+`release/1.1.11` cut from the round-48 feature head `82d5f1a2` (CI green: runs
+35447640042 + 35448111350) as ONE commit: the version bump (1.1.11/10111 in
+AndroidConfig.kt) + the branch-point record
+(`DOCUMENTATION/cloudstream-v2/40-RELEASE-1.1.11-BRANCH-POINT.md`). Tag
+`v1.1.11` carries the user-facing What's New bullets (D-466); the Release APK
+workflow (run 35448588733, GREEN) published
+`ani-kuta-v1.1.11-debug-arm64-v8a.apk` (66.7 MB) + `SHA256SUMS.txt`, stable +
+`--latest` — verified via the API (assets + body). Main stays at 0.4.20/85
+(D-425). Full detail: the branch-point doc on the release branch.
