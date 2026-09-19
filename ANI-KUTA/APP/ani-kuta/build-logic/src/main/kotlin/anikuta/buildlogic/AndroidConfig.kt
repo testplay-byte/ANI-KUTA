@@ -544,14 +544,23 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10106
+    const val versionName = "1.1.6"
+    // D-459 (round 43): release/1.1.6 — cut from the round-43 FEATURE branch
+    // head 4b7b2042 (the from-feature-branch model by the user's standing
+    // instruction; main still carries NONE of this — the merge awaits the
+    // user's explicit confirmation). What the release carries (the full
+    // v1.1.4/1.1.5 set PLUS round 43): D-454 the pill rebuilt (zero window
+    // resizes, ON_STOP-synced countdown, the red X on an early return),
+    // D-455 the launcher zoomed in (a slight mask crop intended), D-456 the
+    // cumulative double-tap seek (+10 -> +20 -> +30, 2x the hold, fullscreen
+    // parity in BOTH stacks), D-457 the player visual pass (the lighter
+    // play/pause glass with bigger icons, the skip-button shadows, the
+    // seekbar's backing + thumb holder, the exit button's matching
+    // background), D-458 the CS replica. 1.1.6 is the next number after
+    // v1.1.5; 10106 > 10105 — the debug app updates over its installed
+    // v1.1.5 in-app. Main stays at 0.4.20/85 (D-425: the bump lives on the
+    // release branch).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
