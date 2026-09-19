@@ -190,19 +190,25 @@ fun NotificationsSettingsScreen(
                                     // section it does not show those options"). Both
                                     // screens write the SAME preference keys.
                                     SettingsGroupCard(label = "Episode type") {
+                                        // The selection is STATE (seeded from the
+                                        // shared prefs) so tapping recomposes instantly;
+                                        // the prefs write keeps the two screens in sync.
+                                        var audioGate by remember {
+                                            mutableStateOf(updatePrefs.getCheckSub() to updatePrefs.getCheckDub())
+                                        }
                                         SettingRow(
                                             title = "Episode type",
                                             description = "Which releases to notify about (shared with the Updates settings)",
                                             trailing = {
-                                                val current = updatePrefs.getCheckSub() to updatePrefs.getCheckDub()
                                                 Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
                                                     listOf("Sub" to (true to false), "Both" to (true to true), "Dub" to (false to true)).forEach { (label, value) ->
-                                                        val selected = current == value
+                                                        val selected = audioGate == value
                                                         Surface(
                                                             shape = RoundedCornerShape(8.dp),
                                                             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                                             modifier = Modifier
                                                                 .clickable {
+                                                                    audioGate = value
                                                                     updatePrefs.setCheckSub(value.first)
                                                                     updatePrefs.setCheckDub(value.second)
                                                                 }

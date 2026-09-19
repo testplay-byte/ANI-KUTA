@@ -17,7 +17,6 @@ import com.confused.anikuta.core.preferences.NotificationPreferences
 import com.confused.anikuta.core.common.Logger
 import coil3.imageLoader
 import coil3.request.ImageRequest
-import coil3.request.allowHardware
 import coil3.toBitmap
 
 /**
@@ -80,7 +79,6 @@ class EpisodeBannerComposer(
             val details = contentRepository.getContentDetails(mainId)
             val bannerUrl = details?.dataBannerUrl
             val coverUrl = details?.dataCoverUrl
-                ?: details?.coverUrlLarge
 
             // The background source per the user's config: banner first
             // (falling back to the cover) or always the cover.
@@ -275,10 +273,12 @@ class EpisodeBannerComposer(
 
     /** Loads an image with Coil at the requested size, bitmap result only. */
     private suspend fun loadBitmap(url: String, width: Int, height: Int): Bitmap? = try {
+        // The exact proven coil3 pattern from UpdateProgressNotifierImpl
+        // (execute -> image -> toBitmap). No allowHardware needed: coil3's
+        // toBitmap converts hardware bitmaps, which Canvas drawing requires.
         val request = ImageRequest.Builder(context)
             .data(url)
             .size(width, height)
-            .allowHardware(false)
             .build()
         context.imageLoader.execute(request).image?.toBitmap()
     } catch (e: Exception) {
@@ -290,7 +290,7 @@ class EpisodeBannerComposer(
         private const val TAG = "Anikuta:App:BannerComposer"
         private const val W = 1024
         private const val H = 576
-        private val THUMB_W = 220f
+        private const val THUMB_W = 220
         private val LIME = Color.parseColor("#B1F256")
     }
 }

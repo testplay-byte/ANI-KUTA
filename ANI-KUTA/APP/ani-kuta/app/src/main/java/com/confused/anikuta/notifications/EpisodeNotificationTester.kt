@@ -49,7 +49,7 @@ class EpisodeNotificationTester(
             return 0
         }
 
-        val feed = updateStore.getAllUpdates(limit = 50)
+        val feed = updateStore.getAllUpdates(limit = 50L)
         // The latest row per content (distinct mainId, newest first).
         val latestPerContent = LinkedHashSet<String>().also { seen ->
             feed.forEach { row -> if (row.mainId !in seen) seen.add(row.mainId) }
@@ -68,8 +68,9 @@ class EpisodeNotificationTester(
         var posted = 0
         latestPerContent.forEachIndexed { index, mainId ->
             val row = feed.first { it.mainId == mainId }
-            val details = contentRepository.getContentDetails(mainId)
-            val title = details?.title ?: "Unknown anime"
+            // The title lives on main_entry (ContentRecord) — ContentDetails
+            // deliberately doesn't carry it (see ContentModels.kt's header).
+            val title = contentRepository.getMainEntryByMainId(mainId)?.title ?: "Unknown anime"
             val displayAudio = when (row.audioVariant) {
                 "sub" -> "SUB"
                 "dub" -> "DUB"

@@ -17,10 +17,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -71,13 +74,15 @@ fun NotificationPosterSettingsScreen(
     // The live preview — re-composed whenever any toggle changes. Sample =
     // the newest row in the update feed (the user's own content); a graceful
     // built-in sample when the feed is empty.
-    val preview by produceState<Result?>(initialValue = null, posterEnabled, showEpTitleState, showThumbState, showBadgeState, showBrandingState, backgroundSource) {
+    data class Preview(val banner: android.graphics.Bitmap?, val failed: Boolean)
+    val preview by produceState(Preview(null, failed = false), posterEnabled, showEpTitleState, showThumbState, showBadgeState, showBrandingState, backgroundSource) {
         value = try {
             val feed = updateStore.getAllUpdates(limit = 1)
             val row = feed.firstOrNull()
             val mainId = row?.mainId ?: ""
+            // The real title lives on main_entry (ContentRecord).
             val effectiveTitle = if (mainId.isBlank()) "Sample Anime Title" else {
-                contentRepository.getContentDetails(mainId)?.title ?: "Sample Anime Title"
+                contentRepository.getMainEntryByMainId(mainId)?.title ?: "Sample Anime Title"
             }
             val banner = composer.buildBanner(
                 mainId = mainId,
@@ -87,10 +92,10 @@ fun NotificationPosterSettingsScreen(
                 overrideTitle = if (mainId.isBlank()) "Sample Anime Title" else null,
                 overrideEpisodeTitle = if (mainId.isBlank()) "Sample episode title" else null,
             )
-            Result.success(banner)
+            Preview(banner, failed = false)
         } catch (e: Exception) {
             Logger.w("Anikuta:Settings") { "poster preview failed: ${e.message}" }
-            Result.failure(e)
+            Preview(null, failed = true)
         }
     }
 
@@ -130,15 +135,15 @@ fun NotificationPosterSettingsScreen(
                                             )
                                         }
                                     }
-                                    result is Result.success && result.value != null -> {
+                                    !result.failed && result.banner != null -> {
                                         Image(
-                                            bitmap = result.value.asAndroidBitmap(),
+                                            bitmap = result.banner.asImageBitmap(),
                                             contentDescription = "Notification poster preview",
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize(),
                                         )
                                     }
-                                    result is Result.failure -> {
+                                    result.failed -> {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
                                             androidx.compose.material3.Text(
                                                 "Preview needs your latest update's art — open a Library anime once to cache it.",

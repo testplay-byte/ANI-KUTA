@@ -1,0 +1,1854 @@
+﻿2026-09-19T10:53:21.0821722Z Current runner version: '2.337.0'
+2026-09-19T10:53:21.0845870Z ##[group]Runner Image Provisioner
+2026-09-19T10:53:21.0846753Z Hosted Compute Agent
+2026-09-19T10:53:21.0847420Z Version: 20260828.587
+2026-09-19T10:53:21.0848081Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-19T10:53:21.0848836Z Build Date: 2026-08-28T16:44:25Z
+2026-09-19T10:53:21.0849708Z Worker ID: {ee91b772-45ae-45fa-b8fa-de68d3c33c20}
+2026-09-19T10:53:21.0850472Z Azure Region: northcentralus
+2026-09-19T10:53:21.0851553Z ##[endgroup]
+2026-09-19T10:53:21.0853392Z ##[group]Operating System
+2026-09-19T10:53:21.0854013Z Ubuntu
+2026-09-19T10:53:21.0854676Z 24.04.5
+2026-09-19T10:53:21.0855216Z LTS
+2026-09-19T10:53:21.0855758Z ##[endgroup]
+2026-09-19T10:53:21.0856320Z ##[group]Runner Image
+2026-09-19T10:53:21.0856942Z Image: ubuntu-24.04
+2026-09-19T10:53:21.0857646Z Version: 20260907.300.1
+2026-09-19T10:53:21.0858855Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/Ubuntu2404-Readme.md
+2026-09-19T10:53:21.0860852Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260907.300
+2026-09-19T10:53:21.0862171Z ##[endgroup]
+2026-09-19T10:53:21.0863493Z ##[group]GITHUB_TOKEN Permissions
+2026-09-19T10:53:21.0865591Z Contents: read
+2026-09-19T10:53:21.0866289Z Metadata: read
+2026-09-19T10:53:21.0866847Z Packages: read
+2026-09-19T10:53:21.0867471Z ##[endgroup]
+2026-09-19T10:53:21.0869483Z Secret source: Actions
+2026-09-19T10:53:21.0870497Z Cache mode: write
+2026-09-19T10:53:21.0871918Z Prepare workflow directory
+2026-09-19T10:53:21.1272352Z Prepare all required actions
+2026-09-19T10:53:21.1319668Z Getting action download info
+2026-09-19T10:53:21.4072969Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-09-19T10:53:21.4975428Z Download action repository 'gradle/actions@v4' (SHA:ed408507eac070d1f99cc633dbcf757c94c7933a)
+2026-09-19T10:53:22.5480206Z Download action repository 'actions/setup-java@v4' (SHA:cf277c60eb25467037889841efdb72551f06f6c3)
+2026-09-19T10:53:23.1712518Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-09-19T10:53:23.3859996Z Complete job name: build
+2026-09-19T10:53:23.4574207Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-19T10:53:23.4582148Z ##[group]Run actions/checkout@v4
+2026-09-19T10:53:23.4582685Z with:
+2026-09-19T10:53:23.4582979Z   repository: testplay-byte/ANI-KUTA
+2026-09-19T10:53:23.4585653Z   token: ***
+2026-09-19T10:53:23.4585926Z   ssh-strict: true
+2026-09-19T10:53:23.4586191Z   ssh-user: git
+2026-09-19T10:53:23.4586460Z   persist-credentials: true
+2026-09-19T10:53:23.4586763Z   clean: true
+2026-09-19T10:53:23.4587035Z   sparse-checkout-cone-mode: true
+2026-09-19T10:53:23.4587427Z   fetch-depth: 1
+2026-09-19T10:53:23.4587688Z   fetch-tags: false
+2026-09-19T10:53:23.4587963Z   show-progress: true
+2026-09-19T10:53:23.4588230Z   lfs: false
+2026-09-19T10:53:23.4588515Z   submodules: false
+2026-09-19T10:53:23.4588785Z   set-safe-directory: true
+2026-09-19T10:53:23.4589092Z   allow-unsafe-pr-checkout: false
+2026-09-19T10:53:23.4589644Z ##[endgroup]
+2026-09-19T10:53:23.5580624Z Syncing repository: testplay-byte/ANI-KUTA
+2026-09-19T10:53:23.5582950Z ##[group]Getting Git version info
+2026-09-19T10:53:23.5583713Z Working directory is '/home/runner/work/ANI-KUTA/ANI-KUTA'
+2026-09-19T10:53:23.5584802Z [command]/usr/bin/git version
+2026-09-19T10:53:23.5624549Z git version 2.55.0
+2026-09-19T10:53:23.5646784Z ##[endgroup]
+2026-09-19T10:53:23.5742466Z Temporarily overriding HOME='/home/runner/work/_temp/ff912f53-2897-4c0c-82ed-e130ceb50cd1' before making global git config changes
+2026-09-19T10:53:23.5744694Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-19T10:53:23.5748112Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/ANI-KUTA/ANI-KUTA
+2026-09-19T10:53:23.5752199Z Deleting the contents of '/home/runner/work/ANI-KUTA/ANI-KUTA'
+2026-09-19T10:53:23.5755123Z ##[group]Initializing the repository
+2026-09-19T10:53:23.5756941Z [command]/usr/bin/git init /home/runner/work/ANI-KUTA/ANI-KUTA
+2026-09-19T10:53:23.5824729Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-19T10:53:23.5825984Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-19T10:53:23.5827005Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-19T10:53:23.5827488Z hint: call:
+2026-09-19T10:53:23.5827740Z hint:
+2026-09-19T10:53:23.5828081Z hint: 	git config --global init.defaultBranch <name>
+2026-09-19T10:53:23.5828458Z hint:
+2026-09-19T10:53:23.5828819Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-19T10:53:23.5829417Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-19T10:53:23.5829865Z hint:
+2026-09-19T10:53:23.5830136Z hint: 	git branch -m <name>
+2026-09-19T10:53:23.5830457Z hint:
+2026-09-19T10:53:23.5830900Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-19T10:53:23.5836489Z Initialized empty Git repository in /home/runner/work/ANI-KUTA/ANI-KUTA/.git/
+2026-09-19T10:53:23.5847668Z [command]/usr/bin/git remote add origin https://github.com/testplay-byte/ANI-KUTA
+2026-09-19T10:53:23.5903698Z ##[endgroup]
+2026-09-19T10:53:23.5904421Z ##[group]Disabling automatic garbage collection
+2026-09-19T10:53:23.5905520Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-19T10:53:23.5957386Z ##[endgroup]
+2026-09-19T10:53:23.5958769Z ##[group]Setting up auth
+2026-09-19T10:53:23.5964389Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-19T10:53:23.5997835Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-19T10:53:23.6336587Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-19T10:53:23.6378686Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-19T10:53:23.6616804Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-19T10:53:23.6652832Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-19T10:53:23.6880909Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-19T10:53:23.6918823Z ##[endgroup]
+2026-09-19T10:53:23.6919530Z ##[group]Fetching the repository
+2026-09-19T10:53:23.6928512Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +f74a3266262508992cf5e0c0fb03cd3db71e9f85:refs/remotes/origin/feature/ads-return-pill
+2026-09-19T10:53:25.5625244Z From https://github.com/testplay-byte/ANI-KUTA
+2026-09-19T10:53:25.5625995Z  * [new ref]         f74a3266262508992cf5e0c0fb03cd3db71e9f85 -> origin/feature/ads-return-pill
+2026-09-19T10:53:25.5630912Z ##[endgroup]
+2026-09-19T10:53:25.5631947Z ##[group]Determining the checkout info
+2026-09-19T10:53:25.5634727Z ##[endgroup]
+2026-09-19T10:53:25.5642210Z [command]/usr/bin/git sparse-checkout disable
+2026-09-19T10:53:25.5693490Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-19T10:53:25.5726418Z ##[group]Checking out the ref
+2026-09-19T10:53:25.5735548Z [command]/usr/bin/git checkout --progress --force -B feature/ads-return-pill refs/remotes/origin/feature/ads-return-pill
+2026-09-19T10:53:25.9242376Z Switched to a new branch 'feature/ads-return-pill'
+2026-09-19T10:53:25.9272107Z branch 'feature/ads-return-pill' set up to track 'origin/feature/ads-return-pill'.
+2026-09-19T10:53:25.9273959Z ##[endgroup]
+2026-09-19T10:53:25.9309635Z [command]/usr/bin/git log -1 --format=%H
+2026-09-19T10:53:25.9336168Z f74a3266262508992cf5e0c0fb03cd3db71e9f85
+2026-09-19T10:53:25.9559180Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-19T10:53:25.9560811Z ##[group]Run gradle/actions/wrapper-validation@v4
+2026-09-19T10:53:25.9561318Z with:
+2026-09-19T10:53:25.9561520Z   min-wrapper-count: 1
+2026-09-19T10:53:25.9561754Z   allow-snapshots: false
+2026-09-19T10:53:25.9561985Z ##[endgroup]
+2026-09-19T10:53:26.3900091Z Fetched 10 of 63 checksums
+2026-09-19T10:53:26.4420234Z Fetched 20 of 63 checksums
+2026-09-19T10:53:26.4947056Z Fetched 30 of 63 checksums
+2026-09-19T10:53:26.5460096Z Fetched 40 of 63 checksums
+2026-09-19T10:53:26.5956586Z Fetched 50 of 63 checksums
+2026-09-19T10:53:26.6493552Z Fetched 60 of 63 checksums
+2026-09-19T10:53:26.6942450Z Fetched 63 of 63 checksums
+2026-09-19T10:53:26.6944322Z ✓ Found known Gradle Wrapper JAR files:
+2026-09-19T10:53:26.6945551Z   2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046 ANI-KUTA/APP/ani-kuta/gradle/wrapper/gradle-wrapper.jar
+2026-09-19T10:53:26.6947404Z   81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f ANI-KUTA/REFERENCES/old-kuta/ANIKUTA/gradle/wrapper/gradle-wrapper.jar
+2026-09-19T10:53:26.6949360Z   497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7 ANI-KUTA/REFERENCES/animiru/ANIMIRU/gradle/wrapper/gradle-wrapper.jar
+2026-09-19T10:53:26.7200486Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-19T10:53:26.7201996Z ##[group]Run actions/setup-java@v4
+2026-09-19T10:53:26.7202262Z with:
+2026-09-19T10:53:26.7202455Z   distribution: temurin
+2026-09-19T10:53:26.7202673Z   java-version: 17
+2026-09-19T10:53:26.7202880Z   java-package: jdk
+2026-09-19T10:53:26.7203091Z   check-latest: false
+2026-09-19T10:53:26.7203301Z   server-id: github
+2026-09-19T10:53:26.7203514Z   server-username: GITHUB_ACTOR
+2026-09-19T10:53:26.7203765Z   server-password: GITHUB_TOKEN
+2026-09-19T10:53:26.7204008Z   overwrite-settings: true
+2026-09-19T10:53:26.7204232Z   job-status: success
+2026-09-19T10:53:26.7206673Z   token: ***
+2026-09-19T10:53:26.7206871Z env:
+2026-09-19T10:53:26.7207136Z   GRADLE_ACTION_ID: gradle/actions/wrapper-validation
+2026-09-19T10:53:26.7207447Z ##[endgroup]
+2026-09-19T10:53:26.8850620Z ##[warning]setup-java v4 is deprecated and will no longer receive updates. Please migrate to actions/setup-java@v5.
+2026-09-19T10:53:26.8859040Z ##[group]Installed distributions
+2026-09-19T10:53:26.8898071Z Resolved Java 17.0.20+1 from tool-cache
+2026-09-19T10:53:26.8898582Z Setting Java 17.0.20+1 as the default
+2026-09-19T10:53:26.8908977Z (node:2247) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-09-19T10:53:26.8909691Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-09-19T10:53:26.8913027Z Creating toolchains.xml for JDK version 17 from temurin
+2026-09-19T10:53:26.8989531Z Writing to /home/runner/.m2/toolchains.xml
+2026-09-19T10:53:26.8990069Z 
+2026-09-19T10:53:26.8990322Z Java configuration:
+2026-09-19T10:53:26.8990795Z   Distribution: temurin
+2026-09-19T10:53:26.8991529Z   Version: 17.0.20+1
+2026-09-19T10:53:26.8992196Z   Path: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.20-1/x64
+2026-09-19T10:53:26.8992737Z 
+2026-09-19T10:53:26.8993215Z ##[endgroup]
+2026-09-19T10:53:26.9014905Z Creating settings.xml with server-id: github
+2026-09-19T10:53:26.9042592Z Writing to /home/runner/.m2/settings.xml
+2026-09-19T10:53:26.9380622Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-19T10:53:26.9382294Z ##[group]Run gradle/actions/setup-gradle@v4
+2026-09-19T10:53:26.9382592Z with:
+2026-09-19T10:53:26.9382794Z   cache-disabled: false
+2026-09-19T10:53:26.9383024Z   cache-read-only: true
+2026-09-19T10:53:26.9383246Z   cache-write-only: false
+2026-09-19T10:53:26.9383491Z   cache-overwrite-existing: false
+2026-09-19T10:53:26.9383755Z   cache-cleanup: on-success
+2026-09-19T10:53:26.9384043Z   gradle-home-cache-includes: caches
+notifications
+
+2026-09-19T10:53:26.9384371Z   add-job-summary: always
+2026-09-19T10:53:26.9384653Z   add-job-summary-as-pr-comment: never
+2026-09-19T10:53:26.9384938Z   dependency-graph: disabled
+2026-09-19T10:53:26.9385309Z   dependency-graph-report-dir: dependency-graph-reports
+2026-09-19T10:53:26.9385682Z   dependency-graph-continue-on-failure: true
+2026-09-19T10:53:26.9386328Z   build-scan-publish: false
+2026-09-19T10:53:26.9386914Z   validate-wrappers: true
+2026-09-19T10:53:26.9387475Z   allow-snapshot-wrappers: false
+2026-09-19T10:53:26.9388113Z   gradle-home-cache-strict-match: false
+2026-09-19T10:53:26.9388721Z   workflow-job-context: null
+2026-09-19T10:53:26.9393950Z   github-token: ***
+2026-09-19T10:53:26.9394305Z env:
+2026-09-19T10:53:26.9394689Z   GRADLE_ACTION_ID: gradle/actions/wrapper-validation
+2026-09-19T10:53:26.9395389Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.20-1/x64
+2026-09-19T10:53:26.9396213Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.20-1/x64
+2026-09-19T10:53:26.9396849Z ##[endgroup]
+2026-09-19T10:53:27.3529547Z Merged default JDK locations into /home/runner/.m2/toolchains.xml
+2026-09-19T10:53:27.3533180Z ##[group]Restore Gradle state from cache
+2026-09-19T10:53:27.4755228Z Gradle User Home cache not found. Will initialize empty.
+2026-09-19T10:53:27.4756066Z ##[endgroup]
+2026-09-19T10:53:27.7100800Z Fetched 10 of 63 checksums
+2026-09-19T10:53:27.7647827Z Fetched 20 of 63 checksums
+2026-09-19T10:53:27.8165650Z Fetched 30 of 63 checksums
+2026-09-19T10:53:27.8736674Z Fetched 40 of 63 checksums
+2026-09-19T10:53:27.9245656Z Fetched 50 of 63 checksums
+2026-09-19T10:53:27.9752351Z Fetched 60 of 63 checksums
+2026-09-19T10:53:28.0178204Z Fetched 63 of 63 checksums
+2026-09-19T10:53:28.0179750Z ##[group]All Gradle Wrapper jars are valid
+2026-09-19T10:53:28.0181494Z ✓ Found known Gradle Wrapper JAR files:
+2026-09-19T10:53:28.0182645Z   2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046 ANI-KUTA/APP/ani-kuta/gradle/wrapper/gradle-wrapper.jar
+2026-09-19T10:53:28.0193099Z   81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f ANI-KUTA/REFERENCES/old-kuta/ANIKUTA/gradle/wrapper/gradle-wrapper.jar
+2026-09-19T10:53:28.0194343Z   497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7 ANI-KUTA/REFERENCES/animiru/ANIMIRU/gradle/wrapper/gradle-wrapper.jar
+2026-09-19T10:53:28.0195234Z ##[endgroup]
+2026-09-19T10:53:28.0354969Z ##[group]Run ./gradlew assembleDebug
+2026-09-19T10:53:28.0355354Z [36;1m./gradlew assembleDebug[0m
+2026-09-19T10:53:28.0393825Z shell: /usr/bin/bash -e {0}
+2026-09-19T10:53:28.0394085Z env:
+2026-09-19T10:53:28.0394507Z   GRADLE_ACTION_ID: gradle/actions/setup-gradle
+2026-09-19T10:53:28.0394948Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.20-1/x64
+2026-09-19T10:53:28.0395454Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.20-1/x64
+2026-09-19T10:53:28.0395855Z   GRADLE_USER_HOME: /home/runner/.gradle
+2026-09-19T10:53:28.0396143Z   GRADLE_BUILD_ACTION_SETUP_COMPLETED: true
+2026-09-19T10:53:28.0396439Z   GRADLE_BUILD_ACTION_CACHE_RESTORED: true
+2026-09-19T10:53:28.0397097Z   DEVELOCITY_INJECTION_INIT_SCRIPT_NAME: gradle-actions.inject-develocity.init.gradle
+2026-09-19T10:53:28.0397595Z   DEVELOCITY_INJECTION_CUSTOM_VALUE: gradle-actions
+2026-09-19T10:53:28.0397917Z   GITHUB_DEPENDENCY_GRAPH_ENABLED: false
+2026-09-19T10:53:28.0398224Z ##[endgroup]
+2026-09-19T10:53:28.2529182Z Downloading https://services.gradle.org/distributions/gradle-8.11.1-bin.zip
+2026-09-19T10:53:30.5488610Z .............10%.............20%.............30%.............40%.............50%.............60%.............70%.............80%.............90%.............100%
+2026-09-19T10:53:31.9758139Z 
+2026-09-19T10:53:31.9773383Z Welcome to Gradle 8.11.1!
+2026-09-19T10:53:31.9774262Z 
+2026-09-19T10:53:31.9775135Z Here are the highlights of this release:
+2026-09-19T10:53:31.9776046Z  - Parallel load and store for Configuration Cache
+2026-09-19T10:53:31.9784293Z  - Java compilation errors at the end of the build output
+2026-09-19T10:53:31.9789994Z  - Consolidated report for warnings and deprecations
+2026-09-19T10:53:31.9790716Z 
+2026-09-19T10:53:31.9791460Z For more details see https://docs.gradle.org/8.11.1/release-notes.html
+2026-09-19T10:53:31.9792192Z 
+2026-09-19T10:53:32.0737297Z Starting a Gradle Daemon (subsequent builds will be faster)
+2026-09-19T10:54:37.8774506Z > Task :build-logic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:54:39.9755146Z > Task :build-logic:generateExternalPluginSpecBuilders
+2026-09-19T10:54:39.9756570Z > Task :build-logic:extractPrecompiledScriptPluginPlugins
+2026-09-19T10:54:41.5742276Z > Task :build-logic:compilePluginsBlocks
+2026-09-19T10:54:46.9737412Z > Task :build-logic:generatePrecompiledScriptPluginAccessors
+2026-09-19T10:54:46.9739253Z > Task :build-logic:generateScriptPluginAdapters
+2026-09-19T10:54:54.1742702Z > Task :build-logic:pluginDescriptors
+2026-09-19T10:54:54.2737237Z > Task :build-logic:processResources
+2026-09-19T10:55:16.9762459Z > Task :build-logic:compileKotlin
+2026-09-19T10:55:35.4749912Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/build-logic/src/main/kotlin/anikuta.android.application.gradle.kts:66:9 'jvmTarget: String' is deprecated. Please migrate to the compilerOptions DSL. More details are here: https://kotl.in/u1r8ln
+2026-09-19T10:55:35.4759609Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/build-logic/src/main/kotlin/anikuta.library.gradle.kts:22:9 'jvmTarget: String' is deprecated. Please migrate to the compilerOptions DSL. More details are here: https://kotl.in/u1r8ln
+2026-09-19T10:55:36.1736812Z 
+2026-09-19T10:55:36.1749138Z > Task :build-logic:compileJava NO-SOURCE
+2026-09-19T10:55:36.1750034Z > Task :build-logic:classes
+2026-09-19T10:55:36.5752021Z > Task :build-logic:jar
+2026-09-19T10:56:09.8763552Z > Task :core:ads:preBuild UP-TO-DATE
+2026-09-19T10:56:09.8778277Z > Task :core:ads:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:09.8779226Z > Task :core:activity-tracker:preBuild UP-TO-DATE
+2026-09-19T10:56:09.8780099Z > Task :core:anilist:preBuild UP-TO-DATE
+2026-09-19T10:56:09.8806502Z > Task :core:anilist:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:09.8824407Z > Task :core:activity-tracker:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2773061Z > Task :core:activity-tracker:writeDebugAarMetadata
+2026-09-19T10:56:10.2844672Z > Task :core:app-update:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2872340Z > Task :core:app-update:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2876106Z > Task :core:ads:writeDebugAarMetadata
+2026-09-19T10:56:10.2876693Z > Task :core:anilist:writeDebugAarMetadata
+2026-09-19T10:56:10.2877352Z > Task :core:cloudstream-api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2877913Z > Task :core:common:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2878493Z > Task :core:cloudstream-api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2879114Z > Task :core:common:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2879699Z > Task :core:app-update:writeDebugAarMetadata
+2026-09-19T10:56:10.2880271Z > Task :core:content:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2892320Z > Task :core:content:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2893258Z > Task :core:common:writeDebugAarMetadata
+2026-09-19T10:56:10.2893803Z > Task :core:cs-player:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2894370Z > Task :core:cs-player:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2894940Z > Task :core:content:writeDebugAarMetadata
+2026-09-19T10:56:10.2895488Z > Task :core:cloudstream-api:writeDebugAarMetadata
+2026-09-19T10:56:10.2896060Z > Task :core:database:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2896611Z > Task :core:database:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2897179Z > Task :core:data-cache:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2897750Z > Task :core:data-cache:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2898329Z > Task :core:cs-player:writeDebugAarMetadata
+2026-09-19T10:56:10.2898884Z > Task :core:debug-api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2899451Z > Task :core:debug-api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2900019Z > Task :core:database:writeDebugAarMetadata
+2026-09-19T10:56:10.2900571Z > Task :core:data-cache:writeDebugAarMetadata
+2026-09-19T10:56:10.2916005Z > Task :core:download:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2916657Z > Task :core:download:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2917252Z > Task :core:designsystem:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2918033Z > Task :core:debug-api:writeDebugAarMetadata
+2026-09-19T10:56:10.2918618Z > Task :core:designsystem:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2919188Z > Task :core:metadata:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2919729Z > Task :core:metadata:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2920294Z > Task :core:designsystem:writeDebugAarMetadata
+2026-09-19T10:56:10.2920861Z > Task :core:download:writeDebugAarMetadata
+2026-09-19T10:56:10.2921675Z > Task :core:metadata:writeDebugAarMetadata
+2026-09-19T10:56:10.2922247Z > Task :core:navigation-api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2922814Z > Task :core:network:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2923380Z > Task :core:navigation-api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2923981Z > Task :core:notifications:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2924575Z > Task :core:notifications:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2925158Z > Task :core:network:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2925762Z > Task :core:navigation-api:writeDebugAarMetadata
+2026-09-19T10:56:10.2926342Z > Task :core:network:writeDebugAarMetadata
+2026-09-19T10:56:10.2926908Z > Task :core:playback-cache:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2927511Z > Task :core:playback-cache:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2928111Z > Task :core:notifications:writeDebugAarMetadata
+2026-09-19T10:56:10.2928658Z > Task :core:player:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2929177Z > Task :core:player-mpv-lib:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2929730Z > Task :core:player:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2930299Z > Task :core:player-mpv-lib:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2930908Z > Task :core:playback-cache:writeDebugAarMetadata
+2026-09-19T10:56:10.2933700Z > Task :core:player:writeDebugAarMetadata
+2026-09-19T10:56:10.2934282Z > Task :core:preferences:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2934907Z > Task :core:preferences:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2935520Z > Task :core:provider-api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2936351Z > Task :core:provider-api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2937017Z > Task :core:player-mpv-lib:writeDebugAarMetadata
+2026-09-19T10:56:10.2937581Z > Task :core:ratings:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2938203Z > Task :core:ratings:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2938801Z > Task :core:provider-api:writeDebugAarMetadata
+2026-09-19T10:56:10.2939324Z > Task :core:schedule:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2939851Z > Task :core:schedule:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2940409Z > Task :core:preferences:writeDebugAarMetadata
+2026-09-19T10:56:10.2941167Z > Task :core:seasons:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2941673Z > Task :core:ratings:writeDebugAarMetadata
+2026-09-19T10:56:10.2942388Z > Task :core:seasons:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2942913Z > Task :core:smart-matcher:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2943489Z > Task :core:smart-matcher:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.2945443Z > Task :core:schedule:writeDebugAarMetadata
+2026-09-19T10:56:10.2946370Z > Task :core:source-api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.2947304Z > Task :core:source-api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3741401Z > Task :core:smart-matcher:writeDebugAarMetadata
+2026-09-19T10:56:10.3765436Z > Task :core:tracker-anilist:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3791786Z > Task :core:tracker-anilist:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3816312Z > Task :core:seasons:writeDebugAarMetadata
+2026-09-19T10:56:10.3842459Z > Task :core:tracker-api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3881978Z > Task :core:tracker-api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3912337Z > Task :core:source-api:writeDebugAarMetadata
+2026-09-19T10:56:10.3917370Z > Task :core:updates:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3921395Z > Task :core:updates:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3931869Z > Task :core:tracker-anilist:writeDebugAarMetadata
+2026-09-19T10:56:10.3935637Z > Task :core:video-resolver:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3936451Z > Task :core:video-resolver:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3937393Z > Task :core:tracker-api:writeDebugAarMetadata
+2026-09-19T10:56:10.3939076Z > Task :core:watch-progress:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3940795Z > Task :core:watch-progress:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3941752Z > Task :core:updates:writeDebugAarMetadata
+2026-09-19T10:56:10.3942403Z > Task :data:cloudstream:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3943067Z > Task :data:cloudstream:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3943782Z > Task :core:watch-progress:writeDebugAarMetadata
+2026-09-19T10:56:10.3944442Z > Task :data:extension:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3945092Z > Task :data:extension:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3945779Z > Task :data:cloudstream:writeDebugAarMetadata
+2026-09-19T10:56:10.3946451Z > Task :core:video-resolver:writeDebugAarMetadata
+2026-09-19T10:56:10.3947151Z > Task :feature:debug-bubble:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3948227Z > Task :feature:download:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3948941Z > Task :feature:download:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3949666Z > Task :feature:debug-bubble:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3950348Z > Task :data:extension:writeDebugAarMetadata
+2026-09-19T10:56:10.3951210Z > Task :feature:debug-bubble:writeDebugAarMetadata
+2026-09-19T10:56:10.3952033Z > Task :feature:onboarding:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3952745Z > Task :feature:anime-browse:api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3953439Z > Task :feature:onboarding:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3954154Z > Task :feature:anime-browse:api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3954877Z > Task :feature:download:writeDebugAarMetadata
+2026-09-19T10:56:10.3955893Z > Task :feature:anime-browse:impl:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3956634Z > Task :feature:anime-browse:impl:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3957354Z > Task :feature:onboarding:writeDebugAarMetadata
+2026-09-19T10:56:10.3958258Z > Task :feature:anime-details:api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3959030Z > Task :feature:anime-details:api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3959767Z > Task :feature:anime-browse:api:writeDebugAarMetadata
+2026-09-19T10:56:10.3960482Z > Task :feature:anime-browse:impl:writeDebugAarMetadata
+2026-09-19T10:56:10.3961799Z > Task :feature:anime-details:impl:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3962556Z > Task :feature:anime-history:api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3963295Z > Task :feature:anime-details:impl:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3964059Z > Task :feature:anime-history:api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3964804Z > Task :feature:anime-details:api:writeDebugAarMetadata
+2026-09-19T10:56:10.3965862Z > Task :feature:anime-history:impl:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3966527Z > Task :feature:anime-history:impl:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3967184Z > Task :feature:anime-history:api:writeDebugAarMetadata
+2026-09-19T10:56:10.3967812Z > Task :feature:anime-library:api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3968436Z > Task :feature:anime-library:api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3969069Z > Task :feature:anime-library:api:writeDebugAarMetadata
+2026-09-19T10:56:10.3969684Z > Task :feature:anime-library:impl:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3970314Z > Task :feature:anime-library:impl:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3971154Z > Task :feature:anime-history:impl:writeDebugAarMetadata
+2026-09-19T10:56:10.3981455Z > Task :feature:anime-search:api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3981948Z > Task :feature:anime-search:api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3982573Z > Task :feature:anime-details:impl:writeDebugAarMetadata
+2026-09-19T10:56:10.3983001Z > Task :feature:anime-search:impl:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3983710Z > Task :feature:anime-search:impl:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.3984407Z > Task :feature:anime-search:api:writeDebugAarMetadata
+2026-09-19T10:56:10.3985051Z > Task :feature:cs-watch:api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.3985662Z > Task :feature:cs-watch:api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.4757169Z > Task :feature:anime-library:impl:writeDebugAarMetadata
+2026-09-19T10:56:10.4814270Z > Task :feature:cs-watch:impl:preBuild UP-TO-DATE
+2026-09-19T10:56:10.4832097Z > Task :feature:cs-watch:impl:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.4861802Z > Task :feature:cs-watch:impl:writeDebugAarMetadata
+2026-09-19T10:56:10.4891763Z > Task :feature:extensions-settings:api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.4921850Z > Task :feature:extensions-settings:api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.4922980Z > Task :feature:extensions-settings:api:writeDebugAarMetadata
+2026-09-19T10:56:10.4947566Z > Task :feature:extensions-settings:impl:preBuild UP-TO-DATE
+2026-09-19T10:56:10.4959071Z > Task :feature:extensions-settings:impl:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.4961684Z > Task :feature:cs-watch:api:writeDebugAarMetadata
+2026-09-19T10:56:10.4962457Z > Task :feature:updates:api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.4963177Z > Task :feature:updates:api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.4963863Z > Task :feature:anime-search:impl:writeDebugAarMetadata
+2026-09-19T10:56:10.4964535Z > Task :feature:updates:impl:preBuild UP-TO-DATE
+2026-09-19T10:56:10.4965496Z > Task :feature:updates:impl:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.4966245Z > Task :feature:extensions-settings:impl:writeDebugAarMetadata
+2026-09-19T10:56:10.4966960Z > Task :feature:updates:api:writeDebugAarMetadata
+2026-09-19T10:56:10.4967580Z > Task :feature:watch:api:preBuild UP-TO-DATE
+2026-09-19T10:56:10.4968187Z > Task :feature:watch:impl:preBuild UP-TO-DATE
+2026-09-19T10:56:10.4968833Z > Task :feature:watch:impl:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.4969464Z > Task :feature:watch:api:preDebugBuild UP-TO-DATE
+2026-09-19T10:56:10.4970102Z > Task :feature:updates:impl:writeDebugAarMetadata
+2026-09-19T10:56:10.4970749Z > Task :feature:watch:impl:writeDebugAarMetadata
+2026-09-19T10:56:10.4971958Z > Task :core:activity-tracker:generateDebugResValues
+2026-09-19T10:56:10.4972612Z > Task :core:ads:generateDebugResValues
+2026-09-19T10:56:10.4973211Z > Task :core:activity-tracker:generateDebugResources
+2026-09-19T10:56:10.4973812Z > Task :core:ads:generateDebugResources
+2026-09-19T10:56:10.5746573Z > Task :feature:watch:api:writeDebugAarMetadata
+2026-09-19T10:56:10.5782384Z > Task :core:anilist:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.5784852Z > Task :core:ads:packageDebugResources
+2026-09-19T10:56:10.5785500Z > Task :core:activity-tracker:packageDebugResources
+2026-09-19T10:56:10.5786196Z > Task :core:app-update:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.5786831Z > Task :core:anilist:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.5787793Z > Task :core:cloudstream-api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.5788453Z > Task :core:app-update:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.5789163Z > Task :core:cloudstream-api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.5789706Z > Task :core:anilist:packageDebugResources
+2026-09-19T10:56:10.6752310Z > Task :core:app-update:packageDebugResources
+2026-09-19T10:56:10.6791790Z > Task :core:cloudstream-api:packageDebugResources
+2026-09-19T10:56:10.6819046Z > Task :core:common:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.6850910Z > Task :core:content:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.6862283Z > Task :core:cs-player:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.6863591Z > Task :core:common:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.6864546Z > Task :core:content:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.6865526Z > Task :core:cs-player:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.6866407Z > Task :core:common:packageDebugResources
+2026-09-19T10:56:10.6867171Z > Task :core:cs-player:packageDebugResources
+2026-09-19T10:56:10.6867958Z > Task :core:content:packageDebugResources
+2026-09-19T10:56:10.6868776Z > Task :core:database:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.6869637Z > Task :core:data-cache:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.6870504Z > Task :core:debug-api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.6871700Z > Task :core:data-cache:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.6872579Z > Task :core:database:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.6873461Z > Task :core:debug-api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.6874309Z > Task :core:database:packageDebugResources
+2026-09-19T10:56:10.6875145Z > Task :core:designsystem:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.6875984Z > Task :core:debug-api:packageDebugResources
+2026-09-19T10:56:10.6876749Z > Task :core:data-cache:packageDebugResources
+2026-09-19T10:56:10.6877567Z > Task :core:metadata:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.6878592Z > Task :core:download:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.6879493Z > Task :core:metadata:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.6880373Z > Task :core:designsystem:generateDebugResources
+2026-09-19T10:56:10.6881393Z > Task :core:download:generateDebugResources
+2026-09-19T10:56:10.7742502Z > Task :core:metadata:packageDebugResources
+2026-09-19T10:56:10.7745580Z > Task :core:navigation-api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.7746779Z > Task :core:navigation-api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.7748050Z > Task :core:navigation-api:packageDebugResources
+2026-09-19T10:56:10.7748991Z > Task :core:network:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.7750088Z > Task :core:network:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.7755083Z > Task :core:download:packageDebugResources
+2026-09-19T10:56:10.7756003Z > Task :core:notifications:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.7756903Z > Task :core:notifications:generateDebugResources
+2026-09-19T10:56:10.7757685Z > Task :core:network:packageDebugResources
+2026-09-19T10:56:10.7758791Z > Task :core:playback-cache:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.7759769Z > Task :core:playback-cache:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.7767978Z > Task :core:notifications:packageDebugResources
+2026-09-19T10:56:10.7768879Z > Task :core:player:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.7769725Z > Task :core:playback-cache:packageDebugResources
+2026-09-19T10:56:10.7770602Z > Task :core:player-mpv-lib:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.7771771Z > Task :core:designsystem:packageDebugResources
+2026-09-19T10:56:10.7772534Z > Task :core:player:generateDebugResources
+2026-09-19T10:56:10.7773418Z > Task :core:preferences:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.7774739Z > Task :core:player-mpv-lib:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.7775746Z > Task :core:preferences:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.7776609Z > Task :core:player:packageDebugResources
+2026-09-19T10:56:10.8766499Z > Task :core:preferences:packageDebugResources
+2026-09-19T10:56:10.8808840Z > Task :core:player-mpv-lib:packageDebugResources
+2026-09-19T10:56:10.8832223Z > Task :core:ratings:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.8870914Z > Task :core:provider-api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.8932025Z > Task :core:schedule:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.8962046Z > Task :core:provider-api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.8991795Z > Task :core:ratings:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9060430Z > Task :core:schedule:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9076376Z > Task :core:ratings:packageDebugResources
+2026-09-19T10:56:10.9078162Z > Task :core:provider-api:packageDebugResources
+2026-09-19T10:56:10.9079075Z > Task :core:seasons:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9079882Z > Task :core:schedule:packageDebugResources
+2026-09-19T10:56:10.9095473Z > Task :core:smart-matcher:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9096481Z > Task :core:seasons:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9097399Z > Task :core:source-api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9098334Z > Task :core:smart-matcher:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9099256Z > Task :core:source-api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9100070Z > Task :core:seasons:packageDebugResources
+2026-09-19T10:56:10.9100907Z > Task :core:tracker-anilist:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9102089Z > Task :core:smart-matcher:packageDebugResources
+2026-09-19T10:56:10.9102964Z > Task :core:tracker-anilist:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9103987Z > Task :core:source-api:packageDebugResources
+2026-09-19T10:56:10.9104850Z > Task :core:tracker-api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9108275Z > Task :core:updates:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9109204Z > Task :core:tracker-api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9110082Z > Task :core:tracker-anilist:packageDebugResources
+2026-09-19T10:56:10.9110921Z > Task :core:updates:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9112087Z > Task :core:video-resolver:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9113017Z > Task :core:video-resolver:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9113877Z > Task :core:tracker-api:packageDebugResources
+2026-09-19T10:56:10.9114643Z > Task :core:updates:packageDebugResources
+2026-09-19T10:56:10.9772178Z > Task :core:video-resolver:packageDebugResources
+2026-09-19T10:56:10.9773509Z > Task :data:cloudstream:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9804831Z > Task :core:watch-progress:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9831801Z > Task :core:watch-progress:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9857273Z > Task :data:extension:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9876083Z > Task :data:extension:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9899340Z > Task :data:cloudstream:generateDebugResources FROM-CACHE
+2026-09-19T10:56:10.9911634Z > Task :data:extension:packageDebugResources
+2026-09-19T10:56:10.9920446Z > Task :core:watch-progress:packageDebugResources
+2026-09-19T10:56:10.9944950Z > Task :feature:debug-bubble:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9968495Z > Task :feature:download:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:10.9991739Z > Task :data:cloudstream:packageDebugResources
+2026-09-19T10:56:11.0017177Z > Task :feature:debug-bubble:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0041990Z > Task :feature:onboarding:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0065082Z > Task :feature:download:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0094536Z > Task :feature:onboarding:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0112060Z > Task :feature:download:packageDebugResources
+2026-09-19T10:56:11.0151802Z > Task :feature:debug-bubble:packageDebugResources
+2026-09-19T10:56:11.0152950Z > Task :feature:anime-browse:api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0182039Z > Task :feature:anime-browse:impl:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0205926Z > Task :feature:anime-browse:api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0231445Z > Task :feature:onboarding:packageDebugResources
+2026-09-19T10:56:11.0256436Z > Task :feature:anime-details:api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0284394Z > Task :feature:anime-browse:impl:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0286818Z > Task :feature:anime-details:api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0289853Z > Task :feature:anime-browse:api:packageDebugResources
+2026-09-19T10:56:11.0758086Z > Task :feature:anime-details:impl:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0822646Z > Task :feature:anime-browse:impl:packageDebugResources
+2026-09-19T10:56:11.0852301Z > Task :feature:anime-details:impl:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0863671Z > Task :feature:anime-details:api:packageDebugResources
+2026-09-19T10:56:11.0864863Z > Task :feature:anime-history:impl:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0865973Z > Task :feature:anime-history:api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0868088Z > Task :feature:anime-history:impl:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0869338Z > Task :feature:anime-history:api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0870478Z > Task :feature:anime-details:impl:packageDebugResources
+2026-09-19T10:56:11.0872692Z > Task :feature:anime-history:api:packageDebugResources
+2026-09-19T10:56:11.0873812Z > Task :feature:anime-history:impl:packageDebugResources
+2026-09-19T10:56:11.0874797Z > Task :feature:anime-library:api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0875854Z > Task :feature:anime-library:impl:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0876882Z > Task :feature:anime-search:api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0880686Z > Task :feature:anime-library:api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0882093Z > Task :feature:anime-library:impl:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0883130Z > Task :feature:anime-search:api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0884205Z > Task :feature:anime-library:impl:packageDebugResources
+2026-09-19T10:56:11.0885084Z > Task :feature:anime-library:api:packageDebugResources
+2026-09-19T10:56:11.0888334Z > Task :feature:anime-search:api:packageDebugResources
+2026-09-19T10:56:11.0889349Z > Task :feature:cs-watch:impl:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0890372Z > Task :feature:anime-search:impl:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0891612Z > Task :feature:cs-watch:api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.0892726Z > Task :feature:cs-watch:impl:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0893786Z > Task :feature:anime-search:impl:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0895017Z > Task :feature:cs-watch:api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.0895916Z > Task :feature:cs-watch:impl:packageDebugResources
+2026-09-19T10:56:11.1736790Z > Task :feature:extensions-settings:api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.1762058Z > Task :feature:anime-search:impl:packageDebugResources
+2026-09-19T10:56:11.1762908Z > Task :feature:cs-watch:api:packageDebugResources
+2026-09-19T10:56:11.1763817Z > Task :feature:extensions-settings:api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.1764869Z > Task :feature:extensions-settings:impl:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.1766372Z > Task :feature:updates:api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.1767269Z > Task :feature:updates:api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.1768578Z > Task :feature:extensions-settings:impl:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.1769551Z > Task :feature:extensions-settings:api:packageDebugResources
+2026-09-19T10:56:11.1770453Z > Task :feature:updates:impl:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.1771540Z > Task :feature:updates:impl:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.1772424Z > Task :feature:extensions-settings:impl:packageDebugResources
+2026-09-19T10:56:11.1773249Z > Task :feature:updates:api:packageDebugResources
+2026-09-19T10:56:11.1774041Z > Task :feature:watch:api:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.1774888Z > Task :feature:watch:impl:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:11.1775698Z > Task :feature:updates:impl:packageDebugResources
+2026-09-19T10:56:11.1777032Z > Task :feature:watch:api:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.1777886Z > Task :feature:watch:impl:generateDebugResources FROM-CACHE
+2026-09-19T10:56:11.1778709Z > Task :core:activity-tracker:extractDeepLinksDebug
+2026-09-19T10:56:11.1779453Z > Task :feature:watch:api:packageDebugResources
+2026-09-19T10:56:11.1780182Z > Task :feature:watch:impl:packageDebugResources
+2026-09-19T10:56:11.1781112Z > Task :core:anilist:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.1781907Z > Task :core:ads:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.3736685Z > Task :core:ads:processDebugManifest
+2026-09-19T10:56:11.3737694Z > Task :core:anilist:processDebugManifest
+2026-09-19T10:56:11.3739078Z > Task :core:cloudstream-api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.3740097Z > Task :core:app-update:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.3741293Z > Task :core:activity-tracker:processDebugManifest
+2026-09-19T10:56:11.3742187Z > Task :core:common:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.3742981Z > Task :core:cloudstream-api:processDebugManifest
+2026-09-19T10:56:11.3743751Z > Task :core:app-update:processDebugManifest
+2026-09-19T10:56:11.3744626Z > Task :core:cs-player:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.3745535Z > Task :core:content:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.3746354Z > Task :core:common:processDebugManifest
+2026-09-19T10:56:11.3751632Z > Task :core:data-cache:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.4743379Z > Task :core:content:processDebugManifest
+2026-09-19T10:56:11.4773252Z > Task :core:cs-player:processDebugManifest
+2026-09-19T10:56:11.4846104Z > Task :core:database:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.4847286Z > Task :core:debug-api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.4848091Z > Task :core:data-cache:processDebugManifest
+2026-09-19T10:56:11.4848973Z > Task :core:designsystem:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.4849816Z > Task :core:debug-api:processDebugManifest
+2026-09-19T10:56:11.4850537Z > Task :core:database:processDebugManifest
+2026-09-19T10:56:11.4851580Z > Task :core:metadata:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.4852532Z > Task :core:download:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.4853384Z > Task :core:designsystem:processDebugManifest
+2026-09-19T10:56:11.4854226Z > Task :core:navigation-api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.4855359Z > Task :core:metadata:processDebugManifest
+2026-09-19T10:56:11.4856151Z > Task :core:navigation-api:processDebugManifest
+2026-09-19T10:56:11.4856959Z > Task :core:network:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.4857749Z > Task :core:download:processDebugManifest
+2026-09-19T10:56:11.4858572Z > Task :core:playback-cache:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.4859531Z > Task :core:notifications:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.4860336Z > Task :core:network:processDebugManifest
+2026-09-19T10:56:11.4861320Z > Task :core:player:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.4862145Z > Task :core:playback-cache:processDebugManifest
+2026-09-19T10:56:11.5800065Z > Task :core:player-mpv-lib:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.5857266Z > Task :core:notifications:processDebugManifest
+2026-09-19T10:56:11.5866693Z > Task :core:preferences:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.5892640Z > Task :core:player:processDebugManifest
+2026-09-19T10:56:11.5901884Z > Task :core:provider-api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.5902894Z > Task :core:player-mpv-lib:processDebugManifest
+2026-09-19T10:56:11.5903893Z > Task :core:preferences:processDebugManifest
+2026-09-19T10:56:11.5904814Z > Task :core:schedule:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.5905682Z > Task :core:ratings:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.5906517Z > Task :core:provider-api:processDebugManifest
+2026-09-19T10:56:11.5907313Z > Task :core:schedule:processDebugManifest
+2026-09-19T10:56:11.5908058Z > Task :core:ratings:processDebugManifest
+2026-09-19T10:56:11.5908887Z > Task :core:smart-matcher:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.5909909Z > Task :core:source-api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.5910751Z > Task :core:seasons:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.5911864Z > Task :core:smart-matcher:processDebugManifest
+2026-09-19T10:56:11.5912608Z > Task :core:seasons:processDebugManifest
+2026-09-19T10:56:11.5913423Z > Task :core:tracker-anilist:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.5914346Z > Task :core:tracker-api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.5915157Z > Task :core:source-api:processDebugManifest
+2026-09-19T10:56:11.5915940Z > Task :core:updates:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.6761518Z > Task :core:tracker-api:processDebugManifest
+2026-09-19T10:56:11.6777243Z > Task :core:updates:processDebugManifest
+2026-09-19T10:56:11.6798964Z > Task :core:tracker-anilist:processDebugManifest
+2026-09-19T10:56:11.6811750Z > Task :core:video-resolver:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.6839703Z > Task :data:cloudstream:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.6862136Z > Task :core:watch-progress:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.6880077Z > Task :core:video-resolver:processDebugManifest
+2026-09-19T10:56:11.6881244Z > Task :data:cloudstream:processDebugManifest
+2026-09-19T10:56:11.6882240Z > Task :core:watch-progress:processDebugManifest
+2026-09-19T10:56:11.6883147Z > Task :feature:debug-bubble:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.6884079Z > Task :data:extension:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.6884960Z > Task :feature:download:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.6885805Z > Task :data:extension:processDebugManifest
+2026-09-19T10:56:11.6886562Z > Task :feature:download:processDebugManifest
+2026-09-19T10:56:11.6887408Z > Task :feature:onboarding:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.6888365Z > Task :feature:anime-browse:api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.7747695Z > Task :feature:anime-browse:api:processDebugManifest
+2026-09-19T10:56:11.7776586Z > Task :feature:debug-bubble:processDebugManifest
+2026-09-19T10:56:11.7822443Z > Task :feature:anime-browse:impl:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.7823494Z > Task :feature:anime-details:api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.7824863Z > Task :feature:anime-browse:impl:processDebugManifest
+2026-09-19T10:56:11.7825731Z > Task :feature:onboarding:processDebugManifest
+2026-09-19T10:56:11.7826686Z > Task :feature:anime-details:api:processDebugManifest
+2026-09-19T10:56:11.7827572Z > Task :feature:anime-details:impl:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.7828785Z > Task :feature:anime-history:api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.7829768Z > Task :feature:anime-history:impl:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.7830697Z > Task :feature:anime-details:impl:processDebugManifest
+2026-09-19T10:56:11.7831872Z > Task :feature:anime-library:api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.7832770Z > Task :feature:anime-library:api:processDebugManifest
+2026-09-19T10:56:11.7833921Z > Task :feature:anime-library:impl:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.8766642Z > Task :feature:anime-history:api:processDebugManifest
+2026-09-19T10:56:11.8802687Z > Task :feature:anime-search:api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.8810433Z > Task :feature:anime-history:impl:processDebugManifest
+2026-09-19T10:56:11.8811730Z > Task :feature:anime-search:impl:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.8812722Z > Task :feature:anime-library:impl:processDebugManifest
+2026-09-19T10:56:11.8813924Z > Task :feature:cs-watch:api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.8814998Z > Task :feature:anime-search:api:processDebugManifest
+2026-09-19T10:56:11.8816243Z > Task :feature:cs-watch:impl:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.8817303Z > Task :feature:anime-search:impl:processDebugManifest
+2026-09-19T10:56:11.8818401Z > Task :feature:extensions-settings:api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.8819644Z > Task :feature:cs-watch:api:processDebugManifest
+2026-09-19T10:56:11.8820743Z > Task :feature:extensions-settings:impl:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.8822510Z > Task :feature:cs-watch:impl:processDebugManifest
+2026-09-19T10:56:11.8823630Z > Task :feature:extensions-settings:api:processDebugManifest
+2026-09-19T10:56:11.8824795Z > Task :feature:updates:api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.8826118Z > Task :feature:updates:impl:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.9736069Z > Task :feature:updates:impl:processDebugManifest
+2026-09-19T10:56:11.9739591Z > Task :feature:updates:api:processDebugManifest
+2026-09-19T10:56:11.9740846Z > Task :feature:extensions-settings:impl:processDebugManifest
+2026-09-19T10:56:11.9754752Z > Task :feature:watch:api:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.9756069Z > Task :feature:watch:impl:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:11.9757022Z > Task :feature:watch:impl:processDebugManifest
+2026-09-19T10:56:11.9757816Z > Task :feature:watch:api:processDebugManifest
+2026-09-19T10:56:12.1742213Z > Task :core:ads:compileDebugLibraryResources
+2026-09-19T10:56:12.1742968Z > Task :core:activity-tracker:compileDebugLibraryResources
+2026-09-19T10:56:12.2736186Z > Task :core:anilist:compileDebugLibraryResources
+2026-09-19T10:56:13.2755024Z > Task :core:anilist:parseDebugLocalResources
+2026-09-19T10:56:13.2781990Z > Task :core:activity-tracker:parseDebugLocalResources
+2026-09-19T10:56:13.2811785Z > Task :core:ads:parseDebugLocalResources
+2026-09-19T10:56:13.2812683Z > Task :core:activity-tracker:generateDebugRFile
+2026-09-19T10:56:13.2813434Z > Task :core:ads:generateDebugRFile
+2026-09-19T10:56:13.2814125Z > Task :core:anilist:generateDebugRFile
+2026-09-19T10:56:13.2814919Z > Task :core:common:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.2815830Z > Task :core:app-update:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.2816793Z > Task :core:cloudstream-api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.2817753Z > Task :core:common:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.2818664Z > Task :core:cloudstream-api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.2819589Z > Task :core:app-update:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.3736173Z > Task :core:common:generateDebugRFile
+2026-09-19T10:56:13.3739550Z > Task :core:content:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.3740503Z > Task :core:cloudstream-api:generateDebugRFile
+2026-09-19T10:56:13.3741607Z > Task :core:content:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.3742460Z > Task :core:app-update:generateDebugRFile
+2026-09-19T10:56:13.3743303Z > Task :core:cs-player:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.3744262Z > Task :core:data-cache:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.3745194Z > Task :core:data-cache:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.3746090Z > Task :core:cs-player:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.3747193Z > Task :core:content:generateDebugRFile
+2026-09-19T10:56:13.3748017Z > Task :core:database:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.3748940Z > Task :core:database:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.3749751Z > Task :core:cs-player:generateDebugRFile
+2026-09-19T10:56:13.3750461Z > Task :core:data-cache:generateDebugRFile
+2026-09-19T10:56:13.3751493Z > Task :core:debug-api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.3752335Z > Task :core:database:generateDebugRFile
+2026-09-19T10:56:13.3753120Z > Task :core:debug-api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.4744373Z > Task :core:designsystem:parseDebugLocalResources
+2026-09-19T10:56:13.4772189Z > Task :core:debug-api:generateDebugRFile
+2026-09-19T10:56:13.4790934Z > Task :core:designsystem:compileDebugLibraryResources
+2026-09-19T10:56:13.4803270Z > Task :core:designsystem:generateDebugRFile
+2026-09-19T10:56:13.4817014Z > Task :core:metadata:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.5738837Z > Task :core:metadata:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.5752111Z > Task :core:download:parseDebugLocalResources
+2026-09-19T10:56:13.5753204Z > Task :core:download:compileDebugLibraryResources
+2026-09-19T10:56:13.5756997Z > Task :core:metadata:generateDebugRFile
+2026-09-19T10:56:13.5800916Z > Task :core:navigation-api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.5821366Z > Task :core:network:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.5822396Z > Task :core:navigation-api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.5823335Z > Task :core:network:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.5824135Z > Task :core:download:generateDebugRFile
+2026-09-19T10:56:13.5824920Z > Task :core:notifications:compileDebugLibraryResources
+2026-09-19T10:56:13.5825746Z > Task :core:navigation-api:generateDebugRFile
+2026-09-19T10:56:13.5826490Z > Task :core:network:generateDebugRFile
+2026-09-19T10:56:13.5827374Z > Task :core:playback-cache:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.5828346Z > Task :core:notifications:parseDebugLocalResources
+2026-09-19T10:56:13.5829198Z > Task :core:player:compileDebugLibraryResources
+2026-09-19T10:56:13.5830113Z > Task :core:playback-cache:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.5831234Z > Task :core:player:parseDebugLocalResources
+2026-09-19T10:56:13.5832021Z > Task :core:notifications:generateDebugRFile
+2026-09-19T10:56:13.6759971Z > Task :core:playback-cache:generateDebugRFile
+2026-09-19T10:56:13.6764448Z > Task :core:player-mpv-lib:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.6775844Z > Task :core:preferences:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.6776983Z > Task :core:player:generateDebugRFile
+2026-09-19T10:56:13.6778482Z > Task :core:player-mpv-lib:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.6781291Z > Task :core:provider-api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.6782678Z > Task :core:provider-api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.6783682Z > Task :core:preferences:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.6784580Z > Task :core:provider-api:generateDebugRFile
+2026-09-19T10:56:13.6785644Z > Task :core:player-mpv-lib:generateDebugRFile
+2026-09-19T10:56:13.6786522Z > Task :core:preferences:generateDebugRFile
+2026-09-19T10:56:13.6787643Z > Task :core:schedule:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.6796377Z > Task :core:ratings:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.6797587Z > Task :core:seasons:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.6801288Z > Task :core:ratings:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.6802602Z > Task :core:schedule:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.6803524Z > Task :core:seasons:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.6804042Z > Task :core:ratings:generateDebugRFile
+2026-09-19T10:56:13.6804551Z > Task :core:schedule:generateDebugRFile
+2026-09-19T10:56:13.6805346Z > Task :core:smart-matcher:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.6805946Z > Task :core:source-api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.6806458Z > Task :core:seasons:generateDebugRFile
+2026-09-19T10:56:13.6806977Z > Task :core:tracker-anilist:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.6821958Z > Task :core:source-api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.6823083Z > Task :core:smart-matcher:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.6824195Z > Task :core:tracker-anilist:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.7770813Z > Task :core:source-api:generateDebugRFile
+2026-09-19T10:56:13.7819018Z > Task :core:smart-matcher:generateDebugRFile
+2026-09-19T10:56:13.7836581Z > Task :core:tracker-anilist:generateDebugRFile
+2026-09-19T10:56:13.7861828Z > Task :core:updates:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.7872209Z > Task :core:tracker-api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.7873349Z > Task :core:video-resolver:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.7874314Z > Task :core:updates:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.7875222Z > Task :core:tracker-api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.7876168Z > Task :core:video-resolver:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.7877008Z > Task :core:tracker-api:generateDebugRFile
+2026-09-19T10:56:13.7877708Z > Task :core:updates:generateDebugRFile
+2026-09-19T10:56:13.7878430Z > Task :core:video-resolver:generateDebugRFile
+2026-09-19T10:56:13.7879308Z > Task :core:watch-progress:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.7880303Z > Task :data:extension:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.7881485Z > Task :data:cloudstream:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.7882619Z > Task :data:cloudstream:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.7883589Z > Task :core:watch-progress:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.7884503Z > Task :data:extension:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.7885287Z > Task :data:extension:generateDebugRFile
+2026-09-19T10:56:13.7886145Z > Task :feature:debug-bubble:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.7887032Z > Task :data:cloudstream:generateDebugRFile
+2026-09-19T10:56:13.7888055Z > Task :feature:download:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.7889256Z > Task :feature:debug-bubble:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.7890216Z > Task :feature:download:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.7891300Z > Task :feature:debug-bubble:generateDebugRFile
+2026-09-19T10:56:13.7892135Z > Task :core:watch-progress:generateDebugRFile
+2026-09-19T10:56:13.7893075Z > Task :feature:anime-browse:api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.7894163Z > Task :feature:onboarding:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.7895077Z > Task :feature:download:generateDebugRFile
+2026-09-19T10:56:13.7895999Z > Task :feature:anime-browse:impl:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.7897086Z > Task :feature:anime-browse:api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.7898500Z > Task :feature:onboarding:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.8758085Z > Task :feature:anime-browse:impl:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.8759208Z > Task :feature:onboarding:generateDebugRFile
+2026-09-19T10:56:13.8760228Z > Task :feature:anime-details:api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.8761574Z > Task :feature:anime-browse:api:generateDebugRFile
+2026-09-19T10:56:13.8782916Z > Task :feature:anime-details:api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.8812261Z > Task :feature:anime-details:impl:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.8813376Z > Task :feature:anime-browse:impl:generateDebugRFile
+2026-09-19T10:56:13.8824975Z > Task :feature:anime-history:api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.8876791Z > Task :feature:anime-details:impl:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.8880683Z > Task :feature:anime-details:api:generateDebugRFile
+2026-09-19T10:56:13.8882022Z > Task :feature:anime-history:impl:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.8883654Z > Task :feature:anime-history:api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.8884797Z > Task :feature:anime-history:impl:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.8885874Z > Task :feature:anime-details:impl:generateDebugRFile
+2026-09-19T10:56:13.8886896Z > Task :feature:anime-library:api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.8887973Z > Task :feature:anime-history:api:generateDebugRFile
+2026-09-19T10:56:13.8888889Z > Task :feature:anime-history:impl:generateDebugRFile
+2026-09-19T10:56:13.8889939Z > Task :feature:anime-library:impl:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.8891430Z > Task :feature:anime-search:api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.8892607Z > Task :feature:anime-library:api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.8893780Z > Task :feature:anime-search:api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.8894911Z > Task :feature:anime-library:impl:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.9736035Z > Task :feature:anime-library:api:generateDebugRFile
+2026-09-19T10:56:13.9749758Z > Task :feature:anime-search:impl:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.9753292Z > Task :feature:anime-library:impl:generateDebugRFile
+2026-09-19T10:56:13.9754341Z > Task :feature:cs-watch:api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.9755451Z > Task :feature:anime-search:impl:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.9756378Z > Task :feature:anime-search:api:generateDebugRFile
+2026-09-19T10:56:13.9757304Z > Task :feature:cs-watch:api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.9758435Z > Task :feature:cs-watch:impl:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.9759519Z > Task :feature:cs-watch:impl:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.9760506Z > Task :feature:anime-search:impl:generateDebugRFile
+2026-09-19T10:56:13.9761605Z > Task :feature:cs-watch:api:generateDebugRFile
+2026-09-19T10:56:13.9762677Z > Task :feature:extensions-settings:api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.9763969Z > Task :feature:extensions-settings:impl:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.9765053Z > Task :feature:cs-watch:impl:generateDebugRFile
+2026-09-19T10:56:13.9765987Z > Task :feature:updates:api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.9767165Z > Task :feature:extensions-settings:impl:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.9768333Z > Task :feature:updates:api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.9772338Z > Task :feature:extensions-settings:api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.9773419Z > Task :feature:updates:api:generateDebugRFile
+2026-09-19T10:56:13.9784985Z > Task :feature:extensions-settings:api:generateDebugRFile
+2026-09-19T10:56:13.9786316Z > Task :feature:extensions-settings:impl:generateDebugRFile
+2026-09-19T10:56:13.9787194Z > Task :feature:updates:impl:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.9788076Z > Task :feature:watch:impl:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.9789155Z > Task :feature:updates:impl:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:13.9790538Z > Task :feature:watch:api:compileDebugLibraryResources FROM-CACHE
+2026-09-19T10:56:13.9791607Z > Task :feature:watch:impl:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:14.0736757Z > Task :feature:watch:api:parseDebugLocalResources FROM-CACHE
+2026-09-19T10:56:14.0740006Z > Task :feature:updates:impl:generateDebugRFile
+2026-09-19T10:56:14.0740810Z > Task :feature:watch:impl:generateDebugRFile
+2026-09-19T10:56:14.0742542Z > Task :core:activity-tracker:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:14.0743671Z > Task :core:common:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:14.0744534Z > Task :feature:watch:api:generateDebugRFile
+2026-09-19T10:56:14.0745376Z > Task :core:seasons:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:14.0746395Z > Task :core:database:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:14.0747247Z > Task :core:common:javaPreCompileDebug
+2026-09-19T10:56:14.0747988Z > Task :core:activity-tracker:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:56:14.0748871Z > Task :core:ads:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:14.0749882Z > Task :core:designsystem:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:14.0750823Z > Task :core:designsystem:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:56:14.0751969Z > Task :core:preferences:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:14.0752984Z > Task :core:preferences:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:56:14.0753711Z > Task :core:ads:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:56:14.0754548Z > Task :core:anilist:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:14.0755554Z > Task :core:network:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:23.5741997Z > Task :core:database:generateDebugAnikutaDatabaseInterface
+2026-09-19T10:56:23.5821922Z > Task :core:seasons:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:56:29.2736712Z 
+2026-09-19T10:56:29.2752196Z > Task :app:checkDependencyAlignment
+2026-09-19T10:56:29.2781770Z D-322 dependency alignment OK: 57 compose/lifecycle artifacts match the pins.
+2026-09-19T10:56:29.2801463Z 
+2026-09-19T10:56:29.2812602Z > Task :app:preBuild
+2026-09-19T10:56:29.2838151Z > Task :app:preDebugBuild
+2026-09-19T10:56:29.2861712Z > Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+2026-09-19T10:56:29.2911888Z > Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:29.2931631Z > Task :app:generateDebugBuildConfig
+2026-09-19T10:56:32.7736788Z > Task :core:network:compileDebugKotlin
+2026-09-19T10:56:32.8753837Z > Task :core:database:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:56:32.8755119Z > Task :core:network:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:56:32.8773726Z > Task :core:network:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:56:33.7738122Z > Task :core:seasons:compileDebugKotlin
+2026-09-19T10:56:33.7795077Z > Task :core:seasons:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:56:33.7881868Z > Task :core:network:bundleLibCompileToJarDebug
+2026-09-19T10:56:33.7921790Z > Task :core:anilist:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:56:33.7977764Z > Task :core:app-update:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:33.8041736Z > Task :core:app-update:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:56:33.8061777Z > Task :core:cloudstream-api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:56:36.8759418Z > Task :core:seasons:bundleLibCompileToJarDebug
+2026-09-19T10:56:39.4782006Z > Task :app:checkDebugAarMetadata
+2026-09-19T10:56:39.4811753Z > Task :app:generateDebugResValues FROM-CACHE
+2026-09-19T10:56:39.8766462Z > Task :app:mapDebugSourceSetPaths
+2026-09-19T10:56:39.8822331Z > Task :app:generateDebugResources
+2026-09-19T10:56:44.9762820Z > Task :core:common:compileDebugKotlin
+2026-09-19T10:56:45.2772022Z > Task :app:packageDebugResources
+2026-09-19T10:56:45.3762251Z > Task :app:parseDebugLocalResources
+2026-09-19T10:56:45.3786534Z > Task :app:createDebugCompatibleScreenManifests
+2026-09-19T10:56:45.3843177Z > Task :app:extractDeepLinksDebug FROM-CACHE
+2026-09-19T10:56:46.1752020Z > Task :app:mergeDebugResources
+2026-09-19T10:56:46.1800051Z > Task :core:common:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:56:46.4742057Z > Task :core:common:bundleLibCompileToJarDebug
+2026-09-19T10:56:46.9792075Z > Task :app:processDebugMainManifest
+2026-09-19T10:56:47.1752106Z > Task :app:processDebugManifest
+2026-09-19T10:56:47.2762119Z > Task :app:processDebugManifestForPackage
+2026-09-19T10:56:48.9740700Z > Task :core:database:compileDebugKotlin
+2026-09-19T10:56:48.9781992Z > Task :core:database:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:56:49.0773588Z > Task :core:database:bundleLibCompileToJarDebug
+2026-09-19T10:56:51.5740534Z > Task :app:processDebugResources
+2026-09-19T10:56:51.6759548Z 
+2026-09-19T10:56:51.6802493Z > Task :core:activity-tracker:compileDebugKotlin
+2026-09-19T10:56:51.6843244Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/activity-tracker/src/main/java/com/confused/anikuta/core/activitytracker/ActivityTracker.kt:106:24 Java type mismatch: inferred type is 'ActivityEvent?', but 'ActivityEvent' was expected.
+2026-09-19T10:56:51.7757629Z 
+2026-09-19T10:56:51.7812154Z > Task :core:activity-tracker:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:56:54.2738950Z > Task :core:activity-tracker:bundleLibCompileToJarDebug
+2026-09-19T10:56:58.7736286Z > Task :core:preferences:compileDebugKotlin
+2026-09-19T10:56:58.7737325Z > Task :core:preferences:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:56:58.8736108Z > Task :core:preferences:bundleLibCompileToJarDebug
+2026-09-19T10:57:00.4777612Z > Task :core:anilist:compileDebugKotlin
+2026-09-19T10:57:00.4794699Z > Task :core:anilist:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:00.5742121Z > Task :core:anilist:bundleLibCompileToJarDebug
+2026-09-19T10:57:00.5801859Z > Task :core:cloudstream-api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:00.5863297Z > Task :core:content:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:03.7751756Z > Task :core:cloudstream-api:compileDebugKotlin
+2026-09-19T10:57:05.3742136Z > Task :core:content:compileDebugKotlin
+2026-09-19T10:57:05.3751995Z > Task :core:content:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:05.3771633Z > Task :core:content:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:05.4745464Z > Task :core:content:bundleLibCompileToJarDebug
+2026-09-19T10:57:05.4801650Z > Task :core:cs-player:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:06.4752158Z > Task :core:app-update:compileDebugKotlin
+2026-09-19T10:57:06.4767404Z > Task :core:app-update:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:06.8777123Z > Task :core:app-update:bundleLibCompileToJarDebug
+2026-09-19T10:57:06.8842030Z > Task :core:data-cache:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:09.3762299Z > Task :core:data-cache:compileDebugKotlin
+2026-09-19T10:57:09.3864321Z > Task :core:cs-player:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:09.3891982Z > Task :core:data-cache:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:09.3951881Z > Task :core:data-cache:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:09.3953144Z > Task :core:data-cache:bundleLibCompileToJarDebug
+2026-09-19T10:57:09.3982018Z > Task :core:debug-api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:10.6772226Z > Task :core:debug-api:compileDebugKotlin
+2026-09-19T10:57:10.6781709Z > Task :core:debug-api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:10.6782460Z > Task :core:debug-api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:10.6783201Z > Task :core:debug-api:bundleLibCompileToJarDebug
+2026-09-19T10:57:10.6784395Z > Task :core:download:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:10.6785482Z > Task :core:provider-api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:10.8762805Z 
+2026-09-19T10:57:10.8763792Z > Task :core:cloudstream-api:compileDebugKotlin
+2026-09-19T10:57:10.8766037Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:44:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8768878Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8770673Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8771790Z 
+2026-09-19T10:57:10.8772387Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8774712Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:45:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8777480Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8778962Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8779692Z 
+2026-09-19T10:57:10.8780179Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8782567Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:60:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8785692Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8787228Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8788038Z 
+2026-09-19T10:57:10.8788575Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8790836Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:61:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8793840Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8795376Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8796151Z 
+2026-09-19T10:57:10.8796671Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8798951Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:62:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8801831Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8803322Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8804084Z 
+2026-09-19T10:57:10.8804594Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8807175Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:502:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8809921Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8811560Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8812226Z 
+2026-09-19T10:57:10.8812659Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8814544Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:506:9 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8816935Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8818125Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8818760Z 
+2026-09-19T10:57:10.8819254Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8821284Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:510:13 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8823483Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8824667Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8825284Z 
+2026-09-19T10:57:10.8825711Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8827541Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:514:17 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8829697Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8830871Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8831680Z 
+2026-09-19T10:57:10.8832094Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8834022Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:515:17 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8836699Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8838152Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8838905Z 
+2026-09-19T10:57:10.8839403Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8841853Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:516:17 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8844553Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8846010Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8846769Z 
+2026-09-19T10:57:10.8847278Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8849751Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:517:17 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8852611Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8854072Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8854818Z 
+2026-09-19T10:57:10.8855318Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8857397Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:518:17 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8859211Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8860086Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8860541Z 
+2026-09-19T10:57:10.8861318Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8864325Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:519:17 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8867012Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8868335Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8868924Z 
+2026-09-19T10:57:10.8869258Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8871584Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:520:17 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8874084Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8874951Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8875285Z 
+2026-09-19T10:57:10.8875485Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8876656Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:524:21 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8878028Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8878741Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8879069Z 
+2026-09-19T10:57:10.8879252Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8880425Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:525:21 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8882669Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8883985Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8884564Z 
+2026-09-19T10:57:10.8885138Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8887255Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:530:21 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8889764Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8910406Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8911279Z 
+2026-09-19T10:57:10.8911638Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8914020Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/LoadResponses.kt:531:21 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8916509Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8917780Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8918345Z 
+2026-09-19T10:57:10.8918675Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8920711Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/MainAPI.kt:107:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8923400Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8924708Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8925275Z 
+2026-09-19T10:57:10.8925604Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8927604Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/MainAPI.kt:108:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8929977Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8974010Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8974682Z 
+2026-09-19T10:57:10.8975052Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8977564Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/MainAPI.kt:109:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8980105Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8981650Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8982246Z 
+2026-09-19T10:57:10.8982573Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8984654Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/MainAPI.kt:110:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8987166Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8988472Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8989306Z 
+2026-09-19T10:57:10.8989654Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8992009Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/MainAPI.kt:115:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.8994480Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.8995756Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.8996530Z 
+2026-09-19T10:57:10.8996868Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.8998919Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/extractors/BuiltinExtractors.kt:93:30 'constructor(lang: String, url: String): SubtitleFile' is deprecated. Use newSubtitleFile method.
+2026-09-19T10:57:10.9042788Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/metaproviders/MetaProviders.kt:29:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9045512Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9046833Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9047436Z 
+2026-09-19T10:57:10.9047791Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9050029Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/metaproviders/MetaProviders.kt:30:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9052869Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9054160Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9054737Z 
+2026-09-19T10:57:10.9055058Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9057231Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/metaproviders/MetaProviders.kt:31:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9059830Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9061288Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9061865Z 
+2026-09-19T10:57:10.9062178Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9064327Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/metaproviders/MetaProviders.kt:32:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9066881Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9068181Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9068767Z 
+2026-09-19T10:57:10.9069091Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9131898Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/metaproviders/MetaProviders.kt:33:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9134648Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9135984Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9136585Z 
+2026-09-19T10:57:10.9136926Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9139122Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/metaproviders/MetaProviders.kt:52:9 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9142184Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9143476Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9144068Z 
+2026-09-19T10:57:10.9144392Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9146581Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/metaproviders/MetaProviders.kt:53:9 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9149104Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9150417Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9151200Z 
+2026-09-19T10:57:10.9151541Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9153171Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/network/WebViewResolver.kt:509:46 Condition is always 'true'.
+2026-09-19T10:57:10.9156158Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:33:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9158752Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9160068Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9160649Z 
+2026-09-19T10:57:10.9221248Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9223633Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:34:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9226268Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9227560Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9228130Z 
+2026-09-19T10:57:10.9228458Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9230615Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:35:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9233583Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9234880Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9235461Z 
+2026-09-19T10:57:10.9235791Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9237921Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:36:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9240443Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9242137Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9242730Z 
+2026-09-19T10:57:10.9243078Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9245300Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:37:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9247879Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9249181Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9249768Z 
+2026-09-19T10:57:10.9250097Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9312621Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:47:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9315351Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9316697Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9317300Z 
+2026-09-19T10:57:10.9317657Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9319892Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:49:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9322718Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9324048Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9324656Z 
+2026-09-19T10:57:10.9324997Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9327189Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:51:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9329831Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9331358Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9331979Z 
+2026-09-19T10:57:10.9332316Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9334769Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:53:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9337395Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9338711Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9339308Z 
+2026-09-19T10:57:10.9339636Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9402187Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:55:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9405177Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9406478Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9407052Z 
+2026-09-19T10:57:10.9407401Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9409630Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:57:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9412373Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9413654Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9414215Z 
+2026-09-19T10:57:10.9414529Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9416630Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:58:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9419194Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9420505Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9421306Z 
+2026-09-19T10:57:10.9421579Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9423358Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:59:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9425448Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9426485Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9426952Z 
+2026-09-19T10:57:10.9427215Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9428969Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:61:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9491449Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9492845Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9493432Z 
+2026-09-19T10:57:10.9494051Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9496146Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:63:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9498359Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9499454Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9499974Z 
+2026-09-19T10:57:10.9500269Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9502685Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:65:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9504949Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9506002Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9506472Z 
+2026-09-19T10:57:10.9506730Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9508532Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:67:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9510628Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9511989Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9512564Z 
+2026-09-19T10:57:10.9512880Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9515036Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:69:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9517602Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9518867Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9519440Z 
+2026-09-19T10:57:10.9519765Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9582257Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:71:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9584863Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9586126Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9586682Z 
+2026-09-19T10:57:10.9587003Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9589031Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:77:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9591773Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9593268Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9593834Z 
+2026-09-19T10:57:10.9594143Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9596172Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:78:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9598547Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9599757Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9600501Z 
+2026-09-19T10:57:10.9600807Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9603066Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:79:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9605476Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9606654Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9607163Z 
+2026-09-19T10:57:10.9607463Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9609513Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:80:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9672516Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9673833Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9674394Z 
+2026-09-19T10:57:10.9674723Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9676783Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/plugins/RepositoryModels.kt:81:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9679265Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9680498Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9681223Z 
+2026-09-19T10:57:10.9681540Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:10.9683515Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cloudstream-api/src/main/java/com/lagradost/cloudstream3/utils/UiText.kt:20:9 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+2026-09-19T10:57:10.9685867Z - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+2026-09-19T10:57:10.9687085Z - To keep applying to the value parameter only, use the '@param:' annotation target.
+2026-09-19T10:57:10.9687638Z 
+2026-09-19T10:57:10.9687950Z See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+2026-09-19T10:57:11.3762969Z 
+2026-09-19T10:57:11.3851969Z > Task :core:cloudstream-api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:11.3899472Z 
+2026-09-19T10:57:11.3941699Z > Task :core:designsystem:compileDebugKotlin
+2026-09-19T10:57:11.3973415Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/designsystem/src/main/java/com/confused/anikuta/core/designsystem/component/NavIcons.kt:16:51 'val Icons.Filled.MenuBook: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.MenuBook.
+2026-09-19T10:57:11.4003027Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/designsystem/src/main/java/com/confused/anikuta/core/designsystem/component/NumericEntrySheet.kt:221:45 'val Icons.Filled.Backspace: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Backspace.
+2026-09-19T10:57:11.4735663Z 
+2026-09-19T10:57:11.4761887Z > Task :core:cloudstream-api:bundleLibCompileToJarDebug
+2026-09-19T10:57:11.4821662Z > Task :core:provider-api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:11.4881998Z > Task :core:source-api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:11.4936485Z > Task :core:designsystem:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:11.4991918Z > Task :core:designsystem:bundleLibCompileToJarDebug
+2026-09-19T10:57:12.1737939Z > Task :core:provider-api:compileDebugKotlin
+2026-09-19T10:57:12.1760267Z > Task :core:provider-api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:12.1798006Z > Task :core:provider-api:bundleLibCompileToJarDebug
+2026-09-19T10:57:12.1808164Z > Task :core:video-resolver:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:12.1831967Z > Task :core:video-resolver:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:12.1861842Z > Task :core:download:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:12.1884656Z > Task :core:metadata:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:12.9762087Z 
+2026-09-19T10:57:12.9811977Z > Task :core:cs-player:compileDebugKotlin
+2026-09-19T10:57:12.9869331Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cs-player/src/main/java/com/confused/anikuta/core/csplayer/CsLanguageNames.kt:43:40 'constructor(p0: String!): Locale' is deprecated. Deprecated in Java.
+2026-09-19T10:57:12.9932873Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cs-player/src/main/java/com/confused/anikuta/core/csplayer/CsLanguageNames.kt:43:94 'constructor(p0: String!): Locale' is deprecated. Deprecated in Java.
+2026-09-19T10:57:12.9963247Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/cs-player/src/main/java/com/confused/anikuta/core/csplayer/CsPlayerEngine.kt:132:8 Annotation 'androidx.media3.common.util.UnstableApi' is not annotated with '@RequiresOptIn'. '@OptIn' has no effect.
+2026-09-19T10:57:13.8741749Z 
+2026-09-19T10:57:13.8772219Z > Task :core:cs-player:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:14.0741406Z > Task :core:cs-player:bundleLibCompileToJarDebug
+2026-09-19T10:57:14.0793023Z > Task :core:metadata:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:14.0850680Z > Task :core:navigation-api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:14.8752178Z > Task :core:navigation-api:compileDebugKotlin
+2026-09-19T10:57:14.8777566Z > Task :core:source-api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:14.8821828Z > Task :core:navigation-api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:14.8892112Z > Task :core:navigation-api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:14.8981970Z > Task :core:navigation-api:bundleLibCompileToJarDebug
+2026-09-19T10:57:14.9072163Z > Task :core:notifications:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:17.4757362Z > Task :core:notifications:compileDebugKotlin
+2026-09-19T10:57:17.4842146Z > Task :core:notifications:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:17.4871925Z > Task :core:notifications:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:17.4931672Z > Task :core:notifications:bundleLibCompileToJarDebug
+2026-09-19T10:57:17.4961994Z > Task :core:playback-cache:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:17.6752216Z > Task :core:metadata:compileDebugKotlin
+2026-09-19T10:57:17.6802299Z > Task :core:metadata:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:17.6840214Z > Task :core:metadata:bundleLibCompileToJarDebug
+2026-09-19T10:57:17.6861887Z > Task :core:playback-cache:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:17.6891790Z > Task :core:player:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:17.6951834Z > Task :core:player-mpv-lib:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:18.2748898Z > Task :core:player-mpv-lib:compileDebugKotlin
+2026-09-19T10:57:18.2761844Z > Task :core:player-mpv-lib:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:18.2792071Z > Task :core:player-mpv-lib:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:18.2793206Z > Task :core:player-mpv-lib:bundleLibCompileToJarDebug
+2026-09-19T10:57:18.3772575Z > Task :core:watch-progress:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:19.5735911Z 
+2026-09-19T10:57:19.5792335Z > Task :core:ads:compileDebugKotlin
+2026-09-19T10:57:19.5803697Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/ads/src/main/java/com/confused/anikuta/core/ads/SmartLinkAdInterstitial.kt:203:36 'val Icons.Filled.OpenInNew: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.OpenInNew.
+2026-09-19T10:57:19.7745660Z 
+2026-09-19T10:57:19.7792252Z > Task :core:ads:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:19.7793088Z > Task :core:ads:bundleLibCompileToJarDebug
+2026-09-19T10:57:19.7834973Z > Task :core:watch-progress:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:19.7852016Z > Task :core:player:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:19.7881918Z > Task :core:ratings:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:20.4757036Z > Task :core:ratings:compileDebugKotlin
+2026-09-19T10:57:20.4768856Z > Task :core:ratings:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:20.5762157Z > Task :core:ratings:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:20.5821808Z > Task :core:ratings:bundleLibCompileToJarDebug
+2026-09-19T10:57:20.5851899Z > Task :core:schedule:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:20.5882015Z > Task :core:updates:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:20.5911854Z > Task :data:extension:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:20.5941909Z > Task :data:extension:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:20.5961709Z > Task :core:updates:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:20.5992564Z > Task :core:schedule:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:20.6030115Z > Task :core:smart-matcher:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:20.6061714Z > Task :core:smart-matcher:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:20.6091761Z > Task :core:tracker-anilist:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:20.6121857Z > Task :core:tracker-api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:20.6758731Z > Task :core:watch-progress:compileDebugKotlin
+2026-09-19T10:57:20.6819056Z > Task :core:watch-progress:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:20.7812153Z > Task :core:watch-progress:bundleLibCompileToJarDebug
+2026-09-19T10:57:20.7828177Z > Task :core:tracker-api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:20.7882122Z > Task :core:tracker-anilist:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:20.7962194Z > Task :data:cloudstream:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:20.8052080Z > Task :data:cloudstream:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:20.8063327Z > Task :feature:debug-bubble:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:21.3741518Z 
+2026-09-19T10:57:21.3752094Z > Task :core:source-api:compileDebugKotlin
+2026-09-19T10:57:21.3781914Z w: Experimental context receivers are superseded by context parameters.
+2026-09-19T10:57:21.3783090Z Replace the '-Xcontext-receivers' compiler argument with '-Xcontext-parameters' and migrate to the new syntax.
+2026-09-19T10:57:21.3783893Z 
+2026-09-19T10:57:21.3784806Z See the context parameters proposal for more details: https://kotl.in/context-parameters
+2026-09-19T10:57:21.3801661Z This warning will become an error in future releases.
+2026-09-19T10:57:21.3843466Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/source-api/src/main/kotlin/eu/kanade/tachiyomi/network/OkHttpExtensions.kt:89:34 'fun resume(value: Response, onCancellation: ((@ParameterName(...) Throwable) -> Unit)?): Unit' is deprecated. Use the overload that also accepts the `value` and the coroutine context in lambda.
+2026-09-19T10:57:21.3892898Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/source-api/src/main/kotlin/eu/kanade/tachiyomi/network/OkHttpExtensions.kt:161:1 Experimental context receivers are superseded by context parameters.
+2026-09-19T10:57:21.3952117Z Replace the '-Xcontext-receivers' compiler argument with '-Xcontext-parameters' and migrate to the new syntax.
+2026-09-19T10:57:21.3981371Z 
+2026-09-19T10:57:21.4012015Z See the context parameters proposal for more details: https://kotl.in/context-parameters
+2026-09-19T10:57:21.4051714Z This warning will become an error in future releases.
+2026-09-19T10:57:21.4102784Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/source-api/src/main/kotlin/eu/kanade/tachiyomi/network/OkHttpExtensions.kt:166:1 Experimental context receivers are superseded by context parameters.
+2026-09-19T10:57:21.4132064Z Replace the '-Xcontext-receivers' compiler argument with '-Xcontext-parameters' and migrate to the new syntax.
+2026-09-19T10:57:21.4191466Z 
+2026-09-19T10:57:21.4207173Z See the context parameters proposal for more details: https://kotl.in/context-parameters
+2026-09-19T10:57:21.4265179Z This warning will become an error in future releases.
+2026-09-19T10:57:21.4273777Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/source-api/src/main/kotlin/eu/kanade/tachiyomi/network/OkHttpExtensions.kt:172:9 This declaration needs opt-in. Its usage should be marked with '@kotlinx.serialization.ExperimentalSerializationApi' or '@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)'
+2026-09-19T10:57:21.5735776Z 
+2026-09-19T10:57:21.5802092Z > Task :core:source-api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:21.5831207Z > Task :core:source-api:bundleLibCompileToJarDebug
+2026-09-19T10:57:21.7735626Z > Task :core:tracker-api:compileDebugKotlin
+2026-09-19T10:57:23.8735950Z > Task :core:video-resolver:compileDebugKotlin
+2026-09-19T10:57:23.8781964Z > Task :core:video-resolver:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:23.8809530Z > Task :core:video-resolver:bundleLibCompileToJarDebug
+2026-09-19T10:57:25.1744332Z 
+2026-09-19T10:57:25.1782110Z > Task :core:playback-cache:compileDebugKotlin
+2026-09-19T10:57:25.1829576Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/playback-cache/src/main/java/com/confused/anikuta/core/playbackcache/PlaybackCacheManager.kt:1176:13 Condition is always 'false'.
+2026-09-19T10:57:25.3735325Z 
+2026-09-19T10:57:25.3762433Z > Task :core:playback-cache:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:25.3791852Z > Task :core:playback-cache:bundleLibCompileToJarDebug
+2026-09-19T10:57:32.3761439Z 
+2026-09-19T10:57:32.3791807Z > Task :data:extension:compileDebugKotlin
+2026-09-19T10:57:32.3793975Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/data/extension/src/main/java/com/confused/anikuta/data/extension/installer/PackageInstallerBackend.kt:50:52 'fun <T : Parcelable!> getParcelableExtra(p0: String!): T?' is deprecated. Deprecated in Java.
+2026-09-19T10:57:32.3823828Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/data/extension/src/main/java/com/confused/anikuta/data/extension/loader/ExtensionLoader.kt:322:28 'static field GET_SIGNATURES: Int' is deprecated. Deprecated in Java.
+2026-09-19T10:57:32.5799729Z 
+2026-09-19T10:57:32.5824708Z > Task :data:extension:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:32.6751980Z > Task :data:extension:bundleLibCompileToJarDebug
+2026-09-19T10:57:34.1741762Z 
+2026-09-19T10:57:34.1801914Z > Task :feature:debug-bubble:compileDebugKotlin
+2026-09-19T10:57:34.1834608Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/debug-bubble/src/main/java/com/confused/anikuta/feature/debugbubble/panel/DatabaseTab.kt:99:48 'constructor(): ActivityResultContracts.CreateDocument' is deprecated. Using a wildcard mime type with CreateDocument is not recommended as it breaks the automatic handling of file extensions. Instead, specify the mime type by using the constructor that takes an concrete mime type (e.g.., CreateDocument("image/png")).
+2026-09-19T10:57:34.4771637Z 
+2026-09-19T10:57:34.4815385Z > Task :core:player:compileDebugKotlin
+2026-09-19T10:57:34.4923624Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/player/src/main/java/com/confused/anikuta/core/player/controls/FullscreenControls.kt:360:76 'val Icons.Filled.RotateRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.RotateRight.
+2026-09-19T10:57:34.4983770Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/core/player/src/main/java/com/confused/anikuta/core/player/controls/PlayerErrorOverlay.kt:66:50 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+2026-09-19T10:57:34.5061607Z 
+2026-09-19T10:57:34.5101855Z > Task :core:player:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:34.5124293Z > Task :core:player:bundleLibCompileToJarDebug
+2026-09-19T10:57:34.5161903Z > Task :core:tracker-api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:34.5162971Z > Task :core:tracker-api:bundleLibCompileToJarDebug
+2026-09-19T10:57:36.1748619Z > Task :core:smart-matcher:compileDebugKotlin
+2026-09-19T10:57:36.1772025Z > Task :core:smart-matcher:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:36.1861811Z > Task :core:smart-matcher:bundleLibCompileToJarDebug
+2026-09-19T10:57:37.2771945Z > Task :core:updates:compileDebugKotlin
+2026-09-19T10:57:37.2862013Z > Task :core:updates:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:37.3762534Z > Task :core:updates:bundleLibCompileToJarDebug
+2026-09-19T10:57:37.6782109Z > Task :core:tracker-anilist:compileDebugKotlin
+2026-09-19T10:57:37.6812037Z > Task :core:tracker-anilist:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:37.6887430Z > Task :core:tracker-anilist:bundleLibCompileToJarDebug
+2026-09-19T10:57:37.6931952Z > Task :feature:debug-bubble:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:37.6953482Z > Task :feature:debug-bubble:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:37.7752240Z > Task :feature:debug-bubble:bundleLibCompileToJarDebug
+2026-09-19T10:57:37.7771481Z > Task :feature:download:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:37.7801808Z > Task :feature:download:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:37.7852001Z > Task :feature:onboarding:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:37.7903357Z > Task :feature:onboarding:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:37.7942078Z > Task :feature:anime-browse:api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:38.4751905Z > Task :feature:anime-browse:api:compileDebugKotlin
+2026-09-19T10:57:38.4811890Z > Task :feature:anime-browse:api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:38.4872066Z > Task :feature:anime-browse:api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:38.4901787Z > Task :feature:anime-browse:api:bundleLibCompileToJarDebug
+2026-09-19T10:57:38.4982018Z > Task :feature:anime-browse:impl:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:38.5051994Z > Task :feature:anime-details:api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:38.6746655Z > Task :core:schedule:compileDebugKotlin
+2026-09-19T10:57:38.6771727Z > Task :core:schedule:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:38.6801814Z > Task :core:schedule:bundleLibCompileToJarDebug
+2026-09-19T10:57:38.6832152Z > Task :feature:anime-details:api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:38.6833267Z > Task :feature:anime-browse:impl:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:38.6893844Z > Task :feature:anime-details:impl:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:38.6939111Z > Task :feature:anime-details:impl:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:38.6982056Z > Task :feature:anime-history:api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:39.1736563Z > Task :feature:anime-history:api:compileDebugKotlin
+2026-09-19T10:57:39.1803953Z > Task :feature:anime-history:api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:39.1808341Z > Task :feature:anime-history:api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:39.1832011Z > Task :feature:anime-history:api:bundleLibCompileToJarDebug
+2026-09-19T10:57:39.1862069Z > Task :feature:anime-history:impl:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:39.1884296Z > Task :feature:watch:api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:39.4762108Z > Task :feature:anime-details:api:compileDebugKotlin
+2026-09-19T10:57:39.4768642Z > Task :feature:anime-details:api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:39.4791997Z > Task :feature:anime-details:api:bundleLibCompileToJarDebug
+2026-09-19T10:57:40.5762171Z > Task :feature:watch:api:compileDebugKotlin
+2026-09-19T10:57:40.5789558Z > Task :feature:watch:api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:40.5818112Z > Task :feature:watch:api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:40.5871772Z > Task :feature:watch:api:bundleLibCompileToJarDebug
+2026-09-19T10:57:44.3735797Z > Task :core:download:compileDebugKotlin
+2026-09-19T10:57:44.3761819Z > Task :core:download:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:44.3788589Z > Task :core:download:bundleLibCompileToJarDebug
+2026-09-19T10:57:44.5761591Z > Task :feature:anime-browse:impl:compileDebugKotlin
+2026-09-19T10:57:44.7762079Z > Task :feature:anime-history:impl:compileDebugKotlin
+2026-09-19T10:57:44.7821973Z > Task :feature:anime-browse:impl:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:44.7851861Z > Task :feature:anime-browse:impl:bundleLibCompileToJarDebug
+2026-09-19T10:57:46.0766187Z 
+2026-09-19T10:57:46.0772921Z > Task :data:cloudstream:compileDebugKotlin
+2026-09-19T10:57:46.0822228Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/data/cloudstream/src/main/java/com/confused/anikuta/data/cloudstream/content/CloudstreamContentRepository.kt:488:48 Condition is always 'true'.
+2026-09-19T10:57:46.0874772Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/data/cloudstream/src/main/java/com/confused/anikuta/data/cloudstream/loader/CloudstreamPluginLoader.kt:221:29 'constructor(p0: AssetManager!, p1: DisplayMetrics!, p2: Configuration!): Resources' is deprecated. Deprecated in Java.
+2026-09-19T10:57:46.0923419Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/data/cloudstream/src/main/java/com/confused/anikuta/data/cloudstream/repo/CloudstreamRepoApi.kt:120:13 Redundant creation of Json format. Creating instances for each usage can be slow.
+2026-09-19T10:57:46.4746265Z 
+2026-09-19T10:57:46.4776925Z > Task :data:cloudstream:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:46.4813763Z > Task :data:cloudstream:bundleLibCompileToJarDebug
+2026-09-19T10:57:46.4814806Z > Task :feature:anime-history:impl:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:46.4837389Z > Task :feature:anime-history:impl:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:46.4860783Z > Task :feature:anime-history:impl:bundleLibCompileToJarDebug
+2026-09-19T10:57:46.4862171Z > Task :feature:anime-library:api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:46.9752197Z > Task :feature:anime-library:api:compileDebugKotlin
+2026-09-19T10:57:46.9776340Z > Task :feature:anime-library:api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:47.0762795Z > Task :feature:anime-library:api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:47.0819421Z > Task :feature:anime-library:api:bundleLibCompileToJarDebug
+2026-09-19T10:57:47.0841745Z > Task :feature:anime-library:impl:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:51.4751455Z 
+2026-09-19T10:57:51.4778626Z > Task :feature:onboarding:compileDebugKotlin
+2026-09-19T10:57:51.4783404Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/onboarding/src/main/java/com/confused/anikuta/feature/onboarding/OnboardingScreen.kt:501:48 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
+2026-09-19T10:57:51.5791756Z 
+2026-09-19T10:57:51.5862360Z > Task :feature:onboarding:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:51.5891991Z > Task :feature:onboarding:bundleLibCompileToJarDebug
+2026-09-19T10:57:51.5909909Z > Task :feature:anime-library:impl:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:51.5974423Z > Task :feature:anime-search:api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:52.5742280Z > Task :feature:anime-search:api:compileDebugKotlin
+2026-09-19T10:57:52.5792040Z > Task :feature:anime-search:api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:52.5793762Z > Task :feature:anime-search:api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:52.5821853Z > Task :feature:anime-search:api:bundleLibCompileToJarDebug
+2026-09-19T10:57:52.5842050Z > Task :feature:anime-search:impl:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:53.5736327Z > Task :feature:download:compileDebugKotlin
+2026-09-19T10:57:53.5752065Z > Task :feature:download:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:53.5781794Z > Task :feature:download:bundleLibCompileToJarDebug
+2026-09-19T10:57:53.5811961Z > Task :feature:anime-search:impl:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:53.6763737Z > Task :feature:cs-watch:api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:57:55.1736292Z > Task :feature:cs-watch:api:compileDebugKotlin
+2026-09-19T10:57:55.1787239Z > Task :feature:cs-watch:api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:57:55.1831918Z > Task :feature:cs-watch:api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:57:55.1851698Z > Task :feature:cs-watch:api:bundleLibCompileToJarDebug
+2026-09-19T10:57:55.1942083Z > Task :feature:cs-watch:impl:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:58:02.9736197Z 
+2026-09-19T10:58:02.9753379Z > Task :feature:anime-library:impl:compileDebugKotlin
+2026-09-19T10:58:02.9774444Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-library/impl/src/main/java/com/confused/anikuta/feature/animelibrary/LibraryScreen.kt:624:77 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+2026-09-19T10:58:02.9793498Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-library/impl/src/main/java/com/confused/anikuta/feature/animelibrary/LibraryScreen.kt:2106:37 'val Icons.Filled.List: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.List.
+2026-09-19T10:58:03.2741944Z 
+2026-09-19T10:58:03.2772191Z > Task :feature:anime-library:impl:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:58:03.3764831Z > Task :feature:anime-library:impl:bundleLibCompileToJarDebug
+2026-09-19T10:58:03.3822187Z > Task :feature:cs-watch:impl:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:58:03.3834905Z > Task :feature:extensions-settings:api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:58:04.1782105Z > Task :feature:extensions-settings:api:compileDebugKotlin
+2026-09-19T10:58:04.1811930Z > Task :feature:extensions-settings:api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:58:04.1812948Z > Task :feature:extensions-settings:api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:58:04.2742097Z > Task :feature:extensions-settings:api:bundleLibCompileToJarDebug
+2026-09-19T10:58:04.2762485Z > Task :feature:extensions-settings:impl:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:58:04.9735529Z 
+2026-09-19T10:58:04.9806534Z > Task :feature:anime-search:impl:compileDebugKotlin
+2026-09-19T10:58:04.9863515Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-search/impl/src/main/java/com/confused/anikuta/feature/animesearch/FilterSheet.kt:396:29 'val Icons.Filled.Sort: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Sort.
+2026-09-19T10:58:05.1771192Z 
+2026-09-19T10:58:05.1812051Z > Task :feature:anime-search:impl:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:58:05.1872330Z > Task :feature:anime-search:impl:bundleLibCompileToJarDebug
+2026-09-19T10:58:05.1951783Z > Task :feature:extensions-settings:impl:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:58:05.1991971Z > Task :feature:updates:api:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:58:05.4752190Z > Task :feature:updates:api:compileDebugKotlin
+2026-09-19T10:58:05.4821825Z > Task :feature:updates:api:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:58:05.4851601Z > Task :feature:updates:api:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:58:05.5772120Z > Task :feature:updates:api:bundleLibCompileToJarDebug
+2026-09-19T10:58:05.5831983Z > Task :feature:updates:impl:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:58:10.6735767Z 
+2026-09-19T10:58:10.6812019Z > Task :feature:cs-watch:impl:compileDebugKotlin
+2026-09-19T10:58:10.6834858Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/cs-watch/impl/src/main/java/com/confused/anikuta/feature/cswatch/impl/CsSourceListUi.kt:281:28 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+2026-09-19T10:58:10.6894233Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/cs-watch/impl/src/main/java/com/confused/anikuta/feature/cswatch/impl/di/CsWatchModule.kt:15:5 'fun <reified T : ViewModel> Module.viewModel(qualifier: Qualifier? = ..., noinline definition: Scope.(ParametersHolder) -> T): KoinDefinition<T>' is deprecated. Moved ViewModel DSL package. Remove old imports and use org.koin.core.module.dsl.*.
+2026-09-19T10:58:10.9735629Z 
+2026-09-19T10:58:10.9736632Z > Task :feature:cs-watch:impl:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:58:11.0736677Z > Task :feature:cs-watch:impl:bundleLibCompileToJarDebug
+2026-09-19T10:58:11.0786388Z > Task :feature:updates:impl:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:58:11.0848779Z > Task :feature:watch:impl:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-09-19T10:58:11.0902056Z 
+2026-09-19T10:58:11.0924815Z > Task :feature:anime-details:impl:compileDebugKotlin
+2026-09-19T10:58:11.0992621Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsScreen.kt:207:13 'when' is exhaustive so 'else' is redundant here.
+2026-09-19T10:58:11.1062013Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsScreen.kt:386:9 'when' is exhaustive so 'else' is redundant here.
+2026-09-19T10:58:11.1124345Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsScreen.kt:395:9 'when' is exhaustive so 'else' is redundant here.
+2026-09-19T10:58:11.1127945Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsScreen.kt:455:9 'when' is exhaustive so 'else' is redundant here.
+2026-09-19T10:58:11.1144659Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsScreen.kt:1971:69 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+2026-09-19T10:58:11.1183218Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsScreen.kt:3789:57 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+2026-09-19T10:58:11.1187762Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsViewModel.kt:215:10 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+2026-09-19T10:58:11.1192887Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsViewModel.kt:242:14 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+2026-09-19T10:58:11.1198129Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsViewModel.kt:282:22 This declaration is in a preview state and can be changed in a backwards-incompatible manner with a best-effort migration. Its usage should be marked with '@kotlinx.coroutines.FlowPreview' or '@OptIn(kotlinx.coroutines.FlowPreview::class)' if you accept the drawback of relying on preview API
+2026-09-19T10:58:11.1259105Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsViewModel.kt:298:14 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+2026-09-19T10:58:11.1264148Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsViewModel.kt:508:14 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+2026-09-19T10:58:11.1267892Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/DetailsViewModel.kt:1872:41 Condition is always 'true'.
+2026-09-19T10:58:11.1271757Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/ResolverSheet.kt:793:28 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+2026-09-19T10:58:11.1276766Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/src/main/java/com/confused/anikuta/feature/animedetails/di/DetailsModule.kt:14:5 'fun <reified T : ViewModel> Module.viewModel(qualifier: Qualifier? = ..., noinline definition: Scope.(ParametersHolder) -> T): KoinDefinition<T>' is deprecated. Moved ViewModel DSL package. Remove old imports and use org.koin.core.module.dsl.*.
+2026-09-19T10:58:11.5735162Z 
+2026-09-19T10:58:11.5764811Z > Task :feature:anime-details:impl:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:58:11.5791966Z > Task :feature:anime-details:impl:bundleLibCompileToJarDebug
+2026-09-19T10:58:11.5814419Z > Task :feature:watch:impl:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:58:11.5841704Z > Task :app:javaPreCompileDebug FROM-CACHE
+2026-09-19T10:58:11.5904412Z > Task :app:mergeDebugShaders
+2026-09-19T10:58:11.5915466Z > Task :app:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.5941980Z > Task :app:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.5953444Z > Task :core:activity-tracker:mergeDebugShaders
+2026-09-19T10:58:11.5954409Z > Task :core:activity-tracker:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.5955505Z > Task :core:activity-tracker:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.5956263Z > Task :core:activity-tracker:mergeDebugAssets
+2026-09-19T10:58:11.5956827Z > Task :core:ads:mergeDebugShaders
+2026-09-19T10:58:11.5957386Z > Task :core:ads:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.5958023Z > Task :core:ads:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.5958610Z > Task :core:ads:mergeDebugAssets
+2026-09-19T10:58:11.5959109Z > Task :core:anilist:mergeDebugShaders
+2026-09-19T10:58:11.5959691Z > Task :core:anilist:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.5960675Z > Task :core:anilist:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.5961569Z > Task :core:anilist:mergeDebugAssets
+2026-09-19T10:58:11.5962112Z > Task :core:app-update:mergeDebugShaders
+2026-09-19T10:58:11.6773543Z > Task :core:app-update:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.6854995Z > Task :core:app-update:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.6931752Z > Task :core:app-update:mergeDebugAssets
+2026-09-19T10:58:11.6943920Z > Task :core:cloudstream-api:mergeDebugShaders
+2026-09-19T10:58:11.6991850Z > Task :core:cloudstream-api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.7041663Z > Task :core:cloudstream-api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.7058153Z > Task :core:cloudstream-api:mergeDebugAssets
+2026-09-19T10:58:11.7097346Z > Task :core:common:mergeDebugShaders
+2026-09-19T10:58:11.7148818Z > Task :core:common:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.7187356Z > Task :core:common:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.7246151Z > Task :core:common:mergeDebugAssets
+2026-09-19T10:58:11.7286525Z > Task :core:content:mergeDebugShaders
+2026-09-19T10:58:11.7332027Z > Task :core:content:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.7375068Z > Task :core:content:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.7416255Z > Task :core:content:mergeDebugAssets
+2026-09-19T10:58:11.7470046Z > Task :core:cs-player:mergeDebugShaders
+2026-09-19T10:58:11.7522492Z > Task :core:cs-player:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.7548105Z > Task :core:cs-player:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.7600581Z > Task :core:cs-player:mergeDebugAssets
+2026-09-19T10:58:11.7641693Z > Task :core:data-cache:mergeDebugShaders
+2026-09-19T10:58:11.7697298Z > Task :core:data-cache:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.7731992Z > Task :core:data-cache:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.7799223Z > Task :core:data-cache:mergeDebugAssets
+2026-09-19T10:58:11.7821631Z > Task :core:database:mergeDebugShaders
+2026-09-19T10:58:11.7850136Z > Task :core:database:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.7893522Z > Task :core:database:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.7898827Z > Task :core:database:mergeDebugAssets
+2026-09-19T10:58:11.7921458Z > Task :core:debug-api:mergeDebugShaders
+2026-09-19T10:58:11.7950379Z > Task :core:debug-api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.7989513Z > Task :core:debug-api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.8021388Z > Task :core:debug-api:mergeDebugAssets
+2026-09-19T10:58:11.8039351Z > Task :core:designsystem:mergeDebugShaders
+2026-09-19T10:58:11.8071313Z > Task :core:designsystem:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.8079473Z > Task :core:designsystem:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.8121757Z > Task :core:designsystem:mergeDebugAssets
+2026-09-19T10:58:11.8161419Z > Task :core:download:mergeDebugShaders
+2026-09-19T10:58:11.8181561Z > Task :core:download:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.8191525Z > Task :core:download:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.8220464Z > Task :core:download:mergeDebugAssets
+2026-09-19T10:58:11.8241824Z > Task :core:metadata:mergeDebugShaders
+2026-09-19T10:58:11.8272402Z > Task :core:metadata:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.8281469Z > Task :core:metadata:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.8305372Z > Task :core:metadata:mergeDebugAssets
+2026-09-19T10:58:11.8345401Z > Task :core:navigation-api:mergeDebugShaders
+2026-09-19T10:58:11.8371813Z > Task :core:navigation-api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.8421607Z > Task :core:navigation-api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.8454369Z > Task :core:navigation-api:mergeDebugAssets
+2026-09-19T10:58:11.8739024Z > Task :core:network:mergeDebugShaders
+2026-09-19T10:58:11.8756738Z > Task :core:network:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.8791410Z > Task :core:network:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.8811414Z > Task :core:network:mergeDebugAssets
+2026-09-19T10:58:11.8821377Z > Task :core:notifications:mergeDebugShaders
+2026-09-19T10:58:11.8841605Z > Task :core:notifications:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.8871583Z > Task :core:notifications:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.8872263Z > Task :core:notifications:mergeDebugAssets
+2026-09-19T10:58:11.8872821Z > Task :core:playback-cache:mergeDebugShaders
+2026-09-19T10:58:11.8873450Z > Task :core:playback-cache:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.8874133Z > Task :core:playback-cache:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.8874759Z > Task :core:playback-cache:mergeDebugAssets
+2026-09-19T10:58:11.8875301Z > Task :core:player:mergeDebugShaders
+2026-09-19T10:58:11.8875832Z > Task :core:player:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.8876457Z > Task :core:player:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.9741873Z > Task :core:player:mergeDebugAssets
+2026-09-19T10:58:11.9771586Z > Task :core:player-mpv-lib:mergeDebugShaders
+2026-09-19T10:58:11.9841566Z > Task :core:player-mpv-lib:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.9871473Z > Task :core:player-mpv-lib:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.9931414Z > Task :core:player-mpv-lib:mergeDebugAssets
+2026-09-19T10:58:11.9941465Z > Task :core:preferences:mergeDebugShaders
+2026-09-19T10:58:11.9961467Z > Task :core:preferences:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.9962127Z > Task :core:preferences:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.9962709Z > Task :core:preferences:mergeDebugAssets
+2026-09-19T10:58:11.9963219Z > Task :core:provider-api:mergeDebugShaders
+2026-09-19T10:58:11.9963798Z > Task :core:provider-api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.9964438Z > Task :core:provider-api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.9965026Z > Task :core:provider-api:mergeDebugAssets
+2026-09-19T10:58:11.9965525Z > Task :core:ratings:mergeDebugShaders
+2026-09-19T10:58:11.9966043Z > Task :core:ratings:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:11.9966652Z > Task :core:ratings:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:11.9967193Z > Task :core:ratings:mergeDebugAssets
+2026-09-19T10:58:12.0782079Z > Task :core:schedule:mergeDebugShaders
+2026-09-19T10:58:12.0839584Z > Task :core:schedule:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.0911946Z > Task :core:schedule:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.0976058Z > Task :core:schedule:mergeDebugAssets
+2026-09-19T10:58:12.1031483Z > Task :core:seasons:mergeDebugShaders
+2026-09-19T10:58:12.1061496Z > Task :core:seasons:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.1091479Z > Task :core:seasons:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.1132269Z > Task :core:seasons:mergeDebugAssets
+2026-09-19T10:58:12.1192730Z > Task :core:smart-matcher:mergeDebugShaders
+2026-09-19T10:58:12.1231892Z > Task :core:smart-matcher:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.1239634Z > Task :core:smart-matcher:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.1240680Z > Task :core:smart-matcher:mergeDebugAssets
+2026-09-19T10:58:12.1241733Z > Task :core:source-api:mergeDebugShaders
+2026-09-19T10:58:12.1242556Z > Task :core:source-api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.1243681Z > Task :core:source-api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.1244503Z > Task :core:source-api:mergeDebugAssets
+2026-09-19T10:58:12.1245198Z > Task :core:tracker-anilist:mergeDebugShaders
+2026-09-19T10:58:12.1246031Z > Task :core:tracker-anilist:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.1246955Z > Task :core:tracker-anilist:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.1291611Z > Task :core:tracker-anilist:mergeDebugAssets
+2026-09-19T10:58:12.1293513Z > Task :core:tracker-api:mergeDebugShaders
+2026-09-19T10:58:12.1297851Z > Task :core:tracker-api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.1298739Z > Task :core:tracker-api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.1299524Z > Task :core:tracker-api:mergeDebugAssets
+2026-09-19T10:58:12.1300519Z > Task :core:updates:mergeDebugShaders
+2026-09-19T10:58:12.1301545Z > Task :core:updates:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.1302439Z > Task :core:updates:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.1336958Z > Task :core:updates:mergeDebugAssets
+2026-09-19T10:58:12.1337890Z > Task :core:video-resolver:mergeDebugShaders
+2026-09-19T10:58:12.1338632Z > Task :core:video-resolver:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.1339432Z > Task :core:video-resolver:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.1340168Z > Task :core:video-resolver:mergeDebugAssets
+2026-09-19T10:58:12.1737850Z > Task :core:watch-progress:mergeDebugShaders
+2026-09-19T10:58:12.1782229Z > Task :core:watch-progress:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.1834417Z > Task :core:watch-progress:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.1897680Z > Task :core:watch-progress:mergeDebugAssets
+2026-09-19T10:58:12.1941836Z > Task :data:cloudstream:mergeDebugShaders
+2026-09-19T10:58:12.2001728Z > Task :data:cloudstream:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.2051627Z > Task :data:cloudstream:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.2083088Z > Task :data:cloudstream:mergeDebugAssets
+2026-09-19T10:58:12.2161758Z > Task :data:extension:mergeDebugShaders
+2026-09-19T10:58:12.2204445Z > Task :data:extension:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.2229725Z > Task :data:extension:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.2255420Z > Task :data:extension:mergeDebugAssets
+2026-09-19T10:58:12.2291589Z > Task :feature:debug-bubble:mergeDebugShaders
+2026-09-19T10:58:12.2301841Z > Task :feature:debug-bubble:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.2361759Z > Task :feature:debug-bubble:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.2372384Z > Task :feature:debug-bubble:mergeDebugAssets
+2026-09-19T10:58:12.2451872Z > Task :feature:download:mergeDebugShaders
+2026-09-19T10:58:12.2471704Z > Task :feature:download:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.2521727Z > Task :feature:download:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.2531712Z > Task :feature:download:mergeDebugAssets
+2026-09-19T10:58:12.2561727Z > Task :feature:onboarding:mergeDebugShaders
+2026-09-19T10:58:12.2597927Z > Task :feature:onboarding:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.2608879Z > Task :feature:onboarding:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.2616190Z > Task :feature:onboarding:mergeDebugAssets
+2026-09-19T10:58:12.2751886Z > Task :feature:anime-browse:api:mergeDebugShaders
+2026-09-19T10:58:12.2763248Z > Task :feature:anime-browse:api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.2791750Z > Task :feature:anime-browse:api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.2865443Z > Task :feature:anime-browse:api:mergeDebugAssets
+2026-09-19T10:58:12.2911781Z > Task :feature:anime-browse:impl:mergeDebugShaders
+2026-09-19T10:58:12.2926393Z > Task :feature:anime-browse:impl:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.2952531Z > Task :feature:anime-browse:impl:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.2981685Z > Task :feature:anime-browse:impl:mergeDebugAssets
+2026-09-19T10:58:12.3011627Z > Task :feature:anime-details:api:mergeDebugShaders
+2026-09-19T10:58:12.3027523Z > Task :feature:anime-details:api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.3050475Z > Task :feature:anime-details:api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.3091696Z > Task :feature:anime-details:api:mergeDebugAssets
+2026-09-19T10:58:12.3121307Z > Task :feature:anime-details:impl:mergeDebugShaders
+2026-09-19T10:58:12.3131779Z > Task :feature:anime-details:impl:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.3163839Z > Task :feature:anime-details:impl:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.3181701Z > Task :feature:anime-details:impl:mergeDebugAssets
+2026-09-19T10:58:12.3211578Z > Task :feature:anime-history:api:mergeDebugShaders
+2026-09-19T10:58:12.3241747Z > Task :feature:anime-history:api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.3264566Z > Task :feature:anime-history:api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.3282604Z > Task :feature:anime-history:api:mergeDebugAssets
+2026-09-19T10:58:12.3311635Z > Task :feature:anime-history:impl:mergeDebugShaders
+2026-09-19T10:58:12.3341588Z > Task :feature:anime-history:impl:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.3374675Z > Task :feature:anime-history:impl:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.3739417Z > Task :feature:anime-history:impl:mergeDebugAssets
+2026-09-19T10:58:12.3762267Z > Task :feature:anime-library:api:mergeDebugShaders
+2026-09-19T10:58:12.3793399Z > Task :feature:anime-library:api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.3841994Z > Task :feature:anime-library:api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.3895649Z > Task :feature:anime-library:api:mergeDebugAssets
+2026-09-19T10:58:12.3918505Z > Task :feature:anime-library:impl:mergeDebugShaders
+2026-09-19T10:58:12.3932714Z > Task :feature:anime-library:impl:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.3961922Z > Task :feature:anime-library:impl:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.3972026Z > Task :feature:anime-library:impl:mergeDebugAssets
+2026-09-19T10:58:12.4001570Z > Task :feature:anime-search:api:mergeDebugShaders
+2026-09-19T10:58:12.4002934Z > Task :feature:anime-search:api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.4003687Z > Task :feature:anime-search:api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.4051636Z > Task :feature:anime-search:api:mergeDebugAssets
+2026-09-19T10:58:12.4081882Z > Task :feature:anime-search:impl:mergeDebugShaders
+2026-09-19T10:58:12.4117464Z > Task :feature:anime-search:impl:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.4119104Z > Task :feature:anime-search:impl:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.4772167Z > Task :feature:anime-search:impl:mergeDebugAssets
+2026-09-19T10:58:12.4811399Z > Task :feature:cs-watch:api:mergeDebugShaders
+2026-09-19T10:58:12.4814113Z > Task :feature:cs-watch:api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.4858560Z > Task :feature:cs-watch:api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.4879306Z > Task :feature:cs-watch:api:mergeDebugAssets
+2026-09-19T10:58:12.4983534Z > Task :feature:cs-watch:impl:mergeDebugShaders
+2026-09-19T10:58:12.5049378Z > Task :feature:cs-watch:impl:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.5111849Z > Task :feature:cs-watch:impl:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.5118151Z > Task :feature:cs-watch:impl:mergeDebugAssets
+2026-09-19T10:58:12.5171882Z > Task :feature:extensions-settings:api:mergeDebugShaders
+2026-09-19T10:58:12.5201407Z > Task :feature:extensions-settings:api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.5221860Z > Task :feature:extensions-settings:api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.5747545Z > Task :feature:extensions-settings:api:mergeDebugAssets
+2026-09-19T10:58:12.5771946Z > Task :feature:extensions-settings:impl:mergeDebugShaders
+2026-09-19T10:58:12.5796556Z > Task :feature:extensions-settings:impl:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.5821910Z > Task :feature:extensions-settings:impl:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.5846059Z > Task :feature:extensions-settings:impl:mergeDebugAssets
+2026-09-19T10:58:12.5859999Z > Task :feature:updates:api:mergeDebugShaders
+2026-09-19T10:58:12.5863563Z > Task :feature:updates:api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.5891862Z > Task :feature:updates:api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.5898440Z > Task :feature:updates:api:mergeDebugAssets
+2026-09-19T10:58:12.5921822Z > Task :feature:updates:impl:mergeDebugShaders
+2026-09-19T10:58:12.5929323Z > Task :feature:updates:impl:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.5958983Z > Task :feature:updates:impl:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.5981689Z > Task :feature:updates:impl:mergeDebugAssets
+2026-09-19T10:58:12.6011620Z > Task :feature:watch:api:mergeDebugShaders
+2026-09-19T10:58:12.6041656Z > Task :feature:watch:api:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.6042875Z > Task :feature:watch:api:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.6069291Z > Task :feature:watch:api:mergeDebugAssets
+2026-09-19T10:58:12.6091804Z > Task :feature:watch:impl:mergeDebugShaders
+2026-09-19T10:58:12.6121867Z > Task :feature:watch:impl:compileDebugShaders NO-SOURCE
+2026-09-19T10:58:12.6151865Z > Task :feature:watch:impl:generateDebugAssets UP-TO-DATE
+2026-09-19T10:58:12.6152789Z > Task :feature:watch:impl:mergeDebugAssets
+2026-09-19T10:58:13.0735844Z > Task :app:mergeDebugAssets
+2026-09-19T10:58:13.1756745Z > Task :feature:updates:impl:compileDebugKotlin
+2026-09-19T10:58:13.1845190Z > Task :feature:updates:impl:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:58:13.2787254Z > Task :feature:updates:impl:bundleLibCompileToJarDebug
+2026-09-19T10:58:13.2787970Z > Task :feature:debug-bubble:bundleLibRuntimeToJarDebug
+2026-09-19T10:58:13.7772048Z > Task :app:compressDebugAssets
+2026-09-19T10:58:13.7831800Z > Task :core:player:bundleLibRuntimeToJarDebug
+2026-09-19T10:58:20.3752171Z > Task :feature:extensions-settings:impl:compileDebugKotlin
+2026-09-19T10:58:20.3772439Z > Task :feature:extensions-settings:impl:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:58:20.3801893Z > Task :feature:extensions-settings:impl:bundleLibCompileToJarDebug
+2026-09-19T10:58:20.4752055Z > Task :feature:anime-browse:impl:bundleLibRuntimeToJarDebug
+2026-09-19T10:58:21.4761505Z 
+2026-09-19T10:58:21.4821938Z > Task :feature:watch:impl:compileDebugKotlin
+2026-09-19T10:58:21.4884105Z w: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/feature/watch/impl/src/main/java/com/confused/anikuta/feature/watch/sheets/PlayerSheets.kt:1061:28 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+2026-09-19T10:58:21.7781676Z 
+2026-09-19T10:58:21.7792071Z > Task :feature:watch:impl:compileDebugJavaWithJavac NO-SOURCE
+2026-09-19T10:58:21.8762018Z > Task :feature:watch:impl:bundleLibCompileToJarDebug
+2026-09-19T10:58:23.8762277Z > Task :feature:watch:impl:bundleLibRuntimeToJarDebug
+2026-09-19T10:58:24.5775149Z > Task :feature:anime-details:impl:bundleLibRuntimeToJarDebug
+2026-09-19T10:58:25.5742364Z > Task :feature:anime-library:impl:bundleLibRuntimeToJarDebug
+2026-09-19T10:58:31.3752158Z > Task :feature:anime-search:impl:bundleLibRuntimeToJarDebug
+2026-09-19T10:58:35.4736093Z > Task :feature:extensions-settings:impl:bundleLibRuntimeToJarDebug
+2026-09-19T10:58:37.8743394Z 
+2026-09-19T10:58:37.8745206Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/notifications/EpisodeBannerComposer.kt:83:29 Unresolved reference 'coverUrlLarge'.
+2026-09-19T10:58:37.8746920Z > Task :app:compileDebugKotlin FAILED
+2026-09-19T10:58:37.8748731Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/notifications/EpisodeBannerComposer.kt:100:38 Argument type mismatch: actual type is 'Float', but 'Int' was expected.
+2026-09-19T10:58:37.8762839Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/notifications/EpisodeBannerComposer.kt:100:51 Argument type mismatch: actual type is 'Float', but 'Int' was expected.
+2026-09-19T10:58:37.8793157Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/notifications/EpisodeNotificationTester.kt:72:34 Unresolved reference 'title'.
+2026-09-19T10:58:37.8823428Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:65:26 Type 'MutableState<Boolean>' has no method 'setValue(Nothing?, KMutableProperty0<*>, Boolean)', so it cannot serve as a delegate for var (read-write property).
+2026-09-19T10:58:37.8853425Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:66:24 Type 'MutableState<Boolean>' has no method 'setValue(Nothing?, KMutableProperty0<*>, Boolean)', so it cannot serve as a delegate for var (read-write property).
+2026-09-19T10:58:37.8858237Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:67:24 Type 'MutableState<Boolean>' has no method 'setValue(Nothing?, KMutableProperty0<*>, Boolean)', so it cannot serve as a delegate for var (read-write property).
+2026-09-19T10:58:37.8893433Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:68:27 Type 'MutableState<Boolean>' has no method 'setValue(Nothing?, KMutableProperty0<*>, Boolean)', so it cannot serve as a delegate for var (read-write property).
+2026-09-19T10:58:37.8917181Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:69:26 Type 'MutableState<String>' has no method 'setValue(Nothing?, KMutableProperty0<*>, String)', so it cannot serve as a delegate for var (read-write property).
+2026-09-19T10:58:37.8953096Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:74:17 Property delegate must have a 'getValue(Nothing?, KProperty0<*>)' method. None of the following functions is applicable:
+2026-09-19T10:58:37.8955583Z fun FloatState.getValue(thisObj: Any?, property: KProperty<*>): Float
+2026-09-19T10:58:37.8981837Z fun DoubleState.getValue(thisObj: Any?, property: KProperty<*>): Double
+2026-09-19T10:58:37.9011721Z fun IntState.getValue(thisObj: Any?, property: KProperty<*>): Int
+2026-09-19T10:58:37.9041611Z fun LongState.getValue(thisObj: Any?, property: KProperty<*>): Long
+2026-09-19T10:58:37.9042590Z fun <T> State<T>.getValue(thisObj: Any?, property: KProperty<*>): T
+2026-09-19T10:58:37.9072841Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:74:33 One type argument expected for class Result<out T> : Serializable.
+2026-09-19T10:58:37.9102952Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:74:57 Null cannot be a value of a non-null type 'uninferred T (of fun <T> produceState)'.
+2026-09-19T10:58:37.9132844Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:74:63 Argument type mismatch: actual type is 'Boolean', but 'Any?' was expected.
+2026-09-19T10:58:37.9136171Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:74:78 Argument type mismatch: actual type is 'Boolean', but 'Any?' was expected.
+2026-09-19T10:58:37.9162852Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:74:96 Argument type mismatch: actual type is 'Boolean', but 'Any?' was expected.
+2026-09-19T10:58:37.9193221Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:74:112 Argument type mismatch: actual type is 'Boolean', but 'Any?' was expected.
+2026-09-19T10:58:37.9222779Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:74:128 Argument type mismatch: actual type is 'Boolean', but 'Any?' was expected.
+2026-09-19T10:58:37.9252695Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:74:147 Argument type mismatch: actual type is 'String', but 'Any?' was expected.
+2026-09-19T10:58:37.9257022Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:74:165 Argument type mismatch: actual type is 'SuspendFunction1<ProduceStateScope<uninferred T (of fun <T> produceState)>, Unit>', but 'SuspendFunction1<ProduceStateScope<uninferred T (of fun <T> produceState)>, Unit>' was expected.
+2026-09-19T10:58:37.9282794Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:75:17 Not enough information to infer type argument for 'K'.
+2026-09-19T10:58:37.9312480Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:79:34 Not enough information to infer type argument for 'K'.
+2026-09-19T10:58:37.9315332Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:79:56 Argument type mismatch: actual type is 'String', but 'K (of fun <K> WHEN_CALL)' was expected.
+2026-09-19T10:58:37.9318811Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:80:17 Argument type mismatch: actual type is 'String', but 'K (of fun <K> WHEN_CALL)' was expected.
+2026-09-19T10:58:37.9321589Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:80:62 Unresolved reference 'title'.
+2026-09-19T10:58:37.9324110Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:83:26 Argument type mismatch: actual type is 'String', but 'String' was expected.
+2026-09-19T10:58:37.9327175Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:84:25 Argument type mismatch: actual type is 'K (of fun <K> WHEN_CALL)', but 'String' was expected.
+2026-09-19T10:58:37.9330252Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:85:33 Argument type mismatch: actual type is 'Double', but 'Double' was expected.
+2026-09-19T10:58:37.9333224Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:86:32 Argument type mismatch: actual type is 'String', but 'String' was expected.
+2026-09-19T10:58:37.9336204Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:87:33 Argument type mismatch: actual type is 'K (of fun <K> WHEN_CALL)', but 'String?' was expected.
+2026-09-19T10:58:37.9339133Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:87:33 Not enough information to infer type argument for 'K'.
+2026-09-19T10:58:37.9402680Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:87:55 Argument type mismatch: actual type is 'String', but 'K (of fun <K> WHEN_CALL)' was expected.
+2026-09-19T10:58:37.9405840Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:87:81 Null cannot be a value of a non-null type 'uninferred K (of fun <K> WHEN_CALL)'.
+2026-09-19T10:58:37.9408995Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:88:40 Argument type mismatch: actual type is 'K (of fun <K> WHEN_CALL)', but 'String?' was expected.
+2026-09-19T10:58:37.9412332Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:88:40 Not enough information to infer type argument for 'K'.
+2026-09-19T10:58:37.9415286Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:88:62 Argument type mismatch: actual type is 'String', but 'K (of fun <K> WHEN_CALL)' was expected.
+2026-09-19T10:58:37.9418351Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:88:90 Null cannot be a value of a non-null type 'uninferred K (of fun <K> WHEN_CALL)'.
+2026-09-19T10:58:37.9443718Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:90:13 Argument type mismatch: actual type is 'Result<Bitmap?>', but 'K (of fun <K> TRY_CALL)' was expected.
+2026-09-19T10:58:37.9446885Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:92:22 Argument type mismatch: actual type is 'String', but 'String' was expected.
+2026-09-19T10:58:37.9449969Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:92:42 Argument type mismatch: actual type is 'Function0<String>', but 'Function0<String>' was expected.
+2026-09-19T10:58:37.9483670Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:93:13 Argument type mismatch: actual type is 'Result<uninferred T (of fun <T> failure)>', but 'K (of fun <K> TRY_CALL)' was expected.
+2026-09-19T10:58:37.9486691Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:93:20 Cannot infer type for this parameter. Specify it explicitly.
+2026-09-19T10:58:37.9489402Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:93:20 Not enough information to infer type argument for 'T'.
+2026-09-19T10:58:37.9491984Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:133:54 Unresolved reference 'success'.
+2026-09-19T10:58:37.9494234Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:133:72 Unresolved reference 'value'.
+2026-09-19T10:58:37.9496593Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:135:61 Unresolved reference 'value'.
+2026-09-19T10:58:37.9498891Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:141:54 Unresolved reference 'failure'.
+2026-09-19T10:58:37.9501789Z e: file:///home/runner/work/ANI-KUTA/ANI-KUTA/ANI-KUTA/APP/ani-kuta/app/src/main/java/com/confused/anikuta/settings/NotificationPosterSettingsScreen.kt:222:21 No value passed for parameter 'backgroundColor'.
+2026-09-19T10:58:42.5741732Z 
+2026-09-19T10:58:42.5742712Z gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run-1789815218787.json
+2026-09-19T10:58:42.5761672Z FAILURE: Build failed with an exception.
+2026-09-19T10:58:42.5762274Z 808 actionable tasks: 499 executed, 309 from cache
+2026-09-19T10:58:42.5791317Z 
+2026-09-19T10:58:42.5791495Z * What went wrong:
+2026-09-19T10:58:42.5792005Z Execution failed for task ':app:compileDebugKotlin'.
+2026-09-19T10:58:42.5793347Z > A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+2026-09-19T10:58:42.5795054Z    > Compilation error. See log for more details
+2026-09-19T10:58:42.5795429Z 
+2026-09-19T10:58:42.5795560Z * Try:
+2026-09-19T10:58:42.5795993Z > Run with --stacktrace option to get the stack trace.
+2026-09-19T10:58:42.5796654Z > Run with --info or --debug option to get more log output.
+2026-09-19T10:58:42.5797249Z > Run with --scan to get full insights.
+2026-09-19T10:58:42.5797788Z > Get more help at https://help.gradle.org.
+2026-09-19T10:58:42.5798156Z 
+2026-09-19T10:58:42.5798307Z BUILD FAILED in 5m 14s
+2026-09-19T10:58:43.1375335Z ##[error]Process completed with exit code 1.
+2026-09-19T10:58:43.1527638Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-19T10:58:43.1528909Z Post job cleanup.
+2026-09-19T10:58:43.4061743Z In post-action step
+2026-09-19T10:58:43.4071326Z Cache is read-only: will not save state for use in subsequent builds.
+2026-09-19T10:58:43.4077443Z Generating Job Summary
+2026-09-19T10:58:43.4101773Z Completed post-action step
+2026-09-19T10:58:43.4212060Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-19T10:58:43.4213329Z Post job cleanup.
+2026-09-19T10:58:43.5603612Z (node:2978) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-09-19T10:58:43.5604971Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-09-19T10:58:43.5795779Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-19T10:58:43.5797026Z Post job cleanup.
+2026-09-19T10:58:43.6676678Z [command]/usr/bin/git version
+2026-09-19T10:58:43.6721312Z git version 2.55.0
+2026-09-19T10:58:43.6762413Z Temporarily overriding HOME='/home/runner/work/_temp/6a22e252-659e-4296-b6c7-b712604e8730' before making global git config changes
+2026-09-19T10:58:43.6763745Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-19T10:58:43.6770260Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/ANI-KUTA/ANI-KUTA
+2026-09-19T10:58:43.6809999Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-19T10:58:43.6857811Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-19T10:58:43.7203709Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-19T10:58:43.7229945Z http.https://github.com/.extraheader
+2026-09-19T10:58:43.7243303Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-09-19T10:58:43.7310391Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-19T10:58:43.7639988Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-19T10:58:43.7732421Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-19T10:58:43.8115345Z Cleaning up orphan processes
+2026-09-19T10:58:43.8463549Z Terminate orphan process: pid (2353) (java)
+2026-09-19T10:58:43.8582091Z Terminate orphan process: pid (2554) (java)
+2026-09-19T10:58:43.8617783Z Terminate orphan process: pid (2659) (java)
+2026-09-19T10:58:43.8632279Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-java@v4, gradle/actions/setup-gradle@v4, gradle/actions/wrapper-validation@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
