@@ -178,10 +178,9 @@ fun FullscreenControls(
                     },
             )
 
-            // D-456: the cumulative double-tap seek pill — fullscreen parity
-            // with the minimized view (renders regardless of controlsVisible,
-            // exactly like the portrait feedback did).
-            DoubleTapSeekIndicator(state = seekFeedback)
+            // D-456/D-470: the cumulative double-tap seek pill — fullscreen
+            // keeps the pill INWARD (96dp); renders regardless of controls.
+            DoubleTapSeekIndicator(state = seekFeedback, sidePadding = 96.dp)
 
             // ── ERROR BANNER (non-intrusive, top-aligned) ──
             // Replaces the old full-screen PlayerErrorOverlay "dialog box".
@@ -360,12 +359,11 @@ fun FullscreenControls(
                                         FSSpeedButton(speed = currentSpeed, onClick = onSpeedClick)
                                         FSSmallButton(icon = Icons.Default.RotateRight, contentDescription = "Rotate", onClick = onRotateClick)
                                         FSSkipIconButton(onClick = onSkipForward)
-                                        // D-463: the exit joins the SAME tray as
-                                        // its neighbours with the plain chip
-                                        // style, no shadow.
-                                        FSSmallButton(icon = Icons.Default.FullscreenExit, contentDescription = "Exit fullscreen", onClick = onMinimize)
                                     }
                                 }
+                                // D-467: standalone again (NOT inside the
+                                // cluster tray) with its THEME-COLOR chip.
+                                FSExitButton(onClick = onMinimize)
                                 FSTimeContainer(text = formatTime(duration))
                             }
                         }
@@ -471,8 +469,8 @@ private fun FullscreenSeekbarCustom(
             val thumbX = (barWidth * progress - thumbSize / 2f).coerceAtLeast(0f)
             val thumbY = (size.height - thumbSize) / 2f
             val thumbRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx(), 4.dp.toPx())
-            // D-463: the thumb carries the DARKER shadow now (moved here
-            // from the track) + the light border ring stays.
+            // D-463/D-469: the thumb carries the DARK shadow; the border ring
+            // is now THINNER (2dp) and DARKER (black 40%) per the device round.
             val halo = 4.dp.toPx()
             drawRoundRect(
                 color = Color.Black.copy(alpha = 0.5f),
@@ -480,12 +478,12 @@ private fun FullscreenSeekbarCustom(
                 size = Size(thumbSize + halo * 2, thumbSize + halo * 2),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
             )
-            // The light border ring.
+            val border = 2.dp.toPx()
             drawRoundRect(
-                color = Color.White.copy(alpha = 0.55f),
-                topLeft = Offset(thumbX - halo, thumbY - halo),
-                size = Size(thumbSize + halo * 2, thumbSize + halo * 2),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius((4 + 3).dp.toPx(), (4 + 3).dp.toPx()),
+                color = Color.Black.copy(alpha = 0.4f),
+                topLeft = Offset(thumbX - border, thumbY - border),
+                size = Size(thumbSize + border * 2, thumbSize + border * 2),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx()),
             )
             // The thumb itself (slightly inset so the ring shows).
             drawRoundRect(
@@ -606,6 +604,22 @@ private fun FSTimeContainer(text: String, modifier: Modifier = Modifier) {
         modifier = modifier,
     ) {
         Text(text = text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+    }
+}
+
+@Composable
+private fun FSExitButton(onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        // D-467: the exit-fullscreen button is STANDALONE (separate from the
+        // bottom-right cluster tray, exactly like the other chips but on its
+        // own) with its THEME-COLOR background — the user's round-45 spec.
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+        modifier = Modifier.size(36.dp).clickable(onClick = onClick),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.FullscreenExit, contentDescription = "Exit fullscreen", tint = Color.White, modifier = Modifier.size(18.dp))
+        }
     }
 }
 

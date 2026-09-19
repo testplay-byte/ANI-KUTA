@@ -1823,3 +1823,10 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **D-461:** the exit bubble slides the ring to the window center, then pops.
 - **D-462:** the seek pill 96dp from the edges + a pulse pop on every accumulating tap (both stacks).
 - **D-463:** the fullscreen shadows corrected — text shadows on the skip labels (block shadows removed), the track backing removed and the dark shadow moved to the thumb, the exit-fullscreen button inside the cluster tray with the plain chip style.
+
+## Round 45 (Task 85) — the v1.1.7 device round: the What's New cleanup + the pill slack + the fullscreen polish
+- **D-466:** the release body = the tag's own user-facing bullets (no git log, no header, no tables); v1.1.7's notes retro-fixed; the process rule recorded.
+- **D-467:** the exit-fullscreen button standalone + theme color (the D-463 in-tray move reverted).
+- **D-468:** the pill window +40dp/24dp slack (the exact-fit window was the persistent clip).
+- **D-469:** the thumb border 2dp + black-40% (thinner + darker).
+- **D-470:** the seek pill per-orientation side distance (portrait 40dp at the sides, fullscreen 96dp inward).

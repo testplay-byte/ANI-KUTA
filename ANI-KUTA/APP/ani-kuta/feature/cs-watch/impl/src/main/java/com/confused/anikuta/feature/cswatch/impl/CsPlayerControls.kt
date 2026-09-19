@@ -179,13 +179,17 @@ private fun rememberCsDoubleTapSeekState(): CsDoubleTapSeekState {
 
 /** The CS seek pill — same visual language as the MPV indicator. */
 @Composable
-private fun CsDoubleTapSeekIndicator(state: CsDoubleTapSeekState, modifier: Modifier = Modifier) {
+private fun CsDoubleTapSeekIndicator(
+    state: CsDoubleTapSeekState,
+    modifier: Modifier = Modifier,
+    sidePadding: androidx.compose.ui.unit.Dp = 40.dp,
+) {
     if (!state.visible) return
     Box(modifier = modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 96.dp),
+                .padding(horizontal = sidePadding),
             contentAlignment = if (state.forward) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
             Surface(
@@ -695,9 +699,9 @@ internal fun CsFullscreenControls(
                     },
             )
 
-            // D-458: the cumulative seek pill — fullscreen parity with the
-            // minimized view (previously the fullscreen seeked silently).
-            CsDoubleTapSeekIndicator(state = seekFeedback)
+            // D-458/D-470: the cumulative seek pill — fullscreen keeps the
+            // pill INWARD (96dp).
+            CsDoubleTapSeekIndicator(state = seekFeedback, sidePadding = 96.dp)
 
             // ── Top elements (slide in from top) ──
             AnimatedVisibility(
@@ -857,16 +861,11 @@ internal fun CsFullscreenControls(
                                     ) {
                                         CsFsSpeedButton(speed = currentSpeed, onClick = onSpeedClick)
                                         CsFsSkipIconButton(onClick = onSkipForward)
-                                        // D-463: the exit joins the SAME tray as
-                                        // its neighbours (the user's round-44 spec)
-                                        // with the plain chip style, no shadow.
-                                        CsFsSmallButton(
-                                            icon = Icons.Default.FullscreenExit,
-                                            contentDescription = "Exit fullscreen",
-                                            onClick = onMinimize,
-                                        )
                                     }
                                 }
+                                // D-467: standalone again (NOT inside the cluster
+                                // tray) with its THEME-COLOR chip.
+                                CsFsExitButton(onClick = onMinimize)
                                 CsFsTimeContainer(text = formatCsTime(state.durationMs))
                             }
                         }
@@ -970,8 +969,8 @@ private fun CsFullscreenSeekbar(
             val thumbSize = thumbSizeDp.toPx()
             val thumbX = (barWidth * progress - thumbSize / 2f).coerceAtLeast(0f)
             val thumbY = (size.height - thumbSize) / 2f
-            // D-463: the thumb carries the DARKER shadow now (moved here
-            // from the track) + the light border ring stays.
+            // D-463/D-469: the thumb carries the DARK shadow; the border ring
+            // is now THINNER (2dp) and DARKER (black 40%) per the device round.
             val halo = 4.dp.toPx()
             drawRoundRect(
                 color = Color.Black.copy(alpha = 0.5f),
@@ -979,11 +978,12 @@ private fun CsFullscreenSeekbar(
                 size = Size(thumbSize + halo * 2, thumbSize + halo * 2),
                 cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx()),
             )
+            val border = 2.dp.toPx()
             drawRoundRect(
-                color = Color.White.copy(alpha = 0.55f),
-                topLeft = Offset(thumbX - halo, thumbY - halo),
-                size = Size(thumbSize + halo * 2, thumbSize + halo * 2),
-                cornerRadius = CornerRadius(7.dp.toPx(), 7.dp.toPx()),
+                color = Color.Black.copy(alpha = 0.4f),
+                topLeft = Offset(thumbX - border, thumbY - border),
+                size = Size(thumbSize + border * 2, thumbSize + border * 2),
+                cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
             )
             drawRoundRect(
                 color = progressColor,
@@ -1103,6 +1103,21 @@ private fun CsFsTimeContainer(text: String, modifier: Modifier = Modifier) {
         modifier = modifier,
     ) {
         Text(text = text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+    }
+}
+
+@Composable
+private fun CsFsExitButton(onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        // D-467: the exit-fullscreen button is STANDALONE (separate from the
+        // bottom-right cluster tray) with its THEME-COLOR background.
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+        modifier = Modifier.size(36.dp).clickable(onClick = onClick),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.FullscreenExit, contentDescription = "Exit fullscreen", tint = Color.White, modifier = Modifier.size(18.dp))
+        }
     }
 }
 

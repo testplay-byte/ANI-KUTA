@@ -122,11 +122,16 @@ class SmartLinkReturnPillController {
         }
 
         val params = WindowManager.LayoutParams().apply {
-            // The D-454 jitter fix: the window is sized ONCE to the pill's
-            // pre-measured READY shape (padding headroom included) — the
-            // surface never resizes for the pill's whole life.
-            width = view.measuredWidth
-            height = view.measuredHeight
+            // The D-454 jitter fix: the window is sized ONCE — the surface
+            // never resizes for the pill's whole life. D-468: the size is the
+            // pre-measured READY shape PLUS generous slack — the v1.1.7
+            // device round still showed the ready pill's sides and the pop's
+            // top/bottom clipped, so an exact-fit window is too tight (sub-pixel
+            // text-measure drift compounds). The capsule is centered in the
+            // bigger window; the extra margin is non-interactive while
+            // counting (FLAG_NOT_TOUCHABLE) and inert when ready.
+            width = view.measuredWidth + (40 * density).toInt()
+            height = view.measuredHeight + (24 * density).toInt()
             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             // NOT_FOCUSABLE: the browser keeps its keyboard/input. NOT_TOUCHABLE
             // while counting: every touch (including over the pill) passes to

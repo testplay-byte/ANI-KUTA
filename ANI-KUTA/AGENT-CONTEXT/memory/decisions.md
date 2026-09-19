@@ -2935,3 +2935,18 @@ The v1.1.6 device round: (1) the D-457 shadows landed on the BUTTON BLOCKS ("an 
 
 ## D-465 (round 44): NO routine CI unit tests — only when needed
 The user's round-44 instruction (given while release/1.1.7 was mid-flight): "we should not (Run Unit Tests (cloudstream modules))… they take up unnecessary time in the build which is not needed so let's only do that when it's necessary and when needed." The unit-test steps are REMOVED from BOTH workflows (build-apk.yml's push path + release-apk.yml's tag path); the v1.1.7 tag run is the first to benefit. Standing rule (CORE_RULES §8): tests run ONLY on explicit user request or when the changed code specifically warrants a pass (state it before adding one back).
+
+## D-466 (round 45): the What's New section — clean user-facing release notes
+The v1.1.7 device round: the in-app update sheet's What's New showed the RAW push info — the workflow had stuffed `git log --oneline` (commit hashes = "encrypted coding format") plus a `## What's New` header that DUPLICATED the sheet's own heading, plus a download table that renders as raw pipes. The app's markdown renderer was never the problem — the BODY was. FIX (release-apk.yml): the release body = the annotated TAG's BODY (the user-facing bullet list written at tag time) + one install line. NO git log, NO header, NO tables — ever. PROCESS RULE: every future tag carries its bullets in the tag annotation (`git tag -a vX -m "subject" -m "- bullet…"`); the workflow turns the tag body into the release notes. The v1.1.7 release body was retro-fixed via the API.
+
+## D-467 (round 45): the exit-fullscreen button — standalone + theme color
+The v1.1.7 device round reversed part of D-463: the user does NOT want the exit button inside the cluster tray ("I want the exit full screen button to be separate from them") — it's standalone again (its own 36dp chip right after the tray) WITH its THEME-COLOR background (primary 35%) restored. No shadow. FSExitButton/CsFsExitButton composables re-added; the in-tray FSSmallButton/CsFsSmallButton calls replaced.
+
+## D-468 (round 45): the pill window gets REAL slack — the exact-fit window was the clip
+The v1.1.7 device round STILL showed the ready pill's sides cut and the pop's top/bottom clipped. Diagnosis: the window was sized EXACTLY to the pre-measured ready shape — any sub-pixel text-measure/layout drift and the window (an exact clamp for its WRAP_CONTENT child) clips. The user's own read was right: "we have set an area where the thing can be viewed and if it is bigger than that then its sides get cut off." FIX: window = measured ready shape + 40dp width / 24dp height SLACK; the capsule centers inside; the extra margin is non-interactive while counting (FLAG_NOT_TOUCHABLE) and inert-but-present when ready.
+
+## D-469 (round 45): the seekbar thumb border — thinner + darker
+The v1.1.7 device round: the thumb's border ring was "double the size" of what they wanted and too light. The ring is now 2dp (was 4dp) and BLACK 40% (was white 55%); the thumb's dark shadow halo (4dp, 50%) stays. Both stacks.
+
+## D-470 (round 45): the seek pill's side distance is PER-ORIENTATION
+The v1.1.7 device round: fullscreen's inward pill was right, but PORTRAIT wants the pill AT THE SIDES (like the original 40dp). `DoubleTapSeekIndicator`/`CsDoubleTapSeekIndicator` gained a `sidePadding` param (default 40dp); the FULLSCREEN surfaces pass 96dp, the minimized/portrait surfaces use the default. The D-462 change had moved both orientations together — that was the mistake.

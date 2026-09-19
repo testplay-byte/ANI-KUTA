@@ -129,13 +129,17 @@ fun rememberDoubleTapSeekState(): DoubleTapSeekState {
 fun DoubleTapSeekIndicator(
     state: DoubleTapSeekState,
     modifier: Modifier = Modifier,
+    /** Distance from the screen edge. The FULLSCREEN surface passes 96dp
+     * (clearly inward of the sides — D-462); the minimized/portrait surface
+     * keeps the original 40dp (the pill AT the sides in portrait — D-470). */
+    sidePadding: androidx.compose.ui.unit.Dp = 40.dp,
 ) {
     if (!state.visible) return
     Box(modifier = modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 96.dp),
+                .padding(horizontal = sidePadding),
             contentAlignment = if (state.forward) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
             Surface(
