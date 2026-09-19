@@ -364,8 +364,13 @@ class ReturnPillView(
         chipView?.animate()?.scaleX(0.4f)?.alpha(0f)?.setDuration(160)?.start()
 
         // The capsule's background dissolves (no empty rounded rect remains).
-        ObjectAnimator.ofFloat(capsuleBackground, "alpha", 1, 0).apply {
+        // GradientDrawable has no float-alpha property pair for ObjectAnimator,
+        // so a ValueAnimator drives setAlpha(Int) directly.
+        ValueAnimator.ofFloat(255f, 0f).apply {
             duration = 200
+            addUpdateListener {
+                capsuleBackground.alpha = (it.animatedValue as Float).toInt()
+            }
             start()
         }
 
