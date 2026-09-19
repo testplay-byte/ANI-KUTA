@@ -544,14 +544,23 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 85
-    const val versionName = "0.4.20"
-    // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
-    // discipline (D-425: the version never moves without the user's explicit
-    // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
-    // main is the dev line where the v1.x features converge between
-    // releases. A version bump on main happens only when the user asks for
-    // the next release cut.
+    const val versionCode = 10109
+    const val versionName = "1.1.9"
+    // D-482 (round 46): release/1.1.9 — cut from the round-46 FEATURE branch
+    // head 15c9dbc9 (the standing from-feature-branch model; main still
+    // carries NONE of this — the merge awaits the user's explicit
+    // confirmation). What the release carries (the full v1.1.4..1.1.8 set
+    // PLUS round 46): D-472 the CI runs per release cut to two, D-473 the
+    // pill pop's clip fixed, D-474 the dedicated notification icon, D-475
+    // updates now APPLY to the content (the details page auto-refreshes),
+    // D-476 the combined settings IA + the shared Sub/Dub/Both gate, D-477
+    // the POSTER notifications (the composed episode banner + the config),
+    // D-478 the test notifications from the last two updated contents,
+    // D-479 the history's productive-check highlight, D-480 the library
+    // badges as soft theme pills, D-481 the poster customization page with
+    // the live preview. 1.1.9 is the next number after v1.1.8; 10109 >
+    // 10108 — the debug app updates over its installed v1.1.8 in-app. Main
+    // stays at 0.4.20/85 (D-425).
 
     // ABI POLICY (CORE_RULES.md §8, D-430 round 37 — the D-423 port): arm64-v8a
     // for the dev/CI verification line (main pushes: assembleDebug + the
