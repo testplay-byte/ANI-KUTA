@@ -10,8 +10,16 @@
 //
 // Pipeline (one queue task, the same DownloadQueue/notifications/retry
 // machinery as every other download):
-//  1. fetch the manifest (flattened provider headers) → plan segments
-//     (DashManifestPlanner; DRM/live/unaddressable manifests fail HONESTLY);
+//  1. fetch the manifest AS BYTES (flattened provider headers) → plan segments
+//     (DashManifestPlanner; DRM/live/unaddressable manifests fail HONESTLY).
+//     D-543: the fetch is byte-first + gzip-aware — the v1.1.20 device round
+//     proved a body.string()→byteInputStream() round-trip kills real-world
+//     manifests (the forced UTF-8 decode mangled UTF-16 bodies and non-UTF-8
+//     BOMs into prolog garbage; gzip bodies are binary either way) while the
+//     STREAMING player
+//     kept working because media3 parses the raw stream. The planner now
+//     receives the untouched bytes, and fetch-level IOExceptions stay RAW so
+//     the queue's retry policy retries genuine network blips;
 //  2. cache every part through media3's CacheWriter over a
 //     CacheDataSource (createDataSourceForDownloading) — the writer skips
 //     already-cached spans natively, so pause→resume re-caches nothing;
@@ -70,16 +78,21 @@ class DashDownloader(
         val headers = DownloadHeaderParser.parse(task.videoHeaders).toMap()
 
         // ── 1. Fetch + plan the manifest ─────────────────────────────────────
-        val manifestXml = try {
-            fetchText(manifestUrl, headers)
+        val manifestBytes = try {
+            fetchManifestBytes(manifestUrl, headers)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: DownloadException) {
             throw e
+        } catch (e: java.io.IOException) {
+            // D-543: keep transport errors RAW — RetryPolicy retries IOExceptions
+            // (a CDN blip DOES fix itself); wrapping them as DownloadException used
+            // to burn the task to ERROR on the first hiccup.
+            throw e
         } catch (e: Exception) {
             throw DownloadException("Could not fetch the DASH manifest: ${e.message ?: e.javaClass.simpleName}", e)
         }
-        val plan = DashManifestPlanner.parse(manifestXml, manifestUrl, preferredHeightOf(task.videoQuality))
+        val plan = DashManifestPlanner.parse(manifestBytes, manifestUrl, preferredHeightOf(task.videoQuality))
         if (plan.unsupportedReason != null) {
             // DRM / live / unaddressable — the honest refusal (the user asked
             // for the "No downloadable sources" wall to become a real download;
@@ -236,15 +249,80 @@ class DashDownloader(
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    private fun fetchText(url: String, headers: Map<String, String>): String {
+    /** MPDs are kilobytes; anything past this is not a manifest (or a gzip bomb). */
+    private val MAX_MANIFEST_BYTES = 8 * 1024 * 1024
+
+    /**
+     * D-543: fetch the manifest as BYTES — never as a decoded String.
+     *
+     * Why bytes-first (each mode reproduces the v1.1.20 device failure —
+     * HTTP 200 + a full body, then "Manifest could not be parsed", while the
+     * same manifest STREAMED fine through media3's raw-stream parser):
+     *  - the XML parser sniffs BOMs/encodings from a BYTE stream; the old
+     *    String round-trip FORCED a UTF-8 decode first (octet-stream declares
+     *    no charset), so a UTF-16 MPD arrived as NUL-riddled mojibake and a
+     *    non-UTF-8 BOM became prolog garbage — SAXException;
+     *  - `application/octet-stream` (this CDN's declared type) is exactly the
+     *    body that triggered that forced decode;
+     *  - gzip bodies are binary either way — OkHttp only transparently
+     *    gunzips when IT supplied the Accept-Encoding header, and provider
+     *    header maps can carry their own.
+     *
+     * Handing the planner the untouched bytes lets the platform DOM parser do
+     * its spec-mandated encoding detection (BOM/UTF-8/UTF-16) — exactly what
+     * the streaming path already does. Gzip is handled explicitly
+     * (Content-Encoding header OR the 1F 8B magic), HTTP errors throw
+     * [HttpException] (5xx/429 retry, 4xx don't), transport errors stay raw
+     * IOExceptions (retryable), and every terminal failure carries a reason
+     * the task list can show honestly.
+     */
+    private fun fetchManifestBytes(url: String, headers: Map<String, String>): ByteArray {
         val builder = Request.Builder().url(url)
         headers.forEach { (name, value) -> builder.header(name, value) }
         client.newCall(builder.build()).execute().use { response ->
             if (!response.isSuccessful) {
-                throw DownloadException("The DASH manifest returned HTTP ${response.code}")
+                throw HttpException(response.code, "The DASH manifest returned HTTP ${response.code}")
             }
             val body = response.body ?: throw DownloadException("The DASH manifest response was empty")
-            return body.string()
+            val contentType = response.header("Content-Type") ?: "?"
+            val contentEncoding = response.header("Content-Encoding")
+            val raw = body.bytes()
+            DownloadLogger.i {
+                "DashDownloader — manifest response: type=$contentType " +
+                    "encoding=${contentEncoding ?: "none"} bytes=${raw.size}"
+            }
+            if (raw.isEmpty()) {
+                throw DownloadException("The DASH manifest response was empty")
+            }
+            if (raw.size > MAX_MANIFEST_BYTES) {
+                throw DownloadException("The DASH manifest is too large (${raw.size} bytes)")
+            }
+            val gzipped = contentEncoding?.contains("gzip", ignoreCase = true) == true ||
+                (raw.size >= 2 && raw[0] == 0x1F.toByte() && raw[1] == 0x8B.toByte())
+            if (!gzipped) return raw
+            return runCatching {
+                java.util.zip.GZIPInputStream(raw.inputStream()).use { gz ->
+                    val out = java.io.ByteArrayOutputStream(minOf(raw.size * 4L, MAX_MANIFEST_BYTES.toLong()).toInt())
+                    val buffer = ByteArray(64 * 1024)
+                    var read: Int
+                    while (gz.read(buffer).also { read = it } > 0) {
+                        out.write(buffer, 0, read)
+                        if (out.size() > MAX_MANIFEST_BYTES) {
+                            throw DownloadException(
+                                "The DASH manifest decompressed past $MAX_MANIFEST_BYTES bytes — refusing",
+                            )
+                        }
+                    }
+                    out.toByteArray()
+                }
+            }.getOrElse { e ->
+                if (e is DownloadException) throw e
+                throw DownloadException(
+                    "The DASH manifest is gzip-compressed but could not be decompressed: " +
+                        "${e.message ?: e.javaClass.simpleName}",
+                    e,
+                )
+            }
         }
     }
 

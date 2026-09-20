@@ -109,3 +109,13 @@ Details page (isDownloadedEpisodeDash) / Downloads page (buildWatchKeyForDownloa
   {idx_download_queue_main_episode, idx_download_queue_state}; the contentId-sync queries now
   HAVE a caller (the D-540 hook).
 - 17: status header → implemented (this doc is the record).
+
+## 7. Round-58 addendum — the manifest-fetch layer (D-543, doc 19)
+
+The v1.1.20 device round surfaced the ONE layer this doc's design did not pin
+down: HOW the manifest body reaches the planner. The String round-trip
+(`body.string()` → `byteInputStream()`) broke on real CDN bodies while the
+same manifests streamed fine (media3 parses raw bytes). The fetch is now
+byte-first + gzip-aware + honest-diagnostics (the failure matrix lives in
+**doc 19**). The artifact model, keys, DB shape, planner grammar and playback
+contract in §1–§5 are UNCHANGED by the fix.

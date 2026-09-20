@@ -60,13 +60,52 @@ data class DashSegmentPlan(
 
 object DashManifestPlanner {
 
-    fun parse(manifestXml: String, manifestUrl: String, preferredHeight: Int?): DashSegmentPlan {
+    /**
+     * D-543: parses the manifest from the RAW response BYTES (never a decoded
+     * String). The DOM parser owns the byte stream and performs the XML spec's
+     * encoding detection itself — BOMs are sniffed+stripped and UTF-8/UTF-16
+     * declarations are honored — which is exactly the contract the STREAMING
+     * path (media3's raw-stream parser) already rides. A String round-trip
+     * broke that contract: body.string() FORCED a UTF-8 decode (octet-stream
+     * declares no charset) — a UTF-16 body arrived as NUL-riddled mojibake and
+     * a BOM belonging to a non-UTF-8 charset became prolog garbage.
+     *
+     * Never throws for malformed input — returns an EMPTY plan whose
+     * [DashSegmentPlan.unsupportedReason] names the REAL parser error plus a
+     * sanitized peek at the body head (an HTML error page / JSON / binary
+     * body becomes obvious from the task's error line alone).
+     */
+    fun parse(manifestBytes: ByteArray, manifestUrl: String, preferredHeight: Int?): DashSegmentPlan {
+        if (manifestBytes.isEmpty()) {
+            return empty(manifestUrl, "The manifest response was empty")
+        }
         val document = runCatching {
-            newHardenedFactory().newDocumentBuilder().parse(manifestXml.byteInputStream())
-        }.getOrElse {
-            return empty(manifestUrl, "Manifest could not be parsed")
+            newHardenedFactory().newDocumentBuilder().parse(manifestBytes.inputStream())
+        }.getOrElse { e ->
+            return empty(
+                manifestUrl,
+                "Manifest could not be parsed: ${e.message ?: e.javaClass.simpleName}" +
+                    bodyHeadDiagnostics(manifestBytes),
+            )
         }
         return parseDocument(document, manifestUrl, preferredHeight)
+    }
+
+    /**
+     * A log-safe peek at the body head — makes a non-XML body (an HTML error
+     * page, a JSON error payload, binary garbage) diagnosable from the task's
+     * error message alone, on-device, with no logcat required.
+     */
+    private fun bodyHeadDiagnostics(bytes: ByteArray): String {
+        val head = buildString {
+            for (b in bytes.take(120)) {
+                // and 0xFF: keep the byte unsigned — a raw toInt().toChar() sign-extends
+                // bytes ≥ 0x80 into 0xFF80–0xFFFF chars that slip past the filter.
+                val c = (b.toInt() and 0xFF).toChar()
+                append(if (c.code < 0x20 || c.code == 0x7F) ' ' else c)
+            }
+        }.replace(Regex("\\s+"), " ").trim().take(80)
+        return if (head.isBlank()) "" else " (body starts with: \"$head\")"
     }
 
     // ── parsing ──────────────────────────────────────────────────────────────
