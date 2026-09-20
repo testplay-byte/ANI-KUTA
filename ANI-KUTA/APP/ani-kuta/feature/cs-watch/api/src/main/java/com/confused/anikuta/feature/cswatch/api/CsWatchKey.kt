@@ -42,14 +42,19 @@ data class CsWatchKey(
     /** Resume hint in ms; 0 = fresh (the screen still self-checks the progress store). */
     val startPosition: Long = 0L,
     /**
-     * D-539: the OFFLINE entry point — the manifest URL of a DOWNLOADED DASH
-     * episode (`video_uri` minus the `csdash:` marker). When set, the watch
-     * screen skips resolution entirely and plays the episode from the offline
-     * SimpleCache (CsPlayerEngine.startOfflineDash); switching to a
+     * D-539 (payload widened by D-548): the OFFLINE entry point — the raw
+     * `csdash:` marker payload of a DOWNLOADED episode. TWO modes (the
+     * screen branches on the payload's scheme):
+     *  - a REMOTE manifest URL (legacy v1.1.20–v1.1.22 cache episodes) →
+     *    engine.startOfflineDash plays from the offline SimpleCache;
+     *  - a content:// `.dashmeta` sidecar uri (D-548 file episodes) →
+     *    engine.startOfflineDashLocal plays the REAL files in the user's SAF
+     *    download folder.
+     * When set, the watch screen skips resolution entirely; switching to a
      * non-downloaded episode falls back to normal online resolution via
      * [providerName]. Null = a normal online playback entry.
      */
-    val offlineManifestUrl: String? = null,
+    val offlineMediaUri: String? = null,
 ) : NavKey {
 
     /** Parses [episodeListSerialized] into lightweight rows for the episodes sheet. */

@@ -160,6 +160,11 @@ class DownloadScanner(
                 for ((fileName, file) in videoIndex) {
                     if (!file.isFile) continue
                     if (!isVideoFile(fileName)) continue
+                    // D-548: a DASH episode's audio-set + .dashmeta siblings
+                    // are NOT episodes — deriving from them would resurrect a
+                    // PHANTOM second row (same episode number) next to the
+                    // video file's row.
+                    if (isDashDerivedFile(fileName)) continue
                     val derivedNumber = deriveEpisodeNumber(fileName) ?: continue
                     val derivedName = deriveEpisodeName(fileName)
 
@@ -190,6 +195,23 @@ class DownloadScanner(
                     val epNumPadded = String.format("%05d", episodeNumber.toInt())
                     val subtitleUris = findSubtitleUrisForEpisode(subtitleIndex, epNumPadded)
 
+                    // D-548: a DASH episode's DB row carries the csdash:
+                    // marker (payload = the .dashmeta sidecar uri) so the
+                    // playback routers send it to the CS offline player — the
+                    // raw video file uri would send an audio-less fMP4 to
+                    // MPV. The sidecar sits next to the video file; if the
+                    // user deleted it, fall back to the legacy manifest-URL
+                    // payload (cache playback) rather than failing silently.
+                    val existingDashManifest = existing.dashManifestUrl
+                    val dashMetaUri = existingDashManifest?.let {
+                        videoIndex["$fileName.dashmeta"]?.uri?.toString()
+                    }
+                    val rowVideoUri = when {
+                        dashMetaUri != null -> DashCacheKeys.URI_SCHEME + dashMetaUri
+                        existingDashManifest != null -> DashCacheKeys.URI_SCHEME + existingDashManifest
+                        else -> file.uri.toString()
+                    }
+
                     store.insertDownloadedEpisode(
                         DownloadedEpisode(
                             content = DownloadContentInfo(
@@ -207,9 +229,9 @@ class DownloadScanner(
                                 name = episodeName,
                                 description = episodeDescription,
                             ),
-                            videoUri = file.uri.toString(),
+                            videoUri = rowVideoUri,
                             subtitleUris = subtitleUris,
-                            sizeBytes = file.length(),
+                            sizeBytes = file.length() + audioSiblingBytes(videoIndex, fileName),
                             quality = existing?.quality,
                             completedAt = existing?.downloadedAt ?: dataJson.updatedAt,
                         ),
@@ -222,6 +244,12 @@ class DownloadScanner(
                     // episodeNumber). Only videoUri + subtitleUris + fileSize are
                     // rebuilt from the on-disk file walk (they change after a
                     // reinstall because the SAF URI changes).
+                    // D-548 (review blocker 2): the DASH identity MUST ride
+                    // the rebuild — dropping dashManifestUrl here would turn
+                    // the rewritten .data.json entry into a plain file row and
+                    // the NEXT scan would route the episode to the MPV player
+                    // (a lone video fMP4: silent + unseekable).
+                    val dashAudioBytes = audioSiblingBytes(videoIndex, fileName)
                     rebuiltEpisodes += DownloadedEpisodeInfo(
                         episodeKey = episodeKey,
                         episodeNumber = episodeNumber.toDouble(),
@@ -235,7 +263,8 @@ class DownloadScanner(
                         videoServer = existing?.videoServer,
                         audioVariant = existing?.audioVariant,
                         downloadedAt = existing?.downloadedAt ?: dataJson.updatedAt,
-                        fileSize = file.length(),
+                        fileSize = file.length() + dashAudioBytes,
+                        dashManifestUrl = existing?.dashManifestUrl,
                     )
                 }
 
@@ -594,6 +623,37 @@ class DownloadScanner(
     }
 
     /**
+     * D-548: the DASH episode's NON-episode siblings — the audio-set files
+     * (`… - E00001.audio1.mp4`) and the playback sidecar (`… -
+     * E00001.mp4.dashmeta`). Both end in a recognized extension (mp4 /
+     * dashmeta→no…) — the audio file's `.mp4` tail WOULD pass [isVideoFile],
+     * so the walk must exclude these by name before deriving a row.
+     */
+    private fun isDashDerivedFile(fileName: String): Boolean {
+        if (fileName.endsWith(".dashmeta")) return true
+        return DASH_AUDIO_NAME_REGEX.containsMatchIn(fileName)
+    }
+
+    /**
+     * D-548: the summed byte length of a DASH episode's published audio-set
+     * siblings (`<videoBase>.audio<N>.mp4`) so the rebuilt rows' sizes match
+     * what the download recorded (video + audio) — a mismatch would flag the
+     * .data.json for a rewrite on EVERY scan.
+     */
+    private fun audioSiblingBytes(
+        videoIndex: Map<String, DocumentFile>,
+        videoFileName: String,
+    ): Long {
+        val base = videoFileName.removeSuffix(".mp4")
+        return videoIndex.entries
+            .filter { (name, file) ->
+                name != videoFileName && file.isFile &&
+                    name.startsWith("$base.audio") && name.endsWith(".mp4")
+            }
+            .sumOf { it.value.length() }
+    }
+
+    /**
      * Derives the episode key from the file name.
      *
      * The episode key is `"$mainId|$numPadded5"` — derived from the file's
@@ -688,5 +748,12 @@ class DownloadScanner(
     companion object {
         /** Video file extensions we treat as downloadable content. */
         private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "mov", "m4v", "ts")
+
+        /**
+         * D-548: the published DASH audio-set file shape —
+         * `<title> - E00001.audio<N>.mp4` (the same convention the storage
+         * provider's deletion sweep matches).
+         */
+        private val DASH_AUDIO_NAME_REGEX = Regex(""" - E\d{5}(?:\.\d+)?\.audio\d+\.mp4$""")
     }
 }

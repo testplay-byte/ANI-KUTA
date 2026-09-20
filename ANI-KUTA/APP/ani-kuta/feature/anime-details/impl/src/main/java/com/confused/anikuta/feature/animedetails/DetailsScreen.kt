@@ -161,7 +161,8 @@ fun DetailsScreen(
     // no-feature-to-feature-deps rule — same shape as [onNavigateToCsWatch]):
     // manifestUrl, providerName, animeTitle, episodeData, episodeNumber,
     // episodeTitle, episodeListSerialized, mainId, sourceId, epMeta — the host
-    // builds the CsWatchKey with offlineManifestUrl set.
+    // builds the CsWatchKey with offlineMediaUri set (the csdash: payload —
+    // a legacy manifest URL or a D-548 .dashmeta sidecar uri).
     onNavigateToCsOfflineWatch: (String, String, String, String, Float, String, String, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
@@ -660,14 +661,18 @@ fun DetailsScreen(
             if (mainId != null) {
                 val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
                 if (localUri != null) {
-                    // ── D-539: the DASH-cache branch — this episode's media
-                    // lives in the offline SimpleCache (csdash: marker); it
-                    // plays through the CS watch screen's offline player, not
-                    // the MPV file player (MPV cannot demux a manifest).
+                    // ── D-539 (payload widened by D-548): the DASH-offline
+                    // branch — this episode's media is offline (csdash: marker;
+                    // the SimpleCache for the legacy episodes, REAL files in the
+                    // SAF folder for the D-548 ones); it plays through the CS
+                    // watch screen's offline player, not the MPV file player
+                    // (MPV cannot demux a manifest, and a lone video fMP4 would
+                    // be silent). The payload's scheme picks the loader inside
+                    // the watch screen.
                     if (downloadManager.isDownloadedEpisodeDash(mainId, episode.url)) {
-                        val dashManifest = com.confused.anikuta.core.common.DashCacheKeys
-                            .manifestUrlFromUri(localUri)
-                        if (dashManifest != null) {
+                        val offlineMedia = com.confused.anikuta.core.common.DashCacheKeys
+                            .payloadFromUri(localUri)
+                        if (offlineMedia != null) {
                             val anime = (state as? DetailsState.Success)?.anime
                             val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
                             val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
@@ -679,10 +684,10 @@ fun DetailsScreen(
                                 currentScanlator = episode.scanlator,
                             )
                             Logger.i("Anikuta:Feature:Details") {
-                                "onEpisodeClick — DASH cache episode, offline CS playback: $dashManifest"
+                                "onEpisodeClick — DASH offline episode, offline CS playback: $offlineMedia"
                             }
                             onNavigateToCsOfflineWatch(
-                                dashManifest,
+                                offlineMedia,
                                 effectiveLinkedSource?.sourceName ?: "",
                                 anime?.displayName ?: "Downloaded",
                                 episode.url,

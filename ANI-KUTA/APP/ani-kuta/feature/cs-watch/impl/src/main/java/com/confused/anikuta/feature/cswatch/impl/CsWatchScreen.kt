@@ -189,12 +189,13 @@ fun CsWatchScreen(
     /** F3: engine position belongs to the CURRENT episode only when the loaded
      *  URL matches the state's current link — otherwise a switch is in flight
      *  and saving would write episode N-1's progress under episode N's key.
-     *  D-539: OFFLINE loads match the state's playOfflineManifestUrl instead
-     *  (the engine's currentLinkUrl is the manifest URL; currentLink is null). */
+     *  D-539: OFFLINE loads match the state's playOfflineMediaUri instead
+     *  (the engine's currentLinkUrl is the marker payload — the legacy cache
+     *  manifest URL or the D-548 sidecar uri; currentLink is null). */
     fun engineBelongsToCurrentLink(st: com.confused.anikuta.core.csplayer.CsEngineState): Boolean {
         val live = viewModel.uiState.value
-        val offlineMatch = live.playOfflineManifestUrl != null &&
-            st.currentLinkUrl == live.playOfflineManifestUrl
+        val offlineMatch = live.playOfflineMediaUri != null &&
+            st.currentLinkUrl == live.playOfflineMediaUri
         return st.currentLinkUrl != null &&
             (st.currentLinkUrl == live.currentLink?.url || offlineMatch)
     }
@@ -318,8 +319,8 @@ fun CsWatchScreen(
     LaunchedEffect(uiState.playRequestId) {
         val live = viewModel.uiState.value
         val link = live.playLink
-        val offlineManifest = live.playOfflineManifestUrl
-        if (live.playRequestId <= 0 || (link == null && offlineManifest == null)) {
+        val offlineMedia = live.playOfflineMediaUri
+        if (live.playRequestId <= 0 || (link == null && offlineMedia == null)) {
             Logger.d(TAG) { "play trigger: no active request (id=${live.playRequestId}) — idle" }
             return@LaunchedEffect
         }
@@ -331,18 +332,34 @@ fun CsWatchScreen(
             }
             return@LaunchedEffect
         }
-        // ── D-539: the OFFLINE play request — engine loads from the cache.
-        if (offlineManifest != null) {
-            Logger.i(TAG) {
-                "play trigger: ACCEPT OFFLINE id=${live.playRequestId} gen=${live.playGeneration} " +
-                    "resume=${live.playIsResume} manifest=${offlineManifest.take(72)} " +
-                    "maxVideoHeight=${live.playOfflineMaxVideoHeight}"
+        // ── D-539: the OFFLINE play request — the payload's scheme picks the
+        // loader: a content:// `.dashmeta` sidecar (D-548) plays the REAL
+        // files in the SAF download folder; a remote manifest URL (the legacy
+        // cache episodes) plays from the offline SimpleCache.
+        if (offlineMedia != null) {
+            if (offlineMedia.startsWith("content://")) {
+                Logger.i(TAG) {
+                    "play trigger: ACCEPT OFFLINE-LOCAL id=${live.playRequestId} gen=${live.playGeneration} " +
+                        "resume=${live.playIsResume} meta=${offlineMedia.take(72)} " +
+                        "maxVideoHeight=${live.playOfflineMaxVideoHeight}"
+                }
+                engine.startOfflineDashLocal(
+                    metaUri = offlineMedia,
+                    startPositionMs = if (live.playIsResume) live.playStartPositionMs else 0L,
+                    maxVideoHeight = live.playOfflineMaxVideoHeight,
+                )
+            } else {
+                Logger.i(TAG) {
+                    "play trigger: ACCEPT OFFLINE-CACHE id=${live.playRequestId} gen=${live.playGeneration} " +
+                        "resume=${live.playIsResume} manifest=${offlineMedia.take(72)} " +
+                        "maxVideoHeight=${live.playOfflineMaxVideoHeight}"
+                }
+                engine.startOfflineDash(
+                    manifestUrl = offlineMedia,
+                    startPositionMs = if (live.playIsResume) live.playStartPositionMs else 0L,
+                    maxVideoHeight = live.playOfflineMaxVideoHeight,
+                )
             }
-            engine.startOfflineDash(
-                manifestUrl = offlineManifest,
-                startPositionMs = if (live.playIsResume) live.playStartPositionMs else 0L,
-                maxVideoHeight = live.playOfflineMaxVideoHeight,
-            )
             return@LaunchedEffect
         }
         Logger.i(TAG) {

@@ -247,16 +247,17 @@ class DefaultDownloadManager(
         store.getDownloadedVideoUri(mainId, episodeKey)
 
     /**
-     * D-539: whether the downloaded episode is a DASH-cache artifact — its
-     * `video_uri` carries the `csdash:` marker (no published file; the media
-     * lives in the offline SimpleCache). The playback routers (details page,
-     * downloads page) branch on this to send the episode to the CS offline
-     * player instead of the MPV file player, and the delete path branches to
-     * purge the cache instead of deleting a SAF video file.
+     * D-539 (amended D-548): whether the downloaded episode is a DASH offline
+     * artifact — its `video_uri` carries the `csdash:` marker in EITHER mode
+     * (legacy cache episodes: payload = the manifest URL; D-548 file episodes:
+     * payload = the `.dashmeta` sidecar's document uri). The playback routers
+     * (details page, downloads page) branch on this to send the episode to
+     * the CS offline player instead of the MPV file player; the delete path
+     * further splits the two modes (cache purge vs SAF file deletion).
      */
     override fun isDownloadedEpisodeDash(mainId: String, episodeKey: String): Boolean {
         val uri = store.getDownloadedVideoUri(mainId, episodeKey) ?: return false
-        return DashCacheKeys.manifestUrlFromUri(uri) != null
+        return DashCacheKeys.isOfflineDashUri(uri)
     }
 
     /**
@@ -577,21 +578,42 @@ class DefaultDownloadManager(
 
             // ── PHASE 3a: delete the episode's files by their captured URIs ──
             // (best-effort — stale URIs are exactly why Phase 3b exists).
-            // D-539: a DASH-cache episode has NO published video file — the
-            // video-URI delete is SKIPPED and the offline SimpleCache is
-            // purged instead (every span under the episode's manifest-URL
-            // namespace). Subtitle files below are real SAF files and delete
-            // as usual.
-            val dashManifestUrl = entry?.dashManifestUrl
-                ?: DashCacheKeys.manifestUrlFromUri(dbVideoUri)
-            if (dashManifestUrl != null) {
+            // D-548: the DASH branch splits by marker MODE — a LOCAL-FILES
+            // episode (payload = the .dashmeta document uri) has REAL media
+            // files in the SAF folder (video + audio sets + the sidecar): the
+            // video file is deleted by URI like any progressive download and
+            // the siblings die in the Phase-3b token sweep. A LEGACY cache
+            // episode (payload = the manifest URL, v1.1.20–v1.1.22) has NO
+            // published file — the offline SimpleCache is purged instead
+            // (every span under the episode's manifest-URL namespace).
+            // Subtitle files below are real SAF files and delete as usual.
+            val legacyCacheManifest = DashCacheKeys.manifestUrlFromUri(dbVideoUri)
+            val isLocalFileDash = DashCacheKeys.offlineMetaUriFromUri(dbVideoUri) != null
+            if (isLocalFileDash) {
+                val videoUriToDelete = entry?.videoUri ?: dbVideoUri
+                videoUriToDelete?.let { uriStr ->
+                    runCatching {
+                        val uri = android.net.Uri.parse(uriStr)
+                        val deleted = android.provider.DocumentsContract.deleteDocument(
+                            context.contentResolver, uri,
+                        )
+                        DownloadLogger.i {
+                            "Deleted DASH video file: $uriStr (deleteDocument returned=$deleted)"
+                        }
+                    }.onFailure {
+                        DownloadLogger.e(it) {
+                            "Failed to delete DASH video $uriStr: ${it.javaClass.simpleName}: ${it.message}"
+                        }
+                    }
+                }
+            } else if (legacyCacheManifest != null) {
                 val cache = dashCache
                 if (cache != null) {
-                    DashCacheStore.purgeEpisode(cache, dashManifestUrl)
+                    DashCacheStore.purgeEpisode(cache, legacyCacheManifest)
                 } else {
                     DownloadLogger.w {
                         "deleteDownloadedEpisode — DASH episode but no cache injected; " +
-                            "the cached spans of $dashManifestUrl are NOT purged (DB row still dies)"
+                            "the cached spans of $legacyCacheManifest are NOT purged (DB row still dies)"
                     }
                 }
             } else {

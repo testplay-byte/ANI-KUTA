@@ -216,11 +216,15 @@ data class DownloadedEpisodeInfo(
     @SerialName("fileSize")
     val fileSize: Long? = null,
     /**
-     * D-539: the DASH offline-cache marker — when set, this episode has NO
-     * published video file; its media lives in the app-private SimpleCache
-     * under the manifest URL ([videoUri] is null, the DB row's uri is
-     * reconstructed as `csdash:<dashManifestUrl>`). The scanner uses this to
-     * skip the video-file verification for cache episodes.
+     * D-539: the DASH manifest URL this episode's media was planned from —
+     * the DASH identity in the durable store. D-548: a DASH episode now has
+     * REAL media files in the SAF folder ([videoUri] = the published video
+     * document uri, alongside the `.audio<N>.mp4` siblings and the
+     * `.mp4.dashmeta` sidecar); for the LEGACY cache episodes (v1.1.20–
+     * v1.1.22) [videoUri] is null and the DB row's uri is reconstructed as
+     * `csdash:<dashManifestUrl>`. The scanner uses this field both to skip
+     * the video-file verification for cache episodes and to re-attach the
+     * `csdash:<metaUri>` marker for file episodes during the rebuild.
      */
     @SerialName("dashManifestUrl")
     val dashManifestUrl: String? = null,

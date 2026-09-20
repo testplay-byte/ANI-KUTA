@@ -41,6 +41,17 @@ class TempDownloadCache(
         return File(getTempDir(downloadId), "video.$ext")
     }
 
+    /**
+     * D-548: a NAMED temp file for a download — the DASH pipeline's
+     * per-representation media files (`video.fmp4`, `audio-1.fmp4`, …) and
+     * its resume sidecar. Subtitle temps keep their dedicated accessor; the
+     * [cleanupTask] preserve/delete rules apply to these the same way (a
+     * pause keeps them for resume, a completion deletes them).
+     */
+    fun getTempFile(downloadId: Long, fileName: String): File {
+        return File(getTempDir(downloadId), fileName)
+    }
+
     /** The temp subtitle file for a download (by index). */
     fun getTempSubtitleFile(downloadId: Long, index: Int, ext: String = "vtt"): File {
         return File(getTempDir(downloadId), "$SUBTITLE_FILE_PREFIX$index.$ext")

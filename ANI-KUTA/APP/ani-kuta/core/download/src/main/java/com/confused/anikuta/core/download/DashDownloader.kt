@@ -1,70 +1,89 @@
 // CLEAN-ROOM: original ANI-KUTA code.
 //
-// D-539: the CS DASH downloader — the third artifact kind beside the
-// progressive HTTP path and the HLS concatenator. Instead of producing a
-// single file (which fMP4 DASH cannot be without a muxer the app doesn't
-// ship), it caches the manifest + the chosen representations' init/media
-// segments into the app-private SimpleCache (media3-datasource), keyed by
-// DashCacheKeys — and offline playback rides the SAME cache through
-// CsPlayerEngine.startOfflineDash.
+// D-548: the CS DASH downloader — the third artifact kind beside the
+// progressive HTTP path and the HLS concatenator. D-539 cached the segments
+// into the app-private SimpleCache and published only metadata to the SAF
+// folder (`videoUri = null` + the `csdash:` marker) — the v1.1.22 device
+// round rejected that: the user's downloaded episode had NO video file in
+// the download folder they selected. The media home is now the SAF folder
+// itself, as REAL files:
+//  - `<title> - E00001.mp4` — the chosen video representation's init +
+//    media segments concatenated in order (a valid single-track fMP4 — the
+//    same artifact yt-dlp's dash concat produces);
+//  - `<title> - E00001.audio<N>.mp4` — one file per audio AdaptationSet
+//    (concatenating two language tracks into one file would interleave
+//    them into garbage);
+//  - `<title> - E00001.mp4.dashmeta` — the sidecar that makes playback
+//    WORK: the original manifest bytes + the URL→(file, offset, length)
+//    index. Playback parses the manifest as a SIDeloaded DashMediaSource
+//    and serves every segment request from the local files
+//    (CsPlayerEngine.startOfflineDashLocal + LocalDashDataSource). The
+//    manifest is the index media3 cannot synthesize — an unindexed fMP4
+//    is UNSEEKABLE in ExoPlayer (the Android docs' own troubleshooting
+//    item), so playback must ride the DASH timeline even though the bytes
+//    are local.
 //
 // Pipeline (one queue task, the same DownloadQueue/notifications/retry
 // machinery as every other download):
 //  1. fetch the manifest AS BYTES (flattened provider headers) → plan segments
 //     (DashManifestPlanner; DRM/live/unaddressable manifests fail HONESTLY).
-//     D-543: the fetch is byte-first + gzip-aware — the v1.1.20 device round
-//     proved a body.string()→byteInputStream() round-trip kills real-world
-//     manifests (the forced UTF-8 decode mangled UTF-16 bodies and non-UTF-8
-//     BOMs into prolog garbage; gzip bodies are binary either way) while the
-//     STREAMING player
-//     kept working because media3 parses the raw stream. The planner now
-//     receives the untouched bytes, and fetch-level IOExceptions stay RAW so
-//     the queue's retry policy retries genuine network blips;
-//  2. cache every part through media3's CacheWriter over a
-//     CacheDataSource (createDataSourceForDownloading) — the writer skips
-//     already-cached spans natively, so pause→resume re-caches nothing;
-//  3. subtitles to temp → SAF publish (storage.publishDashEpisode: .data.json
-//     + .cover.jpg + subtitles/, NO video file) → .data.json upsert with the
-//     dashManifestUrl marker;
-//  4. the completed task's videoUri is the "csdash:<manifestUrl>" marker uri
-//     the whole app treats as the DASH-cache identity (playback routers,
-//     delete purge, scanner reconstruction).
+//     D-543: the fetch is byte-first + gzip-aware. D-546: it rides a derived
+//     patient client (shared pool/interceptors, raised timeouts) because a
+//     CDN cold start burned attempt 1/3 at the CS client's 10s timeout.
+//  2. D-548: download every planned part with plain OkHttp (Range-aware,
+//     206/200 slicing) and APPEND the bytes into per-representation temp
+//     files, recording each part's final (file, offset, length) placement.
+//     A resume sidecar (`dash-resume.json`: manifest hash + per-group
+//     parts-done/bytes) makes pause → resume and retry → resume skip
+//     already-appended parts; a manifest CHANGE between attempts invalidates
+//     the sidecar and restarts the episode (a resumed file against a
+//     different plan would be corrupt).
+//  3. subtitles to temp → SAF publish (storage.publishDashEpisode: the media
+//     files + .data.json + .cover.jpg + subtitles/ + the .dashmeta sidecar)
+//     → .data.json upsert with the REAL video uri + the dashManifestUrl
+//     marker.
+//  4. the completed task's videoUri is `csdash:<metaDocUri>` — the SAME
+//     marker scheme as D-539 but with a LOCAL payload (the sidecar's
+//     document uri); the legacy manifest-URL payload still decodes for
+//     v1.1.20–v1.1.22 cache episodes. The whole app treats the marker as
+//     the DASH-offline identity (playback routers, delete routing,
+//     scanner reconstruction).
+//
+// The SimpleCache is NO LONGER written (it stays only for pre-D-548
+// episodes: playback via startOfflineDash + delete via purgeEpisode).
 package com.confused.anikuta.core.download
 
-import com.confused.anikuta.core.common.DashCacheKeys
 import com.confused.anikuta.core.content.ContentRepository
-import java.util.concurrent.Executors
+import java.io.FileOutputStream
+import java.io.IOException
+import java.io.RandomAccessFile
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.CacheWriter
-import androidx.media3.datasource.okhttp.OkHttpDataSource
 
 class DashDownloader(
     private val client: OkHttpClient,
     private val storage: DownloadStorageProvider,
     private val tempCache: TempDownloadCache,
-    private val cache: androidx.media3.datasource.cache.Cache,
     /** D-242 parity with HttpDownloader: re-fetch the canonical FK fields for `.data.json`. */
     private val contentRepository: ContentRepository? = null,
 ) {
 
     /**
-     * Downloads [task]'s DASH episode into the offline cache.
+     * Downloads [task]'s DASH episode into the user's SAF download folder as
+     * real media files (plus the `.dashmeta` sidecar playback rides).
      *
      * @param task The download task (videoUrl = the manifest URL, videoHeaders
      *   = the MPV-format header string flattened at enqueue time).
      * @param onProgress `(downloadedBytes, totalBytes)`; total is the
      *   bandwidth-derived estimate or -1 when unknowable.
-     * @return The COMPLETED task (videoUri = the csdash marker uri).
+     * @return The COMPLETED task (videoUri = the `csdash:<metaUri>` marker).
      */
     suspend fun download(
         task: DownloadTask,
@@ -99,7 +118,7 @@ class DashDownloader(
             throw e
         } catch (e: DownloadException) {
             throw e
-        } catch (e: java.io.IOException) {
+        } catch (e: IOException) {
             // D-543: keep transport errors RAW — RetryPolicy retries IOExceptions
             // (a CDN blip DOES fix itself); wrapping them as DownloadException used
             // to burn the task to ERROR on the first hiccup.
@@ -115,39 +134,163 @@ class DashDownloader(
             throw DownloadException(plan.unsupportedReason)
         }
         DownloadLogger.i {
-            "DashDownloader — plan: ${plan.parts.size} part(s), video=${plan.videoRep?.id} " +
-                "(${plan.videoRep?.height}p @ ${plan.videoRep?.bandwidth}bps), audioReps=${plan.audioRepIds.size}, " +
+            "DashDownloader — plan: ${plan.videoParts.size} video + " +
+                "${plan.audioGroups.size} audio group part(s) over ${plan.parts.size} part(s) total, " +
+                "video=${plan.videoRep?.id} (${plan.videoRep?.height}p @ ${plan.videoRep?.bandwidth}bps), " +
                 "estimate=${plan.estimatedBytes}"
         }
 
         val totalHint = plan.estimatedBytes.takeIf { it > 0L } ?: -1L
 
-        // ── 2. Cache every part (resume = the writer skips cached spans) ─────
-        val upstreamFactory = OkHttpDataSource.Factory(client).setDefaultRequestProperties(headers)
-        val cacheDataSourceFactory = CacheDataSource.Factory()
-            .setCache(cache)
-            .setUpstreamDataSourceFactory(upstreamFactory)
-            .setCacheKeyFactory { dataSpec -> DashCacheKeys.build(manifestUrl, dataSpec.uri.toString()) }
+        // ── 2. Download every part into per-representation temp files ────────
+        // D-548: plain OkHttp + append (the D-539 CacheWriter→SimpleCache path
+        // is gone — the media home is the SAF folder). Per group: resume from
+        // the sidecar, truncate any bytes past the recorded count (a crash
+        // between append and sidecar write), append part by part, persist the
+        // sidecar after each part.
+        val manifestSha = sha1Hex(manifestBytes)
+        val videoTemp = tempCache.getTempFile(task.id, VIDEO_TEMP_NAME)
+        val audioTemps = plan.audioGroups.mapIndexed { index, _ ->
+            tempCache.getTempFile(task.id, "audio-${index + 1}.fmp4")
+        }
+        val sidecar = readResumeSidecar(task.id, manifestSha, plan.audioGroups.size)
+        var videoPartsDone = sidecar?.videoPartsDone ?: 0
+        var videoBytes = sidecar?.videoBytes ?: 0L
+        val audioStates: MutableList<DashResumeSidecar.SetState> = (
+            sidecar?.audioSets ?: plan.audioGroups.map { DashResumeSidecar.SetState() }
+            ).toMutableList()
+        var doneBytes = videoBytes + audioStates.sumOf { it.bytes }
+        // D-548: the placements of ALREADY-APPENDED parts ride the sidecar —
+        // a resumed run must publish a COMPLETE index, not just the parts it
+        // appended itself.
+        val placements: MutableList<DashOfflineSegmentRange> =
+            sidecar?.placements.orEmpty().toMutableList()
 
-        val executor = Executors.newSingleThreadExecutor { r ->
-            Thread(r, "DashDownloader-${task.id}").apply { isDaemon = true }
-        }
-        var doneBytes = 0L
         try {
-            for (part in plan.parts) {
-                currentCoroutineContext().ensureActive()
-                doneBytes += cachePart(cacheDataSourceFactory, part, headers, totalHint, doneBytes, onProgress, executor)
+            suspend fun runGroup(
+                label: String,
+                parts: List<DashPart>,
+                file: java.io.File,
+                fileIndex: Int,
+                startPartsDone: Int,
+                startBytes: Long,
+                persist: (partsDone: Int, bytes: Long) -> Unit,
+            ) {
+                // D-548: crash healing — a crash between the file append and
+                // the sidecar write leaves the file LONGER than recorded:
+                // truncate back to the recorded length so the next append
+                // lands exactly where the plan expects. A file SHORTER than
+                // recorded (the recorded progress cannot be trusted) restarts
+                // THIS group from zero (its saved placements are dropped; the
+                // completed groups are untouched).
+                var partsDone = startPartsDone
+                var offset = startBytes
+                val existingLength = if (file.exists()) file.length() else 0L
+                if (existingLength > startBytes) {
+                    RandomAccessFile(file, "rw").use { it.setLength(startBytes) }
+                } else if (existingLength < startBytes) {
+                    DownloadLogger.w {
+                        "DashDownloader — group '$label': file ${file.length()} < recorded $startBytes bytes — restarting the group fresh"
+                    }
+                    partsDone = 0
+                    offset = 0L
+                    // D-548 (review minor 4): the recorded bytes of the dropped
+                    // group must leave the running total — the re-download adds
+                    // them again, so keeping them would inflate the progress
+                    // bar and the final fileSize permanently.
+                    doneBytes -= startBytes
+                    placements.removeAll { it.file == fileIndex }
+                    file.delete()
+                }
+                if (partsDone >= parts.size && parts.isNotEmpty()) {
+                    DownloadLogger.i {
+                        "DashDownloader — group '$label' fully resumed: ${parts.size} part(s), $offset bytes"
+                    }
+                    return // fully resumed
+                }
+                FileOutputStream(file, true).use { out ->
+                    for (index in partsDone until parts.size) {
+                        currentCoroutineContext().ensureActive()
+                        val part = parts[index]
+                        val appended = fetchAndAppend(part, out, headers, client)
+                        placements += DashOfflineSegmentRange(
+                            url = part.url,
+                            file = fileIndex,
+                            offset = offset,
+                            length = appended,
+                            partPosition = part.position,
+                        )
+                        offset += appended
+                        partsDone = index + 1
+                        doneBytes += appended
+                        persist(partsDone, offset)
+                        onProgress(doneBytes, totalHint)
+                    }
+                }
+                DownloadLogger.i {
+                    "DashDownloader — group '$label' complete: ${parts.size} part(s), $offset bytes " +
+                        "(resumed at part $partsDone)"
+                }
             }
-        } finally {
-            executor.shutdownNow()
+
+            runGroup(
+                label = "video",
+                parts = plan.videoParts,
+                file = videoTemp,
+                fileIndex = 0,
+                startPartsDone = videoPartsDone,
+                startBytes = videoBytes,
+            ) { partsDone, bytes ->
+                videoPartsDone = partsDone
+                videoBytes = bytes
+                writeResumeSidecar(
+                    task.id,
+                    DashResumeSidecar(manifestSha, partsDone, bytes, audioStates, placements.toList()),
+                )
+            }
+            plan.audioGroups.forEachIndexed { groupIndex, groupParts ->
+                val state = audioStates[groupIndex]
+                runGroup(
+                    label = "audio-${groupIndex + 1}",
+                    parts = groupParts,
+                    file = audioTemps[groupIndex],
+                    fileIndex = groupIndex + 1,
+                    startPartsDone = state.partsDone,
+                    startBytes = state.bytes,
+                ) { partsDone, bytes ->
+                    audioStates[groupIndex] = DashResumeSidecar.SetState(partsDone, bytes)
+                    writeResumeSidecar(
+                        task.id,
+                        DashResumeSidecar(manifestSha, videoPartsDone, videoBytes, audioStates, placements.toList()),
+                    )
+                }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Pause/cancel: the sidecar is persisted after every part — the
+            // temp media + sidecar stay for the resume (the REVIEW-5 M37
+            // parity the progressive path rides).
+            tempCache.cleanupTask(task.id, preserveForResume = true)
+            throw e
+        } catch (e: Exception) {
+            // D-548: PRESERVE the temp media on errors too — post-plan failures
+            // are transport-shaped and the queue retries them; a resume skips
+            // every completed part (the D-539 span-skip parity). A task that
+            // dies permanently leaves its temp dir to the 24h stale sweep.
+            tempCache.cleanupTask(task.id, preserveForResume = true)
+            throw e
         }
-        DownloadLogger.i { "DashDownloader — cached $doneBytes bytes across ${plan.parts.size} part(s)" }
+        DownloadLogger.i {
+            "DashDownloader — media complete: $doneBytes bytes " +
+                "(video=${videoTemp.length()}, audio=${audioTemps.sumOf { it.length() }}), " +
+                "${placements.size} placement(s) recorded"
+        }
 
         // ── 3. Subtitles → temp (best-effort, the D-FIX-SUB header rules) ────
         val subtitleFiles = downloadSubtitlesToCache(task)
         emitPhaseProgress(onProgress, doneBytes, 96)
 
-        // ── 4. Publish: SAF folder with .data.json + cover + subs, NO video ──
+        // ── 4. Publish: SAF folder with the REAL media files + .data.json + ──
+        //    cover + subs + the .dashmeta sidecar playback rides.
         val enrichedContent = enrichContentMetadata(task.content)
         val subtitleLangs = task.subtitleTracks.map { it.lang }
         val publishResult = storage.publishDashEpisode(
@@ -157,6 +300,10 @@ class DashDownloader(
             subtitleFiles = subtitleFiles,
             subtitleLangs = subtitleLangs,
             manifestUrl = manifestUrl,
+            manifestBytes = manifestBytes,
+            videoTempFile = videoTemp,
+            audioTempFiles = audioTemps,
+            ranges = placements,
             cachedBytes = doneBytes,
         )
         emitPhaseProgress(onProgress, doneBytes, 99)
@@ -171,7 +318,7 @@ class DashDownloader(
                     episodeName = task.episode.name,
                     episodeDescription = task.episode.description,
                     videoUrl = task.videoUrl,
-                    videoUri = null, // DASH has no published file — the cache key rules
+                    videoUri = publishResult.dataJsonVideoUri ?: publishResult.videoUri,
                     subtitleUris = publishResult.subtitleUris,
                     quality = task.videoQuality.ifBlank { null },
                     videoServer = task.videoServer.ifBlank { null },
@@ -183,7 +330,7 @@ class DashDownloader(
                 storage.upsertEpisodeInDataJson(contentFolder, episodeInfo)
                 DownloadLogger.i {
                     "DashDownloader — upserted ${task.episode.episodeKey} into .data.json " +
-                        "(dashManifestUrl set)"
+                        "(dashManifestUrl set, videoUri = the published file)"
                 }
             } else {
                 DownloadLogger.w {
@@ -208,7 +355,7 @@ class DashDownloader(
         task.copy(
             status = DownloadStatus.COMPLETED,
             progress = 99, // the queue bumps to 100 via DynamicProgressTracker.complete()
-            videoUri = DashCacheKeys.URI_SCHEME + manifestUrl,
+            videoUri = publishResult.videoUri, // `csdash:<metaDocUri>` — the D-548 local payload
             subtitleUris = subtitleUrisJson,
             downloadedBytes = doneBytes,
             totalBytes = doneBytes,
@@ -216,49 +363,77 @@ class DashDownloader(
         )
     }
 
-    // ── part caching ─────────────────────────────────────────────────────────
+    // ── part fetching ────────────────────────────────────────────────────────
 
     /**
-     * Caches ONE part on the executor thread. `writer.cancel()` on coroutine
-     * cancellation makes media3's cache() throw InterruptedIOException
-     * promptly (it polls the cancel flag between reads), so pause/cancel
-     * never hangs on a stuck CDN read.
+     * D-548: fetches ONE planned part and appends its bytes to [out].
+     *
+     * Range handling: a part with a position/length (SegmentList-style
+     * byte-ranges inside one remote file) requests `Range: bytes=…`; a 206
+     * body starts at [DashPart.position], a 200 means the server ignored the
+     * Range and the body must be sliced from the position ourselves. A short
+     * body (fewer bytes than the declared length) throws a RAW [IOException]
+     * — a truncated moof would corrupt the concatenated file, and a
+     * transport-shaped failure is exactly what the queue's retry policy
+     * retries.
+     *
+     * @return The appended byte count.
      */
-    private suspend fun cachePart(
-        factory: CacheDataSource.Factory,
+    private fun fetchAndAppend(
         part: DashPart,
+        out: java.io.OutputStream,
         headers: Map<String, String>,
-        totalHint: Long,
-        doneBefore: Long,
-        onProgress: (Long, Long) -> Unit,
-        executor: java.util.concurrent.ExecutorService,
-    ): Long = suspendCancellableCoroutine { cont ->
-        val dataSpec = DataSpec.Builder()
-            .setUri(part.url)
-            .setPosition(part.position)
-            .setLength(part.length)
-            .setHttpRequestHeaders(headers)
-            .build()
-        var partBytes = 0L
-        val writer = CacheWriter(
-            factory.createDataSourceForDownloading(),
-            dataSpec,
-            /* temporaryBuffer = */ null,
-        ) { _, bytesCached, _ ->
-            if (bytesCached > partBytes) partBytes = bytesCached
-            onProgress(doneBefore + bytesCached, totalHint)
+        client: OkHttpClient,
+    ): Long {
+        val builder = Request.Builder().url(part.url)
+        headers.forEach { (name, value) -> builder.header(name, value) }
+        val wantsRange = part.position > 0L || part.length > 0L
+        if (wantsRange) {
+            val end = if (part.length > 0L) (part.position + part.length - 1).toString() else ""
+            builder.header("Range", "bytes=${part.position}-$end")
         }
-        val future = executor.submit {
-            try {
-                writer.cache()
-                cont.resume(partBytes)
-            } catch (t: Throwable) {
-                cont.resumeWithException(t)
+        client.newCall(builder.build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw HttpException(
+                    response.code,
+                    "DASH segment returned HTTP ${response.code}: ${part.url.take(96)}",
+                )
             }
-        }
-        cont.invokeOnCancellation {
-            writer.cancel()
-            future.cancel(false)
+            val body = response.body
+                ?: throw DownloadException("DASH segment returned an empty body: ${part.url.take(96)}")
+            val input = body.byteStream()
+            // 206 over a ranged request = the Range was honored (the body starts
+            // at part.position). 200 = ignored — slice from the position
+            // ourselves. A plain (non-ranged) part starts at 0.
+            var toSkip = if (wantsRange && response.code == 200) part.position else 0L
+            while (toSkip > 0L) {
+                val skipped = input.skip(toSkip)
+                if (skipped > 0L) {
+                    toSkip -= skipped
+                    continue
+                }
+                // InputStream.skip may no-op near EOF — read one byte instead.
+                if (input.read() < 0) {
+                    throw IOException("DASH segment is shorter than its declared range: ${part.url.take(96)}")
+                }
+                toSkip -= 1L
+            }
+            val limit = part.length.takeIf { it > 0L } ?: -1L
+            var copied = 0L
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val want = if (limit >= 0L) minOf(buffer.size.toLong(), limit - copied).toInt() else buffer.size
+                if (want <= 0) break
+                val n = input.read(buffer, 0, want)
+                if (n < 0) break
+                out.write(buffer, 0, n)
+                copied += n
+            }
+            if (limit >= 0L && copied < limit) {
+                throw IOException("DASH segment short read ($copied/$limit bytes): ${part.url.take(96)}")
+            }
+            out.flush()
+            return copied
         }
     }
 
@@ -358,6 +533,45 @@ class DashDownloader(
         onProgress(downloaded, syntheticTotal)
     }
 
+    // ── resume sidecar ───────────────────────────────────────────────────────
+
+    /**
+     * Reads the resume sidecar; null when absent, corrupt, pinned to a
+     * DIFFERENT manifest (a CDN regeneration between attempts plans
+     * different segments — resuming into the old file would corrupt it), or
+     * grouped against a different audio-set count.
+     */
+    private fun readResumeSidecar(downloadId: Long, manifestSha: String, audioGroupCount: Int): DashResumeSidecar? {
+        val file = tempCache.getTempFile(downloadId, RESUME_FILE_NAME)
+        if (!file.exists()) return null
+        val parsed = runCatching {
+            ContentDataJson.json.decodeFromString(DashResumeSidecar.serializer(), file.readText())
+        }.onFailure { e ->
+            DownloadLogger.w { "DashDownloader — resume sidecar unreadable (fresh start): ${e.message}" }
+        }.getOrNull() ?: return null
+        if (parsed.manifestSha != manifestSha) {
+            DownloadLogger.i { "DashDownloader — resume sidecar invalidated (manifest changed) — fresh start" }
+            return null
+        }
+        if (parsed.audioSets.size != audioGroupCount) {
+            DownloadLogger.i { "DashDownloader — resume sidecar invalidated (audio group count changed) — fresh start" }
+            return null
+        }
+        return parsed
+    }
+
+    /** Persists the sidecar after every appended part (best-effort, tiny file). */
+    private fun writeResumeSidecar(downloadId: Long, sidecar: DashResumeSidecar) {
+        runCatching {
+            tempCache.getTempFile(downloadId, RESUME_FILE_NAME)
+                .writeText(ContentDataJson.json.encodeToString(DashResumeSidecar.serializer(), sidecar))
+        }.onFailure { e ->
+            DownloadLogger.w { "DashDownloader — resume sidecar write failed (non-fatal): ${e.message}" }
+        }
+    }
+
+    // ── subtitle + metadata helpers (the D-539 heritage, unchanged) ──────────
+
     /** The D-FIX-SUB subtitle fetch (the HttpDownloader pattern, localized). */
     private suspend fun downloadSubtitlesToCache(task: DownloadTask): List<java.io.File> =
         withContext(Dispatchers.IO) {
@@ -431,4 +645,40 @@ class DashDownloader(
             providerName = content.providerName,
         )
     }
+
+    companion object {
+        /** The video group's temp file name (the audio groups are `audio-<n>.fmp4`). */
+        private const val VIDEO_TEMP_NAME = "video.fmp4"
+
+        /** The resume sidecar (temp dir; deleted with it on completion). */
+        private const val RESUME_FILE_NAME = "dash-resume.json"
+
+        /** SHA-1 of the manifest bytes — the resume sidecar's plan-identity pin. */
+        private fun sha1Hex(bytes: ByteArray): String =
+            MessageDigest.getInstance("SHA-1").digest(bytes).joinToString("") { "%02x".format(it) }
+    }
+}
+
+/**
+ * The D-548 resume sidecar (temp `dash-resume.json`) — per-group parts-done +
+ * byte counts, pinned to the SHA-1 of the manifest the plan came from.
+ * Persisted after EVERY appended part: a pause/resume or a queue retry
+ * resumes at the exact next part; a crash between the file append and the
+ * sidecar write is healed by truncating the file back to the recorded bytes.
+ * File-private: the wire format only ever crosses this file.
+ */
+@Serializable
+private data class DashResumeSidecar(
+    @SerialName("manifestSha") val manifestSha: String,
+    @SerialName("videoPartsDone") val videoPartsDone: Int = 0,
+    @SerialName("videoBytes") val videoBytes: Long = 0L,
+    @SerialName("audioSets") val audioSets: List<SetState> = emptyList(),
+    /** The placements of every ALREADY-appended part — a resumed run publishes a complete index. */
+    @SerialName("placements") val placements: List<DashOfflineSegmentRange> = emptyList(),
+) {
+    @Serializable
+    data class SetState(
+        @SerialName("partsDone") val partsDone: Int = 0,
+        @SerialName("bytes") val bytes: Long = 0L,
+    )
 }

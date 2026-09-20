@@ -46,11 +46,25 @@ data class DashVideoRep(
     val bandwidth: Long,
 )
 
-/** The plan DashDownloader executes. */
+/**
+ * The plan DashDownloader executes.
+ *
+ * D-548: alongside the legacy flat [parts] list (which includes the manifest
+ * itself and interleaves kinds), the plan now exposes the GROUPED parts the
+ * per-representation file writer needs: [videoParts] (init + media of the
+ * chosen video representation(s), in segment order — concatenated they form a
+ * valid single-track fMP4) and [audioGroups] (ONE group per audio
+ * AdaptationSet — each concatenated group is its own fMP4; merging groups
+ * would interleave two language tracks into garbage).
+ */
 data class DashSegmentPlan(
     val videoRep: DashVideoRep?,
     val audioRepIds: List<String>,
     val parts: List<DashPart>,
+    /** D-548: init + media parts of the chosen video representation(s), manifest excluded. */
+    val videoParts: List<DashPart>,
+    /** D-548: one part list per audio AdaptationSet (best rep of each), init first. */
+    val audioGroups: List<List<DashPart>>,
     /** bandwidth-derived byte estimate (0 = unknowable → progress runs indeterminate). */
     val estimatedBytes: Long,
     val drmProtected: Boolean,
@@ -198,6 +212,10 @@ object DashManifestPlanner {
         // The manifest ITSELF is a resource (offline playback's first read).
         val allParts = listOf(DashPart(url = manifestUrl, kind = "manifest")) + parts
 
+        // D-548: the grouped views over the same parts — the file writer's
+        // input. Video sets' parts in document (period) order; one group per
+        // audio set. The manifest part is excluded (it rides the sidecar).
+
         val durationSec = totalDurationSec.takeIf { it > 0.0 }
         val estimated = if (durationSec != null) {
             val videoBytes = (chosenVideo.bandwidth / 8.0) * durationSec
@@ -209,6 +227,8 @@ object DashManifestPlanner {
             videoRep = DashVideoRep(chosenVideo.id, chosenVideo.height, chosenVideo.bandwidth),
             audioRepIds = audioSets.map { it.first.id ?: "" },
             parts = allParts,
+            videoParts = videoReps.flatMap { it.parts },
+            audioGroups = audioSets.map { it.second },
             estimatedBytes = estimated,
             drmProtected = false,
             unsupportedReason = null,
@@ -519,6 +539,8 @@ object DashManifestPlanner {
         videoRep = null,
         audioRepIds = emptyList(),
         parts = listOf(DashPart(url = manifestUrl, kind = "manifest")),
+        videoParts = emptyList(),
+        audioGroups = emptyList(),
         estimatedBytes = 0L,
         drmProtected = false,
         unsupportedReason = reason,

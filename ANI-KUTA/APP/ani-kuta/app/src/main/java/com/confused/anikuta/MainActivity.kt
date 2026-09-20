@@ -988,13 +988,15 @@ fun AppRoot() {
                                 episodeMetadataSerialized = epMeta,
                             )
                         },
-                        // D-539: a downloaded DASH-cache episode plays through
+                        // D-539 (D-548): a downloaded DASH episode plays through
                         // the CS watch screen's offline player — the host builds
-                        // the CsWatchKey (offlineManifestUrl set) and adds it to
-                        // the backstack DIRECTLY (NOT csResolveRequest: that
-                        // opens the resolve sheet, which would re-resolve an
-                        // already-downloaded episode online and dead-end it).
-                        onNavigateToCsOfflineWatch = { manifestUrl, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                        // the CsWatchKey (offlineMediaUri = the marker payload:
+                        // the legacy cache manifest URL OR the D-548 .dashmeta
+                        // sidecar uri) and adds it to the backstack DIRECTLY
+                        // (NOT csResolveRequest: that opens the resolve sheet,
+                        // which would re-resolve an already-downloaded episode
+                        // online and dead-end it).
+                        onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
                             backstack.add(
                                 com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                     providerName = providerName,
@@ -1006,7 +1008,7 @@ fun AppRoot() {
                                     mainId = mainId,
                                     sourceId = sourceId,
                                     episodeMetadataSerialized = epMeta,
-                                    offlineManifestUrl = manifestUrl,
+                                    offlineMediaUri = offlineMediaUri,
                                 ),
                             )
                         },
@@ -1084,13 +1086,15 @@ fun AppRoot() {
                                 episodeMetadataSerialized = epMeta,
                             )
                         },
-                        // D-539: a downloaded DASH-cache episode plays through
+                        // D-539 (D-548): a downloaded DASH episode plays through
                         // the CS watch screen's offline player — the host builds
-                        // the CsWatchKey (offlineManifestUrl set) and adds it to
-                        // the backstack DIRECTLY (NOT csResolveRequest: that
-                        // opens the resolve sheet, which would re-resolve an
-                        // already-downloaded episode online and dead-end it).
-                        onNavigateToCsOfflineWatch = { manifestUrl, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                        // the CsWatchKey (offlineMediaUri = the marker payload:
+                        // the legacy cache manifest URL OR the D-548 .dashmeta
+                        // sidecar uri) and adds it to the backstack DIRECTLY
+                        // (NOT csResolveRequest: that opens the resolve sheet,
+                        // which would re-resolve an already-downloaded episode
+                        // online and dead-end it).
+                        onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
                             backstack.add(
                                 com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                     providerName = providerName,
@@ -1102,7 +1106,7 @@ fun AppRoot() {
                                     mainId = mainId,
                                     sourceId = sourceId,
                                     episodeMetadataSerialized = epMeta,
-                                    offlineManifestUrl = manifestUrl,
+                                    offlineMediaUri = offlineMediaUri,
                                 ),
                             )
                         },
@@ -2350,13 +2354,16 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
 ): com.confused.anikuta.core.navigation.NavKey? {
     val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episodeKey) ?: return null
 
-    // ── D-539: the DASH-cache branch — route to the CS watch screen's
-    // OFFLINE player. MPV cannot demux a manifest, and the media lives in
-    // the app-private SimpleCache under the manifest URL (the `csdash:`
-    // marker uri). The sidecar subtitles resolve inside the CS screen (the
-    // same D-407 chain, via its injected download manager).
-    val dashManifestUrl = com.confused.anikuta.core.common.DashCacheKeys.manifestUrlFromUri(localUri)
-    if (dashManifestUrl != null) {
+    // ── D-539 (payload widened by D-548): the DASH-offline branch — route to
+    // the CS watch screen's OFFLINE player. MPV cannot demux a manifest (and
+    // an audio-less fMP4 would be silent), so BOTH marker modes route here:
+    // a legacy cache episode (payload = the manifest URL, media in the
+    // SimpleCache) and a D-548 file episode (payload = the `.dashmeta`
+    // sidecar's document uri, media as REAL files in the SAF folder). The
+    // sidecar subtitles resolve inside the CS screen (the same D-407 chain,
+    // via its injected download manager).
+    val offlineMediaPayload = com.confused.anikuta.core.common.DashCacheKeys.payloadFromUri(localUri)
+    if (offlineMediaPayload != null) {
         // Look up the CS provider name so a non-downloaded NEXT episode can
         // still fall back to online resolution inside the CS screen.
         val providerName = runCatching {
@@ -2396,8 +2403,8 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
             ).joinToString(delim)
         }
         Logger.i("Anikuta:MainActivity") {
-            "Downloads→Watch: DASH cache episode → CS offline player " +
-                "(manifest=${dashManifestUrl.take(64)}, provider=${providerName ?: "unknown"})"
+            "Downloads→Watch: DASH offline episode → CS offline player " +
+                "(media=${offlineMediaPayload.take(64)}, provider=${providerName ?: "unknown"})"
         }
         return com.confused.anikuta.feature.cswatch.api.CsWatchKey(
             providerName = providerName ?: "",
@@ -2409,7 +2416,7 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
             mainId = mainId,
             sourceId = sourceId,
             episodeMetadataSerialized = epMetaStr,
-            offlineManifestUrl = dashManifestUrl,
+            offlineMediaUri = offlineMediaPayload,
         )
     }
 

@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
 /** Buffer state mirrored from ExoPlayer (IDLE → BUFFERING → READY → ENDED). */
@@ -146,7 +147,10 @@ class CsPlayerEngine(
      * download pipeline writes). When non-null, [startOfflineDash] plays a
      * downloaded DASH episode through a CacheDataSource over it — fully-
      * cached episodes play with ZERO upstream requests (true offline).
-     * Null (tests / non-DASH usage): offline playback is unavailable.
+     * D-548: only the LEGACY cache episodes (v1.1.20–v1.1.22, marker payload
+     * = the manifest URL) ride this — D-548 episodes are real files in the
+     * SAF folder and play through [startOfflineDashLocal] with no cache.
+     * Null (tests / non-DASH usage): legacy offline playback is unavailable.
      */
     private val offlineDashCache: androidx.media3.datasource.cache.Cache? = null,
 ) {
@@ -162,6 +166,10 @@ class CsPlayerEngine(
         internal const val TEXT_OVERRIDE_GUARD_MS = 8_000L
     }
 
+    /** D-548: application context — the SAF document streams the offline-file
+     *  playback opens ride the ContentResolver. */
+    private val appContext: Context = context.applicationContext
+
     private val dataSourceFactory = CsHttpDataSourceFactory(baseClient, defaultUserAgent)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -175,6 +183,10 @@ class CsPlayerEngine(
 
     /** Task 53 / RC-2: one clean-profile retry per link load (see CsHttpDataSourceFactory). */
     private var cleanRetryUsed = false
+
+    /** D-548: the async local-file load guard — a superseded continuation
+     *  (fast episode switch, reset) must never touch the player. */
+    private var offlineLocalLoadGen = 0
 
     /** True once the CURRENT load reached READY — mid-playback errors are NOT clean-retry candidates. */
     private var reachedReady = false
@@ -401,6 +413,10 @@ class CsPlayerEngine(
             )
             return
         }
+        // D-548 (review minor 5): an in-flight startOfflineDashLocal
+        // continuation (sidecar read/parse on IO) must never land over THIS
+        // load — every loader bumps the same generation gate.
+        offlineLocalLoadGen++
         Logger.i(TAG) {
             "startOfflineDash: $manifestUrl resumeMs=$startPositionMs maxVideoHeight=$maxVideoHeight"
         }
@@ -444,6 +460,104 @@ class CsPlayerEngine(
         startTicker()
     }
 
+    /**
+     * D-548: plays a DOWNLOADED DASH episode whose media lives in the user's
+     * SAF download folder as REAL files — [metaUri] is the published
+     * `.mp4.dashmeta` sidecar (the original manifest bytes + the URL→file
+     * range index). The manifest is parsed as a SIDeloaded DashMediaSource
+     * (exact seek points + duration from the DASH timeline — an unindexed
+     * fMP4 would be unseekable) and every segment request is served by
+     * [LocalDashDataSource] from the local files. NO network, NO cache — a
+     * segment the index cannot satisfy fails honestly.
+     *
+     * [maxVideoHeight] pins the track selection to the DOWNLOADED
+     * representation's height (the sideloaded manifest may list MORE video
+     * reps than were downloaded — an unpinned ABR could select a missing
+     * one and die on the index miss).
+     */
+    fun startOfflineDashLocal(metaUri: String, startPositionMs: Long = 0L, maxVideoHeight: Int? = null) {
+        Logger.i(TAG) {
+            "startOfflineDashLocal: $metaUri resumeMs=$startPositionMs maxVideoHeight=$maxVideoHeight"
+        }
+        current = null
+        cleanRetryUsed = false
+        reachedReady = false
+        autoSubSelectAttempted = false
+        textOverrideAtMs = 0L
+        textOverrideRetryUsed = false
+
+        // Pin the video track to what was actually downloaded; clear any
+        // previous pin first so repeated offline loads never stack constraints
+        // (the same pin contract the legacy cache path rides).
+        runCatching {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setMaxVideoSize(Int.MAX_VALUE, maxVideoHeight ?: Int.MAX_VALUE)
+                .setMaxVideoBitrate(Int.MAX_VALUE)
+                .build()
+        }.onFailure { Logger.w(TAG) { "trackSelection pin failed: ${it.message}" } }
+
+        val generation = ++offlineLocalLoadGen
+        scope.launch {
+            val indexResult = runCatching {
+                withContext(Dispatchers.IO) {
+                    DashLocalIndex.read(appContext.contentResolver, android.net.Uri.parse(metaUri))
+                }
+            }
+            if (generation != offlineLocalLoadGen) {
+                Logger.w(TAG) { "startOfflineDashLocal — superseded before prepare (gen=$generation)" }
+                return@launch
+            }
+            val index = indexResult.getOrElse { e ->
+                Logger.e(TAG, e) { "startOfflineDashLocal — sidecar read failed: $metaUri" }
+                _events.tryEmit(
+                    CsEngineEvent.PlaybackError(
+                        CsPlaybackError(CsPlaybackError.Kind.PARSING, message = e.message),
+                        "offlineDashLocalSidecarFailed: ${e.message}",
+                        metaUri,
+                    ),
+                )
+                return@launch
+            }
+            val manifest = runCatching {
+                withContext(Dispatchers.IO) {
+                    androidx.media3.exoplayer.dash.manifest.DashManifestParser().parse(
+                        android.net.Uri.parse(index.manifestUrl),
+                        index.manifestBytes.inputStream(),
+                    )
+                }
+            }.getOrElse { e ->
+                Logger.e(TAG, e) { "startOfflineDashLocal — manifest parse failed: $metaUri" }
+                _events.tryEmit(
+                    CsEngineEvent.PlaybackError(
+                        CsPlaybackError(CsPlaybackError.Kind.PARSING, message = e.message),
+                        "offlineDashLocalManifestParseFailed: ${e.message}",
+                        metaUri,
+                    ),
+                )
+                return@launch
+            }
+            if (generation != offlineLocalLoadGen) {
+                Logger.w(TAG) { "startOfflineDashLocal — superseded after parse (gen=$generation)" }
+                return@launch
+            }
+            Logger.i(TAG) {
+                "startOfflineDashLocal — prepared: manifest=${index.manifestUrl.take(64)} " +
+                    "periods=${manifest.periodCount}, files=${index.fileUris.size}, ranges=${index.ranges.size}"
+            }
+            _state.value = _state.value.copy(currentLinkUrl = metaUri)
+            val mediaSource = androidx.media3.exoplayer.dash.DashMediaSource(
+                manifest,
+                androidx.media3.datasource.DataSource.Factory {
+                    LocalDashDataSource(appContext.contentResolver, index)
+                },
+            )
+            player.setMediaSource(mediaSource, if (startPositionMs > 0) startPositionMs else C.TIME_UNSET)
+            player.prepare()
+            player.playWhenReady = true
+            startTicker()
+        }
+    }
+
     /** Re-loads [link] keeping the current position (quality/source switch UX). */
     fun switchLink(link: CsVideoLink) {
         val keepAt = if (_state.value.durationMs > 0) player.currentPosition else 0L
@@ -464,6 +578,9 @@ class CsPlayerEngine(
         startPositionMs: Long,
         clean: Boolean,
     ) {
+        // D-548 (review minor 5): an in-flight startOfflineDashLocal
+        // continuation must never land setMediaSource over an ONLINE load.
+        offlineLocalLoadGen++
         current = CurrentPlayback(link)
         cleanRetryUsed = clean
         reachedReady = false
@@ -538,6 +655,7 @@ class CsPlayerEngine(
         autoSubSelectAttempted = false
         textOverrideAtMs = 0L
         textOverrideRetryUsed = false
+        offlineLocalLoadGen++ // D-548: an in-flight local-file load must not land after a reset
         current = null
         tickerJob?.cancel()
         player.stop()

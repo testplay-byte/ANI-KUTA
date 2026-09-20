@@ -44,13 +44,47 @@ object DashCacheKeys {
     fun episodePrefix(manifestUrl: String): String = "$PREFIX$manifestUrl|"
 
     /**
-     * Returns the manifest URL when [uri] is a DASH-cache marker uri
-     * (`csdash:<manifestUrl>`), else null — the ONE decoder for the
-     * downloaded-episode rows and the playback routers.
+     * The marker payload decoders for downloaded DASH episode rows.
+     *
+     * D-548: a `csdash:` row's payload now has TWO modes, and every playback
+     * router must branch on them:
+     *  - LEGACY (v1.1.20–v1.1.22 downloads): payload = the REMOTE manifest
+     *    URL — the media lives in the app-private SimpleCache under
+     *    `csdash|<manifestUrl>|…` keys; playback = startOfflineDash over a
+     *    CacheDataSource; delete = a cache purge.
+     *  - LOCAL-FILES (v1.1.23+ downloads): payload = the content:// document
+     *    uri of the episode's published `.mp4.dashmeta` sidecar (the manifest
+     *    bytes + the segment→file-range index live in it) — the media lives
+     *    in the user's SAF download folder as real files (`<name>.mp4` +
+     *    `<name>.audio<N>.mp4`); playback = startOfflineDashLocal over the
+     *    sideloaded manifest; delete = the SAF files die with the folder.
      */
-    fun manifestUrlFromUri(uri: String?): String? {
+
+    /**
+     * The raw payload after the `csdash:` marker — a manifest URL (legacy) or
+     * a `.dashmeta` document uri (local-files). Null when [uri] carries no
+     * marker. The ONE "route to the CS offline player" test.
+     */
+    fun payloadFromUri(uri: String?): String? {
         if (uri == null || !uri.startsWith(URI_SCHEME)) return null
-        val url = uri.removePrefix(URI_SCHEME)
-        return url.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        return uri.removePrefix(URI_SCHEME).takeIf { it.isNotBlank() }
     }
+
+    /**
+     * The manifest URL for a LEGACY cache-mode marker uri (`csdash:<manifestUrl>`),
+     * else null — the decode the cache playback + cache purge paths ride.
+     */
+    fun manifestUrlFromUri(uri: String?): String? =
+        payloadFromUri(uri)?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+
+    /**
+     * The `.dashmeta` document uri for a LOCAL-FILES marker uri
+     * (`csdash:<content://…dashmeta>`), else null — the decode the local-file
+     * playback path rides ([CsPlayerEngine.startOfflineDashLocal]).
+     */
+    fun offlineMetaUriFromUri(uri: String?): String? =
+        payloadFromUri(uri)?.takeIf { it.startsWith("content://") }
+
+    /** True when [uri] is a DASH-offline marker uri in EITHER mode. */
+    fun isOfflineDashUri(uri: String?): Boolean = payloadFromUri(uri) != null
 }

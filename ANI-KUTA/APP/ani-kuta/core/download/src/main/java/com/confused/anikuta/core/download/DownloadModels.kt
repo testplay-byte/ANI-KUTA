@@ -271,4 +271,12 @@ data class PublishResult(
      * to .data.json).
      */
     val contentFolder: androidx.documentfile.provider.DocumentFile? = null,
+    /**
+     * D-548: the uri the `.data.json` episode entry records as `videoUri` —
+     * for a DASH publish this is the REAL published video document uri while
+     * [videoUri] is the `csdash:<metaUri>` marker the DB row + playback
+     * routing carry. Null = use [videoUri] (the progressive pipeline, where
+     * both are the same real file uri).
+     */
+    val dataJsonVideoUri: String? = null,
 )

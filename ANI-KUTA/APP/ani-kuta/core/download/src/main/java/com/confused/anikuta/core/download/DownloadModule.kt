@@ -100,9 +100,10 @@ val downloadModule = module {
     }
     // ── D-539: the DASH offline cache + downloader ───────────────────────
     // ONE SimpleCache per process (a second instance over the same folder
-    // throws) — DashDownloader writes it, CsPlayerEngine.startOfflineDash
-    // reads it (the SAME instance is injected into :feature:cs-watch), and
-    // the delete path purges it per episode.
+    // throws) — D-548: it now serves ONLY the legacy episodes (v1.1.20–
+    // v1.1.22 downloads: startOfflineDash playback + delete-path purge);
+    // the D-548 pipeline writes the media into the user's SAF folder as
+    // real files and no longer touches the cache.
     single<androidx.media3.datasource.cache.Cache> { DashCacheStore.provide(androidContext()) }
     single {
         DashDownloader(
@@ -116,7 +117,6 @@ val downloadModule = module {
                 ?: get<OkHttpClient>(HttpClientFactory.DOWNLOAD),
             storage = get(),
             tempCache = get(),
-            cache = get(),
             contentRepository = get(),
         )
     }

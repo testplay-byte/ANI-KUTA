@@ -67,9 +67,13 @@ interface DownloadManager {
     fun getDownloadedEpisodeUri(mainId: String, episodeKey: String): String?
 
     /**
-     * D-539: whether this downloaded episode is a DASH-cache artifact — its
-     * media lives in the app-private SimpleCache (marker uri `csdash:<manifestUrl>`)
-     * and offline playback must route to the CS player, NOT the MPV file player.
+     * D-539 (amended D-548): whether this downloaded episode is a DASH offline
+     * artifact — its `video_uri` carries the `csdash:` marker in either mode
+     * (legacy cache episodes: payload = the manifest URL, media in the
+     * app-private SimpleCache; D-548 file episodes: payload = the `.dashmeta`
+     * sidecar uri, media as REAL files in the SAF folder). Offline playback
+     * must route to the CS player, NOT the MPV file player (MPV cannot demux
+     * a manifest, and a lone video fMP4 would be silent).
      */
     fun isDownloadedEpisodeDash(mainId: String, episodeKey: String): Boolean
 

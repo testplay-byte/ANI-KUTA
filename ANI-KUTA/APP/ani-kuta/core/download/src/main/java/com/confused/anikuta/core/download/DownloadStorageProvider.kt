@@ -231,16 +231,31 @@ class DownloadStorageProvider(
     }
 
     /**
-     * D-539: publishes a DASH-cache episode — the folder gets everything the
-     * file pipeline writes EXCEPT the video file (fMP4 DASH has no single
-     * file without a muxer the app doesn't ship; the media lives in the
-     * app-private SimpleCache under [manifestUrl]):
-     * `.data.json` (+ the content identity), `.cover.jpg`, `.nomedia`, and
-     * the subtitle files in `subtitles/`. The returned [PublishResult.videoUri]
-     * is the `csdash:<manifestUrl>` marker uri the whole app treats as the
-     * DASH identity (DB row, playback routing, delete purge).
+     * D-548: publishes a DASH episode as REAL MEDIA FILES in the user's SAF
+     * folder (the D-539 cache-only publish is dead — the v1.1.22 device round
+     * rejected the "no video file in my download folder" behavior):
      *
-     * @param cachedBytes The bytes cached so far (the episode's honest size —
+     *  - `episodes/<title> - E00001.mp4` — the video representation's
+     *    init + segments concatenated ([videoTempFile], already assembled by
+     *    the downloader);
+     *  - `episodes/<title> - E00001.audio<N>.mp4` — one file per audio set
+     *    ([audioTempFiles], same order as the plan's groups);
+     *  - `episodes/<title> - E00001.mp4.dashmeta` — the playback sidecar:
+     *    the original manifest bytes + the URL→(file, offset, length) index
+     *    ([ranges]). CsPlayerEngine.startOfflineDashLocal parses it as a
+     *    SIDeloaded DashMediaSource — the manifest is the index media3 cannot
+     *    synthesize over a local fMP4 (an unindexed fragmented MP4 is
+     *    UNSEEKABLE in ExoPlayer).
+     *  - `.data.json` (+ the content identity), `.cover.jpg`, `.nomedia`, and
+     *    the subtitle files in `subtitles/` — unchanged from the file pipeline.
+     *
+     * The returned [PublishResult.videoUri] is the `csdash:<metaDocUri>`
+     * marker (the D-539 scheme, now carrying a LOCAL payload — the sidecar's
+     * document uri) for the DB row + playback routing, and
+     * [PublishResult.dataJsonVideoUri] is the REAL video file uri for the
+     * `.data.json` episode entry.
+     *
+     * @param cachedBytes The bytes downloaded (the episode's honest size —
      *   the DB `file_size` + the Downloads page display).
      */
     suspend fun publishDashEpisode(
@@ -250,6 +265,10 @@ class DownloadStorageProvider(
         subtitleFiles: List<File> = emptyList(),
         subtitleLangs: List<String> = emptyList(),
         manifestUrl: String,
+        manifestBytes: ByteArray,
+        videoTempFile: File,
+        audioTempFiles: List<File> = emptyList(),
+        ranges: List<DashOfflineSegmentRange>,
         cachedBytes: Long,
     ): PublishResult = withContext(Dispatchers.IO) {
         val contentDir = getContentFolder(content.mainId, content.title)
@@ -270,7 +289,58 @@ class DownloadStorageProvider(
             runCatching { contentDir.createFile("application/octet-stream", ".nomedia") }
         }
 
-        // 4. Subtitles → subtitles/ (same naming contract as the file pipeline —
+        // 4. The REAL media files into the "episodes" subfolder — the same
+        //    folder the progressive pipeline uses, the same "wt" copy contract
+        //    (the provider either has the old file or the new one).
+        val episodesDir = getOrCreateSubfolder(contentDir, "episodes", index)
+        val epIndex = episodesDir.listFiles().associateBy { it.name!! }
+        val videoName = episodeFileName(content, episode, "mp4")
+        val videoBase = videoName.removeSuffix(".mp4")
+
+        epIndex[videoName]?.delete()
+        val videoTarget = episodesDir.createFile("video/mp4", videoName)
+            ?: throw DownloadException("Failed to create DASH video file: $videoName")
+        copyFile(videoTempFile, videoTarget.uri)
+
+        val audioUris = mutableListOf<String>()
+        for ((audioIndex, audioTemp) in audioTempFiles.withIndex()) {
+            val audioName = "$videoBase.audio${audioIndex + 1}.mp4"
+            epIndex[audioName]?.delete()
+            // D-548 (review blocker 1): "video/mp4" — SAF reconciles the
+            // display-name extension against the mime (AOSP
+            // FileUtils.splitFileName): "audio/mp4" would RENAME the file to
+            // …audio1.m4a (the mime's canonical ext) and break the whole
+            // audio-sibling naming contract. An exact match keeps the name.
+            val audioTarget = episodesDir.createFile("video/mp4", audioName)
+                ?: throw DownloadException("Failed to create DASH audio file: $audioName")
+            copyFile(audioTemp, audioTarget.uri)
+            audioUris += audioTarget.uri.toString()
+        }
+
+        // 5. The `.dashmeta` playback sidecar — the manifest bytes + the part
+        //    placements. `files[0]` is the video, 1..n the audio sets in
+        //    publish order (the same order the ranges' `file` field uses).
+        val metaDoc = DashOfflineMetaFile(
+            manifestUrl = manifestUrl,
+            manifestBase64 = android.util.Base64.encodeToString(manifestBytes, android.util.Base64.NO_WRAP),
+            files = listOf(videoTarget.uri.toString()) + audioUris,
+            ranges = ranges,
+        )
+        val metaName = "$videoName.dashmeta"
+        epIndex[metaName]?.delete()
+        // D-548 (review blocker 1): "application/octet-stream" bypasses SAF's
+        // extension/mime reconciliation — "application/json" would RENAME the
+        // sidecar to …mp4.json (the same octet-stream trick the subtitle
+        // publish has always relied on).
+        val metaTarget = episodesDir.createFile("application/octet-stream", metaName)
+            ?: throw DownloadException("Failed to create DASH meta sidecar: $metaName")
+        val metaJson = ContentDataJson.json.encodeToString(
+            DashOfflineMetaFile.serializer(),
+            metaDoc,
+        )
+        copyBytes(metaJson.toByteArray(Charsets.UTF_8), metaTarget.uri)
+
+        // 6. Subtitles → subtitles/ (same naming contract as the file pipeline —
         //    the shared resolveSubtitleTracks chain finds them for offline playback).
         val subtitlesDir = getOrCreateSubfolder(contentDir, "subtitles", index)
         val subIndex = subtitlesDir.listFiles().associateBy { it.name!! }
@@ -290,14 +360,16 @@ class DownloadStorageProvider(
         }
 
         DownloadLogger.i {
-            "publishDashEpisode($downloadId) — published DASH episode ${episode.episodeKey} " +
-                "(${cachedBytes} cached bytes) to ${contentDir.name} + " +
-                "${publishedSubtitleUris.size} subtitle(s) — NO video file (cache episode)"
+            "publishDashEpisode($downloadId) — published $videoName " +
+                "(${videoTempFile.length()} bytes) + ${audioUris.size} audio file(s) + $metaName " +
+                "(${ranges.size} range(s)) to ${contentDir.name} + " +
+                "${publishedSubtitleUris.size} subtitle(s)"
         }
         PublishResult(
-            videoUri = DashCacheKeys.URI_SCHEME + manifestUrl,
+            videoUri = DashCacheKeys.URI_SCHEME + metaTarget.uri.toString(),
             subtitleUris = publishedSubtitleUris,
             contentFolder = contentDir,
+            dataJsonVideoUri = videoTarget.uri.toString(),
         )
     }
 
@@ -1051,7 +1123,9 @@ class DownloadStorageProvider(
             for (file in dir.listFiles()) {
                 if (file.isDirectory) continue
                 val name = file.name ?: continue
-                val isVideo = isEpisodeVideoName(name)
+                // D-548: a DASH episode's audio + meta siblings are counted
+                // with the video — they live and die with the episode.
+                val isVideo = isEpisodeVideoName(name) || isEpisodeAudioName(name) || isEpisodeMetaName(name)
                 val isSub = isSubtitleName(name)
                 if (!isVideo && !isSub) continue
                 if (parseEpisodeToken(name) != token) continue
@@ -1090,6 +1164,23 @@ class DownloadStorageProvider(
     private fun isEpisodeVideoName(name: String): Boolean =
         VIDEO_NAME_REGEX.containsMatchIn(name)
 
+    /**
+     * D-548: `<anything> - E00001.audio<N>.mp4` — one published audio-set
+     * file of a DASH episode. NOT matched by [VIDEO_NAME_REGEX] (the
+     * `[^.]+$` tail cannot span the `.audio` dot) — which is exactly what
+     * keeps the scanner's file walk from resurrecting audio siblings as
+     * phantom episode rows.
+     */
+    private fun isEpisodeAudioName(name: String): Boolean =
+        AUDIO_NAME_REGEX.containsMatchIn(name)
+
+    /**
+     * D-548: `<anything> - E00001.mp4.dashmeta` — the playback sidecar of a
+     * DASH episode (manifest bytes + the local segment index).
+     */
+    private fun isEpisodeMetaName(name: String): Boolean =
+        META_NAME_REGEX.containsMatchIn(name)
+
     /** D-393: `subtitle_E00001_…` — the canonical subtitle file shape. */
     private fun isSubtitleName(name: String): Boolean =
         name.startsWith("subtitle_")
@@ -1102,6 +1193,12 @@ class DownloadStorageProvider(
     private fun parseEpisodeToken(name: String): String? {
         val videoMatch = VIDEO_NAME_REGEX.find(name)
         if (videoMatch != null) return videoMatch.groupValues[1]
+        // D-548: the DASH siblings next — their tails (`…audio1.mp4`,
+        // `…mp4.dashmeta`) never match the video regex, so order is safe.
+        val audioMatch = AUDIO_NAME_REGEX.find(name)
+        if (audioMatch != null) return audioMatch.groupValues[1]
+        val metaMatch = META_NAME_REGEX.find(name)
+        if (metaMatch != null) return metaMatch.groupValues[1]
         val subMatch = SUBTITLE_NAME_REGEX.find(name)
         if (subMatch != null) return subMatch.groupValues[1]
         return null
@@ -1694,6 +1791,17 @@ class DownloadStorageProvider(
         } ?: throw DownloadException("Failed to open output stream for $target")
     }
 
+    /**
+     * D-548: the byte-array twin of [copyFile] — the `.dashmeta` sidecar
+     * write. Same truncating "wt" mode contract.
+     */
+    private fun copyBytes(source: ByteArray, target: Uri) {
+        context.contentResolver.openOutputStream(target, "wt")?.use { out ->
+            out.write(source)
+            out.flush()
+        } ?: throw DownloadException("Failed to open output stream for $target")
+    }
+
     /** Builds the episode video file name: `<title> - E<00001>.<ext>`. */
     private fun episodeFileName(
         content: DownloadContentInfo,
@@ -1744,6 +1852,18 @@ class DownloadStorageProvider(
          * (group 1 = the full episode token incl. any fractional part).
          */
         private val VIDEO_NAME_REGEX = Regex(""" - E(\d{5}(?:\.\d+)?)\.[^.]+$""")
+
+        /**
+         * D-548: the published DASH audio-set file shape —
+         * `<title> - E00001.audio<N>.mp4` (group 1 = the episode token).
+         */
+        private val AUDIO_NAME_REGEX = Regex(""" - E(\d{5}(?:\.\d+)?)\.audio\d+\.mp4$""")
+
+        /**
+         * D-548: the published DASH playback-sidecar shape —
+         * `<title> - E00001.mp4.dashmeta` (group 1 = the episode token).
+         */
+        private val META_NAME_REGEX = Regex(""" - E(\d{5}(?:\.\d+)?)\.mp4\.dashmeta$""")
 
         /**
          * D-393: the canonical subtitle file shape —
