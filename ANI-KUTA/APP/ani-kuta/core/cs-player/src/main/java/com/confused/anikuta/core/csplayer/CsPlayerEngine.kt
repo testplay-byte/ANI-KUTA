@@ -132,7 +132,7 @@ sealed interface CsEngineEvent {
 @OptIn(UnstableApi::class)
 class CsPlayerEngine(
     context: Context,
-    baseClient: OkHttpClient,
+    private val baseClient: OkHttpClient,
     private val defaultUserAgent: String = CsPlayerDefaults.USER_AGENT,
     /**
      * Task 55: preferred subtitle languages (comma-separated) — supplied by the
@@ -413,9 +413,11 @@ class CsPlayerEngine(
 
         // Pin the video track to what's actually cached; clear any previous
         // pin first so repeated offline loads never stack constraints.
+        // (The media3 constraint is setMaxVideoSize(width, height) — there is
+        // no setMaxVideoHeight setter.)
         runCatching {
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                .setMaxVideoHeight(maxVideoHeight ?: Int.MAX_VALUE)
+                .setMaxVideoSize(Int.MAX_VALUE, maxVideoHeight ?: Int.MAX_VALUE)
                 .setMaxVideoBitrate(Int.MAX_VALUE)
                 .build()
         }.onFailure { Logger.w(TAG) { "trackSelection pin failed: ${it.message}" } }
@@ -473,7 +475,7 @@ class CsPlayerEngine(
         // offline DASH session must never inherit the cached rep's constraint.
         runCatching {
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                .setMaxVideoHeight(Int.MAX_VALUE)
+                .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
                 .setMaxVideoBitrate(Int.MAX_VALUE)
                 .build()
         }
