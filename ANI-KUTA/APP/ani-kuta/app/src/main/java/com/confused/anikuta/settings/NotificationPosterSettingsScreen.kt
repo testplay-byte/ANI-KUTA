@@ -638,8 +638,11 @@ private fun CollapseAnimated(
         visible = visible,
         enter = fadeIn() + expandVertically(),
         exit = fadeOut() + shrinkVertically(),
-        content = content,
-    )
+    ) {
+        // The trailing lambda carries AnimatedVisibilityScope; the caller's
+        // 0-arg content just runs inside it.
+        content()
+    }
 }
 
 /**
