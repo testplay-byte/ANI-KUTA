@@ -415,7 +415,10 @@ class EpisodeBannerComposer(
         shadowed: Boolean = true,
     ): Float {
         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = textSize
+            // D-524 fix: `textSize` must be the RECEIVER's property — the
+            // unqualified form resolved to the shadowing FUNCTION PARAMETER
+            // (a val) and the CI build correctly refused the reassignment.
+            this.textSize = textSize
             this.typeface = typeface
             this.color = color
             if (shadowed) setShadowLayer(8f, 0f, 3f, Color.argb(180, 0, 0, 0))
