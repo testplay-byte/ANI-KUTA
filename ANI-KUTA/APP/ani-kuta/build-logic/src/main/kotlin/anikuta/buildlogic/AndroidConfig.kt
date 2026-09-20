@@ -544,23 +544,41 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10119
-    const val versionName = "1.1.19"
-    // D-498 (round 55): release/1.1.18 — cut from the round-55 FEATURE branch
-    // head 827440c1 (CI green after ONE fix run — 35502594912 caught the
-    // drawCenteredText 'val cannot be reassigned' shadowing error, 35502967752
-    // green). What the release carries on top of v1.1.17 (the round-55 device
-    // round, D-523..D-526 — full detail: AGENT-CONTEXT/memory/decisions.md):
-    // D-523 THE POSTER STUDIO RETIRED — "we should not give the users that
-    // much customizability": the screen, the nav key, the layout-JSON pref
-    // and the composer's absolute mode all deleted. D-524 THE FIVE
-    // PREDEFINED TEMPLATES (Classic/Spotlight/Split/Minimal/Card) rendered
-    // deterministically by the composer. D-525 THE SCREEN REBUILT — the
-    // stationary live preview + Shuffle above a scrollable options list, one
-    // 8dp gutter (the 32dp/side double padding gone), one-line descriptions,
-    // the full-width ExtraBold 'Shuffle' button. D-526 THE THREE-WAY ARTWORK
-    // SOURCE (Auto/Cover/Episode — the episode's own still can fill the
-    // stage).
+    const val versionCode = 10120
+    const val versionName = "1.1.20"
+    // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
+    // head cf067e68 (CI green — implementation run 35522908889 after four
+    // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
+    // escapes + the resume imports, the module-isolation primitives rule, and
+    // the AnimatedVisibility receiver resolution). What the release carries on
+    // top of v1.1.19 (the round-57 device round, D-536..D-540 — full detail:
+    // AGENT-CONTEXT/memory/decisions.md + download-research/18):
+    // D-536 THE POSTER TOGGLE'S FINAL HOME — the master switch is the Elements
+    // card's LAST row, titled "Poster" (the round-57 verdict); everything else
+    // (preview, Shuffle, Layout, Artwork, the element rows, the section label)
+    // collapses around it and ONLY it never disappears.
+    // D-537 THE CS PLAYER PAUSES ON APP-BACKGROUND — the MPV watch screen's
+    // exact ON_STOP observer (no auto-resume on return — both players behave
+    // identically; the user taps play).
+    // D-538 THE AUTO-LINK SKIP IS PERSISTENT — "Skip AniList link" survives
+    // app restarts per (sourceId, animeUrl); reopening content never
+    // re-attempts; swipe-dismiss stays session-only; a manual link/unlink
+    // clears the flag.
+    // D-539 CS DASH DOWNLOADS (the headline) — DASH manifests are downloadable:
+    // the resolve sheet's DASH filter is gone, the manifest + segments cache
+    // into the app-private SimpleCache (the SAME queue/service/notifications),
+    // the SAF folder keeps .data.json + cover + subtitles with NO video file,
+    // DB rows carry the csdash: marker uri (zero schema changes), offline
+    // playback rides the EXISTING CS watch screen (engine.startOfflineDash over
+    // a CacheDataSource with a quality pin), downloaded-season switching
+    // prefers the cache, the delete path purges it, DRM manifests fail
+    // honestly in the queue.
+    // D-540 ECOSYSTEM TRUTH + THE DATA TRANSLATION — CS content records
+    // system/extension_type "cloudstream" (the bit-62 flag), an idempotent
+    // startup heal relabels old rows, and switching a content's extension
+    // (CloudStream ↔ aniyomi) now syncs the download tables' content_id (the
+    // two previously-dead queries) and rewrites the durable .data.json
+    // identity block — downloads SURVIVE the switch, files never move.
     // head 2b5d7730 (CI green on the FIRST implementation run, 35474291318 —
     // the pre-push review round caught the one compile blocker before the
     // push, saving the usual fix CI). What the release carries on top of
