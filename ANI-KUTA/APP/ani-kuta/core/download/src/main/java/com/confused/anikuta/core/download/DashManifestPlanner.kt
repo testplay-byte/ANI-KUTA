@@ -283,7 +283,7 @@ object DashManifestPlanner {
         val startNumber = template.getAttribute("startNumber").toLongOrNull() ?: 1L
 
         if (mediaTemplate.isBlank()) return "SegmentTemplate has no media template"
-        if (mediaTemplate.contains("$SubNumber$") || mediaTemplate.contains("$PartIndex$")) {
+        if (mediaTemplate.contains("\$SubNumber\$") || mediaTemplate.contains("\$PartIndex\$")) {
             return "Low-latency (CTS) segment templates are not supported"
         }
 
