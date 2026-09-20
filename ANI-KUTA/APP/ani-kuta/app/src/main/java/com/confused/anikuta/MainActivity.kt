@@ -989,11 +989,27 @@ fun AppRoot() {
                             )
                         },
                         // D-539: a downloaded DASH-cache episode plays through
-                        // the CS watch screen's offline player — DIRECT backstack
-                        // add (NOT csResolveRequest: that opens the resolve
-                        // sheet, which would re-resolve an already-downloaded
-                        // episode online and dead-end it).
-                        onNavigateToCsOfflineWatch = { key -> backstack.add(key) },
+                        // the CS watch screen's offline player — the host builds
+                        // the CsWatchKey (offlineManifestUrl set) and adds it to
+                        // the backstack DIRECTLY (NOT csResolveRequest: that
+                        // opens the resolve sheet, which would re-resolve an
+                        // already-downloaded episode online and dead-end it).
+                        onNavigateToCsOfflineWatch = { manifestUrl, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                            backstack.add(
+                                com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+                                    providerName = providerName,
+                                    animeTitle = animeTitle,
+                                    episodeData = episodeData,
+                                    episodeNumber = epNum,
+                                    episodeTitle = epTitle,
+                                    episodeListSerialized = epList,
+                                    mainId = mainId,
+                                    sourceId = sourceId,
+                                    episodeMetadataSerialized = epMeta,
+                                    offlineManifestUrl = manifestUrl,
+                                ),
+                            )
+                        },
                         // Task 58 (round 18 — downloads): the details page's
                         // download button on a CS-bridged episode — the SAME
                         // sheet in DOWNLOAD mode; a pick enqueues via
@@ -1069,11 +1085,27 @@ fun AppRoot() {
                             )
                         },
                         // D-539: a downloaded DASH-cache episode plays through
-                        // the CS watch screen's offline player — DIRECT backstack
-                        // add (NOT csResolveRequest: that opens the resolve
-                        // sheet, which would re-resolve an already-downloaded
-                        // episode online and dead-end it).
-                        onNavigateToCsOfflineWatch = { key -> backstack.add(key) },
+                        // the CS watch screen's offline player — the host builds
+                        // the CsWatchKey (offlineManifestUrl set) and adds it to
+                        // the backstack DIRECTLY (NOT csResolveRequest: that
+                        // opens the resolve sheet, which would re-resolve an
+                        // already-downloaded episode online and dead-end it).
+                        onNavigateToCsOfflineWatch = { manifestUrl, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                            backstack.add(
+                                com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+                                    providerName = providerName,
+                                    animeTitle = animeTitle,
+                                    episodeData = episodeData,
+                                    episodeNumber = epNum,
+                                    episodeTitle = epTitle,
+                                    episodeListSerialized = epList,
+                                    mainId = mainId,
+                                    sourceId = sourceId,
+                                    episodeMetadataSerialized = epMeta,
+                                    offlineManifestUrl = manifestUrl,
+                                ),
+                            )
+                        },
                         // Task 58 (round 18 — downloads): the details page's
                         // download button on a CS-bridged episode — the SAME
                         // sheet in DOWNLOAD mode; a pick enqueues via

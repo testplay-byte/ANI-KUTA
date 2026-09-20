@@ -157,9 +157,12 @@ fun DetailsScreen(
     // DOWNLOAD mode; a pick enqueues through the CS-aware download path.
     onDownloadCsEpisode: (String, String, String, Float, String, String, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
     // D-539: the OFFLINE DASH route — a downloaded DASH-cache episode plays
-    // through the CS watch screen's offline player (the manifest URL comes
-    // from the download row; the host builds the CsWatchKey).
-    onNavigateToCsOfflineWatch: (com.confused.anikuta.feature.cswatch.api.CsWatchKey) -> Unit = {},
+    // through the CS watch screen's offline player. PRIMITIVES (the module's
+    // no-feature-to-feature-deps rule — same shape as [onNavigateToCsWatch]):
+    // manifestUrl, providerName, animeTitle, episodeData, episodeNumber,
+    // episodeTitle, episodeListSerialized, mainId, sourceId, epMeta — the host
+    // builds the CsWatchKey with offlineManifestUrl set.
+    onNavigateToCsOfflineWatch: (String, String, String, String, Float, String, String, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
     // D-209: Cloudflare manual solver — launched from the episode error card.
@@ -679,18 +682,16 @@ fun DetailsScreen(
                                 "onEpisodeClick — DASH cache episode, offline CS playback: $dashManifest"
                             }
                             onNavigateToCsOfflineWatch(
-                                com.confused.anikuta.feature.cswatch.api.CsWatchKey(
-                                    providerName = effectiveLinkedSource?.sourceName ?: "",
-                                    animeTitle = anime?.displayName ?: "Downloaded",
-                                    episodeData = episode.url,
-                                    episodeNumber = episode.episode_number,
-                                    episodeTitle = episode.name,
-                                    episodeListSerialized = epListStr,
-                                    mainId = mainId,
-                                    sourceId = effectiveLinkedSource?.sourceId ?: 0L,
-                                    episodeMetadataSerialized = epMetaStr,
-                                    offlineManifestUrl = dashManifest,
-                                ),
+                                dashManifest,
+                                effectiveLinkedSource?.sourceName ?: "",
+                                anime?.displayName ?: "Downloaded",
+                                episode.url,
+                                episode.episode_number,
+                                episode.name,
+                                epListStr,
+                                mainId,
+                                effectiveLinkedSource?.sourceId ?: 0L,
+                                epMetaStr,
                             )
                             return@onEpisodeClick
                         }
