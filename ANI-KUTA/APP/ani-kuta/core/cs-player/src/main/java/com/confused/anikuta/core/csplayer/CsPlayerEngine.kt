@@ -545,12 +545,17 @@ class CsPlayerEngine(
                     "periods=${manifest.periodCount}, files=${index.fileUris.size}, ranges=${index.ranges.size}"
             }
             _state.value = _state.value.copy(currentLinkUrl = metaUri)
-            val mediaSource = androidx.media3.exoplayer.dash.DashMediaSource(
-                manifest,
+            // CI round 2: the D-548 initial cut used the (DashManifest,
+            // DataSource.Factory) constructor — PRIVATE in media3 1.9.3 (the
+            // compiler error named the full 11-arg private ctor). The PUBLIC
+            // sideloaded path is the Factory overload
+            // createMediaSource(DashManifest, MediaItem) — mediaItem = null
+            // (the manifest is fully sideloaded; no item metadata needed).
+            val mediaSource = androidx.media3.exoplayer.dash.DashMediaSource.Factory(
                 androidx.media3.datasource.DataSource.Factory {
                     LocalDashDataSource(appContext.contentResolver, index)
                 },
-            )
+            ).createMediaSource(manifest, null)
             player.setMediaSource(mediaSource, if (startPositionMs > 0) startPositionMs else C.TIME_UNSET)
             player.prepare()
             player.playWhenReady = true
