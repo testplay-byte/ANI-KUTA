@@ -84,7 +84,7 @@ object DashManifestPlanner {
         }.getOrElse { e ->
             return empty(
                 manifestUrl,
-                "Manifest could not be parsed: ${e.message ?: e.javaClass.simpleName}" +
+                "Manifest could not be parsed: ${e.javaClass.simpleName}: ${e.message ?: "no detail"}" +
                     bodyHeadDiagnostics(manifestBytes),
             )
         }
@@ -524,6 +524,27 @@ object DashManifestPlanner {
         unsupportedReason = reason,
     )
 
+    /**
+     * D-546: built WITHOUT ever touching `isXIncludeAware` — that line was
+     * the REAL "Manifest could not be parsed" root cause, sitting ABOVE both
+     * the D-543 transport bug and every real parse since this pipeline
+     * existed. On Android, libcore's javax.xml.parsers.DocumentBuilderFactory
+     * base class throws UnsupportedOperationException — verbatim "This parser
+     * does not support specification "Unknown" version "0.0"" (the package's
+     * spec metadata is unset on Android, hence "Unknown"/"0.0") — from
+     * setXIncludeAware/isXIncludeAware/setSchema/getSchema UNCONDITIONALLY,
+     * even for setXIncludeAware(false). The old `isXIncludeAware = false`
+     * therefore exploded inside the .apply{} BEFORE a single byte of XML was
+     * read, on EVERY device, every time; runCatching folded it into the
+     * empty-plan path, and only v1.1.21's body-peek diagnostics exposed the
+     * absurdity (a VALID `<?xml …` body paired with a parse error that has
+     * nothing to do with the body). XInclude is simply not implemented by the
+     * platform parser, so "not XInclude-aware" is already the default — the
+     * assignment was a guaranteed crash posing as hardening. The
+     * DOCTYPE/external-entity refusals below ARE supported (and wrapped for
+     * unknown-feature safety) and stay; setExpandEntityReferences is a plain
+     * supported setter and stays too.
+     */
     private fun newHardenedFactory(): DocumentBuilderFactory =
         DocumentBuilderFactory.newInstance().apply {
             // XXE hardening — MPD bodies arrive from untrusted CDNs (the
@@ -532,7 +553,6 @@ object DashManifestPlanner {
             runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
             runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
             runCatching { setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false) }
-            isXIncludeAware = false
             isExpandEntityReferences = false
         }
 }

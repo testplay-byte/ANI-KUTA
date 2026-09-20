@@ -227,3 +227,15 @@ The v1.1.18 device round was satisfied with the template SYSTEM ("handled exactl
 **The branch cleanup (D-544):** the remote branch set is main + feature/round-57-cloudstream-downloads + feature/test-controller-v5 — everything else deleted AFTER per-branch verification (release/1.1.x = tag-preserved, docs-only deltas; old feature tails = docs-only LIVE-line records). Releases live on TAGS: deleting a release branch deletes nothing a release needs. Verify with `git diff --name-only <tag> origin/<branch>` before any future prune.
 
 **Round-58 state:** v1.1.20 confirmed good except the DASH download path; the fix rides release/1.1.21. Main stays 0.4.20/85; merge to main still awaits the user's explicit confirmation.
+
+## §16 — Round 59 (the device round on v1.1.21): the parser factory fix — the REAL root cause
+
+**The verdict:** the DASH download still failed on v1.1.21 with "Manifest could not be parsed: This parser does not support specification "Unknown" version "0.0"" — over a body the new D-543 diagnostics PROVED to be valid XML. That combination (valid body + spec-version error) means the parser's CONSTRUCTION, not the parse.
+
+**The root cause (proven against AOSP libcore, not theorized):** Android's `javax.xml.parsers.DocumentBuilderFactory` base class throws `UnsupportedOperationException` — verbatim "This parser does not support specification "Unknown" version "0.0"" — from `setXIncludeAware`, `isXIncludeAware`, `setSchema`, `getSchema`, UNCONDITIONALLY, even for `setXIncludeAware(false)`. Both hardened factories called `isXIncludeAware = false` unwrapped inside the `.apply{}` → the factory exploded before one byte of XML was read, on EVERY device, since the pipeline existed. v1.1.20 and v1.1.21 failed at the SAME line; D-543's byte-first contract was real but secondary (and its diagnostics are what exposed this).
+
+**THE RULE (durable):** on Android, NEVER call `setXIncludeAware`/`setSchema`/`getSchema`/`isXIncludeAware` on `DocumentBuilderFactory` — any of them throws, always. Safe hardening = the wrapped `setFeature` URIs + `isExpandEntityReferences`. Also: parse-failure messages must ALWAYS carry the exception class (`simpleName: message`) — message-only strings cost a device round-trip per bug. And a derived `client.newBuilder()` patient client (shared pool/interceptors — cookies/clearance still ride) is the pattern for one-off cold-start-sensitive fetches; don't raise timeouts globally.
+
+**The fix (D-546):** the throwing line removed from BOTH factories (`DashManifestPlanner` + `MpdParser` — the latter had been silently swallowing the crash, so its on-device "DASH hidden" verdicts were never real); parse errors carry the class name; the manifest fetch gets connect/read 20s + call 45s; segments/subtitles keep the shared client. Blast radius: 3 files, zero behavioral overlap with streaming/queue/storage.
+
+**Round-59 state:** fix rides release/1.1.22. The branch set (main + feature/round-57-cloudstream-downloads + feature/test-controller-v5 + the live release/1.1.21) is the D-544 shape — nothing further to prune. Main stays 0.4.20/85; merge to main still awaits the user's explicit confirmation.

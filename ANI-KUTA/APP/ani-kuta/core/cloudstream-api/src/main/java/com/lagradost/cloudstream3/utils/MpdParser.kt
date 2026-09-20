@@ -113,6 +113,23 @@ object MpdParser {
 
     // ── helpers ─────────────────────────────────────────────────────────────
 
+    /**
+     * D-546: built WITHOUT ever touching `isXIncludeAware`. On Android,
+     * libcore's javax.xml.parsers.DocumentBuilderFactory base class throws
+     * UnsupportedOperationException — verbatim "This parser does not support
+     * specification "Unknown" version "0.0"" — from setXIncludeAware/
+     * isXIncludeAware/setSchema/getSchema UNCONDITIONALLY (even for
+     * setXIncludeAware(false)), so the old `isXIncludeAware = false` line
+     * exploded before a single byte was read, on EVERY device. parse()'s
+     * runCatching silently folded that into the empty-info return — meaning
+     * this parser has effectively NEVER parsed a manifest on-device (every
+     * "DASH hidden" log carried this silent factory crash, not a real
+     * unsupported shape). XInclude is not implemented by the platform parser
+     * at all, so the assignment was redundant anyway. The DOCTYPE/
+     * external-entity feature refusals are supported and stay (wrapped for
+     * unknown-feature safety); setExpandEntityReferences is a plain
+     * supported setter and stays too. Full record: download-research/20.
+     */
     private fun newHardenedFactory(): DocumentBuilderFactory =
         DocumentBuilderFactory.newInstance().apply {
             // XXE hardening — MPD bodies arrive from untrusted CDNs.
@@ -120,7 +137,6 @@ object MpdParser {
             runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
             runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
             runCatching { setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false) }
-            isXIncludeAware = false
             isExpandEntityReferences = false
         }
 

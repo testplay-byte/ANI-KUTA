@@ -78,8 +78,23 @@ class DashDownloader(
         val headers = DownloadHeaderParser.parse(task.videoHeaders).toMap()
 
         // ── 1. Fetch + plan the manifest ─────────────────────────────────────
+        // D-546: the manifest is ONE small request whose latency is dominated
+        // by CDN edge/TLS setup — the v1.1.21 device round burned attempt 1/3
+        // on a SocketTimeoutException at the CS client's 10s timeout (a CDN
+        // cold start) that attempt 2 then answered in 823ms. newBuilder()
+        // shares the connection pool + interceptors (CS cookies/clearance and
+        // the net logging still ride) and ONLY raises the timeouts for THIS
+        // fetch; segments/subtitles keep the shared client's snappier stall
+        // detection. callTimeout is raised too — a plain "timeout"
+        // SocketTimeoutException cannot distinguish which knob fired, so all
+        // three are lifted together.
+        val manifestClient = client.newBuilder()
+            .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
         val manifestBytes = try {
-            fetchManifestBytes(manifestUrl, headers)
+            fetchManifestBytes(manifestClient, manifestUrl, headers)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: DownloadException) {
@@ -276,7 +291,11 @@ class DashDownloader(
      * IOExceptions (retryable), and every terminal failure carries a reason
      * the task list can show honestly.
      */
-    private fun fetchManifestBytes(url: String, headers: Map<String, String>): ByteArray {
+    private fun fetchManifestBytes(
+        client: OkHttpClient,
+        url: String,
+        headers: Map<String, String>,
+    ): ByteArray {
         val builder = Request.Builder().url(url)
         headers.forEach { (name, value) -> builder.header(name, value) }
         client.newCall(builder.build()).execute().use { response ->
