@@ -31,6 +31,9 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
  * @param options Label per segment, in display order.
  * @param selectedIndex The currently-selected segment index.
  * @param onSelect Called with the newly-selected index.
+ * @param compact D-524: 12sp labels for the dense FIVE-way toggles (the
+ *                poster-template picker) — a 9-char label must fit a ~60dp
+ *                segment without ellipsis.
  */
 @Composable
 fun SegmentedToggle(
@@ -38,6 +41,7 @@ fun SegmentedToggle(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -66,9 +70,10 @@ fun SegmentedToggle(
                         Text(
                             text = label,
                             fontFamily = RobotoFamily,
-                            fontSize = 13.sp,
+                            fontSize = if (compact) 12.sp else 13.sp,
                             fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
                             color = fg,
+                            maxLines = 1,
                         )
                     }
                 }

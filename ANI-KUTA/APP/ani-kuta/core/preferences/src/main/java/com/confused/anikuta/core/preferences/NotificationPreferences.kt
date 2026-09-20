@@ -129,8 +129,15 @@ class NotificationPreferences(private val store: PreferenceStore) {
 
     fun posterEnabledFlow(): Flow<Boolean> = store.booleanFlow(KEY_POSTER_ENABLED, true)
 
-    /** Background art preference: "banner" (default — falls back to cover),
-     * "cover" (always the poster art). */
+    /**
+     * D-526: the background art preference, now a THREE-WAY choice (the
+     * round-55 "Artwork" segmented toggle):
+     *  - "banner"  (default, the UI's "Auto") — the wide art first, falling
+     *              back to the cover;
+     *  - "cover"   (the UI's "Cover") — always the poster art;
+     *  - "episode" (the UI's "Episode") — the episode's OWN still fills the
+     *              background first, falling back through the art chain.
+     */
     var posterBackgroundSource: String
         get() = store.getString(KEY_POSTER_BACKGROUND, "banner")
         set(value) = store.putString(KEY_POSTER_BACKGROUND, value)
@@ -152,15 +159,17 @@ class NotificationPreferences(private val store: PreferenceStore) {
         set(value) = store.putBoolean(KEY_POSTER_BRANDING, value)
 
     /**
-     * D-503: the Poster Studio's persisted layout (see PosterLayoutConfig in
-     * :app) — one JSON blob for the five customizable banner elements
-     * (position/scale/color/visibility). Empty string = the factory flow
-     * layout. Parsed leniently by the composer: a garbled save degrades to
-     * the DEFAULT config, never to a broken banner.
+     * D-524: the selected poster TEMPLATE (see PosterTemplate in :app) — one
+     * of the five predefined banner arrangements ("classic" is the approved
+     * factory look). The round-55 verdict retired the Poster Studio's
+     * free-form layout JSON: the template key replaces the old
+     * `notif_poster_layout_json` blob entirely. Parsed leniently by the
+     * composer — an unknown/legacy value degrades to CLASSIC, never to a
+     * broken banner.
      */
-    var posterLayoutJson: String
-        get() = store.getString(KEY_POSTER_LAYOUT_JSON, "")
-        set(value) = store.putString(KEY_POSTER_LAYOUT_JSON, value)
+    var posterTemplate: String
+        get() = store.getString(KEY_POSTER_TEMPLATE, "classic")
+        set(value) = store.putString(KEY_POSTER_TEMPLATE, value)
 
     // ── Library customization toggle (D-193 v2) ────────────────────────────────
     // When OFF (default): the default triggers above apply to every anime in the
@@ -182,7 +191,7 @@ private companion object {
         private const val KEY_POSTER_THUMB = "notif_poster_thumb"
         private const val KEY_POSTER_AUDIO_BADGE = "notif_poster_audio_badge"
         private const val KEY_POSTER_BRANDING = "notif_poster_branding"
-        private const val KEY_POSTER_LAYOUT_JSON = "notif_poster_layout_json"
+        private const val KEY_POSTER_TEMPLATE = "notif_poster_template"
         private const val KEY_ENABLED = "notif_master_enabled"
         private const val KEY_DEF_SCHEDULE = "notif_def_schedule"
         private const val KEY_DEF_WATCHABLE = "notif_def_watchable"

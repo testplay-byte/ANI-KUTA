@@ -10,12 +10,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,12 +26,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -44,67 +48,76 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
-import com.confused.anikuta.core.designsystem.component.SettingsGroupCard
+import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.NotificationPreferences
+import com.confused.anikuta.core.updates.UpdateStore
+import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.notifications.EpisodeBannerComposer
 import com.confused.anikuta.notifications.EpisodeDemoPicker
+import com.confused.anikuta.notifications.PosterTemplate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 
 /**
- * D-477/D-483: the notification-poster customization page — reached from the
- * Notifications settings ("Notification poster").
+ * D-477/D-483: the notification-poster page — reached from the Notifications
+ * settings ("Notification poster").
  *
- * # The live preview
+ * # D-525: the LAYOUT (the round-55 verdict)
+ *
+ * The user: "The live preview at the top will never disappear. It will be
+ * stationary. Only the bottom section will be scrollable." So the screen is
+ * now two stacked regions:
+ *  1. THE STATIONARY HEADER REGION — the CollapsingHeader, then the live
+ *     preview card and the Shuffle button. They NEVER scroll away; the
+ *     preview stays on stage for as long as the screen is open.
+ *  2. THE SCROLLABLE OPTIONS — the template/artwork/elements groups live in
+ *     a LazyColumn that owns everything below the preview.
+ *
+ * The double horizontal gutter is dead: the old screen stacked the list's
+ * 16dp contentPadding ON TOP of SettingsGroupCard's own 16dp, squeezing the
+ * preview with 32dp of empty space per side. This screen now carries a
+ * single 8dp gutter (cards render through the local [PosterCard], which
+ * adds no horizontal padding of its own) — the preview is 16dp from each
+ * edge, the option rows 24dp.
+ *
+ * # D-523: the STUDIO IS RETIRED
+ *
+ * "We should not give the users that much customizability." The Customize
+ * button, the PosterCustomizeScreen and the whole free-form layout JSON are
+ * gone. Customizability is now: the five predefined TEMPLATES (D-524, a
+ * five-way toggle), the artwork source (D-526, a three-way toggle) and the
+ * element switches — segmented toggles and one-line descriptions, the same
+ * language as the episode-type block on the Notifications screen.
+ *
+ * # The live preview (unchanged mechanics)
  *
  * The preview is NOT a mock-up — it calls the SAME [EpisodeBannerComposer]
- * the real notifications use, with the SAME preference keys.
- *
- * D-483 content selection (the user's spec):
- * 1. Feed-first: the newest detected update (real art, real episode).
- * 2. Otherwise: a RANDOM library content that HAS cached episodes — its
- *    latest episode — re-rolled EVERY time the screen opens (and via the
- *    shuffle action). Content with no episodes / unlinked is never picked.
- * 3. When nothing qualifies: the "No episodes available yet" state.
- *
- * D-494 shuffle semantics: the SHUFFLE button skips the feed path entirely
- * and picks a library item DIFFERENT from the one on stage — the user's
- * v1.1.12 round: "it was not shuffling between the other library items"
- * (the feed-first path always re-picked the same newest row, so the button
- * looked dead). The exclusion is one-shot: toggle flips re-render the
- * content currently on stage, they do not re-roll it.
- *
- * D-499 PLANNED randomness: the shuffle no longer re-rolls dice per tap —
- * it consumes a [EpisodeDemoPicker.ShuffleDeck] (the whole library shuffled
- * once per cycle, reshuffled on exhaustion, never repeating immediately).
- * The user's round-51 spec: "planned randomness rather than just simple
- * randomness because simple randomness does not feel that random."
- *
- * D-493: the preview box adopts the composer's REAL canvas ratio (2.56:1)
- * so the preview shows the notification's true proportions.
+ * the real notifications use, with the SAME preference keys. Content
+ * selection: feed-first (the newest detected update), else a random library
+ * content with cached episodes, re-rolled every screen open (D-483); the
+ * shuffle skips the feed and walks the library in a planned shuffled deck,
+ * never repeating immediately (D-494/D-499), always changing the content on
+ * every tap (D-520's forced re-selection), with the honest in-flight
+ * progress rail.
  */
 @Composable
 fun NotificationPosterSettingsScreen(
     onBack: () -> Unit,
-    // D-503: the Customize entry — the round-52 spec places it JUST LEFT of
-    // the shuffle preview button; it opens the forced-landscape Poster Studio.
-    // D-513: the CURRENT preview selection rides along so the studio opens on
-    // the exact content on stage (null while the preview is still loading —
-    // the studio then picks its own sample).
-    onOpenCustomize: (PreviewSelection?) -> Unit = {},
     posterPrefs: NotificationPreferences = koinInject(),
     composer: EpisodeBannerComposer = koinInject(),
     demoPicker: EpisodeDemoPicker = koinInject(),
-    updateStore: com.confused.anikuta.core.updates.UpdateStore = koinInject(),
-    contentRepository: com.confused.anikuta.core.content.ContentRepository = koinInject(),
+    updateStore: UpdateStore = koinInject(),
+    contentRepository: ContentRepository = koinInject(),
 ) {
     val posterEnabled by posterPrefs.posterEnabledFlow().collectAsStateWithLifecycle(true)
     val lazyListState = rememberLazyListState()
@@ -116,6 +129,9 @@ fun NotificationPosterSettingsScreen(
     var showBadgeState by remember { mutableStateOf(posterPrefs.posterShowAudioBadge) }
     var showBrandingState by remember { mutableStateOf(posterPrefs.posterShowBranding) }
     var backgroundSource by remember { mutableStateOf(posterPrefs.posterBackgroundSource) }
+    // D-524: the selected template's KEY — the toggle writes the pref, the
+    // state change re-runs the preview producer below.
+    var templateKey by remember { mutableStateOf(posterPrefs.posterTemplate) }
 
     // D-483/D-494: the roll counter — a SHUFFLE tap increments it (a screen
     // open starts at 0), producing a fresh random library pick per tap.
@@ -151,9 +167,7 @@ fun NotificationPosterSettingsScreen(
     // reshuffles — a new session).
     val shuffleDeck = remember { EpisodeDemoPicker.ShuffleDeck() }
 
-    // D-503: the SHUFFLE FEEDBACK — the device round: "I should be given an
-    // animation so that I know that the shuffling did happen." Three stacked
-    // cues on every shuffle tap: the preview box pulses, the shuffle icon
+    // D-503: the SHUFFLE FEEDBACK — the preview box pulses, the shuffle icon
     // spins a full turn, and the new banner crossfades in when the compose
     // lands (the Crossfade around the preview Image below).
     val scope = rememberCoroutineScope()
@@ -162,14 +176,23 @@ fun NotificationPosterSettingsScreen(
 
     // D-494: the selected payload CACHED across re-runs. A toggle flip must
     // re-render the content ON STAGE with the new prefs — it must NOT
-    // re-select (the reviewer round proved a bare re-select snaps the
-    // preview back to the feed row / re-rolls a random item / re-randomizes
-    // the demo chip on every flip). Only a screen open (no cache yet) or a
-    // Shuffle tap (exclusion set) produces a NEW selection.
+    // re-select (a bare re-select snaps the preview back to the feed row /
+    // re-rolls a random item on every flip). Only a screen open (no cache
+    // yet) or a Shuffle tap produces a NEW selection.
     val selectionCache = remember { mutableStateOf<PreviewSelection?>(null) }
 
     data class Preview(val banner: android.graphics.Bitmap?, val failed: Boolean, val hasContent: Boolean)
-    val preview by produceState(Preview(null, failed = false, hasContent = true), posterEnabled, showEpTitleState, showThumbState, showBadgeState, showBrandingState, backgroundSource, roll) {
+    val preview by produceState(
+        Preview(null, failed = false, hasContent = true),
+        posterEnabled,
+        showEpTitleState,
+        showThumbState,
+        showBadgeState,
+        showBrandingState,
+        backgroundSource,
+        templateKey,
+        roll,
+    ) {
         // D-520: consume the shuffle request FIRST, on the main thread —
         // a tap mid-flight cancels this producer and the next pass re-reads
         // the flag, so a request can never leak into an unrelated pass.
@@ -201,26 +224,26 @@ fun NotificationPosterSettingsScreen(
                         selectionCache.value = selection
                     }
 
-                val onStage = selection
-                if (onStage == null) {
-                    // Nothing qualifies — the "no episodes" state.
-                    // failed = false on purpose: this is an honest empty
-                    // state, not a failure (D-486: the old UI gated this
-                    // state on failed=true, which made it unreachable).
-                    onStageMainId.value = null
-                    return@withContext Preview(null, failed = false, hasContent = false)
+                    val onStage = selection
+                    if (onStage == null) {
+                        // Nothing qualifies — the "no episodes" state.
+                        // failed = false on purpose: this is an honest empty
+                        // state, not a failure (D-486: the old UI gated this
+                        // state on failed=true, which made it unreachable).
+                        onStageMainId.value = null
+                        return@withContext Preview(null, failed = false, hasContent = false)
+                    }
+
+                    onStageMainId.value = onStage.mainId
+
+                    val banner = composer.buildBanner(
+                        mainId = onStage.mainId,
+                        title = onStage.title.ifBlank { "Unknown title" },
+                        episodeNumber = onStage.episodeNumber,
+                        audioVariant = onStage.audioVariant,
+                    )
+                    Preview(banner, failed = banner == null, hasContent = true)
                 }
-
-                onStageMainId.value = onStage.mainId
-
-                val banner = composer.buildBanner(
-                    mainId = onStage.mainId,
-                    title = onStage.title.ifBlank { "Unknown title" },
-                    episodeNumber = onStage.episodeNumber,
-                    audioVariant = onStage.audioVariant,
-                )
-                Preview(banner, failed = banner == null, hasContent = true)
-            }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -243,193 +266,232 @@ fun NotificationPosterSettingsScreen(
                 actions = { BackAction(onBack) },
             )
 
-            Box(modifier = Modifier.fillMaxSize()) {
-                LazyColumn(
-                    state = lazyListState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 110.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+            // ── D-525: THE STATIONARY REGION — the live preview + shuffle.
+            // Sits OUTSIDE the LazyColumn: it never scrolls away. A single
+            // 8dp gutter (the old screen stacked 16 + 16 = 32dp per side).
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                PosterCard(
+                    label = "Live preview",
+                    contentPadding = PaddingValues(8.dp),
                 ) {
-                    // ── The live preview + shuffle ──
-                    item {
-                        SettingsGroupCard(label = "Live preview") {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    // D-499: the preview box uses the composer's
-                                    // REAL canvas ratio (1024×400) — the preview
-                                    // shows the notification's true proportions.
-                                    .aspectRatio(
-                                        EpisodeBannerComposer.CANVAS_WIDTH.toFloat() /
-                                            EpisodeBannerComposer.CANVAS_HEIGHT.toFloat(),
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // D-499: the preview box uses the composer's
+                            // REAL canvas ratio (1024×400) — the preview
+                            // shows the notification's true proportions.
+                            .aspectRatio(
+                                EpisodeBannerComposer.CANVAS_WIDTH.toFloat() /
+                                    EpisodeBannerComposer.CANVAS_HEIGHT.toFloat(),
+                            )
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            // D-503: the shuffle pulse (see the scope above).
+                            .graphicsLayer {
+                                val p = shufflePulse.value
+                                scaleX = p
+                                scaleY = p
+                            },
+                    ) {
+                        val result = preview
+                        when {
+                            !posterEnabled -> {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        "Poster notifications are off",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    // D-503: the shuffle pulse (see the scope above).
-                                    .graphicsLayer {
-                                        val p = shufflePulse.value
-                                        scaleX = p
-                                        scaleY = p
-                                    },
-                            ) {
-                                val result = preview
-                                when {
-                                    !posterEnabled -> {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            androidx.compose.material3.Text(
-                                                "Poster notifications are off",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                    }
-                                    // D-486: the empty state is gated on
-                                    // hasContent ALONE — the old
-                                    // (failed && !hasContent) ordering made
-                                    // it unreachable (the empty path sets
-                                    // failed=false) and rendered an eternal
-                                    // spinner instead of the honest message.
-                                    !result.hasContent -> {
-                                        // D-483: the honest "no episodes" state —
-                                        // no feed updates AND no library content
-                                        // with cached episodes.
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            androidx.compose.material3.Text(
-                                                "No episodes available yet — add anime to your library and open them once to cache episodes.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.padding(20.dp),
-                                            )
-                                        }
-                                    }
-                                    result.failed -> {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            androidx.compose.material3.Text(
-                                                // D-491: an honest internal-error message.
-                                                // The old text blamed the connection — the
-                                                // v1.1.11 device round proved that state was
-                                                // a rendering bug (hardware bitmaps on a
-                                                // software canvas), NOT a network problem.
-                                                // Post-fix, failed=true only means an
-                                                // unexpected composer exception: art is never
-                                                // a failure anymore (missing art composes the
-                                                // dark-stage banner internally), so there is
-                                                // no connection angle to report at all.
-                                                "The preview hit an unexpected error — tap Shuffle to try again.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.padding(20.dp),
-                                            )
-                                        }
-                                    }
-                                    result.banner != null -> {
-                                        // D-503: the shuffle crossfade — the composed
-                                        // banner fades through when the re-compose
-                                        // lands (also smooths toggle-flip re-renders).
-                                        Crossfade(
-                                            targetState = result.banner,
-                                            animationSpec = tween(300),
-                                            label = "banner",
-                                        ) { banner ->
-                                            Image(
-                                                bitmap = banner.asImageBitmap(),
-                                                contentDescription = "Notification poster preview",
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        }
-                                        // D-520: the honest shuffle progress — a slim
-                                        // rail docked to the preview's bottom edge
-                                        // while a shuffle tap's compose is in flight
-                                        // (the old preview just sat on the old
-                                        // content for the whole art load — the
-                                        // "bad experience" report's second half).
-                                        if (shuffling) {
-                                            LinearProgressIndicator(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .align(Alignment.BottomCenter),
-                                            )
-                                        }
-                                    }
-                                    else -> {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            androidx.compose.material3.CircularProgressIndicator()
-                                        }
-                                    }
                                 }
                             }
-                            // The shuffle — re-rolls the random library pick (D-483),
-                            // EXCLUDING the content on stage (D-494) and walking the
-                            // library in a PLANNED shuffled order (D-499): every item
-                            // appears once per deck cycle before any repeat.
-                            // D-503: the CUSTOMIZE button sits just LEFT of the
-                            // shuffle button (the round-52 spec) and opens the
-                            // Poster Studio; the shuffle tap now also plays the
-                            // pulse + icon-spin feedback.
-                            // D-515: the round-53 verdict — both actions are REAL
-                            // buttons now (an outlined Customize + a filled Shuffle,
-                            // Material paddings, 40dp min touch targets), not the
-                            // borderless text links that read as labels.
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                androidx.compose.material3.OutlinedButton(
-                                    onClick = { onOpenCustomize(selectionCache.value) },
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Tune,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
+                            // D-486: the empty state is gated on
+                            // hasContent ALONE — the old
+                            // (failed && !hasContent) ordering made
+                            // it unreachable (the empty path sets
+                            // failed=false) and rendered an eternal
+                            // spinner instead of the honest message.
+                            !result.hasContent -> {
+                                // D-483: the honest "no episodes" state —
+                                // no feed updates AND no library content
+                                // with cached episodes.
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        "No episodes available yet — add anime to your library and open them once to cache episodes.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(20.dp),
                                     )
-                                    Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
-                                    androidx.compose.material3.Text("Customize")
                                 }
-                                androidx.compose.material3.Button(onClick = {
-                                    // D-520: request a FORCED re-selection — the
-                                    // flag survives a null on-stage id, so every
-                                    // tap changes the content (the old
-                                    // exclude-based handshake silently no-op'd
-                                    // when a tap landed before the first compose
-                                    // finished).
-                                    shufflePending.value = true
-                                    roll++
-                                    scope.launch {
-                                        shufflePulse.snapTo(0.965f)
-                                        shufflePulse.animateTo(
-                                            1f,
-                                            spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                                        )
-                                    }
-                                    scope.launch {
-                                        shuffleIconSpin.animateTo(
-                                            shuffleIconSpin.value + 360f,
-                                            tween(550),
-                                        )
-                                    }
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Shuffle,
-                                        contentDescription = null,
-                                        modifier = Modifier
-                                            .size(18.dp)
-                                            .graphicsLayer { rotationZ = shuffleIconSpin.value },
+                            }
+                            result.failed -> {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        // D-491: an honest internal-error message —
+                                        // art failures compose the dark-stage
+                                        // banner internally, so failed=true only
+                                        // means an unexpected composer exception.
+                                        "The preview hit an unexpected error — tap Shuffle to try again.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(20.dp),
                                     )
-                                    Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
-                                    androidx.compose.material3.Text("Shuffle preview")
+                                }
+                            }
+                            result.banner != null -> {
+                                // D-503: the shuffle crossfade — the composed
+                                // banner fades through when the re-compose
+                                // lands (also smooths toggle-flip re-renders).
+                                Crossfade(
+                                    targetState = result.banner,
+                                    animationSpec = tween(300),
+                                    label = "banner",
+                                ) { banner ->
+                                    Image(
+                                        bitmap = banner.asImageBitmap(),
+                                        contentDescription = "Notification poster preview",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                                // D-520: the honest shuffle progress — a slim
+                                // rail docked to the preview's bottom edge
+                                // while a shuffle tap's compose is in flight.
+                                if (shuffling) {
+                                    LinearProgressIndicator(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .align(Alignment.BottomCenter),
+                                    )
+                                }
+                            }
+                            else -> {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    androidx.compose.material3.CircularProgressIndicator()
                                 }
                             }
                         }
                     }
+                    // D-525: THE SHUFFLE — one full-width, well-defined
+                    // filled button. The old row ended with two small
+                    // right-aligned buttons; the user's verdict: "improve
+                    // the UI of the button ... much better, much more
+                    // well-defined ... simplify it to just shuffle." The
+                    // Customize button died with the studio (D-523).
+                    // D-520: every tap forces a re-selection (the flag
+                    // survives a null on-stage id) and plays the pulse +
+                    // icon-spin feedback.
+                    Button(
+                        onClick = {
+                            shufflePending.value = true
+                            roll++
+                            scope.launch {
+                                shufflePulse.snapTo(0.965f)
+                                shufflePulse.animateTo(
+                                    1f,
+                                    spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                                )
+                            }
+                            scope.launch {
+                                shuffleIconSpin.animateTo(
+                                    shuffleIconSpin.value + 360f,
+                                    tween(550),
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Shuffle,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .graphicsLayer { rotationZ = shuffleIconSpin.value },
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Shuffle",
+                            fontFamily = RobotoFamily,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                    }
+                }
+            }
 
-                    // ── The toggles ──
+            // ── D-525: THE SCROLLABLE REGION — everything below the
+            // stationary preview. Horizontal contentPadding 8dp: the one
+            // gutter (the old 16dp list padding stacked on the card's own
+            // 16dp was the "a lot of padding on the right and left sides"
+            // complaint).
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = 8.dp,
+                        end = 8.dp,
+                        bottom = 24.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
+                ) {
+                    // ── D-524: the template picker — the FIVE-WAY toggle ──
                     item {
-                        SettingsGroupCard(label = "Composition") {
+                        PosterCard(label = "Layout") {
+                            SegmentedOptionBlock(
+                                title = "Layout",
+                                description = "How the banner arranges art and text",
+                            ) {
+                                val templates = PosterTemplate.entries
+                                SegmentedToggle(
+                                    options = templates.map { it.label },
+                                    selectedIndex = (templates.indexOfFirst { it.key == templateKey })
+                                        .coerceAtLeast(0),
+                                    onSelect = { idx ->
+                                        val picked = templates[idx]
+                                        templateKey = picked.key
+                                        posterPrefs.posterTemplate = picked.key
+                                    },
+                                    compact = true,
+                                )
+                            }
+                        }
+                    }
+
+                    // ── D-526: the artwork source — the THREE-WAY toggle ──
+                    item {
+                        PosterCard(label = "Artwork") {
+                            SegmentedOptionBlock(
+                                title = "Artwork",
+                                description = "Which art fills the background",
+                            ) {
+                                val options = listOf("Auto", "Cover", "Episode")
+                                val keys = listOf("banner", "cover", "episode")
+                                SegmentedToggle(
+                                    options = options,
+                                    selectedIndex = keys.indexOf(backgroundSource).coerceAtLeast(0),
+                                    onSelect = { idx ->
+                                        backgroundSource = keys[idx]
+                                        posterPrefs.posterBackgroundSource = keys[idx]
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    // ── the elements — switches with ONE-LINE descriptions ──
+                    item {
+                        PosterCard(label = "Elements") {
                             PosterSwitchRow(
                                 title = "Poster notifications",
-                                description = "Render new-episode notifications as composed banners",
+                                description = "Render notifications as banners",
                                 checked = posterEnabled,
                                 onChecked = {
                                     posterPrefs.posterEnabled = it
@@ -437,7 +499,7 @@ fun NotificationPosterSettingsScreen(
                             )
                             PosterSwitchRow(
                                 title = "Episode title",
-                                description = "Show the episode's title under the episode number",
+                                description = "Shown under the tags",
                                 checked = showEpTitleState,
                                 onChecked = {
                                     posterPrefs.posterShowEpisodeTitle = it
@@ -446,7 +508,7 @@ fun NotificationPosterSettingsScreen(
                             )
                             PosterSwitchRow(
                                 title = "Episode thumbnail",
-                                description = "The episode's own thumbnail card on the left (when the source provides one)",
+                                description = "The art card beside the text",
                                 checked = showThumbState,
                                 onChecked = {
                                     posterPrefs.posterShowEpisodeThumbnail = it
@@ -454,8 +516,8 @@ fun NotificationPosterSettingsScreen(
                                 },
                             )
                             PosterSwitchRow(
-                                title = "SUB / DUB badge",
-                                description = "The lime audio-variant chip",
+                                title = "SUB / DUB badges",
+                                description = "The audio chips row",
                                 checked = showBadgeState,
                                 onChecked = {
                                     posterPrefs.posterShowAudioBadge = it
@@ -464,20 +526,11 @@ fun NotificationPosterSettingsScreen(
                             )
                             PosterSwitchRow(
                                 title = "ANI-KUTA branding",
-                                description = "The small wordmark in the corner",
+                                description = "The corner wordmark",
                                 checked = showBrandingState,
                                 onChecked = {
                                     posterPrefs.posterShowBranding = it
                                     showBrandingState = it
-                                },
-                            )
-                            PosterSwitchRow(
-                                title = "Prefer cover art",
-                                description = "Off = banner art first, falling back to the cover. On = always the cover.",
-                                checked = backgroundSource == "cover",
-                                onChecked = {
-                                    posterPrefs.posterBackgroundSource = if (it) "cover" else "banner"
-                                    backgroundSource = posterPrefs.posterBackgroundSource
                                 },
                             )
                         }
@@ -494,12 +547,81 @@ fun NotificationPosterSettingsScreen(
 }
 
 /**
+ * D-525: the poster screen's own section card — the SettingsGroupCard look
+ * (the primary ExtraBold label, the 12dp-rounded surfaceVariant surface)
+ * WITHOUT the 16dp horizontal padding baked into the shared component: the
+ * screen carries a single 8dp gutter, and the card must not stack a second
+ * one on top of it.
+ */
+@Composable
+private fun PosterCard(
+    label: String,
+    contentPadding: PaddingValues = PaddingValues(vertical = 4.dp),
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            color = MaterialTheme.colorScheme.primary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(modifier = Modifier.padding(contentPadding)) {
+                content()
+            }
+        }
+    }
+}
+
+/**
+ * D-524: the segmented-option block — the SAME structure as the
+ * Notifications screen's "Episode type" block (title + one-line description
+ * stacked at the top, the full-width SegmentedToggle below), so the
+ * template/artwork pickers speak the established design language.
+ */
+@Composable
+private fun SegmentedOptionBlock(
+    title: String,
+    description: String,
+    toggle: @Composable () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = title,
+            fontFamily = RobotoFamily,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Text(
+            text = description,
+            fontFamily = RobotoFamily,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
+        )
+        toggle()
+    }
+}
+
+/**
  * D-493: the DEMO paths normalize the engine's "unknown" audio variant to a
  * random sub/dub so the preview's badge always renders (the composer draws
  * no chip for unknown — honest for a real notification, invisible for a
  * demo). Real notifications keep the engine's value untouched.
- * D-503: internal (was file-private) — the Poster Studio's preview selects
- * content through the SAME helper so both screens agree on what's on stage.
  */
 internal fun String.normalizeForDemo(): String = when (trim().lowercase()) {
     "sub" -> "sub"
@@ -509,14 +631,11 @@ internal fun String.normalizeForDemo(): String = when (trim().lowercase()) {
 
 /**
  * D-494: the payload the preview renders — cached across toggle-flip
- * re-runs (see [selectionCache] at the call site).
- *
- * PUBLIC (the round-53 CI fix): the D-503 `internal` mark collided with the
- * D-513 signature change — the public composable's `onOpenCustomize`
- * parameter now exposes this type to MainActivity, and Kotlin forbids a
- * public function exposing an internal parameter type argument.
+ * re-runs (see [selectionCache] at the call site). Internal again: the
+ * D-513 public mark existed only for the studio's `onOpenCustomize`
+ * parameter, and the studio is retired (D-523).
  */
-data class PreviewSelection(
+internal data class PreviewSelection(
     val mainId: String,
     val title: String,
     val episodeNumber: Double,
@@ -535,8 +654,8 @@ data class PreviewSelection(
 internal suspend fun selectPreviewContent(
     exclude: String?,
     deck: EpisodeDemoPicker.ShuffleDeck,
-    updateStore: com.confused.anikuta.core.updates.UpdateStore,
-    contentRepository: com.confused.anikuta.core.content.ContentRepository,
+    updateStore: UpdateStore,
+    contentRepository: ContentRepository,
     demoPicker: EpisodeDemoPicker,
 ): PreviewSelection? {
     if (exclude == null) {
@@ -589,15 +708,17 @@ private fun PosterSwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            androidx.compose.material3.Text(
+            Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            androidx.compose.material3.Text(
+            Text(
                 text = description,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
         Switch(checked = checked, onCheckedChange = onChecked)

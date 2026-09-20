@@ -12,42 +12,11 @@ import android.graphics.Typeface
 
 /**
  * D-503: the banner's DRAWING PRIMITIVES, extracted from EpisodeBannerComposer
- * into one internal object shared by the composer AND the Poster Studio's live
- * preview. The studio must be a faithful MINIATURE of the real notification —
- * same wrap algorithm, same chip metrics, same cover-crop math — or the user
- * positions an element on screen and the notification renders it somewhere
- * else. One implementation, two consumers, zero drift.
- *
- * Every function takes the canvas dimensions explicitly (the composer draws
- * at 1024×400; the studio draws the SAME coordinate space scaled down by the
- * preview factor — the caller passes W/H as the canvas-space size, NOT screen
- * px, and pre-scales the android Canvas via canvas.scale(s, s)).
+ * into one internal object — the single implementation the composer's five
+ * templates (D-524) all render through. The studio that once shared this
+ * file is retired (D-523); the primitives and their exact geometry stay.
  */
 internal object PosterDrawing {
-
-    /**
-     * D-508: the rich-style typeface resolver — ONE implementation for the
-     * composer AND the studio (WYSIWYG law). Maps the element's saved
-     * `fontKey` + `bold`/`italic` onto an android Typeface. `bold == null`
-     * means the element's FACTORY weight ([fallbackBoldDefault] — the title
-     * and the chips are bold, the episode title is regular), so a pre-D-508
-     * JSON renders exactly as it always did.
-     */
-    fun typefaceFor(fontKey: String, bold: Boolean?, italic: Boolean, fallbackBoldDefault: Boolean): Typeface {
-        val wantsBold = bold ?: fallbackBoldDefault
-        val style = when {
-            wantsBold && italic -> Typeface.BOLD_ITALIC
-            wantsBold -> Typeface.BOLD
-            italic -> Typeface.ITALIC
-            else -> Typeface.NORMAL
-        }
-        return when (fontKey) {
-            "serif" -> Typeface.create(Typeface.SERIF, style)
-            "mono" -> Typeface.create(Typeface.MONOSPACE, style)
-            "condensed" -> Typeface.create("sans-serif-condensed", style)
-            else -> Typeface.create(Typeface.DEFAULT, style)
-        }
-    }
 
     /**
      * D-514: the SMART ADAPTIVE SCRIM — the round-53 verdict reverses the
@@ -61,8 +30,7 @@ internal object PosterDrawing {
      *   lum = 0.60  → ≈15% black
      *   lum ≥ 1.00  → 46% black (the ceiling — "a little bit", never a void)
      *
-     * Runs on BOTH canvases (the composer's and the studio's) through the
-     * same helper so the preview stays a faithful miniature. Every failure
+     * Every failure
      * path is silent: a scrim must never kill a banner.
      */
     fun applyAdaptiveScrim(canvas: Canvas, background: android.graphics.Bitmap?, w: Float, h: Float) {
@@ -90,74 +58,6 @@ internal object PosterDrawing {
             0f, 0f, w, h,
             Paint().apply { color = Color.argb((scrimAlpha * 255f).toInt(), 0, 0, 0) },
         )
-    }
-
-    // ── D-519: the ELEMENT-AWARE text column ──
-    // The round-54 verdict: the title "is not aware of the elements
-    // surrounding it, so it does not adjust its length properly ... the
-    // content title is showing under some corner elements". In ABSOLUTE
-    // mode the text's wrap width used to run to the right margin no matter
-    // what — so a chip or the thumbnail pinned anywhere on the text's row
-    // was painted ON TOP of the text (later draw order). [awareWrapWidth]
-    // ends the column BEFORE the left edge of any element sharing the
-    // text's vertical band.
-
-    /** Breathing room between the text column and a neighbouring element's left edge. */
-    const val AWARE_TEXT_GAP = 24f
-
-    /**
-     * The narrowest column the awareness ever produces. A neighbour closer
-     * than this is IGNORED (the texts keep their full width) — truncating a
-     * 44px title to a 40px column would shred it to one glyph, and the user
-     * can simply move the elements apart instead.
-     */
-    const val AWARE_MIN_WIDTH = 120f
-
-    /**
-     * The wrap width for a text element whose block starts at ([x], [y]).
-     * [others] carries the other VISIBLE elements' rects — ONLY left/top/bottom
-     * are read (right/width are irrelevant, so callers pass left-edge-only
-     * rects and no neighbour measurement is needed — the function stays
-     * deterministic and identical on the composer AND the studio preview,
-     * the WYSIWYG law).
-     *
-     * The band is TWO-PASS and text-driven: the text is first wrapped at the
-     * FULL width to learn how many lines it actually occupies ([maxLines]
-     * capped), the band is that height, and only then do the neighbours'
-     * left edges constrain the column. A one-line title is never shrunk by
-     * chips that merely sit BELOW it (they don't intersect a one-line band),
-     * while a genuinely two-line title is protected for both of its rows.
-     *
-     * Rules per other element:
-     *  - its vertical band must actually overlap the text's band — elements
-     *    clearly above/below the block never constrain it;
-     *  - the candidate width (its left edge minus the gap) must be a REAL
-     *    reduction: at least [AWARE_MIN_WIDTH] and narrower than the current
-     *    width. Anything closer than the floor (or entirely to the text's
-     *    left) is skipped rather than collapsing the column to the minimum.
-     */
-    fun awareWrapWidth(
-        text: String,
-        x: Float,
-        y: Float,
-        fullWidth: Float,
-        textSize: Float,
-        typeface: Typeface,
-        maxLines: Int,
-        lineHeightFactor: Float,
-        others: List<RectF>,
-    ): Float {
-        val linesAtFull = wrappedLines(text, fullWidth, textSize, typeface, maxLines).size
-        val bandHeight = linesAtFull * textSize * lineHeightFactor
-        var width = fullWidth
-        val bandBottom = y + bandHeight
-        for (r in others) {
-            if (r.top >= bandBottom || r.bottom <= y) continue // bands never meet — no constraint
-            val candidate = r.left - AWARE_TEXT_GAP - x
-            if (candidate < AWARE_MIN_WIDTH || candidate >= width) continue
-            width = candidate
-        }
-        return width
     }
 
     /**
@@ -206,7 +106,7 @@ internal object PosterDrawing {
      * final line when words had to be dropped. [shadowed] applies the D-499
      * soft dark shadow — the text's readability aid on bright art (D-514
      * adds the adaptive scrim back as the first one), so it stays ON for
-     * every banner text unless the user turns it off in the studio.
+     * every banner text.
      */
     fun drawWrappedText(
         canvas: Canvas,
@@ -240,8 +140,8 @@ internal object PosterDrawing {
         }
 
     /**
-     * The wrap algorithm (shared with the studio's hit-testing): greedy
-     * word-fill, ≤[maxLines], the overflowing last line hard-ellipsized.
+     * The wrap algorithm: greedy word-fill, ≤[maxLines], the overflowing
+     * last line hard-ellipsized.
      * Measure-only — no drawing.
      */
     fun wrappedLines(
@@ -309,8 +209,7 @@ internal object PosterDrawing {
      * One rounded chip with a soft lift shadow and a FontMetrics-centered
      * bold label (the D-493 centering rule — the old textSize/3 guess sat
      * labels visibly low). Returns the chip's WIDTH so the caller can flow
-     * the next chip after it. All metrics parameterized: the flow layout
-     * calls with the D-499 defaults, the studio/absolute mode scale them.
+     * the next chip after it.
      */
     fun drawChip(
         canvas: Canvas,
@@ -323,9 +222,6 @@ internal object PosterDrawing {
         chipH: Float,
         padX: Float,
         corner: Float,
-        // D-508: the factory bold label — every existing caller renders
-        // unchanged; the studio/absolute mode passes the element's resolved
-        // typeface (bold/italic/font family overrides).
         labelTypeface: Typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD),
     ): Float {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -345,7 +241,7 @@ internal object PosterDrawing {
         return w
     }
 
-    /** The chip row's width without drawing (studio hit-test + flow anchor math). */
+    /** The chip row's width without drawing (the centered templates measure before they draw). */
     fun chipWidth(label: String, labelSize: Float, padX: Float, labelTypeface: Typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)): Float =
         measureText(label, labelSize, labelTypeface) + (2 * padX)
 

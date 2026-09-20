@@ -250,11 +250,11 @@ fun NotificationsSettingsScreen(
                                         }
                                     }
 
-                                    // ── D-477: the poster customization (live preview) ──
+                                    // ── D-477: the poster page (D-524: the five templates) ──
                                     MoreListRow(
                                         icon = Icons.Filled.Image,
                                         title = "Notification poster",
-                                        subtitle = "Customize the episode banner + live preview",
+                                        subtitle = "Templates for the episode banner + live preview",
                                         onClick = onOpenPosterSettings,
                                     )
 
