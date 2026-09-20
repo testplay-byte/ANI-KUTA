@@ -544,8 +544,8 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10118
-    const val versionName = "1.1.18"
+    const val versionCode = 10119
+    const val versionName = "1.1.19"
     // D-498 (round 55): release/1.1.18 — cut from the round-55 FEATURE branch
     // head 827440c1 (CI green after ONE fix run — 35502594912 caught the
     // drawCenteredText 'val cannot be reassigned' shadowing error, 35502967752

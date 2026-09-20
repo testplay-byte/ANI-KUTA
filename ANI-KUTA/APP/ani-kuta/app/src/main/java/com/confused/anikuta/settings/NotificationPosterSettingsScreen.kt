@@ -1,10 +1,15 @@
 package com.confused.anikuta.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -99,6 +104,21 @@ import org.koin.compose.koinInject
  * element switches — segmented toggles and one-line descriptions, the same
  * language as the episode-type block on the Notifications screen.
  *
+ * # D-531: the MASTER TOGGLE COLLAPSE (the round-56 verdict)
+ *
+ * "When the poster notifications have been turned off, then almost
+ * everything will disappear properly with smooth animations. The top live
+ * preview itself will disappear. The layout options, the artwork, the
+ * elements, everything will disappear. The only toggle which will show is
+ * the poster notification toggle at the very top." So the "Poster
+ * notifications" switch now lives in its OWN card at the very top of the
+ * stationary region (it was the first row inside Elements), and BOTH the
+ * preview region and the options region wrap in [AnimatedVisibility] keyed
+ * on it: flip it off and the preview, Shuffle, Layout, Artwork and Elements
+ * cards all fade + shrink away — the page collapses to just the header and
+ * the one toggle. The preview's producer also skips its selection/compose
+ * work entirely while off (invisible work).
+ *
  * # The live preview (unchanged mechanics)
  *
  * The preview is NOT a mock-up — it calls the SAME [EpisodeBannerComposer]
@@ -131,7 +151,13 @@ fun NotificationPosterSettingsScreen(
     var backgroundSource by remember { mutableStateOf(posterPrefs.posterBackgroundSource) }
     // D-524: the selected template's KEY — the toggle writes the pref, the
     // state change re-runs the preview producer below.
-    var templateKey by remember { mutableStateOf(posterPrefs.posterTemplate) }
+    // D-529 review fix: seed through [PosterTemplate.fromKey] so a legacy
+    // pref value ("split" → DUO, or any unknown → CLASSIC) lights up the
+    // SAME template the composer will render — the raw key would miss the
+    // enum lookup and highlight Classic while Duo renders.
+    var templateKey by remember {
+        mutableStateOf(PosterTemplate.fromKey(posterPrefs.posterTemplate).key)
+    }
 
     // D-483/D-494: the roll counter — a SHUFFLE tap increments it (a screen
     // open starts at 0), producing a fresh random library pick per tap.
@@ -193,6 +219,14 @@ fun NotificationPosterSettingsScreen(
         templateKey,
         roll,
     ) {
+        // D-531: the master toggle is OFF — everything below is collapsed
+        // away, so the whole selection/compose pipeline would be invisible
+        // work (network art loads included). Skip it; a flip back ON
+        // re-runs this producer (posterEnabled is a key) and recomposes.
+        if (!posterEnabled) {
+            value = Preview(null, failed = false, hasContent = true)
+            return@produceState
+        }
         // D-520: consume the shuffle request FIRST, on the main thread —
         // a tap mid-flight cancels this producer and the next pass re-reads
         // the flag, so a request can never leak into an unrelated pass.
@@ -269,159 +303,185 @@ fun NotificationPosterSettingsScreen(
             // ── D-525: THE STATIONARY REGION — the live preview + shuffle.
             // Sits OUTSIDE the LazyColumn: it never scrolls away. A single
             // 8dp gutter (the old screen stacked 16 + 16 = 32dp per side).
+            //
+            // ── D-531: the region now OPENS with the master toggle — the
+            // one control that never disappears — and the preview card +
+            // Shuffle wrap in [AnimatedVisibility] keyed on it (the round-56
+            // verdict: with the poster off, "the top live preview itself
+            // will disappear ... everything will disappear. The only toggle
+            // which will show is the poster notification toggle").
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                PosterCard(
-                    label = "Live preview",
-                    contentPadding = PaddingValues(8.dp),
+                PosterCard {
+                    PosterSwitchRow(
+                        title = "Poster notifications",
+                        description = "Render notifications as banners",
+                        checked = posterEnabled,
+                        onChecked = {
+                            posterPrefs.posterEnabled = it
+                        },
+                    )
+                }
+                AnimatedVisibility(
+                    visible = posterEnabled,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            // D-499: the preview box uses the composer's
-                            // REAL canvas ratio (1024×400) — the preview
-                            // shows the notification's true proportions.
-                            .aspectRatio(
-                                EpisodeBannerComposer.CANVAS_WIDTH.toFloat() /
-                                    EpisodeBannerComposer.CANVAS_HEIGHT.toFloat(),
-                            )
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            // D-503: the shuffle pulse (see the scope above).
-                            .graphicsLayer {
-                                val p = shufflePulse.value
-                                scaleX = p
-                                scaleY = p
-                            },
+                    PosterCard(
+                        label = "Live preview",
+                        contentPadding = PaddingValues(8.dp),
                     ) {
-                        val result = preview
-                        when {
-                            !posterEnabled -> {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        "Poster notifications are off",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                // D-499: the preview box uses the composer's
+                                // REAL canvas ratio (1024×400) — the preview
+                                // shows the notification's true proportions.
+                                .aspectRatio(
+                                    EpisodeBannerComposer.CANVAS_WIDTH.toFloat() /
+                                        EpisodeBannerComposer.CANVAS_HEIGHT.toFloat(),
+                                )
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                // D-503: the shuffle pulse (see the scope above).
+                                .graphicsLayer {
+                                    val p = shufflePulse.value
+                                    scaleX = p
+                                    scaleY = p
+                                },
+                        ) {
+                            val result = preview
+                            when {
+                                !posterEnabled -> {
+                                    // D-531: this branch only shows during the
+                                    // collapse animation's fade-out — the
+                                    // region is leaving composition.
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            "Poster notifications are off",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                 }
-                            }
-                            // D-486: the empty state is gated on
-                            // hasContent ALONE — the old
-                            // (failed && !hasContent) ordering made
-                            // it unreachable (the empty path sets
-                            // failed=false) and rendered an eternal
-                            // spinner instead of the honest message.
-                            !result.hasContent -> {
-                                // D-483: the honest "no episodes" state —
-                                // no feed updates AND no library content
-                                // with cached episodes.
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        "No episodes available yet — add anime to your library and open them once to cache episodes.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(20.dp),
-                                    )
+                                // D-486: the empty state is gated on
+                                // hasContent ALONE — the old
+                                // (failed && !hasContent) ordering made
+                                // it unreachable (the empty path sets
+                                // failed=false) and rendered an eternal
+                                // spinner instead of the honest message.
+                                !result.hasContent -> {
+                                    // D-483: the honest "no episodes" state —
+                                    // no feed updates AND no library content
+                                    // with cached episodes.
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            "No episodes available yet — add anime to your library and open them once to cache episodes.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(20.dp),
+                                        )
+                                    }
                                 }
-                            }
-                            result.failed -> {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        // D-491: an honest internal-error message —
-                                        // art failures compose the dark-stage
-                                        // banner internally, so failed=true only
-                                        // means an unexpected composer exception.
-                                        "The preview hit an unexpected error — tap Shuffle to try again.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(20.dp),
-                                    )
+                                result.failed -> {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            // D-491: an honest internal-error message —
+                                            // art failures compose the dark-stage
+                                            // banner internally, so failed=true only
+                                            // means an unexpected composer exception.
+                                            "The preview hit an unexpected error — tap Shuffle to try again.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(20.dp),
+                                        )
+                                    }
                                 }
-                            }
-                            result.banner != null -> {
-                                // D-503: the shuffle crossfade — the composed
-                                // banner fades through when the re-compose
-                                // lands (also smooths toggle-flip re-renders).
-                                Crossfade(
-                                    targetState = result.banner,
-                                    animationSpec = tween(300),
-                                    label = "banner",
-                                ) { banner ->
-                                    Image(
-                                        bitmap = banner.asImageBitmap(),
-                                        contentDescription = "Notification poster preview",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize(),
-                                    )
+                                result.banner != null -> {
+                                    // D-503: the shuffle crossfade — the composed
+                                    // banner fades through when the re-compose
+                                    // lands (also smooths toggle-flip re-renders).
+                                    Crossfade(
+                                        targetState = result.banner,
+                                        animationSpec = tween(300),
+                                        label = "banner",
+                                    ) { banner ->
+                                        Image(
+                                            bitmap = banner.asImageBitmap(),
+                                            contentDescription = "Notification poster preview",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+                                    // D-520: the honest shuffle progress — a slim
+                                    // rail docked to the preview's bottom edge
+                                    // while a shuffle tap's compose is in flight.
+                                    if (shuffling) {
+                                        LinearProgressIndicator(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .align(Alignment.BottomCenter),
+                                        )
+                                    }
                                 }
-                                // D-520: the honest shuffle progress — a slim
-                                // rail docked to the preview's bottom edge
-                                // while a shuffle tap's compose is in flight.
-                                if (shuffling) {
-                                    LinearProgressIndicator(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .align(Alignment.BottomCenter),
-                                    )
-                                }
-                            }
-                            else -> {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    androidx.compose.material3.CircularProgressIndicator()
+                                else -> {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        androidx.compose.material3.CircularProgressIndicator()
+                                    }
                                 }
                             }
                         }
-                    }
-                    // D-525: THE SHUFFLE — one full-width, well-defined
-                    // filled button. The old row ended with two small
-                    // right-aligned buttons; the user's verdict: "improve
-                    // the UI of the button ... much better, much more
-                    // well-defined ... simplify it to just shuffle." The
-                    // Customize button died with the studio (D-523).
-                    // D-520: every tap forces a re-selection (the flag
-                    // survives a null on-stage id) and plays the pulse +
-                    // icon-spin feedback.
-                    Button(
-                        onClick = {
-                            shufflePending.value = true
-                            roll++
-                            scope.launch {
-                                shufflePulse.snapTo(0.965f)
-                                shufflePulse.animateTo(
-                                    1f,
-                                    spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                                )
-                            }
-                            scope.launch {
-                                shuffleIconSpin.animateTo(
-                                    shuffleIconSpin.value + 360f,
-                                    tween(550),
-                                )
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                            .height(44.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Shuffle,
-                            contentDescription = null,
+                        // D-525: THE SHUFFLE — one full-width, well-defined
+                        // filled button. The old row ended with two small
+                        // right-aligned buttons; the user's verdict: "improve
+                        // the UI of the button ... much better, much more
+                        // well-defined ... simplify it to just shuffle." The
+                        // Customize button died with the studio (D-523).
+                        // D-520: every tap forces a re-selection (the flag
+                        // survives a null on-stage id) and plays the pulse +
+                        // icon-spin feedback.
+                        Button(
+                            onClick = {
+                                shufflePending.value = true
+                                roll++
+                                scope.launch {
+                                    shufflePulse.snapTo(0.965f)
+                                    shufflePulse.animateTo(
+                                        1f,
+                                        spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                                    )
+                                }
+                                scope.launch {
+                                    shuffleIconSpin.animateTo(
+                                        shuffleIconSpin.value + 360f,
+                                        tween(550),
+                                    )
+                                }
+                            },
                             modifier = Modifier
-                                .size(18.dp)
-                                .graphicsLayer { rotationZ = shuffleIconSpin.value },
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Shuffle",
-                            fontFamily = RobotoFamily,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                        )
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Shuffle,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .graphicsLayer { rotationZ = shuffleIconSpin.value },
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Shuffle",
+                                fontFamily = RobotoFamily,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                        }
                     }
                 }
             }
@@ -431,116 +491,120 @@ fun NotificationPosterSettingsScreen(
             // gutter (the old 16dp list padding stacked on the card's own
             // 16dp was the "a lot of padding on the right and left sides"
             // complaint).
-            Box(modifier = Modifier.fillMaxSize()) {
-                LazyColumn(
-                    state = lazyListState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(
-                        start = 8.dp,
-                        end = 8.dp,
-                        bottom = 24.dp,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(0.dp),
-                ) {
-                    // ── D-524: the template picker — the FIVE-WAY toggle ──
-                    item {
-                        PosterCard(label = "Layout") {
-                            SegmentedOptionBlock(
-                                title = "Layout",
-                                description = "How the banner arranges art and text",
-                            ) {
-                                val templates = PosterTemplate.entries
-                                SegmentedToggle(
-                                    options = templates.map { it.label },
-                                    selectedIndex = (templates.indexOfFirst { it.key == templateKey })
-                                        .coerceAtLeast(0),
-                                    onSelect = { idx ->
-                                        val picked = templates[idx]
-                                        templateKey = picked.key
-                                        posterPrefs.posterTemplate = picked.key
+            // ── D-531: the whole region — Layout, Artwork, Elements —
+            // collapses away with the same fade + shrink when the master
+            // toggle goes off (the scroll area has nothing left to offer
+            // then; only the toggle at the very top remains).
+            AnimatedVisibility(
+                visible = posterEnabled,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = lazyListState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(
+                            start = 8.dp,
+                            end = 8.dp,
+                            bottom = 24.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(0.dp),
+                    ) {
+                        // ── D-524: the template picker — the FIVE-WAY toggle ──
+                        item {
+                            PosterCard(label = "Layout") {
+                                SegmentedOptionBlock(
+                                    title = "Layout",
+                                    description = "How the banner arranges art and text",
+                                ) {
+                                    val templates = PosterTemplate.entries
+                                    SegmentedToggle(
+                                        options = templates.map { it.label },
+                                        selectedIndex = (templates.indexOfFirst { it.key == templateKey })
+                                            .coerceAtLeast(0),
+                                        onSelect = { idx ->
+                                            val picked = templates[idx]
+                                            templateKey = picked.key
+                                            posterPrefs.posterTemplate = picked.key
+                                        },
+                                        compact = true,
+                                    )
+                                }
+                            }
+                        }
+
+                        // ── D-526: the artwork source — the THREE-WAY toggle ──
+                        item {
+                            PosterCard(label = "Artwork") {
+                                SegmentedOptionBlock(
+                                    title = "Artwork",
+                                    description = "Which art fills the background",
+                                ) {
+                                    val options = listOf("Auto", "Cover", "Episode")
+                                    val keys = listOf("banner", "cover", "episode")
+                                    SegmentedToggle(
+                                        options = options,
+                                        selectedIndex = keys.indexOf(backgroundSource).coerceAtLeast(0),
+                                        onSelect = { idx ->
+                                            backgroundSource = keys[idx]
+                                            posterPrefs.posterBackgroundSource = keys[idx]
+                                        },
+                                    )
+                                }
+                            }
+                        }
+
+                        // ── the elements — switches with ONE-LINE descriptions ──
+                        // (D-531: the "Poster notifications" master switch moved
+                        // OUT of this card — it now owns the top card of the page.)
+                        item {
+                            PosterCard(label = "Elements") {
+                                PosterSwitchRow(
+                                    title = "Episode title",
+                                    description = "Shown under the tags",
+                                    checked = showEpTitleState,
+                                    onChecked = {
+                                        posterPrefs.posterShowEpisodeTitle = it
+                                        showEpTitleState = it
                                     },
-                                    compact = true,
+                                )
+                                PosterSwitchRow(
+                                    title = "Episode thumbnail",
+                                    description = "The art card beside the text",
+                                    checked = showThumbState,
+                                    onChecked = {
+                                        posterPrefs.posterShowEpisodeThumbnail = it
+                                        showThumbState = it
+                                    },
+                                )
+                                PosterSwitchRow(
+                                    title = "SUB / DUB badges",
+                                    description = "The audio chips row",
+                                    checked = showBadgeState,
+                                    onChecked = {
+                                        posterPrefs.posterShowAudioBadge = it
+                                        showBadgeState = it
+                                    },
+                                )
+                                PosterSwitchRow(
+                                    title = "ANI-KUTA branding",
+                                    description = "The corner wordmark",
+                                    checked = showBrandingState,
+                                    onChecked = {
+                                        posterPrefs.posterShowBranding = it
+                                        showBrandingState = it
+                                    },
                                 )
                             }
                         }
                     }
-
-                    // ── D-526: the artwork source — the THREE-WAY toggle ──
-                    item {
-                        PosterCard(label = "Artwork") {
-                            SegmentedOptionBlock(
-                                title = "Artwork",
-                                description = "Which art fills the background",
-                            ) {
-                                val options = listOf("Auto", "Cover", "Episode")
-                                val keys = listOf("banner", "cover", "episode")
-                                SegmentedToggle(
-                                    options = options,
-                                    selectedIndex = keys.indexOf(backgroundSource).coerceAtLeast(0),
-                                    onSelect = { idx ->
-                                        backgroundSource = keys[idx]
-                                        posterPrefs.posterBackgroundSource = keys[idx]
-                                    },
-                                )
-                            }
-                        }
-                    }
-
-                    // ── the elements — switches with ONE-LINE descriptions ──
-                    item {
-                        PosterCard(label = "Elements") {
-                            PosterSwitchRow(
-                                title = "Poster notifications",
-                                description = "Render notifications as banners",
-                                checked = posterEnabled,
-                                onChecked = {
-                                    posterPrefs.posterEnabled = it
-                                },
-                            )
-                            PosterSwitchRow(
-                                title = "Episode title",
-                                description = "Shown under the tags",
-                                checked = showEpTitleState,
-                                onChecked = {
-                                    posterPrefs.posterShowEpisodeTitle = it
-                                    showEpTitleState = it
-                                },
-                            )
-                            PosterSwitchRow(
-                                title = "Episode thumbnail",
-                                description = "The art card beside the text",
-                                checked = showThumbState,
-                                onChecked = {
-                                    posterPrefs.posterShowEpisodeThumbnail = it
-                                    showThumbState = it
-                                },
-                            )
-                            PosterSwitchRow(
-                                title = "SUB / DUB badges",
-                                description = "The audio chips row",
-                                checked = showBadgeState,
-                                onChecked = {
-                                    posterPrefs.posterShowAudioBadge = it
-                                    showBadgeState = it
-                                },
-                            )
-                            PosterSwitchRow(
-                                title = "ANI-KUTA branding",
-                                description = "The corner wordmark",
-                                checked = showBrandingState,
-                                onChecked = {
-                                    posterPrefs.posterShowBranding = it
-                                    showBrandingState = it
-                                },
-                            )
-                        }
-                    }
+                    ScrollBlurOverlay(
+                        scrollOffset = { lazyListState.firstVisibleItemScrollOffset.toFloat() },
+                        backgroundColor = MaterialTheme.colorScheme.background,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
                 }
-                ScrollBlurOverlay(
-                    scrollOffset = { lazyListState.firstVisibleItemScrollOffset.toFloat() },
-                    backgroundColor = MaterialTheme.colorScheme.background,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                )
             }
         }
     }
@@ -552,22 +616,28 @@ fun NotificationPosterSettingsScreen(
  * WITHOUT the 16dp horizontal padding baked into the shared component: the
  * screen carries a single 8dp gutter, and the card must not stack a second
  * one on top of it.
+ *
+ * D-531: the [label] is optional — the master-toggle card renders WITHOUT
+ * one (a card labelled "Poster notifications" containing a row titled
+ * "Poster notifications" would say everything twice).
  */
 @Composable
 private fun PosterCard(
-    label: String,
+    label: String? = null,
     contentPadding: PaddingValues = PaddingValues(vertical = 4.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Text(
-            text = label,
-            fontFamily = RobotoFamily,
-            color = MaterialTheme.colorScheme.primary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
-        )
+        if (label != null) {
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
+            )
+        }
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
             shape = RoundedCornerShape(12.dp),

@@ -50,7 +50,8 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
  *  - Icon: 24dp, tinted `primary`. Optional red notification dot overlay at
  *    top-end corner.
  *  - Title: RobotoFamily ExtraBold 16sp, `onSurface`, 1 line ellipsized.
- *  - Subtitle: RobotoFamily Normal 13sp, `onSurfaceVariant`, 2 lines ellipsized.
+ *  - Subtitle: RobotoFamily Normal 13sp, `onSurfaceVariant`, 1 line
+ *    ellipsized (D-532: was 2 — the one-line design language).
  *  - Trailing: `Icons.Filled.ChevronRight`, tinted `onSurfaceVariant`.
  *  - Press feedback: scale 0.97f (no ripple) per CORE_RULES §22.
  *
@@ -133,7 +134,10 @@ fun MoreListRow(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    // D-532: the ONE-LINE SUBTITLE design language (was 2) —
+                    // every row states its business in one line; the clamp
+                    // guarantees it, the shortened copy makes it never bite.
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }

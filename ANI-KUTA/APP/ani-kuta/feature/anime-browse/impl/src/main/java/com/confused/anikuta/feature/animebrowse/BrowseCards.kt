@@ -44,9 +44,8 @@ import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
 import com.confused.anikuta.core.designsystem.animation.browseCoverKey  // D-328
 import org.koin.compose.koinInject  // D-320: prefs gate for the cover transition
+import androidx.compose.ui.draw.shadow
 import com.confused.anikuta.core.anilist.model.AniListAnime
-import com.confused.anikuta.core.designsystem.badge.PointedSide
-import com.confused.anikuta.core.designsystem.badge.PointedTagShape
 import com.confused.anikuta.core.designsystem.badge.rememberBadgeColorScheme
 import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
@@ -103,10 +102,15 @@ internal fun AnimeCarousel(
  * - 2:3 cover (matches the Library card standard) with 12dp corners —
  *   standardized from the old inconsistent 14/18/10dp radii across the page.
  * - Subtle 1dp border (outlineVariant @ 60%) around every cover.
- * - Score badge: amber pointed corner tag flush at the cover's top-start,
- *   unified with the Library's score-badge color language (D-252) — replaces
- *   the old hard-coded black-65% pill with lime text.
  * - Press-scale 0.95 (unchanged — the proven card feedback pattern).
+ *
+ * D-534 (the round-56 verdict: the page "does not look well handled ... the
+ * rating is not shown properly"): the score tag abandons the pointed
+ * corner-tag shape for the D-480 SOFT PILL language — fully rounded,
+ * floating 4dp inside the cover's corner, lifted by a soft shadow. The
+ * Library retired its 45° tips on the same grounds ("sharp", off-theme);
+ * the two surfaces now speak the same badge language again. The covers
+ * themselves gain a soft 3dp shadow so each card lifts off the page.
  */
 @Composable
 private fun BrowseAnimeCard(
@@ -143,12 +147,13 @@ private fun BrowseAnimeCard(
                 onClick = { onClick(anime, transitionKey) },
             ),
     ) {
-        // Cover — clipped Box (so the flush badge follows the rounded corner)
+        // Cover — clipped Box (shadow lifts the card off the page, D-534)
         // with a subtle border + placeholder tone while the image loads.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
+                .shadow(3.dp, coverShape)
                 .clip(coverShape)
                 .border(
                     BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
@@ -164,30 +169,28 @@ private fun BrowseAnimeCard(
                     .fillMaxSize()
                     .coverSharedElement(transitionKey),
             )
-            // Score badge — amber pointed corner tag, flush at top-start.
-            // The outer (top-start) corner is clipped to the cover's 12dp
-            // corner by the parent Box clip; the inner end is pointed
-            // (PointedTagShape) per the D-252 badge language.
-            // D-257: 1dp border (content color @ 50%) so the tag stays crisp
-            // against busy cover art (device feedback: "give some border to
-            // the rating tags so it is a bit more clear").
+            // Score badge — the D-480 SOFT PILL (D-534): fully rounded,
+            // floating 4dp inside the top-start corner, soft shadow. The old
+            // pointed tag was the last 45°-tip holdout after the Library's
+            // D-480 cleanup — the device verdict ("the rating is not shown
+            // properly") retired it.
             anime.averageScore?.takeIf { it > 0 }?.let { score ->
                 Surface(
-                    modifier = Modifier.align(Alignment.TopStart),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(4.dp),
                     color = badgeColors.scoreContainer,
-                    shape = PointedTagShape(PointedSide.END),
-                    border = BorderStroke(1.dp, badgeColors.scoreContent.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(50),
+                    shadowElevation = 3.dp,
                 ) {
                     Text(
                         text = "★ $score",
                         fontFamily = RobotoFamily,
-                        fontSize = 9.sp,
-                        lineHeight = 11.sp,
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = badgeColors.scoreContent,
-                        // Extra end padding keeps the text clear of the
-                        // transparent 45° tip (tip depth ≈ height/2).
-                        modifier = Modifier.padding(start = 5.dp, end = 9.dp, top = 1.dp, bottom = 1.dp),
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                         maxLines = 1,
                         softWrap = false,
                     )

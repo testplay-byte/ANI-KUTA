@@ -123,11 +123,15 @@ fun NotificationsSettingsScreen(
                     contentPadding = PaddingValues(bottom = 110.dp),
                 ) {
                     // ── General: master toggle ──
+                    // D-532: showDividers=false — a single-row card has no
+                    // row after the last one, so the trailing divider line
+                    // was pure noise (the round-56 verdict: the line below
+                    // entries is "not good").
                     item {
-                        SettingsGroupCard(label = "General") {
+                        SettingsGroupCard(label = "General", showDividers = false) {
                             SettingRow(
                                 title = "Enable notifications",
-                                description = "Master switch for all episode-release notifications",
+                                description = "Master switch for episode alerts",
                                 trailing = {
                                     Switch(
                                         checked = masterEnabled,
@@ -151,13 +155,13 @@ fun NotificationsSettingsScreen(
                                     DefaultsSection(defaults, viewModel)
 
                                     // ── Library customization toggle ──
-                                    SettingsGroupCard(label = "Library customization") {
+                                    SettingsGroupCard(label = "Library customization", showDividers = false) {
                                         SettingRow(
                                             title = "Customize per anime",
                                             description = if (libraryCustomEnabled) {
-                                                "Per-anime notification settings appear on each anime's details page"
+                                                "Per-anime controls on details pages"
                                             } else {
-                                                "Default triggers above apply to all library anime"
+                                                "Defaults apply to all library anime"
                                             },
                                             trailing = {
                                                 Switch(
@@ -221,10 +225,12 @@ fun NotificationsSettingsScreen(
                                                 fontWeight = FontWeight.Medium,
                                             )
                                             Text(
-                                                text = "Which releases to notify about (shared with the Updates settings)",
+                                                text = "Which releases to notify about",
                                                 fontFamily = RobotoFamily,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontSize = 13.sp,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                                 modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
                                             )
                                             // D-484: the SAME design-system SegmentedToggle
@@ -254,15 +260,15 @@ fun NotificationsSettingsScreen(
                                     MoreListRow(
                                         icon = Icons.Filled.Image,
                                         title = "Notification poster",
-                                        subtitle = "Templates for the episode banner + live preview",
+                                        subtitle = "Templates + live preview",
                                         onClick = onOpenPosterSettings,
                                     )
 
                                     // ── Test (D-478: the last two updated contents) ──
-                                    SettingsGroupCard(label = "Test") {
+                                    SettingsGroupCard(label = "Test", showDividers = false) {
                                         SettingRow(
                                             title = "Send test notifications",
-                                            description = "Poster notifications built from your last two updated contents",
+                                            description = "From your last two updated contents",
                                             trailing = {
                                                 Icon(
                                                     imageVector = Icons.Filled.Send,
@@ -330,12 +336,12 @@ private fun DefaultsSection(
     defaults: NotificationsSettingsViewModel.Defaults,
     viewModel: NotificationsSettingsViewModel,
 ) {
-    SettingsGroupCard(label = "New anime defaults") {
+    SettingsGroupCard(label = "New anime defaults", showDividers = false) {
         // On schedule — 2-way On/Off Switch
         SettingRow(
             title = "On schedule",
             description = triggerDescription("schedule", defaults.onSchedule),
-            showDivider = true,
+            showDivider = false,
             trailing = {
                 Switch(
                     checked = defaults.onSchedule == TriggerState.ON,
@@ -362,15 +368,16 @@ private fun DefaultsSection(
     }
 }
 
+/** The one-line trigger descriptions (D-532: compact enough to never wrap). */
 private fun triggerDescription(trigger: String, state: TriggerState): String {
     val condition = when (trigger) {
-        "schedule" -> "when the airing time is reached"
-        "watchable" -> "when an episode is found on a source"
+        "schedule" -> "at airing time"
+        "watchable" -> "on episode found"
         else -> "for this trigger"
     }
     return when (state) {
         TriggerState.ON -> "Notify $condition"
         TriggerState.SILENT -> "Notify silently $condition"
-        TriggerState.OFF -> "Don't notify (background still checks)"
+        TriggerState.OFF -> "Off — background still checks"
     }
 }

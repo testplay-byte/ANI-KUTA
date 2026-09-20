@@ -14,8 +14,10 @@ import androidx.compose.ui.unit.dp
  *   horizontal lines inside). Used for SUB episode badges.
  * - [Dub]: A microphone icon (capsule body + cradle + base). Used for DUB
  *   episode badges.
- * - [Total]: A film-strip / stack icon (rectangle with perforations on
- *   the sides). Used for TOTAL episode count badges.
+ * - [Total]: A playlist icon (play triangle + three episode bars). Used
+ *   for TOTAL episode count badges. (D-533: the old film-strip read as an
+ *   abstract chip once the Icon tint flattened its two-color detail — the
+ *   redesign works as a one-color silhouette.)
  *
  * These are hand-crafted vector paths (not from material-icons-extended) so
  * they are always available regardless of which icon artifacts are on the
@@ -170,14 +172,20 @@ object BadgeIcons {
     }
 
     /**
-     * Film-strip / total episodes icon.
+     * Total episodes icon — the PLAYLIST (round-56 D-533 redesign).
      *
-     * Shape: a vertical rectangle (representing a film frame) with small
-     * perforation squares on the left and right edges (like a film strip).
-     * Used for TOTAL episode count badges to represent the complete series.
+     * Shape: a solid play triangle on the left + three episode bars to its
+     * right — the universal "episode queue / play all" symbol. Used for
+     * TOTAL episode count badges to represent the complete series.
      *
-     * Designed to be legible at 8dp and visually distinct from the Sub
-     * (subtitle) and Dub (microphone) icons.
+     * WHY the old film-strip died: it painted white perforations against a
+     * dark frame, but Compose's Icon tint replaces EVERY fill with the
+     * single [contentColor] — the detail vanished and the silhouette read
+     * as an abstract chip (the device verdict). The playlist works AS a
+     * one-color silhouette: triangle + bars stay readable at 9dp, and it
+     * pairs semantically with Sub (caption frame) and Dub (microphone).
+     *
+     * Designed to be legible at 8–10dp and visually distinct from both.
      */
     val Total: ImageVector by lazy {
         ImageVector.Builder(
@@ -187,67 +195,41 @@ object BadgeIcons {
             viewportWidth = 24f,
             viewportHeight = 24f,
         ).apply {
-            // ── Main film frame (center rectangle) ──
+            // ── Play triangle (the "watch" cue, vertically centered) ──
             path(
                 fill = SolidColor(Color.Black),
                 stroke = null,
                 strokeLineWidth = 0f,
                 pathFillType = PathFillType.NonZero,
             ) {
-                moveTo(6f, 4f)
-                horizontalLineTo(18f)
-                verticalLineTo(20f)
-                horizontalLineTo(6f)
+                moveTo(3.5f, 5.5f)
+                lineTo(14.5f, 12f)
+                lineTo(3.5f, 18.5f)
                 close()
             }
-            // ── Perforations (small squares on left edge) ──
-            // Top-left perforation.
-            path(fill = SolidColor(Color.White)) {
-                moveTo(3f, 6f)
-                horizontalLineTo(5f)
-                verticalLineTo(8f)
-                horizontalLineTo(3f)
+            // ── Three episode bars (the queue) ──
+            // Top bar.
+            path(fill = SolidColor(Color.Black)) {
+                moveTo(17f, 4.8f)
+                horizontalLineTo(21.5f)
+                verticalLineTo(7f)
+                horizontalLineTo(17f)
                 close()
             }
-            // Middle-left perforation.
-            path(fill = SolidColor(Color.White)) {
-                moveTo(3f, 11f)
-                horizontalLineTo(5f)
-                verticalLineTo(13f)
-                horizontalLineTo(3f)
+            // Middle bar (the longest — anchors the row).
+            path(fill = SolidColor(Color.Black)) {
+                moveTo(17f, 10.9f)
+                horizontalLineTo(21.5f)
+                verticalLineTo(13.1f)
+                horizontalLineTo(17f)
                 close()
             }
-            // Bottom-left perforation.
-            path(fill = SolidColor(Color.White)) {
-                moveTo(3f, 16f)
-                horizontalLineTo(5f)
-                verticalLineTo(18f)
-                horizontalLineTo(3f)
-                close()
-            }
-            // ── Perforations (small squares on right edge) ──
-            // Top-right perforation.
-            path(fill = SolidColor(Color.White)) {
-                moveTo(19f, 6f)
-                horizontalLineTo(21f)
-                verticalLineTo(8f)
-                horizontalLineTo(19f)
-                close()
-            }
-            // Middle-right perforation.
-            path(fill = SolidColor(Color.White)) {
-                moveTo(19f, 11f)
-                horizontalLineTo(21f)
-                verticalLineTo(13f)
-                horizontalLineTo(19f)
-                close()
-            }
-            // Bottom-right perforation.
-            path(fill = SolidColor(Color.White)) {
-                moveTo(19f, 16f)
-                horizontalLineTo(21f)
-                verticalLineTo(18f)
-                horizontalLineTo(19f)
+            // Bottom bar.
+            path(fill = SolidColor(Color.Black)) {
+                moveTo(17f, 17f)
+                horizontalLineTo(21.5f)
+                verticalLineTo(19.2f)
+                horizontalLineTo(17f)
                 close()
             }
         }.build()

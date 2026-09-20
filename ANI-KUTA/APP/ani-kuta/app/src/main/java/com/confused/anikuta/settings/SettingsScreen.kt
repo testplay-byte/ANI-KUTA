@@ -102,7 +102,7 @@ fun SettingsScreen(
                         MoreListRow(
                             icon = Icons.Filled.AutoAwesome,
                             title = "Auto-Link",
-                            subtitle = "Link extension anime to AniList metadata",
+                            subtitle = "Link extension anime to AniList",
                             onClick = onOpenAutoLink,
                         )
                     }
@@ -116,7 +116,7 @@ fun SettingsScreen(
                         MoreListRow(
                             icon = Icons.Filled.Notifications,
                             title = "Updates & Notifications",
-                            subtitle = "Update checks, schedule, poster alerts",
+                            subtitle = "Update checks and poster alerts",
                             onClick = onOpenUpdates,
                         )
                     }
@@ -127,7 +127,7 @@ fun SettingsScreen(
                         MoreListRow(
                             icon = Icons.Filled.PlayCircle,
                             title = "Player",
-                            subtitle = "Auto-select video, playback preferences",
+                            subtitle = "Playback and auto-select options",
                             onClick = onOpenPlayerSettings,
                         )
                         // Video caching (test-feature branch): cache streamed episodes
@@ -135,7 +135,7 @@ fun SettingsScreen(
                         MoreListRow(
                             icon = Icons.Filled.VideoLibrary,
                             title = "Video caching",
-                            subtitle = "Cache streamed episodes for instant replay",
+                            subtitle = "Instant replays of streamed episodes",
                             onClick = onOpenVideoCaching,
                         )
                     }
@@ -150,7 +150,7 @@ fun SettingsScreen(
                         MoreListRow(
                             icon = Icons.Filled.Info,
                             title = "About & Updates",
-                            subtitle = "App version, update checks, downloaded APKs",
+                            subtitle = "Version, checks, downloaded APKs",
                             onClick = onOpenAbout,
                         )
                     }
@@ -167,7 +167,7 @@ fun SettingsScreen(
                         MoreListRow(
                             icon = Icons.Filled.BugReport,
                             title = "Debug options",
-                            subtitle = "Debug bubble, source details, resolve-list copy button",
+                            subtitle = "Debug bubble and source details",
                             onClick = onOpenDebug,
                         )
                     }

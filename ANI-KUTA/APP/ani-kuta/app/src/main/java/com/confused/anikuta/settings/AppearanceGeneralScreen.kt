@@ -189,7 +189,7 @@ fun AppearanceGeneralScreen(
                     item {
                         SwitchCard(
                             title = "Adaptive colors",
-                            subtitle = "Theme anime details page with cover art colors",
+                            subtitle = "Details page with cover colors",
                             checked = adaptiveDetails,
                             onCheckedChange = { prefs.setAdaptiveColorsDetails(it) },
                         )
@@ -197,7 +197,7 @@ fun AppearanceGeneralScreen(
                     item {
                         SwitchCard(
                             title = "Adaptive colors (Player)",
-                            subtitle = "Theme video player with cover art colors",
+                            subtitle = "Player with cover art colors",
                             checked = adaptivePlayer,
                             onCheckedChange = { prefs.setAdaptiveColorsPlayer(it) },
                         )
@@ -211,7 +211,7 @@ fun AppearanceGeneralScreen(
                     item {
                         SwitchCard(
                             title = "Header blur effect",
-                            subtitle = "Blur content scrolling under pinned headers",
+                            subtitle = "Blur content under pinned headers",
                             checked = headerBlur,
                             onCheckedChange = { prefs.setHeaderBlurEffect(it) },
                         )
@@ -418,6 +418,9 @@ private fun SwitchCard(
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // D-532: the one-line subtitle design language.
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }

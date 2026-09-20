@@ -59,12 +59,15 @@ import kotlinx.coroutines.withTimeoutOrNull
  * not give the users that much customizability." The studio's free-form
  * element pinning (and the whole ABSOLUTE layout mode it fed) is GONE —
  * the composer now renders one of FIVE predefined arrangements (see
- * [PosterTemplate] for the visual spec): Classic (the approved factory
- * look), Spotlight, Split, Minimal and Card. The choice rides the
- * `notif_poster_template` preference; an unknown/legacy value degrades to
- * CLASSIC. Each template is a deterministic flow — no saved anchors, no
- * layout JSON, nothing that can drift between a preview and the real
- * notification.
+ * [PosterTemplate] for the visual spec): Classic, Spotlight, Duo, Minimal
+ * and Card. The choice rides the `notif_poster_template` preference; an
+ * unknown/legacy value degrades to CLASSIC (the retired "split" key aliases
+ * to DUO). Round 56 (D-528..D-530) reimagined three of the five on device
+ * feedback: Classic went label-first on a shared centerline, Split became
+ * the true split-screen DUO (new layout, new name), Minimal became the
+ * left-aligned floating column. Each template is a deterministic flow — no
+ * saved anchors, no layout JSON, nothing that can drift between a preview
+ * and the real notification.
  *
  * # The SUB/DUB chip truth (D-499, widened D-503)
  *
@@ -339,8 +342,8 @@ class EpisodeBannerComposer(
                 composeClassic(canvas, title, episodeNumber, audioVariant, episodeTitle, thumbnail)
             PosterTemplate.SPOTLIGHT ->
                 composeSpotlight(canvas, title, episodeNumber, audioVariant, episodeTitle, thumbnail)
-            PosterTemplate.SPLIT ->
-                composeSplit(canvas, title, episodeNumber, audioVariant, episodeTitle, thumbnail)
+            PosterTemplate.DUO ->
+                composeDuo(canvas, title, episodeNumber, audioVariant, episodeTitle, thumbnail)
             PosterTemplate.MINIMAL ->
                 composeMinimal(canvas, title, episodeNumber, audioVariant, episodeTitle)
             PosterTemplate.CARD ->
@@ -360,17 +363,12 @@ class EpisodeBannerComposer(
         }
     }
 
-    /** The tag row's total width ([EP n] + the audio chips + the gaps) — the centered/anchored templates measure before drawing. */
-    private fun tagRowWidth(episodeNumber: Double, chips: List<String>, labelSize: Float, padX: Float): Float {
-        var w = PosterDrawing.chipWidth(episodeTag(episodeNumber), labelSize, padX)
-        for (label in chips) w += PosterDrawing.chipWidth(label, labelSize, padX) + PosterCanvasMetrics.CHIP_GAP
-        return w
-    }
-
     /**
      * The [EP n][SUB][DUB] tag row on one shared baseline — the D-499 row,
      * extracted so every template draws the SAME row (same fills, same
-     * palette, same gaps).
+     * palette, same gaps). (The old tagRowWidth helper — the row's total
+     * width for centered layouts — died with D-530: Minimal went
+     * left-aligned and no template centers the row anymore.)
      */
     private fun drawTagRow(
         canvas: Canvas,
@@ -397,40 +395,6 @@ class EpisodeBannerComposer(
         return cx - PosterCanvasMetrics.CHIP_GAP
     }
 
-    /**
-     * D-524: the CENTERED text block — the same greedy wrap + hard ellipsis
-     * as [PosterDrawing.drawWrappedText], each line centered on [centerX].
-     * Returns the last baseline.
-     */
-    private fun drawCenteredText(
-        canvas: Canvas,
-        text: String,
-        centerX: Float,
-        startY: Float,
-        maxWidth: Float,
-        textSize: Float,
-        color: Int,
-        typeface: Typeface,
-        maxLines: Int,
-        shadowed: Boolean = true,
-    ): Float {
-        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            // D-524 fix: `textSize` must be the RECEIVER's property — the
-            // unqualified form resolved to the shadowing FUNCTION PARAMETER
-            // (a val) and the CI build correctly refused the reassignment.
-            this.textSize = textSize
-            this.typeface = typeface
-            this.color = color
-            if (shadowed) setShadowLayer(8f, 0f, 3f, Color.argb(180, 0, 0, 0))
-        }
-        var baseline = startY + textSize
-        for (line in PosterDrawing.wrappedLines(text, maxWidth, textSize, typeface, maxLines)) {
-            canvas.drawText(line, centerX - paint.measureText(line) / 2f, baseline, paint)
-            baseline += textSize * 1.22f
-        }
-        return baseline - textSize * 1.22f
-    }
-
     /** The ANI-KUTA wordmark — bottom-right by default, top-right on the templates whose bottom edge is busy (D-524). */
     private fun drawBranding(canvas: Canvas, topAligned: Boolean = false) {
         if (!preferences.posterShowBranding) return
@@ -451,10 +415,20 @@ class EpisodeBannerComposer(
     }
 
     /**
-     * D-524 CLASSIC — the v1.1.14-approved rendering, unchanged: the text
-     * column hangs top-right when the thumbnail card is on stage and
-     * reclaims the full width when it is off; the tag row + episode title
-     * flow under the ≤2-line title. Branding bottom-right.
+     * D-528 CLASSIC v2 — the LABEL-FIRST flow, the round-56 reimagining (the
+     * device verdict on the v1.1.18 version: "the classic one is most
+     * definitely not good ... it needs to be redone properly"). Two defects
+     * drove the redo: the text hung from the TOP edge while the thumbnail
+     * card floated on the vertical centerline — a lopsided composition with
+     * the whole lower-right quadrant dead — and the tag row sat UNDER the
+     * title like an afterthought. The new arrangement puts everything on ONE
+     * shared centerline: the 16:9 still card (360×202.5 — a touch smaller
+     * than the old 400×225 so the column breathes) vertically centered on
+     * the left, and the right column ALSO vertically centered, reading
+     * top-down in the classic movie-poster hierarchy: the [EP n][SUB][DUB]
+     * tag row as an EYEBROW, then the ≤2-line title, then the episode
+     * title. Thumbnail off → the text reclaims the full width, still
+     * centered. Branding bottom-right (the stack's floor ~310 clears it).
      */
     private fun composeClassic(
         canvas: Canvas,
@@ -465,34 +439,51 @@ class EpisodeBannerComposer(
         thumbnail: Bitmap?,
     ) {
         val hasThumb = thumbnail != null && thumbnail.width > 0 && thumbnail.height > 0
-        val textX = if (hasThumb) PosterCanvasMetrics.TEXT_X else PosterCanvasMetrics.LEFT
-        val textWidth = if (hasThumb) {
-            W - PosterCanvasMetrics.TEXT_X - PosterCanvasMetrics.TEXT_RIGHT_MARGIN
-        } else {
-            W - PosterCanvasMetrics.LEFT - PosterCanvasMetrics.TEXT_RIGHT_MARGIN
+        val thumbW = CLASSIC_THUMB_W
+        val thumbH = CLASSIC_THUMB_H
+
+        if (hasThumb) {
+            val thumbY = (H - thumbH) / 2f
+            PosterDrawing.drawThumbCard(
+                canvas, thumbnail!!,
+                RectF(PosterCanvasMetrics.MARGIN, thumbY, PosterCanvasMetrics.MARGIN + thumbW, thumbY + thumbH),
+                PosterCanvasMetrics.THUMB_CORNER,
+            )
         }
 
-        // The content title — bold white with a soft dark shadow, ≤2 lines.
-        val titleBottom = PosterDrawing.drawWrappedText(
-            canvas, title, textX, PosterCanvasMetrics.TOP, textWidth, PosterCanvasMetrics.TITLE_SIZE,
+        val textX = if (hasThumb) {
+            PosterCanvasMetrics.MARGIN + thumbW + PosterCanvasMetrics.THUMB_TEXT_GAP
+        } else {
+            PosterCanvasMetrics.LEFT
+        }
+        val textWidth = W - textX - PosterCanvasMetrics.TEXT_RIGHT_MARGIN
+
+        // Measure the stack so it can hang from the shared centerline.
+        val chips = audioChips(audioVariant)
+        val epTitleShown = preferences.posterShowEpisodeTitle && !episodeTitle.isNullOrBlank()
+        val titleH = PosterDrawing.wrappedLines(
+            title, textWidth, PosterCanvasMetrics.TITLE_SIZE, Typeface.DEFAULT_BOLD, 2,
+        ).size * PosterCanvasMetrics.TITLE_SIZE * PosterCanvasMetrics.TITLE_LINE_HEIGHT
+        val epTitleH = if (epTitleShown) PosterCanvasMetrics.EPISODE_TITLE_SIZE * 1.22f else 0f
+
+        val stackH = PosterCanvasMetrics.CHIP_H + 14f + titleH + 12f + epTitleH
+        var y = ((H - stackH) / 2f).coerceAtLeast(PosterCanvasMetrics.TOP)
+
+        // The EYEBROW — the tag row leads, the title follows.
+        drawTagRow(canvas, textX, y, episodeNumber, chips)
+        y += PosterCanvasMetrics.CHIP_H + 14f
+        PosterDrawing.drawWrappedText(
+            canvas, title, textX, y, textWidth, PosterCanvasMetrics.TITLE_SIZE,
             Color.WHITE, Typeface.DEFAULT_BOLD, maxLines = 2, shadowed = true,
-        ) + 18f
-
-        // The TAG ROW — [EP n] [SUB] [DUB] on one shared baseline.
-        drawTagRow(canvas, textX, titleBottom, episodeNumber, audioChips(audioVariant))
-
-        // The episode title — soft white, 1 line, under the tag row.
-        if (preferences.posterShowEpisodeTitle && !episodeTitle.isNullOrBlank()) {
+        )
+        if (epTitleShown) {
             PosterDrawing.drawWrappedText(
-                canvas, episodeTitle, textX, titleBottom + PosterCanvasMetrics.CHIP_H + 16f, textWidth,
+                canvas, episodeTitle!!, textX, y + titleH + 12f, textWidth,
                 PosterCanvasMetrics.EPISODE_TITLE_SIZE, Color.argb(225, 255, 255, 255),
                 Typeface.DEFAULT, maxLines = 1, shadowed = true,
             )
         }
 
-        if (hasThumb) {
-            drawFlowThumbBox(canvas, thumbnail!!)
-        }
         drawBranding(canvas)
     }
 
@@ -564,13 +555,22 @@ class EpisodeBannerComposer(
     }
 
     /**
-     * D-524 SPLIT — the magazine cover. A TALL episode panel (420×344) fills
-     * the left half; the right column is VERTICALLY CENTERED with a ≤3-line
-     * title, the tag row and the episode title. The thumbnail toggle off →
-     * the text reclaims the full width (still centered). Branding
-     * bottom-right, clear of the panel's right edge.
+     * D-529 DUO — the true split-screen, the round-56 rethinking (the device
+     * verdict on v1.1.18's Split: "not satisfied ... we should completely
+     * rethink it. We should also rethink its name"). The old floating tall
+     * panel read as a card on a background, not a SPLIT. The new composition
+     * is two full-height halves: the LEFT half is the episode art run
+     * edge-to-edge (no margins, no rounding — a genuine panel, not a card),
+     * the RIGHT half is a solid dark panel, and a thin LIME SEAM — the
+     * app's brand accent, the same lime as the EP chip — welds them
+     * together. The text stack (title ≤2 lines → tag row → episode title ≤2)
+     * lives vertically centered in the panel. Thumbnail off → the left half
+     * simply shows the background art (already cover-fitted + scrimmed by
+     * [compose]); the split structure never breaks, so the template always
+     * reads as Duo regardless of the toggles. Branding bottom-right — it
+     * sits ON the dark panel, fully legible.
      */
-    private fun composeSplit(
+    private fun composeDuo(
         canvas: Canvas,
         title: String,
         episodeNumber: Double,
@@ -579,54 +579,79 @@ class EpisodeBannerComposer(
         thumbnail: Bitmap?,
     ) {
         val hasThumb = thumbnail != null && thumbnail.width > 0 && thumbnail.height > 0
-        val panelW = 420f
-        val panelH = 344f
-        val panelX = PosterCanvasMetrics.MARGIN
-        val panelY = (H - panelH) / 2f
+        val splitX = W / 2f
 
+        // LEFT HALF — the episode's own still, full-bleed to the edges
+        // (corner 0: a panel, not a card). No thumb → the background shows.
         if (hasThumb) {
             PosterDrawing.drawThumbCard(
                 canvas, thumbnail!!,
-                RectF(panelX, panelY, panelX + panelW, panelY + panelH),
-                PosterCanvasMetrics.THUMB_CORNER,
+                RectF(0f, 0f, splitX, H.toFloat()),
+                0f,
             )
         }
 
-        val textX = if (hasThumb) panelX + panelW + 32f else PosterCanvasMetrics.LEFT
-        val textWidth = W - textX - PosterCanvasMetrics.TEXT_RIGHT_MARGIN
+        // RIGHT HALF — the solid dark panel (the D-524 Card panel color,
+        // a touch more opaque: this panel backs the WHOLE text column).
+        canvas.drawRect(
+            splitX, 0f, W.toFloat(), H.toFloat(),
+            android.graphics.Paint().apply { color = DUO_PANEL_COLOR },
+        )
+
+        // The LIME SEAM — the brand accent welding the two halves.
+        canvas.drawRect(
+            splitX, 0f, splitX + DUO_SEAM_W, H.toFloat(),
+            android.graphics.Paint().apply { color = LIME_INT },
+        )
+
+        val textX = splitX + DUO_SEAM_W + 36f
+        val textWidth = W - textX - 32f
 
         val chips = audioChips(audioVariant)
         val epTitleShown = preferences.posterShowEpisodeTitle && !episodeTitle.isNullOrBlank()
         val titleH = PosterDrawing.wrappedLines(
-            title, textWidth, SPLIT_TITLE_SIZE, Typeface.DEFAULT_BOLD, 3,
-        ).size * SPLIT_TITLE_SIZE * PosterCanvasMetrics.TITLE_LINE_HEIGHT
-        val epTitleH = if (epTitleShown) SPLIT_EP_TITLE_SIZE * 1.22f else 0f
+            title, textWidth, DUO_TITLE_SIZE, Typeface.DEFAULT_BOLD, 2,
+        ).size * DUO_TITLE_SIZE * PosterCanvasMetrics.TITLE_LINE_HEIGHT
+        val epTitleLines = if (epTitleShown) {
+            PosterDrawing.wrappedLines(
+                episodeTitle!!, textWidth, DUO_EP_TITLE_SIZE, Typeface.DEFAULT, 2,
+            ).size
+        } else 0
+        val epTitleH = epTitleLines * DUO_EP_TITLE_SIZE * PosterCanvasMetrics.TITLE_LINE_HEIGHT
 
         val stackH = titleH + 16f + PosterCanvasMetrics.CHIP_H + 14f + epTitleH
         var y = ((H - stackH) / 2f).coerceAtLeast(PosterCanvasMetrics.TOP)
 
         PosterDrawing.drawWrappedText(
-            canvas, title, textX, y, textWidth, SPLIT_TITLE_SIZE,
-            Color.WHITE, Typeface.DEFAULT_BOLD, maxLines = 3, shadowed = true,
+            canvas, title, textX, y, textWidth, DUO_TITLE_SIZE,
+            Color.WHITE, Typeface.DEFAULT_BOLD, maxLines = 2, shadowed = true,
         )
         y += titleH + 16f
         drawTagRow(canvas, textX, y, episodeNumber, chips)
         if (epTitleShown) {
             PosterDrawing.drawWrappedText(
                 canvas, episodeTitle!!, textX, y + PosterCanvasMetrics.CHIP_H + 14f, textWidth,
-                SPLIT_EP_TITLE_SIZE, Color.argb(225, 255, 255, 255),
-                Typeface.DEFAULT, maxLines = 1, shadowed = true,
+                DUO_EP_TITLE_SIZE, Color.argb(225, 255, 255, 255),
+                Typeface.DEFAULT, maxLines = 2, shadowed = true,
             )
         }
         drawBranding(canvas)
     }
 
     /**
-     * D-524 MINIMAL — the symmetric poster. No card at all: the title (≤2
-     * lines), the tag row and the episode title all CENTER horizontally,
-     * stacked from the top. For key art that needs no covering. (The
-     * thumbnail toggle has no natural home in a symmetric frame — the
-     * template simply omits the card, and the live preview shows the truth.)
+     * D-530 MINIMAL v2 — the floating column, the round-56 refinement (the
+     * device verdict on v1.1.18's version: satisfied "but ... the title
+     * could be made better ... the height of the poster ... can be reduced
+     * ... maybe align it to the left side"). The centered symmetry read
+     * scattered — every line started at a different x — and the stack sat
+     * tall. The new composition: the same no-card purity, but the ≤2-line
+     * title, the tag row and the episode title all start on ONE left edge
+     * (a true column), the title grows to the shared 44px display size, and
+     * the whole stack is tighter (14/12px gaps vs the old 16/14) and
+     * vertically CENTERED — a compact floating block, not a full-height
+     * banner of text. For key art that needs no covering. (The thumbnail
+     * toggle has no natural home in a card-less frame — the template simply
+     * omits the card, and the live preview shows the truth.)
      */
     private fun composeMinimal(
         canvas: Canvas,
@@ -635,7 +660,7 @@ class EpisodeBannerComposer(
         audioVariant: String,
         episodeTitle: String?,
     ) {
-        val centerX = W / 2f
+        val textX = PosterCanvasMetrics.LEFT
         val textWidth = W - PosterCanvasMetrics.LEFT - PosterCanvasMetrics.TEXT_RIGHT_MARGIN
         val chips = audioChips(audioVariant)
 
@@ -643,19 +668,22 @@ class EpisodeBannerComposer(
         val titleH = PosterDrawing.wrappedLines(
             title, textWidth, MINIMAL_TITLE_SIZE, Typeface.DEFAULT_BOLD, 2,
         ).size * MINIMAL_TITLE_SIZE * PosterCanvasMetrics.TITLE_LINE_HEIGHT
+        val epTitleH = if (epTitleShown) MINIMAL_EP_TITLE_SIZE * 1.22f else 0f
 
-        var y = MINIMAL_TOP
-        drawCenteredText(
-            canvas, title, centerX, y, textWidth, MINIMAL_TITLE_SIZE,
-            Color.WHITE, Typeface.DEFAULT_BOLD, maxLines = 2,
+        val stackH = titleH + 14f + PosterCanvasMetrics.CHIP_H + 12f + epTitleH
+        var y = ((H - stackH) / 2f).coerceAtLeast(PosterCanvasMetrics.TOP)
+
+        PosterDrawing.drawWrappedText(
+            canvas, title, textX, y, textWidth, MINIMAL_TITLE_SIZE,
+            Color.WHITE, Typeface.DEFAULT_BOLD, maxLines = 2, shadowed = true,
         )
-        y += titleH + 16f
-        val rowW = tagRowWidth(episodeNumber, chips, PosterCanvasMetrics.CHIP_LABEL_SIZE, PosterCanvasMetrics.CHIP_PAD_X)
-        drawTagRow(canvas, centerX - rowW / 2f, y, episodeNumber, chips)
+        y += titleH + 14f
+        drawTagRow(canvas, textX, y, episodeNumber, chips)
         if (epTitleShown) {
-            drawCenteredText(
-                canvas, episodeTitle!!, centerX, y + PosterCanvasMetrics.CHIP_H + 14f, textWidth,
+            PosterDrawing.drawWrappedText(
+                canvas, episodeTitle!!, textX, y + PosterCanvasMetrics.CHIP_H + 12f, textWidth,
                 MINIMAL_EP_TITLE_SIZE, Color.argb(225, 255, 255, 255), Typeface.DEFAULT, maxLines = 1,
+                shadowed = true,
             )
         }
         drawBranding(canvas)
@@ -840,20 +868,6 @@ class EpisodeBannerComposer(
         }
     }
 
-    /** The flow layout's vertically-centered left thumb box. */
-    private fun drawFlowThumbBox(canvas: Canvas, src: Bitmap) {
-        PosterDrawing.drawThumbCard(
-            canvas, src,
-            RectF(
-                PosterCanvasMetrics.THUMB_DEFAULT_X,
-                PosterCanvasMetrics.THUMB_DEFAULT_Y,
-                PosterCanvasMetrics.THUMB_DEFAULT_X + PosterCanvasMetrics.THUMB_BOX_W,
-                PosterCanvasMetrics.THUMB_DEFAULT_Y + PosterCanvasMetrics.THUMB_BOX_H,
-            ),
-            PosterCanvasMetrics.THUMB_CORNER,
-        )
-    }
-
     // The companion itself is PUBLIC on purpose: Kotlin forbids accessing
     // members through a private companion's class-name facade, and the
     // settings screen reads CANVAS_WIDTH/CANVAS_HEIGHT for the preview's
@@ -877,12 +891,22 @@ class EpisodeBannerComposer(
 
         // D-524: the per-template type sizes (all five arrangements share the
         // chip metrics; only the text scale + geometry differ).
+        // D-528: CLASSIC v2's still card — a touch smaller than the shared
+        // THUMB_BOX (400×225) so the centered eyebrow-first column breathes.
+        private const val CLASSIC_THUMB_W = 360f
+        private const val CLASSIC_THUMB_H = 202.5f
         private const val SPOTLIGHT_TITLE_SIZE = 46f
-        private const val SPLIT_TITLE_SIZE = 40f
-        private const val SPLIT_EP_TITLE_SIZE = 24f
-        private const val MINIMAL_TITLE_SIZE = 40f
+        // D-529: DUO — the split-screen's narrower right panel carries a
+        // slightly smaller title than the full-width templates.
+        private const val DUO_TITLE_SIZE = 38f
+        private const val DUO_EP_TITLE_SIZE = 22f
+        // Int (not the L-suffixed literal): Paint.color takes an Int — the
+        // value is the D-524 Card panel color, a touch more opaque.
+        private val DUO_PANEL_COLOR = 0xE80C0A12.toInt()
+        private const val DUO_SEAM_W = 5f
+        // D-530: MINIMAL v2 — the title grew to the shared display size.
+        private const val MINIMAL_TITLE_SIZE = 44f
         private const val MINIMAL_EP_TITLE_SIZE = 24f
-        private const val MINIMAL_TOP = 88f
         private const val CARD_TITLE_SIZE = 34f
         private const val CARD_EP_TITLE_SIZE = 22f
 

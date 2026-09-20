@@ -104,7 +104,7 @@ fun VideoCachingScreen(
                         SettingsGroupCard(label = "General") {
                             SettingRow(
                                 title = "Enable video caching",
-                                description = "Cache streamed video locally — replays of the same episode, server and resolution start instantly without network",
+                                description = "Cache replays locally for instant start",
                                 showDivider = false,
                                 trailing = {
                                     Switch(checked = enabled, onCheckedChange = viewModel::setEnabled)

@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -104,6 +105,14 @@ private class SettingsGroupScopeImpl(private val showDividers: Boolean) : Settin
                         fontFamily = RobotoFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
+                        // D-532: the ONE-LINE DESCRIPTION design language —
+                        // a row's description never wraps to a second line.
+                        // Every call site's copy is kept short enough to fit;
+                        // the clamp + ellipsis is the guarantee, not the
+                        // design. (The round-56 device verdict: descriptions
+                        // showing on more than one line are "not good".)
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }

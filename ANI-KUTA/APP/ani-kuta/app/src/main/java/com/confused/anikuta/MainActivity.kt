@@ -1455,7 +1455,7 @@ fun AppRoot() {
             is DetailsPageSettingsKey -> DetailsPageSettingsScreen(onBack = pop)
             is EpisodeSettingsKey -> PlaceholderScreen(
                 title = "Episode settings",
-                description = "Episode display settings will be added in a future phase.",
+                description = "More episode options in a future phase",
                 onBack = pop,
             )
             is PlayerSettingsKey -> PlayerSettingsScreen(

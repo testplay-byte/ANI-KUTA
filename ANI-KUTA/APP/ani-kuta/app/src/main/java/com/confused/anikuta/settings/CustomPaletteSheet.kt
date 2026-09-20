@@ -192,7 +192,7 @@ fun CustomPaletteSheet(
                     )
                     CustomElementEditor(
                         label = "Accent",
-                        description = "Primary buttons, highlights, active states",
+                        description = "Buttons, highlights, active states",
                         color = current.accent,
                         swatches = AccentSwatches,
                         onColor = { c -> prefs.setCustomTheme(current.copy(accent = c)) },
@@ -214,14 +214,14 @@ fun CustomPaletteSheet(
                     // ── D-261: two new customizable elements ──
                     CustomElementEditor(
                         label = "Card headings",
-                        description = "Titles inside cards/blocks (Browse, Library, Search, Details)",
+                        description = "Titles inside cards and blocks",
                         color = current.cardHeading,
                         swatches = CardHeadingSwatches,
                         onColor = { c -> prefs.setCustomTheme(current.copy(cardHeading = c)) },
                     )
                     CustomElementEditor(
                         label = "Card descriptions",
-                        description = "Body/description text inside cards/blocks",
+                        description = "Body text inside cards and blocks",
                         color = current.cardDescription,
                         swatches = CardDescriptionSwatches,
                         onColor = { c -> prefs.setCustomTheme(current.copy(cardDescription = c)) },
@@ -411,19 +411,19 @@ private fun RandomPaletteSheet(
             RandomOptionRow(
                 icon = Icons.Filled.DarkMode,
                 label = "Random dark",
-                description = "Coherent dark-theme colors picked at random.",
+                description = "Coherent dark colors at random",
                 onClick = { onPick(RandomPaletteKind.DARK) },
             )
             RandomOptionRow(
                 icon = Icons.Filled.LightMode,
                 label = "Random light",
-                description = "Coherent light-theme colors picked at random.",
+                description = "Coherent light colors at random",
                 onClick = { onPick(RandomPaletteKind.LIGHT) },
             )
             RandomOptionRow(
                 icon = Icons.Filled.Shuffle,
                 label = "Completely random",
-                description = "Every color fully random. May look terrible — that's the point.",
+                description = "Fully random — that's the point.",
                 onClick = { onPick(RandomPaletteKind.CHAOS) },
             )
         }

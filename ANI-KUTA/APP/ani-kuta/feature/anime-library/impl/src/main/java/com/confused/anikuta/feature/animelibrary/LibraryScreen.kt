@@ -128,8 +128,6 @@ import com.confused.anikuta.core.designsystem.animation.libraryCoverKey  // D-32
 import org.koin.compose.koinInject  // D-320: prefs gate for the cover transition
 import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.common.HapticHelper
-import com.confused.anikuta.core.designsystem.badge.PointedSide
-import com.confused.anikuta.core.designsystem.badge.PointedTagShape
 import com.confused.anikuta.core.designsystem.badge.rememberBadgeColorScheme
 import com.confused.anikuta.core.designsystem.component.EmptyState
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
@@ -4414,13 +4412,16 @@ private fun BoxScope.CoverBadgeRow(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            // D-489: the centered row floats 4dp INSIDE the top edge (the
-            // D-480 "floating pill" language) — corner rows stay flush so
-            // their outer corner keeps matching the cover's rounding.
+            // D-489: the centered row floats INSIDE the top edge (the D-480
+            // "floating pill" language) — corner rows stay flush so their
+            // outer corner keeps matching the cover's rounding.
+            // D-533: 4dp → 2dp — the round-56 device verdict: the badge was
+            // "a little bit spaced out from the top ... move it up a little
+            // bit and leave just a slight amount of space".
             modifier = Modifier.padding(
                 start = 4.dp,
                 end = 4.dp,
-                top = if (position == BadgePosition.TOP_CENTER) 4.dp else 0.dp,
+                top = if (position == BadgePosition.TOP_CENTER) 2.dp else 0.dp,
             ),
         ) {
             badges.forEachIndexed { idx, badge ->
@@ -4460,7 +4461,11 @@ private fun BoxScope.CoverBadgeRow(
                     Surface(
                         color = Color.Transparent,
                         shape = compoundShape,
-                        shadowElevation = 2.dp,
+                        // D-533: 2dp → 4dp — the round-56 device verdict: the
+                        // badges blended into busy cover art; a slightly deeper
+                        // shadow lifts them off ("a little bit more prominent")
+                        // without going back to the removed outlines.
+                        shadowElevation = 4.dp,
                         modifier = Modifier
                             .clip(compoundShape)
                             .drawBehind {
@@ -4557,7 +4562,10 @@ private fun BoxScope.CoverBadgeRow(
                     Surface(
                         color = badge.containerColor,
                         shape = RoundedCornerShape(50),
-                        shadowElevation = 2.dp,
+                        // D-533: 2dp → 4dp — the same prominence lift as the
+                        // compound badge above (the device verdict: the counts
+                        // were "blending into the background cover images").
+                        shadowElevation = 4.dp,
                     ) {
                         Row(
                             modifier = Modifier.padding(

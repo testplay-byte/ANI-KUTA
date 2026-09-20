@@ -89,7 +89,7 @@ fun DetailsPageSettingsScreen(
                     item {
                         SwitchCard(
                             title = "Accent tint",
-                            subtitle = "Tint the background image with the cover-derived accent color",
+                            subtitle = "Tint with the cover-derived accent",
                             checked = tintEnabled,
                             onCheckedChange = {
                                 tintEnabled = it
@@ -156,7 +156,7 @@ fun DetailsPageSettingsScreen(
                     item {
                         SwitchCard(
                             title = "Animated background",
-                            subtitle = "Slowly pan the background image for a dynamic effect",
+                            subtitle = "Slow pan for a dynamic effect",
                             checked = animationEnabled,
                             onCheckedChange = {
                                 animationEnabled = it
@@ -171,7 +171,7 @@ fun DetailsPageSettingsScreen(
                     item {
                         SwitchCard(
                             title = "Cover transition (experimental)",
-                            subtitle = "Tapping a cover on Browse, Search or Library morphs it into the details page, and back again on return",
+                            subtitle = "Covers morph into the details page",
                             checked = coverTransitionEnabled,
                             onCheckedChange = {
                                 coverTransitionEnabled = it
@@ -235,6 +235,9 @@ private fun SwitchCard(
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // D-532: the one-line subtitle design language.
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }

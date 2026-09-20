@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.confused.anikuta.core.designsystem.badge.rememberBadgeColorScheme
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.designsystem.color.rememberCoverGradientColors
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -377,23 +378,51 @@ private fun HeroCard(
 
             // Text block.
             Column(modifier = Modifier.weight(1f)) {
-                // Rank pill — translucent dark (matches the genre chips' language;
-                // sits on the dark splash zone, readable on any cover hue).
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color.Black.copy(alpha = 0.45f),
+                // Rank + score row (D-534): the score pill sits BESIDE the
+                // rank pill — the round-56 verdict was that the rating was
+                // "not shown properly" buried in the meta text. The amber
+                // badge language is the same one the carousel cards and the
+                // Library score tags use.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = "#$rank TRENDING",
-                        fontFamily = RobotoFamily,
-                        fontSize = 10.sp,
-                        lineHeight = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        maxLines = 1,
-                        softWrap = false,
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.Black.copy(alpha = 0.45f),
+                    ) {
+                        Text(
+                            text = "#$rank TRENDING",
+                            fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            lineHeight = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+                    anime.averageScore?.takeIf { it > 0 }?.let { score ->
+                        val badgeColors = rememberBadgeColorScheme()
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = badgeColors.scoreContainer,
+                            shadowElevation = 2.dp,
+                        ) {
+                            Text(
+                                text = "★ $score",
+                                fontFamily = RobotoFamily,
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = badgeColors.scoreContent,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
                 }
                 Spacer(Modifier.height(6.dp))
                 // Title — 18sp ExtraBold, up to 2 lines (white: it always sits
@@ -409,9 +438,9 @@ private fun HeroCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(3.dp))
-                // Meta row: score · episodes · year.
+                // Meta row: episodes · year (the score lives in its own pill
+                // above, D-534).
                 val metaParts = buildList {
-                    anime.averageScore?.let { add("★ $it") }
                     anime.episodes?.let { add("$it eps") }
                     anime.seasonYear?.let { add(it.toString()) }
                 }

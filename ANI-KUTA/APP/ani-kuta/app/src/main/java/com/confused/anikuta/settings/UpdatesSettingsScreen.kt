@@ -125,13 +125,15 @@ fun UpdatesSettingsScreen(
                                 )
                                 Text(
                                     text = when (mode) {
-                                        UpdateMode.AUTO -> "Smart checking based on each anime's release schedule"
+                                        UpdateMode.AUTO -> "Follows each anime's airing schedule"
                                         UpdateMode.MANUAL -> "Only checks selected categories"
                                         UpdateMode.OFF -> "No background checking"
                                     },
                                     fontFamily = RobotoFamily,
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                     modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
                                 )
                                 SegmentedToggle(
@@ -204,10 +206,12 @@ fun UpdatesSettingsScreen(
                                             )
                                         } else {
                                             Text(
-                                                text = "Runs an episode check right away — the results notification and the history land as usual",
+                                                text = "Runs an episode check right away",
                                                 fontFamily = RobotoFamily,
                                                 fontSize = 13.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                                 modifier = Modifier.padding(top = 2.dp),
                                             )
                                         }
@@ -241,10 +245,12 @@ fun UpdatesSettingsScreen(
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
                                     Text(
-                                        text = "Every check — when, what was checked, results, next actions, the live next-check timer",
+                                        text = "Every check, results, next-check timer",
                                         fontFamily = RobotoFamily,
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                         modifier = Modifier.padding(top = 2.dp),
                                     )
                                 }
@@ -301,10 +307,12 @@ fun UpdatesSettingsScreen(
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
                                     Text(
-                                        text = "Which audio variants to notify you about (both are always checked)",
+                                        text = "What to notify about (both are checked)",
                                         fontFamily = RobotoFamily,
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                         modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
                                     )
                                     SegmentedToggle(
@@ -327,7 +335,7 @@ fun UpdatesSettingsScreen(
                             SeparateCard {
                                 SwitchRowContent(
                                     title = "Check dub on completed anime",
-                                    description = "Continue checking for dub after completion",
+                                    description = "Keeps checking for dub after completion",
                                     checked = checkDubCompleted,
                                     onCheckedChange = { updatePreferences.setCheckDubCompleted(it) },
                                 )
@@ -419,6 +427,9 @@ private fun SwitchRowContent(
                 fontFamily = RobotoFamily,
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // D-532: the one-line description design language.
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
@@ -452,6 +463,9 @@ private fun NavRowContent(
                 fontFamily = RobotoFamily,
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // D-532: the one-line description design language.
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
         if (trailingText != null) {
