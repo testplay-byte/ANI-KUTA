@@ -24,6 +24,7 @@ dependencies {
     implementation(project(":core:preferences"))
     implementation(project(":core:watch-progress"))  // SAME provider-agnostic store as the aniyomi screen
     implementation(project(":core:ratings"))         // Task 54: the watch page's per-episode star rating (same store, same keys)
+    implementation(project(":core:download"))        // D-539: the offline DASH entry + downloaded-episode switching
     implementation(project(":data:cloudstream"))     // CloudstreamLinkResolver (Phase C)
 
     // Media3 — the engine types flow through :core:cs-player's public surface

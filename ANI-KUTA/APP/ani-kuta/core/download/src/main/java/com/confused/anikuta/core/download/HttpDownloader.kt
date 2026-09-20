@@ -37,6 +37,12 @@ class HttpDownloader(
     /** The parallel byte-range engine (multi-connection, per-chunk retry + backoff). */
     private val parallelFetcher: ParallelHttpFetcher,
     /**
+     * D-539: the DASH pipeline (manifest + segments into the offline cache).
+     * Null in test contexts — a DASH task then falls through to the generic
+     * fetcher and fails validation with an honest error, as before.
+     */
+    private val dashDownloader: DashDownloader? = null,
+    /**
      * D-242: The content repository — used to re-fetch the canonical content
      * metadata (FK fields, description, anilistId, etc.) before writing
      * `.data.json`. The `download_queue` table doesn't store these fields
@@ -78,6 +84,16 @@ class HttpDownloader(
             }
         }
 
+        // ── D-539: the DASH branch — manifest + segments into the offline
+        // cache, a self-contained pipeline (the file steps below — temp
+        // validate, SAF publish of a VIDEO file, csdash-free .data.json — do
+        // not apply to a manifest download).
+        if (VideoTypeDetector.detect(task.videoUrl) == VideoTypeDetector.VideoType.DASH) {
+            val dash = dashDownloader
+                ?: throw DownloadException("DASH downloads are not available in this build")
+            return@withContext dash.download(task, onProgress)
+        }
+
         val ext = extractExtension(task.videoUrl)
         val tempVideo = tempCache.getTempVideoFile(task.id, ext)
 
@@ -96,7 +112,10 @@ class HttpDownloader(
             validateDownloadedFile(task.videoUrl, tempVideo)
             emitPhaseProgress(onProgress, downloadedBytes, 96)
 
-            // 3. HLS playlist re-detection (small file starting with #EXTM3U).
+            // 3. HLS playlist re-detection (small file starting with #EXTM3U)
+            // + D-539: DASH manifest re-detection (small file that is an XML
+            // MPD — a manifest URL with no .mpd extension lands here after
+            // the generic fetcher grabs its bytes).
             if (tempVideo.length() < HLS_REDETECT_THRESHOLD && isHlsPlaylist(tempVideo)) {
                 DownloadLogger.i {
                     "Downloaded file is an HLS playlist (${tempVideo.length()} bytes) — " +
@@ -110,6 +129,12 @@ class HttpDownloader(
                     taskId = task.id,
                     onProgress = onProgress,
                 )
+            } else if (tempVideo.length() < HLS_REDETECT_THRESHOLD && isDashManifest(tempVideo)) {
+                tempVideo.delete()
+                tempCache.cleanupTask(task.id, preserveForResume = true)
+                val dash = dashDownloader
+                    ?: throw DownloadException("DASH downloads are not available in this build")
+                return@withContext dash.download(task, onProgress)
             }
 
             // 4. Download subtitles to the temp cache (best-effort).
@@ -279,6 +304,25 @@ class HttpDownloader(
         tempFile.inputStream().bufferedReader().use { reader ->
             val firstLine = reader.readLine() ?: ""
             firstLine.trimStart().startsWith("#EXTM3U", ignoreCase = true)
+        }
+    } catch (e: Exception) {
+        false
+    }
+
+    /**
+     * D-539: returns true when [tempFile] looks like a DASH MPD (an XML doc
+     * whose root element is MPD — checked within the first KBs so an error
+     * page never matches).
+     */
+    private fun isDashManifest(tempFile: File): Boolean = try {
+        tempFile.inputStream().use { input ->
+            val head = ByteArray(4096)
+            val read = input.read(head)
+            if (read <= 0) false else {
+                val headStr = String(head, 0, read)
+                val xmlStart = headStr.indexOf("<MPD")
+                xmlStart >= 0 || headStr.contains("urn:mpeg:dash:schema", ignoreCase = true)
+            }
         }
     } catch (e: Exception) {
         false

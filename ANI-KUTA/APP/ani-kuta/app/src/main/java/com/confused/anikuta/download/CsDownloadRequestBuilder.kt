@@ -19,8 +19,9 @@ import com.confused.anikuta.core.download.TrackKind
  * is the ONLY CS-specific translation layer:
  *
  *  - [CsVideoLink.url] → [DownloadRequest.videoUrl] (TORRENT/MAGNET links
- *    never reach here — the resolver hides + counts them; DASH links are
- *    filtered by the CS resolve sheet's download mode).
+ *    never reach here — the resolver hides + counts them; DASH links ARE
+ *    downloadable since D-539 — the DashDownloader caches manifest +
+ *    segments into the offline SimpleCache).
  *  - [CsVideoLink.allHeaders] (referer + UA + provider headers, already
  *    merged) → the MPV `http-header-fields` STRING format the engine's
  *    DownloadHeaderParser consumes (comma-separated "Key: Value" pairs —

@@ -103,6 +103,13 @@ data class ContentDataJson(
     val animeUrl: String? = null,
     @SerialName("displaySource")
     val displaySource: String = "extension",
+    /**
+     * D-539: the CloudStream provider name when the content came from a CS
+     * bridge (null for aniyomi sources) — the durable store self-describes
+     * its ecosystem, which the D-540 translation layer verifies on load.
+     */
+    @SerialName("providerName")
+    val providerName: String? = null,
     @SerialName("coverUrl")
     val coverUrl: String? = null,
     @SerialName("anilistId")
@@ -208,4 +215,13 @@ data class DownloadedEpisodeInfo(
     val downloadedAt: Long,
     @SerialName("fileSize")
     val fileSize: Long? = null,
+    /**
+     * D-539: the DASH offline-cache marker — when set, this episode has NO
+     * published video file; its media lives in the app-private SimpleCache
+     * under the manifest URL ([videoUri] is null, the DB row's uri is
+     * reconstructed as `csdash:<dashManifestUrl>`). The scanner uses this to
+     * skip the video-file verification for cache episodes.
+     */
+    @SerialName("dashManifestUrl")
+    val dashManifestUrl: String? = null,
 )

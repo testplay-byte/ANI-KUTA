@@ -67,6 +67,13 @@ interface DownloadManager {
     fun getDownloadedEpisodeUri(mainId: String, episodeKey: String): String?
 
     /**
+     * D-539: whether this downloaded episode is a DASH-cache artifact — its
+     * media lives in the app-private SimpleCache (marker uri `csdash:<manifestUrl>`)
+     * and offline playback must route to the CS player, NOT the MPV file player.
+     */
+    fun isDownloadedEpisodeDash(mainId: String, episodeKey: String): Boolean
+
+    /**
      * Deletes a downloaded episode (video + subtitles + `.data.json` entry +
      * DB row). If it was the LAST downloaded episode of the anime, the whole
      * series folder is removed too (D-392 — see

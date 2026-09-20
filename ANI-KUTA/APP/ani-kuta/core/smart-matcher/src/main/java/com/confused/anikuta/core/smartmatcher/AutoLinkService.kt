@@ -52,6 +52,17 @@ class AutoLinkService(
             return@withContext AutoLinkResult.Skipped("Auto-link disabled for this source")
         }
 
+        // 1b. D-538: the persisted per-entry skip — the user explicitly tapped
+        // "Skip AniList link" for THIS entry in a previous session. Returning
+        // Skipped (the silent result — AutoLinkPopup hides for it) prevents
+        // BOTH the network search AND the NoMatch → manual-sheet auto-pop.
+        // The flag clears on a manual link/unlink (a deliberate link-cycle
+        // decision re-enables auto-linking for the entry).
+        if (preferences.isUserSkipped(sourceId, animeUrl)) {
+            Logger.i(TAG) { "User skipped linking for ($sourceId, $animeUrl) → skip (D-538)" }
+            return@withContext AutoLinkResult.Skipped("User skipped linking for this content")
+        }
+
         // 2. Cache check
         val cachedId = preferences.getCachedAniListId(sourceId, animeUrl)
         if (cachedId > 0) {
@@ -126,5 +137,25 @@ class AutoLinkService(
     fun clearCachedLink(sourceId: Long, animeUrl: String) {
         preferences.clearCachedAniListId(sourceId, animeUrl)
         Logger.i(TAG) { "Cleared cached link: ($sourceId, $animeUrl)" }
+    }
+
+    /**
+     * D-538: Persist the user's explicit "Skip AniList link" decision for an
+     * entry — the forward auto-link will never re-attempt for it (and the
+     * manual-link sheet will never auto-pop) until a manual link/unlink
+     * clears the flag.
+     */
+    fun markUserSkipped(sourceId: Long, animeUrl: String) {
+        preferences.markUserSkipped(sourceId, animeUrl)
+        Logger.i(TAG) { "Marked user-skipped: ($sourceId, $animeUrl)" }
+    }
+
+    /**
+     * D-538: Clear the persisted skip flag (a manual link/unlink re-enables
+     * auto-linking for the entry).
+     */
+    fun clearUserSkipped(sourceId: Long, animeUrl: String) {
+        preferences.clearUserSkipped(sourceId, animeUrl)
+        Logger.i(TAG) { "Cleared user-skipped: ($sourceId, $animeUrl)" }
     }
 }

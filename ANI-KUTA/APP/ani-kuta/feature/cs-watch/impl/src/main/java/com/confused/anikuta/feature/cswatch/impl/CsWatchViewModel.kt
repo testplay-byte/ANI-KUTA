@@ -38,6 +38,12 @@ class CsWatchViewModel(
     private val sourceMemory: com.confused.anikuta.data.cloudstream.playback.CsSourceMemory,
     /** Task 55: the sub/dub display mode (episode switching resolves sibling handles in COMBINED). */
     private val episodeListPreferences: com.confused.anikuta.core.preferences.EpisodeListPreferences,
+    /**
+     * D-539: the download manager — offline DASH entry + episode switching
+     * prefers the offline cache for downloaded targets (binge-watching a
+     * downloaded season never touches the network).
+     */
+    private val downloadManager: com.confused.anikuta.core.download.DownloadManager,
 ) : ViewModel() {
 
     companion object {
@@ -100,6 +106,14 @@ class CsWatchViewModel(
          *  through the whole season). */
         val playKeepPosition: Boolean = false,
         val resumePositionMs: Long = 0L,
+        /**
+         * D-539: the OFFLINE play request — non-null means the screen's play
+         * trigger calls engine.startOfflineDash(manifestUrl, …) instead of
+         * engine.start(link). Null = a normal online play request.
+         */
+        val playOfflineManifestUrl: String? = null,
+        /** D-539: the cached representation's height pin for the offline load (null = no pin). */
+        val playOfflineMaxVideoHeight: Int? = null,
     )
 
     private val _uiState = MutableStateFlow(CsWatchUiState())
@@ -221,6 +235,30 @@ class CsWatchViewModel(
             return
         }
         pendingSeed = null
+        // ── D-539: the OFFLINE entry — a downloaded DASH episode skips
+        // resolution entirely; the engine plays from the offline cache.
+        if (key.offlineManifestUrl != null) {
+            when {
+                currentKey == key -> {
+                    // New composition = new engine; re-request the offline play
+                    // with a FRESH resume lookup (the online re-entry pattern).
+                    Logger.i(TAG) { "re-entry: same OFFLINE episode — re-requesting play with fresh resume" }
+                    viewModelScope.launch {
+                        val gen = _uiState.value.resolveGeneration
+                        val resumeMs = lookupResumePositionMs()
+                        if (_uiState.value.resolveGeneration == gen && currentKey == key) {
+                            requestPlayOffline(
+                                key.offlineManifestUrl ?: return@launch,
+                                resumeMs,
+                                maxHeightForOffline(key),
+                            )
+                        }
+                    }
+                }
+                else -> startOfflinePlayback(key)
+            }
+            return
+        }
         when {
             currentKey == null -> seedAndResolve(key)
             currentKey == key -> {
@@ -358,6 +396,104 @@ class CsWatchViewModel(
             episodeMetadata = key.parseEpisodeMetadata(),
         )
         startResolution(key)
+    }
+
+    // ── D-539: the OFFLINE (downloaded DASH) playback path ───────────────────
+
+    /**
+     * Opens a DOWNLOADED DASH episode straight from the offline cache — no
+     * resolution, no network (the phase goes straight to PLAYING). The
+     * episode list still comes from the key, so the sheet + switching work;
+     * switching to a NON-downloaded episode falls back to online resolution.
+     */
+    private fun startOfflinePlayback(key: CsWatchKey) {
+        resolveJob?.cancel()
+        resolveJob = null
+        currentKey = key
+        flavorOrdinals = com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings
+            .flavorOrdinals(key.parseEpisodeList())
+        observeProgress(key.mainId)
+        val manifestUrl = key.offlineManifestUrl ?: return
+        val generation = _uiState.value.resolveGeneration + 1
+        Logger.i(TAG) {
+            "open OFFLINE: '${key.animeTitle}' EP ${key.episodeNumber} " +
+                "manifest=${manifestUrl.take(72)} gen=$generation — skipping resolve"
+        }
+        _uiState.value = CsWatchUiState(
+            animeTitle = key.animeTitle,
+            providerName = key.providerName,
+            episodeNumber = key.episodeNumber,
+            episodeTitle = key.episodeTitle,
+            episodes = key.parseEpisodeList(),
+            episodeMetadata = key.parseEpisodeMetadata(),
+            resolveGeneration = generation,
+            engineResetTick = _uiState.value.engineResetTick + 1,
+        )
+        viewModelScope.launch {
+            val resumeMs = if (key.startPosition > 0) key.startPosition else lookupResumePositionMs()
+            if (_uiState.value.resolveGeneration == generation && currentKey == key) {
+                _uiState.value = _uiState.value.copy(subtitles = resolveOfflineSubtitles(key))
+                requestPlayOffline(manifestUrl, resumeMs, maxHeightForOffline(key))
+            }
+        }
+    }
+
+    /** Requests an offline engine load (the online requestPlay mirror). */
+    private fun requestPlayOffline(manifestUrl: String, startPositionMs: Long, maxHeight: Int?) {
+        val state = _uiState.value
+        Logger.i(TAG) {
+            "play request OFFLINE: id=${state.playRequestId + 1} generation=${state.resolveGeneration} " +
+                "manifest=${manifestUrl.take(72)} resumeMs=$startPositionMs maxVideoHeight=$maxHeight"
+        }
+        _uiState.value = state.copy(
+            phase = Phase.PLAYING,
+            currentLink = null,
+            playRequestId = state.playRequestId + 1,
+            playGeneration = state.resolveGeneration,
+            playLink = null,
+            playStartPositionMs = startPositionMs,
+            playIsResume = startPositionMs > 0,
+            playKeepPosition = false,
+            playOfflineManifestUrl = manifestUrl,
+            playOfflineMaxVideoHeight = maxHeight,
+        )
+    }
+
+    /**
+     * The cached representation's height (the offline track pin) — read from
+     * the downloaded row's quality label; null when unknown (no pin: the
+     * manifest usually carries one video rep per downloaded episode anyway).
+     */
+    private fun maxHeightForOffline(key: CsWatchKey): Int? = runCatching {
+        if (key.mainId.isBlank()) return null
+        val quality = downloadManager.getDownloadedEpisodes().value
+            .firstOrNull { it.content.mainId == key.mainId && it.episode.episodeKey == key.episodeData }
+            ?.quality
+            ?: return null
+        // The CsQuality scale: digits from the label ("1080p" → 1080).
+        quality.filter { it.isDigit() }.toIntOrNull()
+            ?.takeIf { it in 100..4320 }
+    }.getOrNull()
+
+    /**
+     * D-539: the downloaded episode's SIDEcar subtitles — the same D-407
+     * shared resolution every playback path uses (DB first, the subtitles/
+     * folder scan as the fallback), mapped into the overlay's CsSubtitle
+     * shape. The fetcher's content:// branch reads the SAF documents.
+     */
+    private suspend fun resolveOfflineSubtitles(key: CsWatchKey): List<CsSubtitle> = runCatching {
+        if (key.mainId.isBlank()) return emptyList()
+        downloadManager.resolveSubtitleTracks(key.mainId, key.episodeNumber.toInt()).map { track ->
+            CsSubtitle(
+                name = track.label,
+                url = track.uri,
+                mimeType = "application/x-subrip",
+                displayName = track.label,
+            )
+        }
+    }.getOrElse { e ->
+        Logger.w(TAG) { "offline subtitle resolution failed: ${e.message}" }
+        emptyList()
     }
 
     // ── Resolution ────────────────────────────────────────────────────────────
@@ -559,6 +695,13 @@ class CsWatchViewModel(
             playStartPositionMs = startPositionMs,
             playIsResume = isResume,
             playKeepPosition = keepPosition,
+            // D-539 (review blocker 3): an ONLINE play request must CLEAR the
+            // offline fields — the screen's trigger gives playOfflineManifestUrl
+            // priority, so a stale offline request from a previous episode would
+            // play the WRONG media under the new episode's UI (and save its
+            // progress under the new key).
+            playOfflineManifestUrl = null,
+            playOfflineMaxVideoHeight = null,
         )
     }
 
@@ -672,16 +815,44 @@ class CsWatchViewModel(
         preferredFlavor = _uiState.value.episodes
             .firstOrNull { it.data == episode.data }
             ?.let { com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings.tagOf(it.name) }
+        // ── D-539: prefer the OFFLINE cache for a downloaded target — a
+        // downloaded episode always plays from the cache (online session or
+        // offline one), and a non-downloaded target keeps the online path.
+        val targetManifest = runCatching {
+            if (key.mainId.isNotBlank() && downloadManager.isEpisodeDownloaded(key.mainId, episode.data)) {
+                com.confused.anikuta.core.common.DashCacheKeys.manifestUrlFromUri(
+                    downloadManager.getDownloadedEpisodeUri(key.mainId, episode.data),
+                )
+            } else null
+        }.getOrNull()
         currentKey = key.copy(
             episodeData = episode.data,
             episodeNumber = episode.episodeNumber,
             episodeTitle = episode.name,
+            offlineManifestUrl = targetManifest,
         )
         _uiState.value = _uiState.value.copy(
             episodeNumber = episode.episodeNumber,
             episodeTitle = episode.name,
         )
-        startResolution(currentKey!!)
+        if (targetManifest != null) {
+            Logger.i(TAG) { "switching to EP ${episode.episodeNumber} OFFLINE (cached)" }
+            // D-539 (review risk 7): the switch carries its own generation —
+            // fast A→B switches must land the LATEST request (the same guard
+            // class the resolution flow uses), never A's cache under B's UI.
+            val generation = _uiState.value.resolveGeneration + 1
+            _uiState.value = _uiState.value.copy(resolveGeneration = generation)
+            val switchKey = currentKey!!
+            viewModelScope.launch {
+                val subs = resolveOfflineSubtitles(switchKey)
+                if (_uiState.value.resolveGeneration == generation && currentKey == switchKey) {
+                    _uiState.value = _uiState.value.copy(subtitles = subs)
+                    requestPlayOffline(targetManifest, 0L, maxHeightForOffline(switchKey))
+                }
+            }
+        } else {
+            startResolution(currentKey!!)
+        }
     }
 
     /** Re-resolve from scratch (the error overlay's retry button). */

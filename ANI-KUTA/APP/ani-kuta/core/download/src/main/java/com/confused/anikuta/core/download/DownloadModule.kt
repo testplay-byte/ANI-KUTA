@@ -98,6 +98,28 @@ val downloadModule = module {
             reResolver = getOrNull<HttpDownloader.ReResolver>(),
         )
     }
+    // ── D-539: the DASH offline cache + downloader ───────────────────────
+    // ONE SimpleCache per process (a second instance over the same folder
+    // throws) — DashDownloader writes it, CsPlayerEngine.startOfflineDash
+    // reads it (the SAME instance is injected into :feature:cs-watch), and
+    // the delete path purges it per episode.
+    single<androidx.media3.datasource.cache.Cache> { DashCacheStore.provide(androidContext()) }
+    single {
+        DashDownloader(
+            // D-539: DASH manifest/segment fetches ride the CS RUNTIME's base
+            // client when it's on the graph — the same cookies + interceptors
+            // the working playback path uses (a resolve just succeeded for
+            // this content, so its clearance state is live in that client).
+            // The per-link flattened headers still ride via the DataSpec.
+            // The DOWNLOAD client is the fallback (tests / no-CS contexts).
+            client = getOrNull<OkHttpClient>(named("cloudstreamPlayback"))
+                ?: get<OkHttpClient>(HttpClientFactory.DOWNLOAD),
+            storage = get(),
+            tempCache = get(),
+            cache = get(),
+            contentRepository = get(),
+        )
+    }
     single {
         HttpDownloader(
             client = get<OkHttpClient>(HttpClientFactory.DOWNLOAD),
@@ -108,6 +130,8 @@ val downloadModule = module {
             preferences = get(),
             singleConnectionFetcher = get(),
             parallelFetcher = get(),
+            // D-539: the DASH pipeline rides the same facade contract.
+            dashDownloader = get(),
             // D-242: re-fetches canonical content metadata before writing .data.json
             // (fixes null FK fields — description, anilistId, sourceId, etc.).
             contentRepository = get(),
@@ -161,19 +185,23 @@ val downloadModule = module {
             },
         )
     }
-    single<DownloadManager> {
-        DefaultDownloadManager(
-            context = androidContext(),
-            queue = get(),
-            store = get(),
-            storage = get(),
-            scanner = get(),
-            preferences = get(),
-            notifier = get(),
-            activityTracker = get(),
-            scope = get(named("downloadScope")),
-        )
-    }
+    // D-540: the manager is ONE instance serving TWO interfaces — the
+    // concrete-type binding keeps both resolutions on the same object
+    // (ContentResolver's identity-sync hook resolves it as ContentIdentitySync).
+    single { DefaultDownloadManager(
+        context = androidContext(),
+        queue = get(),
+        store = get(),
+        storage = get(),
+        scanner = get(),
+        preferences = get(),
+        notifier = get(),
+        activityTracker = get(),
+        dashCache = get(),
+        scope = get(named("downloadScope")),
+    ) }
+    single<DownloadManager> { get<DefaultDownloadManager>() }
+    single<com.confused.anikuta.core.content.ContentIdentitySync> { get<DefaultDownloadManager>() }
 }
 
 // ── Module-private helpers ──────────────────────────────────────────────────

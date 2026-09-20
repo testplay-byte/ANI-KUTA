@@ -43,7 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.Logger
-import com.confused.anikuta.core.csplayer.CsLinkType
 import com.confused.anikuta.core.csplayer.CsSubtitle
 import com.confused.anikuta.core.csplayer.CsVideoLink
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -396,14 +395,13 @@ fun CsResolveSheet(
             }
 
             // ── Content states (ResolverSheet parity wording) ──
-            // Task 58 (round 18 — downloads): DASH manifests are NOT
-            // downloadable (the engine supports HTTP + HLS; VideoTypeDetector
-            // has no DASH path) — filtered out of the PICKABLE list BEFORE the
-            // state checks, so an all-DASH resolve lands in the empty card
-            // instead of a silent blank accordion. Play mode: pickable == links.
-            val pickableLinks = if (downloadMode) {
-                links.filter { it.type != CsLinkType.DASH }
-            } else links
+            // D-539: the DASH download filter is GONE — DASH links are
+            // downloadable now (the DashDownloader caches manifest + segments
+            // into the offline cache and the CS player plays them back).
+            // Play and download share the same pickable list; only genuinely
+            // undownloadable manifests (DRM) fail later with an honest
+            // per-task error in the queue.
+            val pickableLinks = links
             when {
                 // Error, nothing to show — the aniyomi ResolverSheet Error card.
                 failure != null && pickableLinks.isEmpty() -> CsSheetErrorCard(
@@ -438,7 +436,6 @@ fun CsResolveSheet(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    val dashOnlyCount = if (downloadMode) links.count { it.type == CsLinkType.DASH } else 0
                     Text(
                         text = if (downloadMode) "No downloadable sources" else "No video sources available",
                         fontFamily = RobotoFamily,
@@ -451,9 +448,7 @@ fun CsResolveSheet(
                     Text(
                         text = buildString {
                             append(
-                                if (downloadMode && dashOnlyCount > 0) {
-                                    "Only DASH streams were found for this episode"
-                                } else if (downloadMode) {
+                                if (downloadMode) {
                                     "The provider returned no downloadable links"
                                 } else {
                                     "The provider returned no playable links"
@@ -462,9 +457,6 @@ fun CsResolveSheet(
                             failure?.let { append("\n$it") }
                             if (hiddenCount > 0) append("\n$hiddenCount torrent link(s) hidden")
                             if (drmCount > 0) append("\n$drmCount DRM link(s) unsupported")
-                            if (downloadMode && dashOnlyCount > 0) {
-                                append("\n${dashOnlyCount} DASH stream(s) — stream them instead")
-                            }
                         },
                         fontFamily = RobotoFamily,
                         fontSize = 12.sp,
@@ -481,7 +473,6 @@ fun CsResolveSheet(
 
                 // ── The source list (live-updating) ──
                 else -> {
-                    val dashCount = links.size - pickableLinks.size
                     if (formatted) {
                         // Server → AudioVersion → Quality (the aniyomi 3-tier).
                         val servers = remember(pickableLinks) { groupServers(pickableLinks) }
@@ -500,15 +491,6 @@ fun CsResolveSheet(
                         CsRawLinkList(
                             links = pickableLinks,
                             onPickVideo = { link -> pick(link) },
-                        )
-                    }
-                    if (dashCount > 0) {
-                        Text(
-                            text = "$dashCount DASH stream(s) can't be downloaded (stream them instead)",
-                            fontFamily = RobotoFamily,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                         )
                     }
                     if (!completed) {

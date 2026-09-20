@@ -24,7 +24,7 @@ HttpDownloader.download(task, onProgress)
   │                   │
   │                   └── VideoTypeDetector.detect(url, response) inside the response:
   │                         ├── HLS_STREAM (Content-Type) → delegate to hlsDownloader
-  │                         ├── DASH_STREAM → reject (needs ffmpeg)
+  │                         ├── DASH → DashDownloader (D-539: manifest+segments → the offline SimpleCache)
   │                         ├── HTML_PAGE → reject (resolver bug)
   │                         └── DIRECT_VIDEO → stream to file
   │
@@ -48,7 +48,7 @@ object VideoTypeDetector {
     enum class VideoType {
         DIRECT_VIDEO,   // mp4/mkv/webm/m4v/ts/mov/avi — stream to disk
         HLS_STREAM,     // .m3u8 — needs HlsDownloader
-        DASH_STREAM,    // .mpd — needs ffmpeg (NOT supported, rejected)
+        DASH,           // .mpd — D-539: downloadable via DashDownloader (the offline cache)
         HTML_PAGE,      // watch-page URL (resolver bug)
         UNKNOWN,        // generic — treated as DIRECT_VIDEO
     }
@@ -65,7 +65,7 @@ object VideoTypeDetector {
 Inspects the URL extension (lowercase, query-stripped):
 - `mp4, mkv, webm, m4v, mov, avi, ts` → `DIRECT_VIDEO`
 - `m3u8, m3u` → `HLS_STREAM`
-- `mpd` → `DASH_STREAM`
+- `mpd` → `DASH` (D-539 — routed to DashDownloader)
 - `html, htm, php, asp, aspx, jsp` → `HTML_PAGE`
 - else → `UNKNOWN`
 
@@ -74,7 +74,7 @@ Inspects the URL extension (lowercase, query-stripped):
 Priority: Content-Type > URL extension.
 1. If `Content-Type` contains `html` → `HTML_PAGE`
 2. If `Content-Type` contains `mpegurl` or `m3u8` → `HLS_STREAM`
-3. If `Content-Type` contains `dash+xml` or `mpd` → `DASH_STREAM`
+3. If `Content-Type` contains `dash+xml` (or the URL carries `.mpd`) → `DASH` (D-539)
 4. If `Content-Type` starts with `video/` → `DIRECT_VIDEO`
 5. Fallback to URL extension (`detectFromUrl`). Honor HLS/DASH/HTML from URL even with a generic Content-Type.
 6. **UNKNOWN → treated as DIRECT_VIDEO** (downloadable). The file-size + magic-byte checks downstream catch corrupt/error downloads.
@@ -424,7 +424,7 @@ For HLS downloads, replace the chunked step with: fetch playlist → parse → l
 > The OLD project's 3 engines (HTTP / HLS / Advanced — documented in §§1-10 above) are the baseline. The NEW project must:
 > 1. Keep all 3 engines (HTTP, HLS, Advanced) — they handle different URL types.
 > 2. **Fix the smooth-progress bug** — the user complained about "jumping from 90% to 100%". The OLD `DynamicProgressTracker` caps at 90% during download, then jumps to 100% on completion. The NEW design uses a **moving average** + byte-count-based progress for ALL engines (including HLS — see §11.2).
-> 3. **Modular architecture** — the 3 engines share a common `Downloader` interface, each in its own file. Easy to add a 4th engine (e.g. DASH via ffmpeg) later.
+> 3. **Modular architecture** — DRIFT FIX (round 57): there is NO common `Downloader` interface — `HttpDownloader` is the FACADE (routing/validation/publish/.data.json), the only byte-transfer interface is `VideoFetcher`, and the pipelines are HlsDownloader + DashDownloader (D-539) routed from the facade. Adding a 4th = a new branch in HttpDownloader.download.
 > 4. **Integrate the proxy-churn fix** — the HTTP engine's `downloadNormal` catches `IOException` for localhost URLs and re-resolves via `ReResolver` (see `10-player-integration.md` §14).
 > 5. **Per-segment retry for HLS** — the OLD project fails the whole download on one bad segment. The NEW project retries each segment up to 3 times.
 

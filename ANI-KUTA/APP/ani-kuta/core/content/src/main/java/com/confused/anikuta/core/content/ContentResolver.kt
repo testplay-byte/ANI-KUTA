@@ -5,6 +5,37 @@ import com.confused.anikuta.core.database.AnikutaDatabase
 import java.util.UUID
 
 /**
+ * D-540: the link-switch reconciliation hook — fired whenever a content's
+ * source identity changes ([linkExtensionToExisting] / [unlinkAniList] commit
+ * a regenerated contentId). Implemented by `:core:download`
+ * (DefaultDownloadManager): it syncs the `downloaded_episode` /
+ * `download_queue` rows' content_id (the two previously-DEAD update queries)
+ * and rewrites the durable `.data.json` identity block, so downloads stay
+ * truthfully linked across the CloudStream ↔ aniyomi (and future) source
+ * switches. NON-suspend by contract (the caller is a plain transaction
+ * method): the implementation owns its threading (a background launch).
+ * Nullable — test contexts skip the reconciliation.
+ */
+fun interface ContentIdentitySync {
+    fun onContentIdentityChanged(mainId: String, newContentId: String)
+}
+
+/**
+ * D-540: the CloudStream synthetic-source-id flag (bit 62) — the SAME marker
+ * data:cloudstream's `CsSourceIds.CS_SOURCE_ID_FLAG` mints bridge ids with.
+ * Duplicated here (one documented constant, no module edge) so the content
+ * layer can classify an entry's ECOSYSTEM from its extension_id alone: a
+ * flagged id means CloudStream-bridged, anything else means aniyomi-format.
+ * If either side changes the scheme, the doc comments on both constants
+ * point at each other.
+ */
+const val CLOUDSTREAM_SOURCE_ID_FLAG: Long = 0x4000_0000_0000_0000L
+
+/** True when [extensionId] is a CloudStream-bridged synthetic source id (see [CLOUDSTREAM_SOURCE_ID_FLAG]). */
+fun Long?.isCloudstreamBridgedId(): Boolean =
+    this != null && (this and CLOUDSTREAM_SOURCE_ID_FLAG) != 0L
+
+/**
  * Resolves external IDs (anilistId, sourceId+animeUrl) to the internal mainId.
  *
  * - If a main_entry record exists for the given ID → return its mainId.
@@ -23,6 +54,8 @@ import java.util.UUID
 class ContentResolver(
     private val repo: ContentRepository,
     private val database: AnikutaDatabase,
+    /** D-540: the download-side reconciliation hook (null in tests). */
+    private val identitySync: ContentIdentitySync? = null,
 ) {
 
     companion object {
@@ -329,7 +362,15 @@ class ContentResolver(
     ) {
         Logger.i(TAG) { "Linking extension to existing content: mainId=$mainId, extensionId=$extensionId" }
         val existing = repo.getMainEntryByMainId(mainId) ?: return
-        val system = repo.getSystemByName("aniyomi")
+        // ── D-540: ECOSYSTEM TRUTH — the system row follows the extension
+        // identity, not a hardcoded "aniyomi". A CloudStream-bridged source
+        // (bit-62 synthetic id) records system="cloudstream"; everything else
+        // stays "aniyomi". Previously CS content was labelled aniyomi (the
+        // seeded cloudstream system row was never used), which made the
+        // durable metadata lie about its own ecosystem.
+        val isCloudstream = extensionId.isCloudstreamBridgedId()
+        val ecosystemName = if (isCloudstream) "cloudstream" else "aniyomi"
+        val system = repo.getSystemByName(ecosystemName)
         val now = System.currentTimeMillis()
         val existingDetails = repo.getContentDetails(mainId)
 
@@ -337,7 +378,7 @@ class ContentResolver(
             // Regenerate contentId with the extension info.
             val newContentId = ContentIdGenerator.generate(
                 dataSource = if (existing.dataSourceId != null) "anilist" else null,
-                system = "aniyomi",
+                system = ecosystemName,
                 repoUrl = null,
                 extensionPkg = null,
                 sourceId = sourceId,
@@ -346,7 +387,10 @@ class ContentResolver(
             repo.updateMainEntrySources(
                 mainId = mainId,
                 dataSourceId = existing.dataSourceId,
-                systemId = existing.systemId ?: system?.id,
+                // D-540: the NEW ecosystem's system row wins (a CS→aniyomi or
+                // aniyomi→CS switch must move the system linkage, not keep
+                // whichever row was there first).
+                systemId = system?.id ?: existing.systemId,
                 extensionRepoId = existing.extensionRepoId,
                 extensionId = extensionId,
                 sourceId = sourceId,
@@ -372,7 +416,7 @@ class ContentResolver(
                 repo.updateExtensionAxis(
                     extensionDetail.copy(
                         mainId = mainId,
-                        extensionType = extensionDetail.extensionType ?: "aniyomi",
+                        extensionType = extensionDetail.extensionType ?: ecosystemName,
                         extensionId = extensionDetail.extensionId ?: extensionId.toString(),
                         sourceId = extensionDetail.sourceId ?: sourceId,
                         animeUrl = extensionDetail.animeUrl ?: animeUrl,
@@ -380,6 +424,15 @@ class ContentResolver(
                     ),
                 )
             }
+        }
+        // ── D-540: the reconciliation hook — downloads follow the identity
+        // change (downloaded_episode/download_queue content_id sync + the
+        // durable .data.json identity-block rewrite). Suspended, off the
+        // transaction; a failure is logged, never fatal to the link.
+        val newContentIdForSync = repo.getMainEntryByMainId(mainId)?.contentId
+        if (newContentIdForSync != null) {
+            runCatching { identitySync?.onContentIdentityChanged(mainId, newContentIdForSync) }
+                .onFailure { Logger.w(TAG) { "identity sync failed for $mainId: ${it.message}" } }
         }
     }
 
@@ -407,7 +460,10 @@ class ContentResolver(
 
             val newContentId = ContentIdGenerator.generate(
                 dataSource = null,
-                system = existing.systemId?.let { "aniyomi" },
+                // D-540: the content's own ecosystem (CS-bridged extension_id
+                // → "cloudstream"), not a hardcoded "aniyomi".
+                system = if (existing.extensionId.isCloudstreamBridgedId()) "cloudstream"
+                else existing.systemId?.let { "aniyomi" },
                 repoUrl = null,
                 extensionPkg = null,
                 sourceId = existing.sourceId,

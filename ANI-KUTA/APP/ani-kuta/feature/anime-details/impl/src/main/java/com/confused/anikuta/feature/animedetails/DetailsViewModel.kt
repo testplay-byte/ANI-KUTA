@@ -8,6 +8,7 @@ import com.confused.anikuta.core.anilist.provider.AniListDetailsProvider
 import com.confused.anikuta.core.anilist.provider.toUnifiedAnime
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.common.model.UnifiedAnime
+import com.confused.anikuta.core.content.isCloudstreamBridgedId
 import com.confused.anikuta.core.preferences.AutoLinkPreferences
 import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.core.smartmatcher.AutoLinkResult
@@ -2152,6 +2153,13 @@ class DetailsViewModel(
         unifiedAnime: UnifiedAnime? = null,
     ) {
         try {
+            // ── D-540: ECOSYSTEM TRUTH — the extension axis records the REAL
+            // ecosystem: a bit-62 synthetic id means a CloudStream-bridged
+            // source (extensionType/system "cloudstream"), anything else is
+            // aniyomi-format. Previously every path hardcoded "aniyomi", so
+            // CS content's durable metadata lied about its own ecosystem.
+            val ecosystemName = if (sourceId.isCloudstreamBridgedId()) "cloudstream" else "aniyomi"
+
             // D-137: Check auto-link cache first.
             val cachedAniListId = autoLinkPreferences.getCachedAniListId(sourceId, animeUrl)
             if (cachedAniListId > 0) {
@@ -2165,7 +2173,7 @@ class DetailsViewModel(
                     if (unifiedAnime != null) {
                         val extensionDetail = com.confused.anikuta.core.content.ContentDetails(
                             mainId = existingContent.mainId,
-                            extensionType = "aniyomi",
+                            extensionType = ecosystemName,
                             extensionId = sourceId.toString(),
                             sourceId = sourceId,
                             animeUrl = animeUrl,
@@ -2212,7 +2220,7 @@ class DetailsViewModel(
                 sourceId = sourceId,
                 animeUrl = animeUrl,
                 title = title,
-                systemName = "aniyomi",
+                systemName = ecosystemName,
                 repoUrl = null,
                 extensionPkg = null,
             )
@@ -2228,7 +2236,7 @@ class DetailsViewModel(
                 contentRepository.updateExtensionAxis(
                     com.confused.anikuta.core.content.ContentDetails(
                         mainId = mainId,
-                        extensionType = "aniyomi",
+                        extensionType = ecosystemName,
                         extensionId = sourceId.toString(),
                         sourceId = sourceId,
                         animeUrl = animeUrl,
@@ -2779,6 +2787,9 @@ class DetailsViewModel(
 
         Logger.i(TAG) { "Manually linking extension entry to anilistId=$anilistId" }
         autoLinkService.cacheManualLink(sourceId, animeUrl, anilistId)
+        // D-538: a manual link is a deliberate link-cycle decision — clear the
+        // persisted skip flag so a future unlink cycle re-enables auto-linking.
+        autoLinkService.clearUserSkipped(sourceId, animeUrl)
         // D-199: Save the source link so loadLinkedSource() can find the extension
         // source when reopening from Library. Without this, the Library open path
         // reads KEY_SOURCE_LINK_PREFIX + anilistId → empty → source not found →
@@ -2795,9 +2806,25 @@ class DetailsViewModel(
 
     /**
      * User skipped the manual link sheet — proceed without linking.
+     *
+     * D-538: the skip is now PERSISTENT per entry (sourceId, animeUrl) — the
+     * device round's "when I go back to the library page and open that content
+     * again, it retries automatically to link it" report. The forward
+     * auto-link returns Skipped for this entry forever (no network search, no
+     * NoMatch sheet auto-pop) until the user manually links or unlinks it
+     * (both clear the flag). The sheet stays reachable from the three-dot
+     * menu (openManualLinkSheet never consults this flag).
      */
     fun skipAniListLink() {
         Logger.i(TAG) { "User skipped AniList link" }
+        val anime = (_state.value as? DetailsState.Success)?.anime
+        val sourceId = anime?.sourceId
+        val animeUrl = anime?.animeUrl
+        if (sourceId != null && animeUrl != null) {
+            autoLinkService.markUserSkipped(sourceId, animeUrl)
+        } else {
+            Logger.w(TAG) { "skipAniListLink: no (sourceId, animeUrl) identity — skip stays session-only" }
+        }
         _autoLinkState.value = AutoLinkState.Skipped("User skipped manual link")
         _anilistSearchState.value = AniListSearchState.Idle
         _showManualLinkSheet.value = false
@@ -2815,6 +2842,9 @@ class DetailsViewModel(
 
         Logger.i(TAG) { "Unlinking AniList entry: sourceId=$sourceId, url=$animeUrl, anilistId=$anilistId" }
         autoLinkService.clearCachedLink(sourceId, animeUrl)
+        // D-538: unlinking is a deliberate link-cycle decision — clear the
+        // persisted skip flag so the auto-link can attempt the entry again.
+        autoLinkService.clearUserSkipped(sourceId, animeUrl)
 
         // D-137: Persist the unlink in the content database.
         val mainId = currentMainId

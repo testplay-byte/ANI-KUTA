@@ -102,8 +102,11 @@ For a user who picked `AniKuta Downloads` as the root:
 AniKuta Downloads/                                    ← user-selected root (SAF tree URI)
 ├── video/                                            ← content FORMAT folder (video files)
 │   ├── Jujutsu Kaisen/                               ← content folder (human-readable title)
-│   │   ├── data.json                                 ← per-content metadata (the SOURCE OF TRUTH)
-│   │   ├── cover.jpg                                 ← cached cover image (optional)
+│   │   ├── .data.json                                ← per-content metadata (the SOURCE OF TRUTH — DOT-PREFIXED, real code)
+│   │   ├── .cover.jpg                                ← cached cover image (optional; DOT-PREFIXED)
+│   │   ├── .nomedia                                  ← gallery-index suppressor (DOT-PREFIXED)
+│   │   ├── episodes/                                 ← the episode FILES live here (real code)
+│   │   ├── subtitles/                                ← subtitle_E{5}_{lang}_{idx}.{ext} (real code)
 │   │   ├── Jujutsu Kaisen - E00001.mp4               ← episode file (5-digit padding, no AniList ID)
 │   │   ├── Jujutsu Kaisen - E00001.srt               ← episode subtitle (best-effort)
 │   │   ├── Jujutsu Kaisen - E00002.mp4
@@ -299,7 +302,7 @@ fun subtitleFileName(content: DownloadContentInfo, episode: DownloadEpisodeInfo,
 }
 ```
 
-**Examples:** `Jujutsu Kaisen - E00001.English.0.srt`, `Jujutsu Kaisen - E00001.Spanish.1.ass`.
+**Examples:** `subtitle_E00001_english_0.srt`, `subtitle_E00001_spanish_1.ass` (in `subtitles/`).
 
 Subtitles sit next to the video file (same folder). MPV auto-discovers external subs by filename proximity.
 
@@ -479,7 +482,7 @@ data class EpisodeEntry(
       "episodeNumber": 1.0,
       "episodeName": "Ryomen Sukuna",
       "videoFileName": "Jujutsu Kaisen - E00001.mp4",
-      "subtitleFileNames": ["Jujutsu Kaisen - E00001.English.0.srt"],
+      "subtitleUris": ["content://…/subtitles/subtitle_E00001_english_0.srt"],
       "quality": "1080p",
       "server": "Vidstreaming",
       "audio": "SUB",

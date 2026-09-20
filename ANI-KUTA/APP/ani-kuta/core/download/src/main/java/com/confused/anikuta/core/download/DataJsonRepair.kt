@@ -148,6 +148,12 @@ object DataJsonRepair {
                 audioVariant = row.videoAudio ?: matched?.audioVariant,
                 downloadedAt = row.completedAt,
                 fileSize = row.sizeBytes.takeIf { it > 0 } ?: matched?.fileSize,
+                // D-539 (review risk 4): the DASH cache marker MUST survive the
+                // rebuild — the scanner re-registers cache episodes from it (no
+                // video file exists to walk), so dropping it would turn every
+                // later delete/scan into anti-shrink churn and a reinstall into
+                // an unrecoverable download.
+                dashManifestUrl = matched?.dashManifestUrl,
             )
         }.sortedWith(compareBy({ it.episodeNumber }, { it.episodeKey }))
     }

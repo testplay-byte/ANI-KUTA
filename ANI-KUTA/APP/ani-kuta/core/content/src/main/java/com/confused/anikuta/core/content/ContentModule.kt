@@ -14,7 +14,10 @@ import org.koin.dsl.module
  */
 val contentModule = module {
     single { ContentRepository(get()) }
-    single { ContentResolver(get(), get()) }
+    // D-540: the ContentIdentitySync hook binds to the download manager (it
+    // implements the interface) — getOrNull keeps test graphs (no download
+    // module) working with the reconciliation disabled.
+    single { ContentResolver(get(), get(), identitySync = getOrNull()) }
     single { ContentSeeder(get(), get()) }
     single { com.confused.anikuta.core.content.genre.GenreRepository(get()) }
 }

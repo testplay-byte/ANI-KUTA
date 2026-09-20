@@ -36,6 +36,12 @@ import java.util.concurrent.TimeUnit
 internal class CsSubtitleFetcher(
     private val client: OkHttpClient,
     private val defaultUserAgent: String = CsPlayerDefaults.USER_AGENT,
+    /**
+     * D-539: the ContentResolver for OFFLINE sidecar tracks — downloaded
+     * subtitles are SAF `content://` documents (the app-private cache has no
+     * OkHttp transport for them). Null keeps the fetcher network-only.
+     */
+    private val contentResolver: android.content.ContentResolver? = null,
 ) {
 
     sealed interface FetchOutcome {
@@ -48,6 +54,46 @@ internal class CsSubtitleFetcher(
 
     /** Fetches + parses [sub]; never throws (all failures map to [FetchOutcome.Failed]). */
     suspend fun fetch(sub: CsSubtitle): FetchOutcome = withContext(Dispatchers.IO) {
+        // ── D-539: a downloaded sidecar lives at a content:// URI — read it
+        // through the ContentResolver (no OkHttp transport applies) and run
+        // the same size-cap + parse pipeline as the network path.
+        if (sub.url.startsWith("content://") && contentResolver != null) {
+            return@withContext runCatching {
+                val text = contentResolver.openInputStream(android.net.Uri.parse(sub.url))
+                    ?.use { input -> input.readBytes().toString(Charsets.UTF_8) }
+                    ?: return@runCatching FetchOutcome.Failed("unreadable file")
+                if (text.toByteArray().size > MAX_BODY_BYTES) {
+                    return@runCatching FetchOutcome.Failed("file too large")
+                }
+                // The mime guess: the sidecar's extension (the offline track's
+                // url is the SAF document uri — its last path segment carries it).
+                val ext = sub.url.substringBefore('?').substringAfterLast('.', missingDelimiterValue = "").lowercase()
+                val mime = when (ext) {
+                    "vtt" -> "text/vtt"
+                    "ass", "ssa" -> "text/x-ssa"
+                    "srt", "sub" -> "application/x-subrip"
+                    else -> sub.mimeType.ifBlank { "application/x-subrip" }
+                }
+                when (val parsed = CsSubtitleParser.parse(sub.sniffedMime ?: mime, text)) {
+                    is CsSubtitleParser.ParseOutcome.Ok -> {
+                        Logger.i(SUBS_TAG) {
+                            "subtitle loaded (offline): '${sub.displayName}' cues=${parsed.cues.size} " +
+                                "mime=${mime.substringAfterLast('/')}"
+                        }
+                        FetchOutcome.Ready(parsed.cues)
+                    }
+                    is CsSubtitleParser.ParseOutcome.Unsupported -> {
+                        Logger.w(SUBS_TAG) {
+                            "subtitle unparsable (offline): '${sub.displayName}' — ${parsed.reason}"
+                        }
+                        FetchOutcome.Failed(parsed.reason)
+                    }
+                }
+            }.getOrElse { t ->
+                Logger.w(SUBS_TAG, t) { "offline subtitle fetch error: '${t.message}' (${sub.displayName})" }
+                FetchOutcome.Failed(t.message?.take(64) ?: t::class.java.simpleName)
+            }
+        }
         runCatching {
             val timedClient = client.newBuilder()
                 .callTimeout(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS)

@@ -20,6 +20,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.documentfile)
+    // D-539: the DASH offline cache — SimpleCache/CacheWriter/CacheDataSource
+    // (media3-datasource) + StandaloneDatabaseProvider (media3-database) +
+    // the OkHttp-backed upstream DataSource for provider-header'd segment fetches.
+    implementation(libs.media3.datasource.okhttp)
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
     implementation(libs.koin.android)

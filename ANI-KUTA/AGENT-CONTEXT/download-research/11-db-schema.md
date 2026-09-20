@@ -109,7 +109,7 @@ DELETE FROM downloaded_episode WHERE episode_key = ?;
 
 ```sql
 -- Download queue table — RE-KEYED by mainId + episodeKey (5-digit padded episode number).
--- The episode_key is "$mainId|$episodeNumberPadded5" (e.g. "550e8400...|00001").
+-- The episode_key is SEpisode.url (the extension episode URL — DRIFT FIX round 57: NOT "$mainId|<epNumPadded>") (e.g. "550e8400...|00001").
 -- Composite UNIQUE constraint on (main_id, episode_key) prevents duplicate queue entries
 -- for the same episode of the same content.
 --
@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS download_queue (
 
     -- ── Identity (REQUIRED) ──
     main_id TEXT NOT NULL,                  -- the stable UUID (matches ContentRecord.mainId)
-    episode_key TEXT NOT NULL,              -- "$mainId|$episodeNumberPadded5" — stable across source switches
+    episode_key TEXT NOT NULL,              -- SEpisode.url (the extension episode URL — DRIFT FIX round 57: NOT "$mainId|<epNumPadded>") — stable across source switches
 
     -- ── Content + episode context (denormalized for queryability) ──
     content_id TEXT NOT NULL,               -- structured content ID (changes on source switch)

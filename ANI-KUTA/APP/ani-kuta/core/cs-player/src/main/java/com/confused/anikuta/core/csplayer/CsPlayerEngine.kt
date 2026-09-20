@@ -141,6 +141,14 @@ class CsPlayerEngine(
      * auto-selected (the MPV `slang` behavior parity). Default: English.
      */
     private val preferredSubtitleLanguages: () -> String = { "en,eng,english" },
+    /**
+     * D-539: the DASH offline cache (the SAME SimpleCache instance the
+     * download pipeline writes). When non-null, [startOfflineDash] plays a
+     * downloaded DASH episode through a CacheDataSource over it — fully-
+     * cached episodes play with ZERO upstream requests (true offline).
+     * Null (tests / non-DASH usage): offline playback is unavailable.
+     */
+    private val offlineDashCache: androidx.media3.datasource.cache.Cache? = null,
 ) {
     companion object {
         internal const val TAG = "Anikuta:CS:Player"
@@ -367,6 +375,73 @@ class CsPlayerEngine(
         startInternal(link, startPositionMs, clean = false)
     }
 
+    /**
+     * D-539: plays a DOWNLOADED DASH episode — the manifest + init/media
+     * segments come from [offlineDashCache] (keys: DashCacheKeys, the exact
+     * scheme the DashDownloader wrote); the upstream DataSource only opens
+     * for spans the cache never saw (partial downloads — an honest error
+     * surfaces then). [maxVideoHeight] pins the track selection to the
+     * cached representation's height (the manifest may list MORE video reps
+     * than were cached — an unpinned ABR could select a missing one and
+     * break offline playback).
+     */
+    fun startOfflineDash(
+        manifestUrl: String,
+        startPositionMs: Long = 0L,
+        maxVideoHeight: Int? = null,
+    ) {
+        val cache = offlineDashCache ?: run {
+            Logger.e(TAG) { "startOfflineDash — no offline cache available (engine built without one)" }
+            _events.tryEmit(
+                CsEngineEvent.PlaybackError(
+                    CsPlaybackError(CsPlaybackError.Kind.UNSPECIFIED, message = "Offline playback unavailable"),
+                    "offlineDashCache=null",
+                    manifestUrl,
+                ),
+            )
+            return
+        }
+        Logger.i(TAG) {
+            "startOfflineDash: $manifestUrl resumeMs=$startPositionMs maxVideoHeight=$maxVideoHeight"
+        }
+        current = null
+        cleanRetryUsed = false
+        reachedReady = false
+        autoSubSelectAttempted = false
+        textOverrideAtMs = 0L
+        textOverrideRetryUsed = false
+
+        // Pin the video track to what's actually cached; clear any previous
+        // pin first so repeated offline loads never stack constraints.
+        runCatching {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setMaxVideoHeight(maxVideoHeight ?: Int.MAX_VALUE)
+                .setMaxVideoBitrate(Int.MAX_VALUE)
+                .build()
+        }.onFailure { Logger.w(TAG) { "trackSelection pin failed: ${it.message}" } }
+
+        val mediaItem = MediaItem.Builder()
+            .setUri(manifestUrl)
+            .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
+            .build()
+        val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
+            .setCache(cache)
+            .setUpstreamDataSourceFactory(
+                androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(baseClient),
+            )
+            .setCacheKeyFactory { dataSpec ->
+                com.confused.anikuta.core.common.DashCacheKeys.build(manifestUrl, dataSpec.uri.toString())
+            }
+        val mediaSource = androidx.media3.exoplayer.dash.DashMediaSource.Factory(cacheDataSourceFactory)
+            .createMediaSource(mediaItem)
+
+        _state.value = _state.value.copy(currentLinkUrl = manifestUrl)
+        player.setMediaSource(mediaSource, if (startPositionMs > 0) startPositionMs else C.TIME_UNSET)
+        player.prepare()
+        player.playWhenReady = true
+        startTicker()
+    }
+
     /** Re-loads [link] keeping the current position (quality/source switch UX). */
     fun switchLink(link: CsVideoLink) {
         val keepAt = if (_state.value.durationMs > 0) player.currentPosition else 0L
@@ -393,6 +468,15 @@ class CsPlayerEngine(
         autoSubSelectAttempted = false
         textOverrideAtMs = 0L
         textOverrideRetryUsed = false
+
+        // D-539: clear the offline height pin — an ONLINE load after an
+        // offline DASH session must never inherit the cached rep's constraint.
+        runCatching {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setMaxVideoHeight(Int.MAX_VALUE)
+                .setMaxVideoBitrate(Int.MAX_VALUE)
+                .build()
+        }
 
         val headersOut = if (clean) {
             link.allHeaders.filterKeys { !it.equals("referer", ignoreCase = true) }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.documentfile.provider.DocumentFile
+import com.confused.anikuta.core.common.DashCacheKeys
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,6 +49,12 @@ class DefaultDownloadManager(
     private val notifier: DownloadNotificationManager,
     private val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker,
     /**
+     * D-539: the DASH offline cache — the delete path purges the episode's
+     * cached spans through it. Nullable for tests (a DASH delete then skips
+     * the purge + logs, the DB row still dies).
+     */
+    private val dashCache: androidx.media3.datasource.cache.Cache? = null,
+    /**
      * The private scope — survives app-backgrounding. The Koin module binds this as
      * `single(named("downloadScope"))`. Defaults to a new scope if not injected
      * (for tests).
@@ -55,7 +62,7 @@ class DefaultDownloadManager(
     private val scope: CoroutineScope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO,
     ),
-) : DownloadManager {
+) : DownloadManager, com.confused.anikuta.core.content.ContentIdentitySync {
 
     /**
      * D-401 (round 28): serializes every DELETE operation (single-episode +
@@ -238,6 +245,87 @@ class DefaultDownloadManager(
 
     override fun getDownloadedEpisodeUri(mainId: String, episodeKey: String): String? =
         store.getDownloadedVideoUri(mainId, episodeKey)
+
+    /**
+     * D-539: whether the downloaded episode is a DASH-cache artifact — its
+     * `video_uri` carries the `csdash:` marker (no published file; the media
+     * lives in the offline SimpleCache). The playback routers (details page,
+     * downloads page) branch on this to send the episode to the CS offline
+     * player instead of the MPV file player, and the delete path branches to
+     * purge the cache instead of deleting a SAF video file.
+     */
+    override fun isDownloadedEpisodeDash(mainId: String, episodeKey: String): Boolean {
+        val uri = store.getDownloadedVideoUri(mainId, episodeKey) ?: return false
+        return DashCacheKeys.manifestUrlFromUri(uri) != null
+    }
+
+    /**
+     * D-540: the link-switch reconciliation — the ContentResolver fires this
+     * after a contentId regeneration (the user linked the content to a
+     * different source, e.g. a CloudStream extension → an aniyomi extension).
+     * NON-suspend by contract (the caller is a plain transaction method) —
+     * the actual work launches on the manager's background scope.
+     * Two stores follow the identity change:
+     *  1. the DB cache rows (downloaded_episode + download_queue content_id —
+     *     the previously-DEAD sync queries, now live);
+     *  2. the DURABLE `.data.json` identity block (the verified 3-attempt
+     *     rewrite with the new contentId — the scanner's reinstall recognition
+     *     keys on it, so a stale id would orphan the downloads).
+     * The downloaded FILES never move (mainId-keyed folders) — the media
+     * stays valid across the switch; only the metadata is translated.
+     */
+    override fun onContentIdentityChanged(mainId: String, newContentId: String) {
+        scope.launch { syncContentIdentityInternal(mainId, newContentId) }
+    }
+
+    private suspend fun syncContentIdentityInternal(mainId: String, newContentId: String) =
+        withContext(Dispatchers.IO) {
+            DownloadLogger.i {
+                "onContentIdentityChanged — mainId=$mainId, newContentId=$newContentId (syncing downloads)"
+            }
+            // 1. The DB cache rows.
+            runCatching { store.syncContentId(mainId, newContentId) }
+                .onFailure { e -> DownloadLogger.w { "contentId DB sync failed for $mainId: ${e.message}" } }
+                .onSuccess { DownloadLogger.i { "contentId DB sync done for $mainId" } }
+
+            // 2. The durable .data.json identity block (best-effort — the
+            // next startup scan's reconcile heals it if the write fails).
+            val folder = storage.findContentFolder(mainId)
+            if (folder == null) {
+                DownloadLogger.w {
+                    "onContentIdentityChanged — no content folder for $mainId (nothing to rewrite)"
+                }
+                return@withContext
+            }
+            runCatching {
+                val json = storage.readDataJson(folder) ?: return@runCatching
+                val identity = DownloadContentInfo(
+                    mainId = json.mainId,
+                    contentId = newContentId,
+                    title = json.title,
+                    coverUrl = json.coverUrl,
+                    contentFormat = json.contentFormat,
+                    contentType = json.contentType,
+                    description = json.description,
+                    dataSourceId = json.dataSourceId,
+                    systemId = json.systemId,
+                    extensionRepoId = json.extensionRepoId,
+                    extensionId = json.extensionId,
+                    sourceId = json.sourceId,
+                    animeUrl = json.animeUrl,
+                    displaySource = json.displaySource,
+                    anilistId = json.anilistId,
+                    providerName = json.providerName,
+                )
+                val ok = storage.rewriteDataJsonEpisodes(folder, identity, json.episodes)
+                DownloadLogger.i {
+                    "onContentIdentityChanged — .data.json identity rewrite " +
+                        (if (ok) "VERIFIED" else "UNVERIFIED (scan reconciles)") + " for $mainId"
+                }
+            }.onFailure { e ->
+                DownloadLogger.w { "onContentIdentityChanged — .data.json rewrite failed: ${e.message}" }
+            }
+        }
 
     /**
      * D-392 → D-393 → D-401: the episode-delete orchestration — SERIALIZED
@@ -489,19 +577,38 @@ class DefaultDownloadManager(
 
             // ── PHASE 3a: delete the episode's files by their captured URIs ──
             // (best-effort — stale URIs are exactly why Phase 3b exists).
-            val videoUriToDelete = entry?.videoUri ?: dbVideoUri
-            videoUriToDelete?.let { uriStr ->
-                runCatching {
-                    val uri = android.net.Uri.parse(uriStr)
-                    val deleted = android.provider.DocumentsContract.deleteDocument(
-                        context.contentResolver, uri,
-                    )
-                    DownloadLogger.i {
-                        "Deleted video file: $uriStr (deleteDocument returned=$deleted)"
+            // D-539: a DASH-cache episode has NO published video file — the
+            // video-URI delete is SKIPPED and the offline SimpleCache is
+            // purged instead (every span under the episode's manifest-URL
+            // namespace). Subtitle files below are real SAF files and delete
+            // as usual.
+            val dashManifestUrl = entry?.dashManifestUrl
+                ?: DashCacheKeys.manifestUrlFromUri(dbVideoUri)
+            if (dashManifestUrl != null) {
+                val cache = dashCache
+                if (cache != null) {
+                    DashCacheStore.purgeEpisode(cache, dashManifestUrl)
+                } else {
+                    DownloadLogger.w {
+                        "deleteDownloadedEpisode — DASH episode but no cache injected; " +
+                            "the cached spans of $dashManifestUrl are NOT purged (DB row still dies)"
                     }
-                }.onFailure {
-                    DownloadLogger.e(it) {
-                        "Failed to delete video $uriStr: ${it.javaClass.simpleName}: ${it.message}"
+                }
+            } else {
+                val videoUriToDelete = entry?.videoUri ?: dbVideoUri
+                videoUriToDelete?.let { uriStr ->
+                    runCatching {
+                        val uri = android.net.Uri.parse(uriStr)
+                        val deleted = android.provider.DocumentsContract.deleteDocument(
+                            context.contentResolver, uri,
+                        )
+                        DownloadLogger.i {
+                            "Deleted video file: $uriStr (deleteDocument returned=$deleted)"
+                        }
+                    }.onFailure {
+                        DownloadLogger.e(it) {
+                            "Failed to delete video $uriStr: ${it.javaClass.simpleName}: ${it.message}"
+                        }
                     }
                 }
             }

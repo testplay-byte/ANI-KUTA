@@ -194,3 +194,22 @@ The v1.1.18 device round was satisfied with the template SYSTEM ("handled exactl
 - **BadgeIcons.Total is a PLAYLIST (D-533)** — and the WHY matters: Compose Icon tint flattens ALL path fills into one color, so any two-color icon design silently degrades to its silhouette. Design every badge icon as a one-color silhouette.
 - **Browse speaks the D-480 soft-pill language (D-534)**: PointedTagShape has ZERO remaining users (the file stays as API for now); the hero score is its own amber pill via rememberBadgeColorScheme.
 - **v1.1.19 is the release** (D-498 standing process); the user's device round happens ON the release APK.
+
+## §14 — Round 57 (the device round on v1.1.19): the toggle's FINAL home + the CloudStream downloads round
+
+**Poster verdicts (do not touch):** ALL FIVE templates are proper now — Classic v2, Spotlight, Duo, Minimal v2, Card ("the poster templates are quite satisfactory and according to how I wanted them to be"). Browse + Library: "quite satisfied".
+
+- **THE TOGGLE'S FINAL HOME (D-536)**: the master switch is the LAST row of the ELEMENTS card, titled **"Poster"** — NOT its own top card (D-531's placement lasted exactly one round). When off, the preview, Layout, Artwork, the Elements label and the four element rows EACH collapse (per-region AnimatedVisibility — the whole-list wrapper is gone because the toggle lives inside the list); the lone "Poster" row survives. If you add poster options, put them INSIDE the collapsed regions as before — the toggle row itself must stay last and always visible.
+- **THE CS PLAYER PAUSES ON BACKGROUND (D-537)**: the CS watch screen now carries the MPV watch screen's exact LifecycleEventObserver (ON_STOP → engine.pause(), ON_START → no auto-resume — the user taps play on both players). Keep any new player screen at this parity.
+
+**The CloudStream download system (D-539) — the durable knowledge:**
+- A DASH download is NOT a file: manifest + segments in SimpleCache(filesDir/cs_dash_cache, NoOpCacheEvictor), keys `csdash|<manifestUrl>|<resourceUrl>` (DashCacheKeys in core/common — the shared contract; the downloader writes, the player reads, delete purges).
+- The SAF folder still gets .data.json (+ dashManifestUrl per episode entry), .cover.jpg, .nomedia, subtitles/ — the scanner registers cache episodes WITHOUT a file walk; DataJsonRepair MUST propagate dashManifestUrl on rebuilds (losing it = anti-shrink churn + unrecoverable after reinstall).
+- downloaded_episode rows: video_uri = `csdash:<manifestUrl>` (the marker every router switches on), file_size = real cached bytes — NO schema change (no migration chain exists; a .sq constraint change would crash updated installs).
+- Offline playback: CsWatchKey(offlineManifestUrl=...) → CsWatchViewModel.startOfflinePlayback → engine.startOfflineDash (DashMediaSource over CacheDataSource + the shared key factory + maxVideoHeight pin; startInternal clears the pin). Push the key DIRECTLY to the backstack — csResolveRequest opens the resolve sheet (the review blocker).
+- The resolve sheet's DASH filter is GONE — DASH links download; DRM manifests fail honestly in the queue ("This stream is DRM-protected — it cannot be downloaded").
+- The upstream client for segment fetches = the CS runtime's base client (named("cloudstreamPlayback")) — the resolve just succeeded, so its cookies are live.
+
+**The data translation (D-540):** CS-bridged ids carry bit 62 (core/content's CLOUDSTREAM_SOURCE_ID_FLAG — the documented twin of data:cloudstream's CsSourceIds). New CS content records system/extension_type "cloudstream"; healCloudstreamEcosystem (AnikutaApp startup, BEFORE the download scan) relabels old rows idempotently. ContentIdentitySync fires on every contentId regeneration: the two previously-dead .sq queries (updateDownloadedContentId / updateDownloadContentId) sync the download tables + the .data.json identity block rewrites through the verified ladder. Downloads SURVIVE source switches (files are mainId-keyed); episode keys stay source-specific by design.
+
+**The auto-link skip (D-538):** persisted per (sourceId, animeUrl) — `auto_link_user_skipped:` prefix; attemptAutoLink checks it BEFORE the cache check; explicit sheet skip persists, swipe-dismiss closes only; manual link AND unlink clear it. If you touch the manual-link sheet: the Skip button = skipAniListLink (persists), dismiss = dismissManualLinkSheet (does not).

@@ -18,6 +18,8 @@ val csWatchModule = module {
             watchProgressStore = get(),
             sourceMemory = get(),
             episodeListPreferences = get(),
+            // D-539: the offline DASH entry + downloaded-episode switching.
+            downloadManager = get(),
         )
     }
 }

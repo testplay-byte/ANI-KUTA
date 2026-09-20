@@ -187,6 +187,40 @@ class AutoLinkPreferences(private val store: PreferenceStore) {
         store.putBoolean(keyUserUnlinked(anilistId), false)
     }
 
+    // ── D-538: Per-entry "user skipped linking" blacklist (forward direction) ──
+
+    /**
+     * D-538: Marks an extension anime entry as "user skipped" — the user
+     * explicitly tapped "Skip AniList link" on the manual-link sheet, so the
+     * FORWARD auto-link must never re-attempt for this entry (the session-only
+     * skip was the device round's "when I go back to the library page and open
+     * that content again, it retries automatically to link it" report).
+     *
+     * Cleared when the user manually links the entry ([clearUserSkipped]) —
+     * a deliberate manual action always re-enables auto-linking.
+     */
+    fun markUserSkipped(sourceId: Long, animeUrl: String) {
+        store.putBoolean(keyUserSkipped(sourceId, animeUrl), true)
+    }
+
+    /**
+     * D-538: Checks if the user explicitly skipped linking for this entry.
+     * If true, the forward auto-link returns [Skipped] WITHOUT touching the
+     * network and the manual-link sheet never auto-pops.
+     */
+    fun isUserSkipped(sourceId: Long, animeUrl: String): Boolean {
+        return store.getBoolean(keyUserSkipped(sourceId, animeUrl), false)
+    }
+
+    /**
+     * D-538: Clears the "user skipped" flag — called when the user manually
+     * links the entry (or unlinks it), so a deliberate link-cycle decision
+     * resets the auto-link behavior for that entry.
+     */
+    fun clearUserSkipped(sourceId: Long, animeUrl: String) {
+        store.putBoolean(keyUserSkipped(sourceId, animeUrl), false)
+    }
+
     companion object {
         // Forward direction
         private const val KEY_AUTO_LINK_ENABLED = "auto_link_enabled"
@@ -206,6 +240,10 @@ class AutoLinkPreferences(private val store: PreferenceStore) {
         // D-238: Per-anime "user unlinked" blacklist (prevents re-auto-linking)
         private const val KEY_USER_UNLINKED_PREFIX = "auto_link_user_unlinked:"
 
+        // D-538: Per-entry "user skipped linking" blacklist (forward direction —
+        // prevents the auto-link retry + the manual-link sheet auto-pop)
+        private const val KEY_USER_SKIPPED_PREFIX = "auto_link_user_skipped:"
+
         private fun keyPerSourceOverride(sourceId: Long): String =
             "$KEY_PER_SOURCE_PREFIX$sourceId"
 
@@ -214,5 +252,8 @@ class AutoLinkPreferences(private val store: PreferenceStore) {
 
         private fun keyUserUnlinked(anilistId: Int): String =
             "$KEY_USER_UNLINKED_PREFIX$anilistId"
+
+        private fun keyUserSkipped(sourceId: Long, animeUrl: String): String =
+            "$KEY_USER_SKIPPED_PREFIX$sourceId:${animeUrl.hashCode()}"
     }
 }

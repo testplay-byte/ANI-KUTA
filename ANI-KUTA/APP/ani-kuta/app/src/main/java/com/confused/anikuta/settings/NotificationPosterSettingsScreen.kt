@@ -104,20 +104,20 @@ import org.koin.compose.koinInject
  * element switches — segmented toggles and one-line descriptions, the same
  * language as the episode-type block on the Notifications screen.
  *
- * # D-531: the MASTER TOGGLE COLLAPSE (the round-56 verdict)
+ * # D-531 → D-536: the MASTER TOGGLE LIVES IN ELEMENTS (the round-57 verdict)
  *
- * "When the poster notifications have been turned off, then almost
- * everything will disappear properly with smooth animations. The top live
- * preview itself will disappear. The layout options, the artwork, the
- * elements, everything will disappear. The only toggle which will show is
- * the poster notification toggle at the very top." So the "Poster
- * notifications" switch now lives in its OWN card at the very top of the
- * stationary region (it was the first row inside Elements), and BOTH the
- * preview region and the options region wrap in [AnimatedVisibility] keyed
- * on it: flip it off and the preview, Shuffle, Layout, Artwork and Elements
- * cards all fade + shrink away — the page collapses to just the header and
- * the one toggle. The preview's producer also skips its selection/compose
- * work entirely while off (invisible work).
+ * Round 56 (D-531) put the "Poster notifications" switch in its own card at
+ * the very top. The device round's verdict: "the poster notification toggle
+ * should be shown at the bottom in the elements section itself and it should
+ * be named 'Poster' rather than 'Poster Notifications'." So the toggle is now
+ * the LAST row of the Elements card, titled "Poster" — and it is the ONE row
+ * that never disappears. Everything else (the live preview + Shuffle, the
+ * Layout card, the Artwork card, the Elements label + the four element rows)
+ * wraps in [AnimatedVisibility] keyed on it: flip it off and they all fade +
+ * shrink away, leaving the header and the Elements card holding just the lone
+ * "Poster" switch (the D-531 unlabeled-card look, just relocated). The
+ * preview's producer still skips its whole selection/compose pipeline while
+ * off (invisible work).
  *
  * # The live preview (unchanged mechanics)
  *
@@ -304,23 +304,12 @@ fun NotificationPosterSettingsScreen(
             // Sits OUTSIDE the LazyColumn: it never scrolls away. A single
             // 8dp gutter (the old screen stacked 16 + 16 = 32dp per side).
             //
-            // ── D-531: the region now OPENS with the master toggle — the
-            // one control that never disappears — and the preview card +
-            // Shuffle wrap in [AnimatedVisibility] keyed on it (the round-56
-            // verdict: with the poster off, "the top live preview itself
-            // will disappear ... everything will disappear. The only toggle
-            // which will show is the poster notification toggle").
+            // ── D-536: the master toggle moved INTO the Elements card (the
+            // round-57 verdict — "at the bottom in the elements section
+            // itself ... named 'Poster'"), so this region now holds ONLY the
+            // preview card + Shuffle, wrapped in [AnimatedVisibility] keyed
+            // on the toggle: they fade + shrink away when the poster is off.
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                PosterCard {
-                    PosterSwitchRow(
-                        title = "Poster notifications",
-                        description = "Render notifications as banners",
-                        checked = posterEnabled,
-                        onChecked = {
-                            posterPrefs.posterEnabled = it
-                        },
-                    )
-                }
                 AnimatedVisibility(
                     visible = posterEnabled,
                     enter = fadeIn() + expandVertically(),
@@ -491,28 +480,30 @@ fun NotificationPosterSettingsScreen(
             // gutter (the old 16dp list padding stacked on the card's own
             // 16dp was the "a lot of padding on the right and left sides"
             // complaint).
-            // ── D-531: the whole region — Layout, Artwork, Elements —
-            // collapses away with the same fade + shrink when the master
-            // toggle goes off (the scroll area has nothing left to offer
-            // then; only the toggle at the very top remains).
-            AnimatedVisibility(
-                visible = posterEnabled,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically(),
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    LazyColumn(
-                        state = lazyListState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            start = 8.dp,
-                            end = 8.dp,
-                            bottom = 24.dp,
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(0.dp),
-                    ) {
-                        // ── D-524: the template picker — the FIVE-WAY toggle ──
-                        item {
+            // ── D-536: the outer whole-list collapse is GONE — the master
+            // toggle now lives INSIDE the Elements card (the list's last
+            // row), so the LazyColumn must stay composed while off. The
+            // Layout + Artwork cards and the Elements label + element rows
+            // each collapse individually instead; only the "Poster" row
+            // survives when the poster is off.
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = 8.dp,
+                        end = 8.dp,
+                        bottom = 24.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
+                ) {
+                    // ── D-524: the template picker — the FIVE-WAY toggle ──
+                    item {
+                        AnimatedVisibility(
+                            visible = posterEnabled,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
                             PosterCard(label = "Layout") {
                                 SegmentedOptionBlock(
                                     title = "Layout",
@@ -533,9 +524,15 @@ fun NotificationPosterSettingsScreen(
                                 }
                             }
                         }
+                    }
 
-                        // ── D-526: the artwork source — the THREE-WAY toggle ──
-                        item {
+                    // ── D-526: the artwork source — the THREE-WAY toggle ──
+                    item {
+                        AnimatedVisibility(
+                            visible = posterEnabled,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
                             PosterCard(label = "Artwork") {
                                 SegmentedOptionBlock(
                                     title = "Artwork",
@@ -554,57 +551,78 @@ fun NotificationPosterSettingsScreen(
                                 }
                             }
                         }
+                    }
 
-                        // ── the elements — switches with ONE-LINE descriptions ──
-                        // (D-531: the "Poster notifications" master switch moved
-                        // OUT of this card — it now owns the top card of the page.)
-                        item {
-                            PosterCard(label = "Elements") {
-                                PosterSwitchRow(
-                                    title = "Episode title",
-                                    description = "Shown under the tags",
-                                    checked = showEpTitleState,
-                                    onChecked = {
-                                        posterPrefs.posterShowEpisodeTitle = it
-                                        showEpTitleState = it
-                                    },
-                                )
-                                PosterSwitchRow(
-                                    title = "Episode thumbnail",
-                                    description = "The art card beside the text",
-                                    checked = showThumbState,
-                                    onChecked = {
-                                        posterPrefs.posterShowEpisodeThumbnail = it
-                                        showThumbState = it
-                                    },
-                                )
-                                PosterSwitchRow(
-                                    title = "SUB / DUB badges",
-                                    description = "The audio chips row",
-                                    checked = showBadgeState,
-                                    onChecked = {
-                                        posterPrefs.posterShowAudioBadge = it
-                                        showBadgeState = it
-                                    },
-                                )
-                                PosterSwitchRow(
-                                    title = "ANI-KUTA branding",
-                                    description = "The corner wordmark",
-                                    checked = showBrandingState,
-                                    onChecked = {
-                                        posterPrefs.posterShowBranding = it
-                                        showBrandingState = it
-                                    },
-                                )
+                    // ── the elements — switches with ONE-LINE descriptions ──
+                    // D-536: the master "Poster" switch is the LAST row of
+                    // this card (the round-57 verdict) and the ONE row that
+                    // never collapses; the label + the four element rows
+                    // wrap in AnimatedVisibility keyed on it.
+                    item {
+                        PosterCard(
+                            label = "Elements",
+                            labelVisible = posterEnabled,
+                        ) {
+                            AnimatedVisibility(
+                                visible = posterEnabled,
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically(),
+                            ) {
+                                Column {
+                                    PosterSwitchRow(
+                                        title = "Episode title",
+                                        description = "Shown under the tags",
+                                        checked = showEpTitleState,
+                                        onChecked = {
+                                            posterPrefs.posterShowEpisodeTitle = it
+                                            showEpTitleState = it
+                                        },
+                                    )
+                                    PosterSwitchRow(
+                                        title = "Episode thumbnail",
+                                        description = "The art card beside the text",
+                                        checked = showThumbState,
+                                        onChecked = {
+                                            posterPrefs.posterShowEpisodeThumbnail = it
+                                            showThumbState = it
+                                        },
+                                    )
+                                    PosterSwitchRow(
+                                        title = "SUB / DUB badges",
+                                        description = "The audio chips row",
+                                        checked = showBadgeState,
+                                        onChecked = {
+                                            posterPrefs.posterShowAudioBadge = it
+                                            showBadgeState = it
+                                        },
+                                    )
+                                    PosterSwitchRow(
+                                        title = "ANI-KUTA branding",
+                                        description = "The corner wordmark",
+                                        checked = showBrandingState,
+                                        onChecked = {
+                                            posterPrefs.posterShowBranding = it
+                                            showBrandingState = it
+                                        },
+                                    )
+                                }
                             }
+                            PosterSwitchRow(
+                                title = "Poster",
+                                description = "Render notifications as banners",
+                                checked = posterEnabled,
+                                onChecked = {
+                                    posterPrefs.posterEnabled = it
+                                },
+                            )
                         }
                     }
-                    ScrollBlurOverlay(
-                        scrollOffset = { lazyListState.firstVisibleItemScrollOffset.toFloat() },
-                        backgroundColor = MaterialTheme.colorScheme.background,
-                        modifier = Modifier.align(Alignment.TopCenter),
-                    )
                 }
+                ScrollBlurOverlay(
+                    scrollOffset = { lazyListState.firstVisibleItemScrollOffset.toFloat() },
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
             }
         }
     }
@@ -620,23 +638,35 @@ fun NotificationPosterSettingsScreen(
  * D-531: the [label] is optional — the master-toggle card renders WITHOUT
  * one (a card labelled "Poster notifications" containing a row titled
  * "Poster notifications" would say everything twice).
+ *
+ * D-536: [labelVisible] animates the label away (fade + shrink) without
+ * dropping the card — the Elements card keeps its surface (holding the
+ * lone "Poster" switch) while its label collapses with the rest of the
+ * page when the poster is off.
  */
 @Composable
 private fun PosterCard(
     label: String? = null,
+    labelVisible: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(vertical = 4.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         if (label != null) {
-            Text(
-                text = label,
-                fontFamily = RobotoFamily,
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
-            )
+            AnimatedVisibility(
+                visible = labelVisible,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                Text(
+                    text = label,
+                    fontFamily = RobotoFamily,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
+                )
+            }
         }
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),

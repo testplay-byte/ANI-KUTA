@@ -235,6 +235,13 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             kotlinx.coroutines.CoroutineScope(
                 kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
             ).launch {
+                // D-540: the ecosystem heal runs BEFORE the scan — relabelled
+                // rows are what the scan reconciles the .data.json files from.
+                runCatching {
+                    org.koin.core.context.GlobalContext.get()
+                        .get<com.confused.anikuta.core.content.ContentRepository>()
+                        .healCloudstreamEcosystem()
+                }
                 downloadManager.requestFolderRescan()
                 Logger.i("AnikutaApp") { "Download folder scan completed (data.json reconciliation)" }
             }

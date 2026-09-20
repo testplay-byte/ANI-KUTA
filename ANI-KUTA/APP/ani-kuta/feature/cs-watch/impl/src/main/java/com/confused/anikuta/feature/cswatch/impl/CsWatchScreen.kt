@@ -87,11 +87,15 @@ fun CsWatchScreen(
     // Task 55: the preferred subtitle languages ride the engine constructor
     // (MPV slang parity — the engine stays preference-free itself).
     val playerPreferences = koinInject<PlayerPreferences>()
+    // D-539: the SAME SimpleCache the download pipeline writes — offline DASH
+    // playback reads the cached manifest + segments through it.
+    val offlineDashCache = koinInject<androidx.media3.datasource.cache.Cache>()
     val engine = remember {
         CsPlayerEngine(
             context = context.applicationContext,
             baseClient = playbackClient,
             preferredSubtitleLanguages = { playerPreferences.preferredSubtitleLanguages },
+            offlineDashCache = offlineDashCache,
         )
     }
     val engineState by engine.state.collectAsState()
@@ -106,7 +110,9 @@ fun CsWatchScreen(
     // Compose overlay — the engine never re-prepares for a subtitle (the
     // v0.4.4 round's "needs reload" + reload-crash findings). Embedded
     // container tracks stay on the engine's live track selection.
-    val subtitleFetcher = remember { CsSubtitleFetcher(playbackClient) }
+    // D-539: the resolver handles OFFLINE sidecar tracks (content://) too —
+    // downloaded subtitles read straight out of the SAF folder.
+    val subtitleFetcher = remember { CsSubtitleFetcher(playbackClient, contentResolver = context.contentResolver) }
     val fetchScope = rememberCoroutineScope()
     var overlaySub by remember { mutableStateOf<CsSubtitle?>(null) }
     var overlayCues by remember { mutableStateOf<List<CsCue>>(emptyList()) }
@@ -182,9 +188,16 @@ fun CsWatchScreen(
 
     /** F3: engine position belongs to the CURRENT episode only when the loaded
      *  URL matches the state's current link — otherwise a switch is in flight
-     *  and saving would write episode N-1's progress under episode N's key. */
-    fun engineBelongsToCurrentLink(st: com.confused.anikuta.core.csplayer.CsEngineState): Boolean =
-        st.currentLinkUrl != null && st.currentLinkUrl == viewModel.uiState.value.currentLink?.url
+     *  and saving would write episode N-1's progress under episode N's key.
+     *  D-539: OFFLINE loads match the state's playOfflineManifestUrl instead
+     *  (the engine's currentLinkUrl is the manifest URL; currentLink is null). */
+    fun engineBelongsToCurrentLink(st: com.confused.anikuta.core.csplayer.CsEngineState): Boolean {
+        val live = viewModel.uiState.value
+        val offlineMatch = live.playOfflineManifestUrl != null &&
+            st.currentLinkUrl == live.playOfflineManifestUrl
+        return st.currentLinkUrl != null &&
+            (st.currentLinkUrl == live.currentLink?.url || offlineMatch)
+    }
 
     DisposableEffect(engine) {
         onDispose {
@@ -213,6 +226,33 @@ fun CsWatchScreen(
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
+    }
+
+    // ── D-537: App-exit pause (the MPV watch screen's exact behavior) ────────
+    // Pause playback when the app goes to background (ON_STOP) so the CS
+    // player's audio can't keep running under the home screen — the device
+    // round's "the video keeps on playing in the background" report, and the
+    // one behavioral gap between the two players. ON_STOP/ON_START (not
+    // ON_PAUSE/ON_RESUME) so multi-window focus changes don't trigger a
+    // pause; ON_START is a no-op on purpose (MPV parity: the user taps play
+    // to resume — no auto-resume). No PiP exists in the app, so ON_STOP
+    // unambiguously means "home screen / recents".
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    Logger.i(TAG) { "App backgrounded — pausing playback" }
+                    runCatching { engine.pause() }
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    Logger.i(TAG) { "App foregrounded (no auto-resume — MPV parity)" }
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // Immersive/orientation per mode. Only fullscreen flips
@@ -278,7 +318,8 @@ fun CsWatchScreen(
     LaunchedEffect(uiState.playRequestId) {
         val live = viewModel.uiState.value
         val link = live.playLink
-        if (live.playRequestId <= 0 || link == null) {
+        val offlineManifest = live.playOfflineManifestUrl
+        if (live.playRequestId <= 0 || (link == null && offlineManifest == null)) {
             Logger.d(TAG) { "play trigger: no active request (id=${live.playRequestId}) — idle" }
             return@LaunchedEffect
         }
@@ -286,25 +327,39 @@ fun CsWatchScreen(
             Logger.w(TAG) {
                 "play trigger: REJECTED stale request id=${live.playRequestId} " +
                     "gen=${live.playGeneration} != current=${live.resolveGeneration} " +
-                    "link=${link.displayLabel.take(40)}"
+                    (link?.let { "link=${it.displayLabel.take(40)}" } ?: "offline")
             }
+            return@LaunchedEffect
+        }
+        // ── D-539: the OFFLINE play request — engine loads from the cache.
+        if (offlineManifest != null) {
+            Logger.i(TAG) {
+                "play trigger: ACCEPT OFFLINE id=${live.playRequestId} gen=${live.playGeneration} " +
+                    "resume=${live.playIsResume} manifest=${offlineManifest.take(72)} " +
+                    "maxVideoHeight=${live.playOfflineMaxVideoHeight}"
+            }
+            engine.startOfflineDash(
+                manifestUrl = offlineManifest,
+                startPositionMs = if (live.playIsResume) live.playStartPositionMs else 0L,
+                maxVideoHeight = live.playOfflineMaxVideoHeight,
+            )
             return@LaunchedEffect
         }
         Logger.i(TAG) {
             "play trigger: ACCEPT id=${live.playRequestId} gen=${live.playGeneration} " +
                 "resume=${live.playIsResume} keepPosition=${live.playKeepPosition} " +
-                "link=${link.displayLabel}"
+                "link=${link?.displayLabel}"
         }
         when {
             // Resume (fresh episode with progress, or same-key re-entry): seek.
-            live.playIsResume -> engine.start(link, live.playStartPositionMs)
+            live.playIsResume -> engine.start(link!!, live.playStartPositionMs)
             // Same-episode link switch (quality/source change, error fallback):
             // keep the position (R12-REVIEW F2). Task 57: no subtitle reattach —
             // provider subs render through the overlay (no reloads, ever).
-            live.playKeepPosition -> engine.switchLink(link)
+            live.playKeepPosition -> engine.switchLink(link!!)
             // A NEW episode's first link: FRESH start — never inherit the
             // previous episode's position (F2: auto-advance cascade).
-            else -> engine.start(link, 0L)
+            else -> engine.start(link!!, 0L)
         }
     }
 

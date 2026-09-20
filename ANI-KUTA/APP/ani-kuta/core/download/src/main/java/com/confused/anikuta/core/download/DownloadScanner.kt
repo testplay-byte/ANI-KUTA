@@ -2,6 +2,7 @@ package com.confused.anikuta.core.download
 
 import android.content.Context
 import androidx.documentfile.provider.DocumentFile
+import com.confused.anikuta.core.common.DashCacheKeys
 import com.confused.anikuta.core.content.ContentRecord
 import com.confused.anikuta.core.content.ContentDetails
 import com.confused.anikuta.core.content.ContentRepository
@@ -236,6 +237,66 @@ class DownloadScanner(
                         downloadedAt = existing?.downloadedAt ?: dataJson.updatedAt,
                         fileSize = file.length(),
                     )
+                }
+
+                // ── D-539: the DASH cache entries — these episodes have NO
+                // video file on disk (their media lives in the app-private
+                // SimpleCache under the manifest URL), so the file walk above
+                // can never see them. The row is registered straight from the
+                // durable entry; the rebuilt list keeps them so the
+                // anti-shrink guard never flags a healthy DASH-only folder.
+                for (entry in dataJson.episodes) {
+                    val manifestUrl = entry.dashManifestUrl ?: continue
+                    if (rebuiltEpisodes.any { it.episodeKey == entry.episodeKey }) continue
+                    val epNumPadded = String.format("%05d", entry.episodeNumber.toInt())
+                    val subtitleUris = entry.subtitleUris.takeIf { it.isNotEmpty() }
+                        ?: findSubtitleUrisForEpisode(subtitleIndex, epNumPadded)
+                    store.insertDownloadedEpisode(
+                        DownloadedEpisode(
+                            content = DownloadContentInfo(
+                                mainId = dataJson.mainId,
+                                contentId = dataJson.contentId,
+                                title = dataJson.title,
+                                coverUrl = dataJson.coverUrl,
+                                coverColor = null,
+                                contentFormat = dataJson.contentFormat,
+                                contentType = dataJson.contentType,
+                            ),
+                            episode = DownloadEpisodeInfo(
+                                episodeKey = entry.episodeKey,
+                                episodeNumber = entry.episodeNumber.toFloat(),
+                                name = entry.episodeName ?: "Episode ${entry.episodeNumber.toInt()}",
+                                description = entry.episodeDescription,
+                            ),
+                            videoUri = DashCacheKeys.URI_SCHEME + manifestUrl,
+                            subtitleUris = subtitleUris,
+                            sizeBytes = entry.fileSize ?: 0L,
+                            quality = entry.quality,
+                            completedAt = entry.downloadedAt,
+                        ),
+                    )
+                    scannedEpisodeKeys.add(dataJson.mainId to entry.episodeKey)
+                    episodeCount++
+                    rebuiltEpisodes += DownloadedEpisodeInfo(
+                        episodeKey = entry.episodeKey,
+                        episodeNumber = entry.episodeNumber,
+                        episodeUrl = entry.episodeUrl,
+                        episodeName = entry.episodeName,
+                        episodeDescription = entry.episodeDescription,
+                        videoUrl = entry.videoUrl,
+                        videoUri = null, // no file — the cache rules (dashManifestUrl below)
+                        subtitleUris = subtitleUris,
+                        quality = entry.quality,
+                        videoServer = entry.videoServer,
+                        audioVariant = entry.audioVariant,
+                        downloadedAt = entry.downloadedAt,
+                        fileSize = entry.fileSize,
+                        dashManifestUrl = manifestUrl,
+                    )
+                    DownloadLogger.d {
+                        "scan — DASH cache episode '${entry.episodeKey}' registered from " +
+                            ".data.json (${contentDir.name})"
+                    }
                 }
 
                 // D-242: write the rebuilt episodes list back to .data.json.

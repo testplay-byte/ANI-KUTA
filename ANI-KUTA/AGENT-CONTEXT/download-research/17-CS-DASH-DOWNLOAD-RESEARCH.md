@@ -1,8 +1,9 @@
 # 17 — CS Downloads: the "Only DASH streams were found" failure (research, round 56)
 
-> Status: RESEARCH ONLY (the user's explicit scope for this session: "you are only going to
-> understand, analyze, find the issues … get ready for the next session in which we will be
-> working on this"). No code changed for this. This doc is the next session's launch pad.
+> Status: IMPLEMENTED (round 57, D-539) — the refined Option C shipped: the app's own queue
+> + media3-datasource CacheWriter into a NoOp-evict SimpleCache + playback through the
+> existing CS screen. See 18-CS-DASH-DOWNLOAD-IMPLEMENTATION.md for what actually landed
+> (and where this doc's predictions held vs. changed). Kept as the analysis record.
 >
 > The device report: Details page loads, episodes load, episodes PLAY fine — but tapping a
 > download button resolves and then dies with: **"No downloadable sources. Only DASH streams

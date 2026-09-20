@@ -44,6 +44,14 @@ data class DownloadContentInfo(
     val animeUrl: String? = null,
     val displaySource: String = "extension",
     val anilistId: Int? = null,
+    /**
+     * D-539: the CS provider name (the bridge identity) when this content was
+     * downloaded from a CloudStream source — carried into `.data.json` so the
+     * durable store self-describes its ecosystem (provider name + repo), and
+     * the D-540 translation layer can verify resolvability. Null for aniyomi
+     * sources (their identity is the numeric [extensionId]).
+     */
+    val providerName: String? = null,
 )
 
 /**

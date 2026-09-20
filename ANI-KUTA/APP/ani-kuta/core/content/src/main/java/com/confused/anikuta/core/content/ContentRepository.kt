@@ -475,6 +475,71 @@ class ContentRepository(
         }
     }
 
+    /** Every main_entry row (the D-540 ecosystem heal's walk set). */
+    fun getAllMainEntries(): List<ContentRecord> {
+        return contentQueries.getAllMainEntries().executeAsList().map {
+            ContentRecord(
+                mainId = it.main_id,
+                contentId = it.content_id,
+                title = it.title,
+                contentType = it.content_type,
+                contentFormat = it.content_format,
+                dataSourceId = it.data_source_id,
+                systemId = it.system_id,
+                extensionRepoId = it.extension_repo_id,
+                extensionId = it.extension_id,
+                sourceId = it.source_id,
+                animeUrl = it.anime_url,
+                displaySource = it.display_source,
+                createdAt = it.created_at,
+                updatedAt = it.updated_at,
+            )
+        }
+    }
+
+    /**
+     * D-540: the one-time ecosystem heal — CloudStream-bridged content
+     * (bit-62 synthetic extension_id) that was recorded under the WRONG
+     * ecosystem (system "aniyomi" + extension_type "aniyomi" — every
+     * pre-D-540 write path hardcoded it) moves to the seeded "cloudstream"
+     * system row + extension_type. IDEMPOTENT (already-healed rows are
+     * skipped); called once at app start.
+     */
+    fun healCloudstreamEcosystem() {
+        val csSystem = getSystemByName("cloudstream") ?: return
+        var healedEntries = 0
+        for (entry in getAllMainEntries()) {
+            if (!entry.extensionId.isCloudstreamBridgedId()) continue
+            if (entry.systemId == csSystem.id) continue
+            updateMainEntrySources(
+                mainId = entry.mainId,
+                dataSourceId = entry.dataSourceId,
+                systemId = csSystem.id,
+                extensionRepoId = entry.extensionRepoId,
+                extensionId = entry.extensionId,
+                sourceId = entry.sourceId,
+                animeUrl = entry.animeUrl,
+                contentId = entry.contentId,
+            )
+            healedEntries++
+        }
+        var healedDetails = 0
+        for ((mainId, details) in getAllContentDetailsMap()) {
+            if (details.extensionType != "aniyomi") continue
+            // The row's ecosystem marker follows its main_entry's extension_id.
+            val entry = getMainEntryByMainId(mainId) ?: continue
+            if (!entry.extensionId.isCloudstreamBridgedId()) continue
+            updateExtensionAxis(details.copy(extensionType = "cloudstream"))
+            healedDetails++
+        }
+        if (healedEntries > 0 || healedDetails > 0) {
+            Logger.i(TAG) {
+                "healCloudstreamEcosystem — relabelled $healedEntries main_entry row(s) + " +
+                    "$healedDetails content_details row(s) to the cloudstream ecosystem"
+            }
+        }
+    }
+
     /** Every content_details row, keyed by mainId (batch companion to [getContentDetails]). */
     fun getAllContentDetailsMap(): Map<String, ContentDetails> {
         return contentQueries.getAllContentDetails().executeAsList().associate {

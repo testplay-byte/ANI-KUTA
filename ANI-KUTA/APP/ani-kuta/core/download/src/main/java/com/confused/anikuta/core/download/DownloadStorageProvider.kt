@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
+import com.confused.anikuta.core.common.DashCacheKeys
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -230,6 +231,77 @@ class DownloadStorageProvider(
     }
 
     /**
+     * D-539: publishes a DASH-cache episode — the folder gets everything the
+     * file pipeline writes EXCEPT the video file (fMP4 DASH has no single
+     * file without a muxer the app doesn't ship; the media lives in the
+     * app-private SimpleCache under [manifestUrl]):
+     * `.data.json` (+ the content identity), `.cover.jpg`, `.nomedia`, and
+     * the subtitle files in `subtitles/`. The returned [PublishResult.videoUri]
+     * is the `csdash:<manifestUrl>` marker uri the whole app treats as the
+     * DASH identity (DB row, playback routing, delete purge).
+     *
+     * @param cachedBytes The bytes cached so far (the episode's honest size —
+     *   the DB `file_size` + the Downloads page display).
+     */
+    suspend fun publishDashEpisode(
+        downloadId: Long,
+        content: DownloadContentInfo,
+        episode: DownloadEpisodeInfo,
+        subtitleFiles: List<File> = emptyList(),
+        subtitleLangs: List<String> = emptyList(),
+        manifestUrl: String,
+        cachedBytes: Long,
+    ): PublishResult = withContext(Dispatchers.IO) {
+        val contentDir = getContentFolder(content.mainId, content.title)
+            ?: throw DownloadException("Failed to create content folder for ${content.title}")
+
+        val index = contentDir.listFiles().associateBy { it.name!! }
+
+        // 1. .data.json (read-modify-write) — same identity write as the file pipeline.
+        writeDataJson(content, contentDir, index)
+
+        // 2. .cover.jpg (best-effort, same rules as publishVideoFile).
+        if (index[".cover.jpg"] == null) {
+            writeCoverImage(content.coverUrl, contentDir, content.mainId)
+        }
+
+        // 3. .nomedia (idempotent).
+        if (index[".nomedia"] == null) {
+            runCatching { contentDir.createFile("application/octet-stream", ".nomedia") }
+        }
+
+        // 4. Subtitles → subtitles/ (same naming contract as the file pipeline —
+        //    the shared resolveSubtitleTracks chain finds them for offline playback).
+        val subtitlesDir = getOrCreateSubfolder(contentDir, "subtitles", index)
+        val subIndex = subtitlesDir.listFiles().associateBy { it.name!! }
+        val publishedSubtitleUris = mutableListOf<String>()
+        for ((subIdx, subFile) in subtitleFiles.withIndex()) {
+            val ext = subFile.extension.ifBlank { "vtt" }
+            val epNum = String.format("%05d", episode.episodeNumber.toInt())
+            val rawLang = subtitleLangs.getOrNull(subIdx) ?: ""
+            val safeLang = sanitizeLangForFileName(rawLang)
+            val subName = "subtitle_E${epNum}_${safeLang}_${subIdx}.$ext"
+            subIndex[subName]?.delete()
+            val subTarget = subtitlesDir.createFile("application/octet-stream", subName)
+            if (subTarget != null) {
+                copyFile(subFile, subTarget.uri)
+                publishedSubtitleUris.add(subTarget.uri.toString())
+            }
+        }
+
+        DownloadLogger.i {
+            "publishDashEpisode($downloadId) — published DASH episode ${episode.episodeKey} " +
+                "(${cachedBytes} cached bytes) to ${contentDir.name} + " +
+                "${publishedSubtitleUris.size} subtitle(s) — NO video file (cache episode)"
+        }
+        PublishResult(
+            videoUri = DashCacheKeys.URI_SCHEME + manifestUrl,
+            subtitleUris = publishedSubtitleUris,
+            contentFolder = contentDir,
+        )
+    }
+
+    /**
      * Sanitizes a language label for use in a filename. Lowercases, replaces
      * non-alphanumeric runs with a single hyphen, trims leading/trailing hyphens.
      * Returns `"unknown"` if blank. Examples: "English" → "english",
@@ -388,6 +460,7 @@ class DownloadStorageProvider(
             sourceId = content.sourceId,
             animeUrl = content.animeUrl,
             displaySource = content.displaySource,
+            providerName = content.providerName,
             coverUrl = content.coverUrl,
             anilistId = content.anilistId,
             createdAt = now,
@@ -406,6 +479,7 @@ class DownloadStorageProvider(
             sourceId = content.sourceId ?: existing?.sourceId,
             animeUrl = content.animeUrl ?: existing?.animeUrl,
             displaySource = content.displaySource.ifBlank { existing?.displaySource ?: content.displaySource },
+            providerName = content.providerName ?: existing?.providerName,
             coverUrl = content.coverUrl ?: existing?.coverUrl,
             anilistId = content.anilistId ?: existing?.anilistId,
             updatedAt = now,
@@ -625,6 +699,12 @@ class DownloadStorageProvider(
         )
         val updated = base.copy(
             schemaVersion = ContentDataJson.CURRENT_SCHEMA_VERSION,
+            // D-540: contentId follows the CALLER's content info — the verified
+            // rewrite doubles as the identity-rewrite path (the link-switch
+            // sync passes the freshly regenerated contentId; the delete path
+            // passes the DB-captured identity). The episode list is the
+            // caller's list either way.
+            contentId = content.contentId,
             episodes = episodes,
             updatedAt = System.currentTimeMillis(),
         )

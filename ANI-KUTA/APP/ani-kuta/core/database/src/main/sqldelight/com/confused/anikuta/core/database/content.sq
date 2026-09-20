@@ -182,6 +182,12 @@ JOIN (SELECT main_id, MAX(added_at) AS added_at FROM library_item GROUP BY main_
   ON li.main_id = m.main_id
 ORDER BY li.added_at DESC;
 
+-- D-540: every main_entry row (the ecosystem heal walks them all — a
+-- CloudStream-bridged extension_id recorded under the wrong system row is
+-- relabelled at startup; new .sq SELECT = no schema change).
+getAllMainEntries:
+SELECT m.* FROM main_entry m;
+
 getMainEntryByAniListId:
 SELECT m.* FROM main_entry m
 JOIN content_details d ON m.main_id = d.main_id

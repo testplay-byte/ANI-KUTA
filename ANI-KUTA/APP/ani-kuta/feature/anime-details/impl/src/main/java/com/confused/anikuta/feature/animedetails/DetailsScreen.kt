@@ -156,6 +156,10 @@ fun DetailsScreen(
     // list/mainId/sourceId/metadata) — the host opens the CS resolve sheet in
     // DOWNLOAD mode; a pick enqueues through the CS-aware download path.
     onDownloadCsEpisode: (String, String, String, Float, String, String, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
+    // D-539: the OFFLINE DASH route — a downloaded DASH-cache episode plays
+    // through the CS watch screen's offline player (the manifest URL comes
+    // from the download row; the host builds the CsWatchKey).
+    onNavigateToCsOfflineWatch: (com.confused.anikuta.feature.cswatch.api.CsWatchKey) -> Unit = {},
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
     // D-209: Cloudflare manual solver — launched from the episode error card.
@@ -653,6 +657,44 @@ fun DetailsScreen(
             if (mainId != null) {
                 val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
                 if (localUri != null) {
+                    // ── D-539: the DASH-cache branch — this episode's media
+                    // lives in the offline SimpleCache (csdash: marker); it
+                    // plays through the CS watch screen's offline player, not
+                    // the MPV file player (MPV cannot demux a manifest).
+                    if (downloadManager.isDownloadedEpisodeDash(mainId, episode.url)) {
+                        val dashManifest = com.confused.anikuta.core.common.DashCacheKeys
+                            .manifestUrlFromUri(localUri)
+                        if (dashManifest != null) {
+                            val anime = (state as? DetailsState.Success)?.anime
+                            val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+                            val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+                                "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+                            } ?: ""
+                            val epMetaStr = buildEpisodeMetadataSerialized(
+                                episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
+                                metadata = episodeMetadata,
+                                currentScanlator = episode.scanlator,
+                            )
+                            Logger.i("Anikuta:Feature:Details") {
+                                "onEpisodeClick — DASH cache episode, offline CS playback: $dashManifest"
+                            }
+                            onNavigateToCsOfflineWatch(
+                                com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+                                    providerName = effectiveLinkedSource?.sourceName ?: "",
+                                    animeTitle = anime?.displayName ?: "Downloaded",
+                                    episodeData = episode.url,
+                                    episodeNumber = episode.episode_number,
+                                    episodeTitle = episode.name,
+                                    episodeListSerialized = epListStr,
+                                    mainId = mainId,
+                                    sourceId = effectiveLinkedSource?.sourceId ?: 0L,
+                                    episodeMetadataSerialized = epMetaStr,
+                                    offlineManifestUrl = dashManifest,
+                                ),
+                            )
+                            return@onEpisodeClick
+                        }
+                    }
                     Logger.i("Anikuta:Feature:Details") {
                         "onEpisodeClick — episode is downloaded, playing offline: $localUri"
                     }
@@ -1518,8 +1560,11 @@ fun DetailsScreen(
             initialQuery = (state as? DetailsState.Success)?.anime?.displayName ?: "",
             onSearch = { query -> viewModel.searchAniListForLink(query) },
             onLink = { anilistId -> viewModel.linkAniListEntry(anilistId) },
+            // D-538: SKIP (the explicit button) persists per entry — a casual
+            // swipe-DISMISS must not: it only closes the sheet, and the next
+            // open re-attempts the auto-link (the pre-D-538 skip semantics).
             onSkip = { viewModel.skipAniListLink() },
-            onDismiss = { viewModel.skipAniListLink() },
+            onDismiss = { viewModel.dismissManualLinkSheet() },
         )
     }
 

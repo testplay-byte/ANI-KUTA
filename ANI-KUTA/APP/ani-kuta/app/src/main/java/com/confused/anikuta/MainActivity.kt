@@ -988,6 +988,12 @@ fun AppRoot() {
                                 episodeMetadataSerialized = epMeta,
                             )
                         },
+                        // D-539: a downloaded DASH-cache episode plays through
+                        // the CS watch screen's offline player — DIRECT backstack
+                        // add (NOT csResolveRequest: that opens the resolve
+                        // sheet, which would re-resolve an already-downloaded
+                        // episode online and dead-end it).
+                        onNavigateToCsOfflineWatch = { key -> backstack.add(key) },
                         // Task 58 (round 18 — downloads): the details page's
                         // download button on a CS-bridged episode — the SAME
                         // sheet in DOWNLOAD mode; a pick enqueues via
@@ -1062,6 +1068,12 @@ fun AppRoot() {
                                 episodeMetadataSerialized = epMeta,
                             )
                         },
+                        // D-539: a downloaded DASH-cache episode plays through
+                        // the CS watch screen's offline player — DIRECT backstack
+                        // add (NOT csResolveRequest: that opens the resolve
+                        // sheet, which would re-resolve an already-downloaded
+                        // episode online and dead-end it).
+                        onNavigateToCsOfflineWatch = { key -> backstack.add(key) },
                         // Task 58 (round 18 — downloads): the details page's
                         // download button on a CS-bridged episode — the SAME
                         // sheet in DOWNLOAD mode; a pick enqueues via
@@ -2092,6 +2104,10 @@ private fun handleCsDownloadPick(
                 animeUrl = content.animeUrl ?: details?.animeUrl,
                 displaySource = content.displaySource,
                 anilistId = details?.anilistId,
+                // D-539: the CS provider name rides the durable metadata so
+                // .data.json self-describes its ecosystem (the D-540
+                // translation layer verifies resolvability against it).
+                providerName = key.providerName,
             )
             val episodeInfo = com.confused.anikuta.core.download.DownloadEpisodeInfo(
                 // episodeKey = the CS data handle = SEpisode.url — the SAME key
@@ -2299,8 +2315,71 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
     downloadManager: com.confused.anikuta.core.download.DownloadManager,
     contentRepository: com.confused.anikuta.core.content.ContentRepository,
     dataCacheRepository: com.confused.anikuta.core.datacache.DataCacheRepository,
-): WatchKey? {
+): com.confused.anikuta.core.navigation.NavKey? {
     val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episodeKey) ?: return null
+
+    // ── D-539: the DASH-cache branch — route to the CS watch screen's
+    // OFFLINE player. MPV cannot demux a manifest, and the media lives in
+    // the app-private SimpleCache under the manifest URL (the `csdash:`
+    // marker uri). The sidecar subtitles resolve inside the CS screen (the
+    // same D-407 chain, via its injected download manager).
+    val dashManifestUrl = com.confused.anikuta.core.common.DashCacheKeys.manifestUrlFromUri(localUri)
+    if (dashManifestUrl != null) {
+        // Look up the CS provider name so a non-downloaded NEXT episode can
+        // still fall back to online resolution inside the CS screen.
+        val providerName = runCatching {
+            val em = org.koin.core.context.GlobalContext.get()
+                .get<com.confused.anikuta.data.extension.manager.ExtensionManager>()
+            contentRepository.getContentDetails(mainId)?.sourceId?.let { em.getSource(it)?.name }
+        }.getOrNull()
+        val allDownloaded = downloadManager.getDownloadedEpisodes().value
+        val downloaded = allDownloaded
+            .firstOrNull { it.content.mainId == mainId && it.episode.episodeKey == episodeKey }
+            ?: allDownloaded.firstOrNull { it.content.mainId == mainId }
+        val animeTitle = downloaded?.content?.title ?: "Downloaded"
+        val epTitle = downloaded?.episode?.name ?: "Episode"
+        val epNum = downloaded?.episode?.episodeNumber ?: 0f
+        val sourceId = contentRepository.getContentDetails(mainId)?.sourceId ?: 0L
+
+        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+        val cachedEpisodes = dataCacheRepository.getEpisodeMetadata(mainId)
+        val epListStr = if (cachedEpisodes.isNotEmpty()) {
+            cachedEpisodes.sortedBy { it.episodeNumber }.joinToString("\n") { meta ->
+                "${meta.episodeUrl ?: episodeKey}${delim}${meta.episodeNumber}${delim}${meta.title ?: "Episode ${meta.episodeNumber.toInt()}"}"
+            }
+        } else {
+            allDownloaded.filter { it.content.mainId == mainId }.sortedBy { it.episode.episodeNumber }
+                .joinToString("\n") { e ->
+                    "${e.episode.episodeKey}${delim}${e.episode.episodeNumber}${delim}${e.episode.name}"
+                }
+        }
+        val epMetaStr = cachedEpisodes.joinToString("\n") { meta ->
+            listOf(
+                meta.episodeNumber.toInt().toString(),
+                meta.title ?: "",
+                meta.thumbnailUrl ?: "",
+                (meta.airDate ?: 0L).toString(),
+                meta.description ?: "",
+                meta.scanlator ?: "",
+            ).joinToString(delim)
+        }
+        Logger.i("Anikuta:MainActivity") {
+            "Downloads→Watch: DASH cache episode → CS offline player " +
+                "(manifest=${dashManifestUrl.take(64)}, provider=${providerName ?: "unknown"})"
+        }
+        return com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+            providerName = providerName ?: "",
+            animeTitle = animeTitle,
+            episodeData = episodeKey,
+            episodeNumber = epNum,
+            episodeTitle = epTitle,
+            episodeListSerialized = epListStr,
+            mainId = mainId,
+            sourceId = sourceId,
+            episodeMetadataSerialized = epMetaStr,
+            offlineManifestUrl = dashManifestUrl,
+        )
+    }
 
     // Look up the downloaded episode for metadata.
     val allDownloaded = downloadManager.getDownloadedEpisodes().value

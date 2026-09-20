@@ -312,6 +312,26 @@ class DownloadStore(private val database: AnikutaDatabase) {
         episodeQueries.getDownloadedEpisode(mainId, episodeKey).executeAsOneOrNull()?.video_uri
 
     /**
+     * D-540: syncs BOTH download tables' denormalized `content_id` after a
+     * source switch — the two previously-DEAD update queries
+     * (`updateDownloadedContentId` / `updateDownloadContentId` had zero
+     * Kotlin callers, so the rows went stale the moment the user linked the
+     * content to a different source). The ContentResolver's identity-sync
+     * hook now calls this on every contentId regeneration.
+     */
+    fun syncContentId(mainId: String, contentId: String) {
+        episodeQueries.updateDownloadedContentId(
+            content_id = contentId,
+            main_id = mainId,
+        )
+        queueQueries.updateDownloadContentId(
+            content_id = contentId,
+            updated_at = System.currentTimeMillis(),
+            main_id = mainId,
+        )
+    }
+
+    /**
      * D-407 (round 31): the FULL downloaded-episode row for (mainId,
      * episodeKey) — used by the manual subtitle import (it needs the episode
      * number, the title, and the existing subtitleUris to append to).

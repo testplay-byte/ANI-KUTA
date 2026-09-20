@@ -1,12 +1,14 @@
 package com.confused.anikuta.core.download
 
 /**
- * Detects the video type (direct HTTP vs HLS) from a URL + Content-Type.
+ * Detects the video type (direct HTTP vs HLS vs DASH) from a URL + Content-Type.
  *
  * D.1.11: Same logic as the old project — inspects the URL extension + the
  * Content-Type header to determine which downloader to use.
  *
  * - HLS (.m3u8 or Content-Type: application/vnd.apple.mpegurl) → [HLS]
+ * - DASH (.mpd or Content-Type: dash+xml) → [DASH] (D-539: downloadable —
+ *   the DashDownloader caches manifest + segments into the offline cache)
  * - Everything else → [HTTP] (direct download: .mp4, .mkv, .webm, etc.)
  */
 object VideoTypeDetector {
@@ -17,6 +19,9 @@ object VideoTypeDetector {
 
         /** HLS playlist (.m3u8) — use [HlsDownloader]. */
         HLS,
+
+        /** DASH manifest (.mpd) — D-539: use [DashDownloader] (offline cache). */
+        DASH,
     }
 
     /**
@@ -33,6 +38,9 @@ object VideoTypeDetector {
             if (lower.contains("mpegurl") || lower.contains("m3u8")) {
                 return VideoType.HLS
             }
+            if (lower.contains("dash+xml")) {
+                return VideoType.DASH
+            }
             if (lower.contains("mp4") || lower.contains("matroska") ||
                 lower.contains("webm") || lower.contains("octet-stream")
             ) {
@@ -41,9 +49,10 @@ object VideoTypeDetector {
         }
 
         // Fall back to URL extension.
-        val lowerUrl = url.lowercase()
+        val lowerUrl = url.substringBefore('?').lowercase()
         return when {
             lowerUrl.contains(".m3u8") -> VideoType.HLS
+            lowerUrl.contains(".mpd") -> VideoType.DASH
             else -> VideoType.HTTP
         }
     }
