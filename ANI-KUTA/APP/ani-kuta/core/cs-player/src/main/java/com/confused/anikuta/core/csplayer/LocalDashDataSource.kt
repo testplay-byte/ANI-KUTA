@@ -170,7 +170,7 @@ internal class LocalDashDataSource(
                 "DASH segment not in the local offline index " +
                     "(an unpinned representation, or the index and the manifest disagree): ${dataSpec.uri}",
             )
-        val fileUri = index.fileUris[range.file]
+        val fileUri = android.net.Uri.parse(index.fileUris[range.file]) // CI round 3: the sidecar stores uri STRINGS — openInputStream needs the parsed Uri
         val input = resolver.openInputStream(fileUri)
             ?: throw IOException("The local DASH media file could not be opened: $fileUri")
         stream = input

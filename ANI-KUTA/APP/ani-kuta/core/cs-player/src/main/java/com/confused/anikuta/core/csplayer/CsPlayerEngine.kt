@@ -549,13 +549,16 @@ class CsPlayerEngine(
             // DataSource.Factory) constructor — PRIVATE in media3 1.9.3 (the
             // compiler error named the full 11-arg private ctor). The PUBLIC
             // sideloaded path is the Factory overload
-            // createMediaSource(DashManifest, MediaItem) — mediaItem = null
-            // (the manifest is fully sideloaded; no item metadata needed).
+            // createMediaSource(DashManifest, MediaItem). CI round 3: the
+            // overload's MediaItem param is NON-null in the Kotlin-visible
+            // signature — the factory rebuilds an item without a
+            // localConfiguration into Uri.EMPTY itself, so an empty built item
+            // is the documented null-free equivalent.
             val mediaSource = androidx.media3.exoplayer.dash.DashMediaSource.Factory(
                 androidx.media3.datasource.DataSource.Factory {
                     LocalDashDataSource(appContext.contentResolver, index)
                 },
-            ).createMediaSource(manifest, null)
+            ).createMediaSource(manifest, MediaItem.Builder().build())
             player.setMediaSource(mediaSource, if (startPositionMs > 0) startPositionMs else C.TIME_UNSET)
             player.prepare()
             player.playWhenReady = true
