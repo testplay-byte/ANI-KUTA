@@ -544,9 +544,23 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10117
-    const val versionName = "1.1.17"
-    // D-498 (round 54): release/1.1.17 — cut from the round-54 FEATURE branch
+    const val versionCode = 10118
+    const val versionName = "1.1.18"
+    // D-498 (round 55): release/1.1.18 — cut from the round-55 FEATURE branch
+    // head 827440c1 (CI green after ONE fix run — 35502594912 caught the
+    // drawCenteredText 'val cannot be reassigned' shadowing error, 35502967752
+    // green). What the release carries on top of v1.1.17 (the round-55 device
+    // round, D-523..D-526 — full detail: AGENT-CONTEXT/memory/decisions.md):
+    // D-523 THE POSTER STUDIO RETIRED — "we should not give the users that
+    // much customizability": the screen, the nav key, the layout-JSON pref
+    // and the composer's absolute mode all deleted. D-524 THE FIVE
+    // PREDEFINED TEMPLATES (Classic/Spotlight/Split/Minimal/Card) rendered
+    // deterministically by the composer. D-525 THE SCREEN REBUILT — the
+    // stationary live preview + Shuffle above a scrollable options list, one
+    // 8dp gutter (the 32dp/side double padding gone), one-line descriptions,
+    // the full-width ExtraBold 'Shuffle' button. D-526 THE THREE-WAY ARTWORK
+    // SOURCE (Auto/Cover/Episode — the episode's own still can fill the
+    // stage).
     // head 2b5d7730 (CI green on the FIRST implementation run, 35474291318 —
     // the pre-push review round caught the one compile blocker before the
     // push, saving the usual fix CI). What the release carries on top of
