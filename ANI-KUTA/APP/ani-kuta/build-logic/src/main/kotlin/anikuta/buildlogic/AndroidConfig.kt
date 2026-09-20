@@ -544,72 +544,41 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
-    // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
-    // head cf067e68 (CI green — implementation run 35522908889 after four
-    // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
-    // escapes + the resume imports, the module-isolation primitives rule, and
-    // the AnimatedVisibility receiver resolution). What the release carries on
-    // top of v1.1.19 (the round-57 device round, D-536..D-540 — full detail:
-    // AGENT-CONTEXT/memory/decisions.md + download-research/18):
-    // D-536 THE POSTER TOGGLE'S FINAL HOME — the master switch is the Elements
-    // card's LAST row, titled "Poster" (the round-57 verdict); everything else
-    // (preview, Shuffle, Layout, Artwork, the element rows, the section label)
-    // collapses around it and ONLY it never disappears.
-    // D-537 THE CS PLAYER PAUSES ON APP-BACKGROUND — the MPV watch screen's
-    // exact ON_STOP observer (no auto-resume on return — both players behave
-    // identically; the user taps play).
-    // D-538 THE AUTO-LINK SKIP IS PERSISTENT — "Skip AniList link" survives
-    // app restarts per (sourceId, animeUrl); reopening content never
-    // re-attempts; swipe-dismiss stays session-only; a manual link/unlink
-    // clears the flag.
-    // D-539 CS DASH DOWNLOADS (the headline) — DASH manifests are downloadable:
-    // the resolve sheet's DASH filter is gone, the manifest + segments cache
-    // into the app-private SimpleCache (the SAME queue/service/notifications),
-    // the SAF folder keeps .data.json + cover + subtitles with NO video file,
-    // DB rows carry the csdash: marker uri (zero schema changes), offline
-    // playback rides the EXISTING CS watch screen (engine.startOfflineDash over
-    // a CacheDataSource with a quality pin), downloaded-season switching
-    // prefers the cache, the delete path purges it, DRM manifests fail
-    // honestly in the queue.
-    // D-540 ECOSYSTEM TRUTH + THE DATA TRANSLATION — CS content records
-    // system/extension_type "cloudstream" (the bit-62 flag), an idempotent
-    // startup heal relabels old rows, and switching a content's extension
-    // (CloudStream ↔ aniyomi) now syncs the download tables' content_id (the
-    // two previously-dead queries) and rewrites the durable .data.json
-    // identity block — downloads SURVIVE the switch, files never move.
-    // head 2b5d7730 (CI green on the FIRST implementation run, 35474291318 —
-    // the pre-push review round caught the one compile blocker before the
-    // push, saving the usual fix CI). What the release carries on top of
-    // v1.1.16 (the round-54 device round, D-518..D-521 — full detail:
-    // AGENT-CONTEXT/memory/decisions.md): D-518 THE STUDIO SHELL REBUILT —
-    // the round's named bug: the header lived inside the left panel with
-    // ZERO inset handling on a forced-landscape edge-to-edge screen, so the
-    // whole control row (Save included) rendered UNDER the status bar and
-    // Save was literally unclickable ("There should be padding at the top
-    // for the notification bar so that the buttons do not show under it");
-    // now statusBarsPadding once at the root, a full-width header bar with
-    // LABELLED reachable Reset/Save buttons, the left panel's sections on
-    // tonal SectionCards (planned structure), and the nav-bar inset on the
-    // whole body Row (SENSOR_LANDSCAPE can put the bar on either edge);
-    // D-519 THE ELEMENT-AWARE TEXT COLUMNS — "the content title is showing
-    // under some corner elements": the title/episode-title wrap width now
-    // ends BEFORE the left edge of any visible neighbour sharing the text's
-    // vertical band (PosterDrawing.awareWrapWidth — a two-pass text-driven
-    // band, left-edge-only neighbour rects, a 120px floor, mirrored
-    // composer/studio with render-exact clamps), and the composer's
-    // thumbnail render clamp was RANGE-GUARDED — the last unguarded
-    // coerceIn had made every real notification silently fall back to plain
-    // text whenever the saved thumbnail scale exceeded ~1.78×; D-520 THE
-    // SHUFFLE THAT ALWAYS SHUFFLES — the old exclude handshake silently
-    // no-op'd when the on-stage id was still null (the pulse played and
-    // nothing changed); an explicit shufflePending flag now forces a
-    // re-selection on EVERY tap and an honest progress rail docks to the
-    // preview's bottom edge while the new banner composes; D-521 THE
-    // SIMPLER DESCRIPTION — the notification reads TITLE / "New Episode"
-    // ("maybe we can simplify it more to just 'New Episode'. Let's make it
-    // simpler like that.").
+    const val versionCode = 10123
+    const val versionName = "1.1.23"
+    // D-498 (round 60): release/1.1.23 — cut from the round-60 feature head
+    // 2270bfa6 (CI green — implementation run 35540642194 after three
+    // one-fix rounds: the private (DashManifest, DataSource.Factory)
+    // DashMediaSource constructor, the non-null MediaItem param + the
+    // sidecar uri-string parse, and the epIndex metaName-line repair). What
+    // the release carries on top of v1.1.22 (the round-60 device round —
+    // full detail: AGENT-CONTEXT/memory/decisions.md +
+    // download-research/21):
+    // D-548 DASH DOWNLOADS BECOME REAL FILES IN THE USER'S SAF FOLDER — the
+    // v1.1.22 device round validated the whole download pipeline and
+    // rejected exactly one thing: the episode folder had NO video file
+    // (D-539 had put the media in the app-private SimpleCache). The media
+    // now lives in the user's selected download folder as REAL files:
+    // <title> - E00001.mp4 (the video rep's init+segments concatenated — a
+    // valid single-track fMP4) + <title> - E00001.audioN.mp4 (one per audio
+    // AdaptationSet) + <title> - E00001.mp4.dashmeta (the ORIGINAL manifest
+    // bytes + the URL-to-file-range index). Playback = startOfflineDashLocal:
+    // the STORED manifest parses as a SIDeloaded DashMediaSource and
+    // LocalDashDataSource serves every segment request from the local file
+    // ranges — an unindexed fMP4 is UNSEEKABLE in ExoPlayer, so the manifest
+    // IS the index (seek/duration/multi-audio all ride the DASH timeline; an
+    // index miss throws honestly, never a silent stream). Pause/retry resume
+    // rides a manifest-SHA-pinned sidecar persisted after every part (with
+    // the placements list + crash-heal truncation). Routing: the csdash:
+    // marker payload decodes by mode (legacy manifest URL = the v1.1.20-22
+    // cache episodes, which keep working; content:// sidecar uri = the file
+    // episodes) across DashCacheKeys/CsWatchKey/VM/screen/routers/scanner/
+    // delete; the token sweep takes audio+meta with the video; the
+    // SimpleCache binding stays only for the legacy episodes. The independent
+    // review's both blockers (SAF's FileUtils.splitFileName renaming the
+    // audio/sidecar files via mime-ext reconciliation; the scanner rebuild
+    // dropping dashManifestUrl) + one major (DataSpec.position = the ABSOLUTE
+    // remote range start) were fixed BEFORE the first push.
     // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
     // discipline (D-425: the version never moves without the user's explicit
     // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
