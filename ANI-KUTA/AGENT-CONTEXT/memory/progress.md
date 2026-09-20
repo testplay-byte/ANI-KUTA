@@ -1399,3 +1399,5 @@ v1.1.17 device checklist (the user's round happens ON this release):
 5. Long titles still truncate with "…" inside their aware column.
 6. Test notification: TITLE on the first line, "New Episode" under it, banner one expansion away.
 7. The thumbnail-crash fix: layouts saved with a thumbnail scale above ~1.78× now render the banner instead of silently losing it.
+
+**v1.1.17 is LIVE (D-522):** release/1.1.17 = 2b5d7730 + ONE bump commit (41919f46, 1.1.17/10117 + the 46-RELEASE record); implementation run 35474291318 GREEN on the FIRST try (the pre-push review saved the fix CI); Release APK run 35474920806 GREEN on the FIRST run; stable + --latest, 66.8MB APK + SHA256SUMS, body = the tag bullets — verified via the API; docs cherry-picked to the release branch (69cb7b4c). The user's device round happens ON this release — the 7-point checklist above. Main stays 0.4.20/85; merge awaits explicit confirmation.
