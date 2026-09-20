@@ -499,11 +499,7 @@ fun NotificationPosterSettingsScreen(
                 ) {
                     // ── D-524: the template picker — the FIVE-WAY toggle ──
                     item {
-                        AnimatedVisibility(
-                            visible = posterEnabled,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically(),
-                        ) {
+                        CollapseAnimated(visible = posterEnabled) {
                             PosterCard(label = "Layout") {
                                 SegmentedOptionBlock(
                                     title = "Layout",
@@ -528,11 +524,7 @@ fun NotificationPosterSettingsScreen(
 
                     // ── D-526: the artwork source — the THREE-WAY toggle ──
                     item {
-                        AnimatedVisibility(
-                            visible = posterEnabled,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically(),
-                        ) {
+                        CollapseAnimated(visible = posterEnabled) {
                             PosterCard(label = "Artwork") {
                                 SegmentedOptionBlock(
                                     title = "Artwork",
@@ -626,6 +618,28 @@ fun NotificationPosterSettingsScreen(
             }
         }
     }
+}
+
+/**
+ * D-536: the collapse animation in its ONE shape (fadeIn+expand / fadeOut+shrink,
+ * the D-531 transitions) — a receiver-free helper so call sites inside
+ * LazyItemScope (the Layout/Artwork list items) don't hit Kotlin's
+ * "ColumnScope.AnimatedVisibility cannot be called with an implicit receiver"
+ * resolution error (the CI round-4 lesson): inside this function there is no
+ * Column receiver, so the TOP-LEVEL androidx.compose.animation.AnimatedVisibility
+ * resolves cleanly.
+ */
+@Composable
+private fun CollapseAnimated(
+    visible: Boolean,
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+        content = content,
+    )
 }
 
 /**
