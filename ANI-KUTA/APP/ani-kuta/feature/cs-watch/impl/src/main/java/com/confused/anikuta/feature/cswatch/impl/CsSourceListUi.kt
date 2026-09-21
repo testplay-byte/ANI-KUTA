@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.csplayer.CsAudioTag
 import com.confused.anikuta.core.csplayer.CsLinkType
+import com.confused.anikuta.core.csplayer.CsServerNames
 import com.confused.anikuta.core.csplayer.CsVideoLink
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.DebugPreferences
@@ -104,6 +105,15 @@ import org.koin.compose.koinInject
  * Unknown(400), then Auto(0) at the far right ("any other options"). A raw
  * value sort would seat Unknown left of 144p — the rank pushes it past every
  * real height.
+ *
+ * D-551 (the MovieBox device round): the derivation now understands the
+ * LANGUAGE-AUDIO decorations — "MovieBox (Hindi Audio)" + "MovieBox
+ * (Original Audio)" collapse into ONE server card whose audio versions are
+ * "Hindi" and "Original" (they used to render as two separate servers, and
+ * the D-550 sibling matcher missed them the same way). When a version is a
+ * single DASH link whose manifest was probed, [CsAudioGroup.availableQualities]
+ * carries every resolution the stream offers — the card renders the
+ * "Available:" line under the chips.
  */
 internal fun groupServers(links: List<CsVideoLink>): List<CsServerGroup> =
     links
@@ -114,7 +124,8 @@ internal fun groupServers(links: List<CsVideoLink>): List<CsServerGroup> =
                 .entries
                 .sortedWith(
                     // Real flavors first (SUB before DUB — the aniyomi order);
-                    // "Default" always last.
+                    // "Default" always last. Language versions ("Hindi",
+                    // "Original") sort as real flavors in encounter order.
                     compareBy({ entry -> entry.key == CsAudioTag.DEFAULT }, { entry -> entry.key == "DUB" }),
                 )
                 .map { (label, versionLinks) ->
@@ -124,6 +135,12 @@ internal fun groupServers(links: List<CsVideoLink>): List<CsServerGroup> =
                         label = label,
                         links = sorted,
                         disambiguateType = labels.groupingBy { it }.eachCount().any { it.value > 1 },
+                        // D-551: a version that is ONE DASH link with a probed
+                        // manifest exposes the stream's full resolution list.
+                        availableQualities = sorted.singleOrNull()
+                            ?.takeIf { it.type == CsLinkType.DASH }
+                            ?.availableQualities
+                            ?.takeIf { it.size > 1 },
                     )
                 }
             CsServerGroup(name = name, audioVersions = versions)
@@ -142,63 +159,12 @@ internal fun qualityRank(quality: Int): Int = when (quality) {
 }
 
 /**
- * The SERVER part of a link name — the aniyomi derivation: audio-version
- * tokens and quality tokens are stripped when they appear as separate
- * " - " segments ("HD-1 - Sub - 1080p" → "HD-1"; "Vidstream-2 - Dub - 720p"
- * → "Vidstream-2").
- *
- * Task 57 (P5 — smarter server/audio/resolution detection): a decoration
- * pass ALSO strips tokens GLUED to a segment — bracketed audio-version tags
- * ("[SUB]", "(Dub)", "[Multi Audio]", "(Softsub)") and bracketed quality
- * tokens ("[1080p]", "(4k)"), plus the bare quality words that trail them
- * (the audio chip and quality chip own that vocabulary):
- *   "Mirror [SUB] 1080p"    → "Mirror"
- *   "Streamtape (Dub) 720p" → "Streamtape"
- *   "Server [1080p]"        → "Server"
- * A name that is ONLY tokens ("HSUB - 360p") keeps its full original form
- * (blank guard); names without separators or brackets pass through unchanged
- * (no over-stripping of hyphenated server names like "HD-1" / "Vidstream-2").
+ * The SERVER part of a link name — D-551: the derivation MOVED to
+ * :core:cs-player's [CsServerNames] (the :app sibling matcher needs the exact
+ * same function — one vocabulary, all consumers; see the D-550 sibling miss).
+ * This delegate keeps every call site + test in this module unchanged.
  */
-internal fun serverNameOf(name: String): String {
-    val kept = name.split(SEPARATOR).map { seg ->
-        // Decoration pass: strip glued brackets + bare quality words, then
-        // re-join the surviving words with single spaces (collapses runs
-        // of spaces the bracket removal leaves behind).
-        seg.trim()
-            .replace(BRACKETED_AUDIO_TAG, "")
-            .replace(BRACKETED_QUALITY_TAG, "")
-            .split(WHITESPACE)
-            .filter { word -> !QUALITY_TOKEN.matches(word) }
-            .joinToString(" ")
-    }.filter { seg ->
-        val s = seg.lowercase()
-        s.isNotBlank() && s !in AUDIO_SEGMENT_WORDS && !QUALITY_TOKEN.matches(s)
-    }
-    return kept.joinToString(" - ").trim().ifBlank { name.trim() }
-}
-
-/** Segment separator: " - " with flexible spacing. */
-private val SEPARATOR = Regex("\\s+-\\s+")
-
-/** Task 57 (P5): a bracketed audio-version token glued to a segment —
- *  "[SUB]", "(Dub)", "[Dubbed]", "[Multi Audio]", "(Softsub)". */
-private val BRACKETED_AUDIO_TAG =
-    Regex("[\\[(]\\s*(?:sub(?:bed)?|dub(?:bed)?|hsub|hardsub|multi[ -]?audio|softsub)\\s*[\\])]", RegexOption.IGNORE_CASE)
-
-/** Task 57 (P5): a bracketed quality token glued to a segment — "[1080p]", "(720p)", "[4k]". */
-private val BRACKETED_QUALITY_TAG =
-    Regex("[\\[(]\\s*(?:\\d{3,4}[pi]?|[48]k)\\s*[\\])]", RegexOption.IGNORE_CASE)
-
-/** Task 57 (P5): the decoration pass's word splitter. */
-private val WHITESPACE = Regex("\\s+")
-
-/** Audio-version words (the [CsAudioTag.parse] vocabulary, whole-segment). */
-private val AUDIO_SEGMENT_WORDS = setOf(
-    "sub", "subbed", "dubbed", "dub", "hsub", "hardsub", "h-hardsub", "mix", "raw",
-)
-
-/** A standalone quality token: 240p–2160p/i, 4K, 8K. */
-private val QUALITY_TOKEN = Regex("^[1-9]\\d{2,3}[pi]?$|^[48]k$")
+internal fun serverNameOf(name: String): String = CsServerNames.of(name)
 
 /** One accordion server: the label + its audio versions (each w/ links). */
 internal data class CsServerGroup(
@@ -206,13 +172,18 @@ internal data class CsServerGroup(
     val audioVersions: List<CsAudioGroup>,
 )
 
-/** One audio version within a server (SUB/DUB/… or "Default"). */
+/** One audio version within a server (SUB/DUB/… or "Default", D-551:
+ *  language versions like "Hindi" / "Original"). */
 internal data class CsAudioGroup(
     val label: String,
     val links: List<CsVideoLink>,
     /** True when two links of this version share a quality label — chips then
      *  carry the type badge (HLS/DASH) so rows stay distinguishable. */
     val disambiguateType: Boolean,
+    /** D-551: every resolution the version's single DASH link offers (the
+     *  probed manifest's video rep heights, descending); null = unknown/not
+     *  probed/multi-link version — no "Available:" line renders. */
+    val availableQualities: List<Int>? = null,
 )
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -606,6 +577,19 @@ private fun CsServerCard(
                                     sourceDetail = if (showSources) "${link.type} · ${link.url}" else null,
                                 )
                             }
+                        }
+                        // D-551: the version's single DASH link exposes the stream's
+                        // full resolution list (the probed manifest's video reps) —
+                        // the same list the player's per-stream quality section
+                        // shows. Presentation only: the chip above stays the pick
+                        // target (ABR serves every listed resolution from it).
+                        version.availableQualities?.let { heights ->
+                            Text(
+                                text = "Available: " + heights.joinToString(" · ") { "${it}p" },
+                                fontFamily = RobotoFamily,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }

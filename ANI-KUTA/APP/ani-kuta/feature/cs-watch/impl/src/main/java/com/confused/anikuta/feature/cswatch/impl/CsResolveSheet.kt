@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.csplayer.CsLinkType
 import com.confused.anikuta.core.csplayer.CsSubtitle
 import com.confused.anikuta.core.csplayer.CsVideoLink
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -54,7 +56,10 @@ import com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.Cs
 import com.confused.anikuta.data.cloudstream.playback.CsSourceMemory
 import com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings
 import com.confused.anikuta.feature.cswatch.api.CsWatchKey
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -144,6 +149,31 @@ fun CsResolveSheet(
     // sheets through PlayerPreferences — sheets are recreated per open).
     var formatted by remember { mutableStateOf(playerPreferences.resolveSheetFormatted) }
 
+    // ── D-551: the DASH quality probe — every resolution the stream offers ──
+    // The resolver's snapshots carry the DECLARED quality only (the provider's
+    // single int); the user asked to see the full list the player's own
+    // quality section shows ("1080p, 720p, and 480p"). After each snapshot
+    // this probes the DASH links not yet probed (one small manifest fetch per
+    // link, the LINK'S OWN headers — the MovieBox manifest needs its
+    // CloudFront cookie) and merges the parsed heights into probeQualities;
+    // [enrichedLinks] copies them onto the rendered/seeded links. Silent by
+    // contract: a failed probe leaves the row exactly as it was.
+    val probeQualities = remember(key, retryTick) { mutableStateMapOf<String, List<Int>>() }
+    val probedUrls = remember(key, retryTick) { mutableSetOf<String>() }
+    val probeScope = remember(key, retryTick) {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
+    DisposableEffect(key, retryTick) {
+        onDispose { probeScope.cancel() }
+    }
+
+    /** [links] with the probed manifest heights copied onto their DASH links. */
+    fun enrichedLinks(): List<CsVideoLink> = links.map { link ->
+        probeQualities[link.url]?.let { heights ->
+            if (link.availableQualities == null) link.copy(availableQualities = heights) else link
+        } ?: link
+    }
+
     // Task 57 (P4): the header-level "copy the whole report" action — OFF
     // unless enabled in Settings → Debug options; live-collected (reactive
     // flow) so toggling the setting while the sheet is open applies immediately.
@@ -190,7 +220,9 @@ fun CsResolveSheet(
         viewModel.seedResolution(
             CsWatchViewModel.PreResolvedSeed(
                 key = key,
-                links = links,
+                // D-551: the ENRICHED list rides the seed — the in-player links
+                // sheet inherits the probed resolution lists for free.
+                links = enrichedLinks(),
                 subtitles = subtitles,
                 selectedLink = link,
                 hiddenTorrentCount = hiddenCount,
@@ -287,6 +319,30 @@ fun CsResolveSheet(
             Logger.i(SHEET_TAG) { "sheet disposed — cancelling resolution" }
             resolveJob?.cancel()
         }
+    }
+
+    // D-551: probe newly-arrived DASH links for their full resolution list.
+    // Runs per links-snapshot; probedUrls keeps each URL to ONE probe per
+    // sheet open (retry resets everything through the remember keys). The
+    // probes live in their own SupervisorJob scope so one failure never
+    // touches its siblings, and the scope dies with the sheet (dispose) or
+    // the retry (remember keys) — nothing outlives the UI that shows it.
+    LaunchedEffect(links) {
+        links
+            .filter { it.type == CsLinkType.DASH && it.url !in probedUrls }
+            .forEach { link ->
+                probedUrls += link.url
+                probeScope.launch {
+                    val heights = CsDashQualityProbe.probe(link.url, link.allHeaders)
+                    if (heights != null) {
+                        probeQualities[link.url] = heights
+                        Logger.i(SHEET_TAG) {
+                            "probed '${link.name.take(40)}': " +
+                                heights.joinToString("p · ") { it.toString() } + "p"
+                        }
+                    }
+                }
+            }
     }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -403,7 +459,13 @@ fun CsResolveSheet(
             // Play and download share the same pickable list; only genuinely
             // undownloadable manifests (DRM) fail later with an honest
             // per-task error in the queue.
-            val pickableLinks = links
+            // D-551: `pickableLinks` is the ENRICHED view — the probed
+            // manifest heights ride their DASH links into both lists. The
+            // remember keeps the instance STABLE between events (the raw
+            // `links` snapshots + each new probe result) — a per-recomposition
+            // new list would reset the accordion's expanded-server remember
+            // on every frame.
+            val pickableLinks = remember(links, probeQualities.size) { enrichedLinks() }
             when {
                 // Error, nothing to show — the aniyomi ResolverSheet Error card.
                 failure != null && pickableLinks.isEmpty() -> CsSheetErrorCard(

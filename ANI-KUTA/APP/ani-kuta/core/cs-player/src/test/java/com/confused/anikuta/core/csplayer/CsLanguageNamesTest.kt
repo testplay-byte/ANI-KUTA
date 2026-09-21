@@ -157,4 +157,58 @@ class CsAudioTagTest {
         assertEquals("Default", CsAudioTag.parse(null))
         assertEquals("Default", CsAudioTag.parse("   "))
     }
+
+    // ── D-551 — the language-audio pass (the MovieBox device round) ─────────
+
+    @Test
+    fun `bracketed language audio tags parse to the language`() {
+        // The exact v1.1.24 device-round shape.
+        assertEquals("Hindi", CsAudioTag.parse("MovieBox (Hindi Audio)"))
+        assertEquals("Original", CsAudioTag.parse("MovieBox (Original Audio)"))
+        // Case/bracket variants.
+        assertEquals("Japanese", CsAudioTag.parse("Server [Japanese Audio]"))
+        assertEquals("English", CsAudioTag.parse("MovieBox (eng audio)"))
+        assertEquals("Original", CsAudioTag.parse("MovieBox (ORIG Audio)"))
+    }
+
+    @Test
+    fun `whole-segment language audio tags parse to the language`() {
+        assertEquals("Hindi", CsAudioTag.parse("MovieBox - Hindi Audio - 1080p"))
+        assertEquals("Original", CsAudioTag.parse("Server - Original Audio"))
+    }
+
+    @Test
+    fun `multi audio and sub dub brackets stay decorations`() {
+        // The multi-audio family keeps its pre-D-551 behavior (Default).
+        assertEquals("Default", CsAudioTag.parse("Mirror [Multi Audio] 1080p"))
+        assertEquals("Default", CsAudioTag.parse("Server (Mixed Audio)"))
+        // The sub/dub families keep their word-pass priority.
+        assertEquals("SUB", CsAudioTag.parse("Server (Sub Audio) 1080p"))
+        assertEquals("DUB", CsAudioTag.parse("MovieBox (Hindi Dub)"))
+        assertEquals("DUB", CsAudioTag.parse("MovieBox (Hindi Dubbed Audio)"))
+    }
+
+    @Test
+    fun `free-form audio words never over-match`() {
+        // No brackets, no segment boundary — deliberately NOT a version.
+        assertEquals("Default", CsAudioTag.parse("MovieBox Audio Server"))
+        assertEquals("Default", CsAudioTag.parse("AudioBox"))
+        // A prose-length bracket is too long to be a language decoration.
+        assertEquals("Default", CsAudioTag.parse("Player (watch in the original audio track)"))
+    }
+
+    @Test
+    fun `language label normalizer`() {
+        assertEquals("Hindi", CsAudioTag.languageAudioLabel("hindi"))
+        assertEquals("English", CsAudioTag.languageAudioLabel("ENG"))
+        assertEquals("Original", CsAudioTag.languageAudioLabel("orig"))
+        assertEquals("Telugu", CsAudioTag.languageAudioLabel("telugu"))
+        // Unknown language: first-letter capitalization of every word.
+        assertEquals("Bhojpuri", CsAudioTag.languageAudioLabel("bhojpuri"))
+        assertEquals("Latin Spanish", CsAudioTag.languageAudioLabel("latin spanish"))
+        // Not-a-language family → null (parse maps that to Default).
+        assertEquals(null, CsAudioTag.languageAudioLabel("multi"))
+        assertEquals(null, CsAudioTag.languageAudioLabel("audio"))
+        assertEquals(null, CsAudioTag.languageAudioLabel(""))
+    }
 }

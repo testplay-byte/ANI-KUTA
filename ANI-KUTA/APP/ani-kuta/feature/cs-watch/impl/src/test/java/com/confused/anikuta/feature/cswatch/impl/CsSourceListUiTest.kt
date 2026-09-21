@@ -177,6 +177,79 @@ class CsSourceListUiTest {
         assertEquals("Vidstream-2", serverNameOf("Vidstream-2"))
     }
 
+    // ── D-551 (round 63 — the MovieBox device round): the language-audio
+    //    decorations group into ONE server with per-language versions. ───────
+
+    @Test
+    fun `language audio brackets collapse into one server`() {
+        // The EXACT v1.1.24 device-round pair: two links that used to render
+        // as two servers ("MovieBox (Hindi Audio)" / "MovieBox (Original
+        // Audio)") — now one card, two audio versions.
+        val servers = groupServers(
+            listOf(
+                link("MovieBox (Hindi Audio)", 1080, "u1", type = CsLinkType.DASH),
+                link("MovieBox (Original Audio)", 720, "u2", type = CsLinkType.DASH),
+            ),
+        )
+        assertEquals(1, servers.size)
+        assertEquals("MovieBox", servers[0].name)
+        assertEquals(listOf("Hindi", "Original"), servers[0].audioVersions.map { it.label })
+        assertEquals(listOf(1080), servers[0].audioVersions[0].links.map { it.quality })
+        assertEquals(listOf(720), servers[0].audioVersions[1].links.map { it.quality })
+    }
+
+    @Test
+    fun `language audio segments strip from the server name`() {
+        assertEquals("MovieBox", serverNameOf("MovieBox (Hindi Audio)"))
+        assertEquals("Server", serverNameOf("Server - Original Audio"))
+        assertEquals("MovieBox", serverNameOf("MovieBox - Hindi Audio - 1080p"))
+        // The multi-audio family keeps its Task 57 decoration behavior.
+        assertEquals("Mirror", serverNameOf("Mirror [Multi Audio] 1080p"))
+    }
+
+    @Test
+    fun `probed dash version exposes available qualities`() {
+        val servers = groupServers(
+            listOf(
+                link("MovieBox (Hindi Audio)", 1080, "u1", type = CsLinkType.DASH)
+                    .copy(availableQualities = listOf(1080, 720, 480)),
+                link("MovieBox (Original Audio)", 720, "u2", type = CsLinkType.DASH),
+            ),
+        )
+        assertEquals(1, servers.size)
+        // Probed version: the full manifest list; unprobed: null (no line).
+        assertEquals(listOf(1080, 720, 480), servers[0].audioVersions[0].availableQualities)
+        assertEquals(null, servers[0].audioVersions[1].availableQualities)
+    }
+
+    @Test
+    fun `available qualities need a dash link and two heights`() {
+        // An M3U8 link with probed heights never renders the line.
+        assertEquals(
+            null,
+            groupServers(
+                listOf(link("S", 1080, "u1", type = CsLinkType.M3U8).copy(availableQualities = listOf(1080, 720))),
+            )[0].audioVersions[0].availableQualities,
+        )
+        // A single-height manifest adds nothing over the chip itself.
+        assertEquals(
+            null,
+            groupServers(
+                listOf(link("S", 1080, "u1", type = CsLinkType.DASH).copy(availableQualities = listOf(1080))),
+            )[0].audioVersions[0].availableQualities,
+        )
+        // A multi-link version keeps its chips-per-link presentation.
+        assertEquals(
+            null,
+            groupServers(
+                listOf(
+                    link("S", 1080, "u1", type = CsLinkType.DASH).copy(availableQualities = listOf(1080, 720)),
+                    link("S", 720, "u2", type = CsLinkType.DASH),
+                ),
+            )[0].audioVersions[0].availableQualities,
+        )
+    }
+
     // ── Task 57 (round 17 — P4): the resolve debug report. ──────────────────
 
     @Test

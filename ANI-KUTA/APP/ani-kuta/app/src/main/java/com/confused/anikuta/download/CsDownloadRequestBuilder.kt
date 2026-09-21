@@ -1,6 +1,7 @@
 package com.confused.anikuta.download
 
 import com.confused.anikuta.core.csplayer.CsLinkType
+import com.confused.anikuta.core.csplayer.CsServerNames
 import com.confused.anikuta.core.csplayer.CsSubtitle
 import com.confused.anikuta.core.csplayer.CsVideoLink
 import com.confused.anikuta.core.download.DownloadContentInfo
@@ -101,24 +102,35 @@ object CsDownloadRequestBuilder {
     }
 
     /**
-     * D-550: the sibling DASH audio variants of [link] — same server name,
-     * DIFFERENT audio-version label, DASH manifest URL (`.mpd`), deduped by
-     * (label, url). These are the "MovieBox (English sub)" to the picked
-     * "MovieBox (Original Audio)": separate manifests whose audio sets the
+     * D-550 + D-551: the sibling DASH audio variants of [link] — same SERVER
+     * (the [CsServerNames] derivation, NOT the raw name), DIFFERENT
+     * audio-version label, DASH manifest URL (`.mpd`), deduped by
+     * (label, url). These are the "MovieBox (Original Audio)" to the picked
+     * "MovieBox (Hindi Audio)": separate manifests whose audio sets the
      * DashDownloader saves alongside the picked variant's, so the offline
      * player's audio selector can switch between them (the streaming player
      * already could — it re-resolves and re-picks; offline needs the bytes).
+     *
+     * The v1.1.24 device round exposed the raw-name bug: the two MovieBox
+     * links differ ONLY in the bracket decoration, so `candidate.name ==
+     * link.name` never matched — no siblings were collected, only ONE audio
+     * version downloaded, and the D-550 pipeline never engaged for the exact
+     * provider shape it was built for. Matching on the derived server name
+     * (the SAME function the sheets group with — one vocabulary, all
+     * consumers) repairs both symptoms with one change.
      */
-    private fun siblingAudioVariants(link: CsVideoLink, allLinks: List<CsVideoLink>): List<CsVideoLink> =
-        allLinks
+    private fun siblingAudioVariants(link: CsVideoLink, allLinks: List<CsVideoLink>): List<CsVideoLink> {
+        val server = CsServerNames.of(link.name)
+        return allLinks
             .filter { candidate ->
                 candidate.type == CsLinkType.DASH &&
                     candidate.url != link.url &&
-                    candidate.name == link.name &&
+                    CsServerNames.of(candidate.name) == server &&
                     candidate.audioLabel.isNotBlank() &&
                     candidate.audioLabel != link.audioLabel
             }
             .distinctBy { it.audioLabel to it.url }
+    }
 
     /**
      * Map → the MPV `http-header-fields` format (`"Key: Value,Key2: Value2"`).

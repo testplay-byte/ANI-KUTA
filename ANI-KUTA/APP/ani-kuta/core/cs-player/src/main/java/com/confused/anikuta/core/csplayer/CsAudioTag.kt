@@ -37,10 +37,33 @@ package com.confused.anikuta.core.csplayer
  *     underscore-attached tokens "Name_Sub" / "Name_Dub" — belt-and-braces
  *     for "_Sub" style names the word pass cannot see.
  *
- *  3. Nothing matched → "Default".
+ *  3. LANGUAGE-AUDIO PASS (D-551, after the word pass, before the sub/dub
+ *     decoration pass): providers that ship the SAME server under several
+ *     AUDIO VERSIONS name the decorations after the LANGUAGE, not the flavor —
+ *     the MovieBox shape from the v1.1.24 device round:
+ *       "MovieBox (Hindi Audio)"     → "Hindi"
+ *       "MovieBox (Original Audio)"  → "Original"
+ *     Two forms are recognized (the vocabulary the wild uses):
+ *       a. BRACKETED — "(Hindi Audio)", "[Japanese Audio]", "(Eng Audio)":
+ *          a bracket group whose content is short word(s) + the word "audio".
+ *       b. WHOLE-SEGMENT — "MovieBox - Hindi Audio - 1080p": a full " - "
+ *          segment that IS "<words> Audio" (the separator regex mirrors
+ *          CsServerNames.SEPARATOR — kept in sync by contract).
+ *     The captured language is normalized ("eng"→"English", "orig"→
+ *     "Original", else first-letter-capitalized). NOT a language: the sub/dub
+ *     families (the word pass already caught them) and the multi-audio family
+ *     ("Multi Audio" stays a decoration — "Default" — exactly like before).
+ *     A free-form "… Audio" WITHOUT brackets/segment boundaries is deliberately
+ *     NOT matched ("MovieBox Audio Server" must stay Default — no over-matching).
+ *
+ *  4. Nothing matched → "Default".
  *
  * Pure Kotlin, unit-testable. All regexes are compiled ONCE as object-level
- * vals (round-15 CI rule). Public API unchanged: [parse], [DEFAULT], [isAudio].
+ * vals (round-15 CI rule). The language-audio regexes are PUBLIC: CsServerNames
+ * (the server-name derivation, also :core:cs-player) reuses them as the single
+ * source of truth — the server name must strip exactly what the label parse
+ * recognized, or the same decoration would land in BOTH tiers.
+ * Public API unchanged otherwise: [parse], [DEFAULT], [isAudio].
  */
 object CsAudioTag {
 
@@ -80,6 +103,83 @@ object CsAudioTag {
         Regex("_(sub(?:bed)?|dub(?:bed)?|hsub|hardsub)(?![a-z])", RegexOption.IGNORE_CASE)
 
     /**
+     * D-551 — the LANGUAGE-AUDIO vocabulary, PUBLIC (CsServerNames strips the
+     * server name with the EXACT regexes this parse recognizes).
+     *
+     * [LANGUAGE_AUDIO_BRACKET]: a bracket group holding short word(s) + the
+     * word "audio" — "(Hindi Audio)", "[Original Audio]", "(Eng Audio)". The
+     * capture excludes brackets and requires ≤ 24 chars so a whole prose
+     * bracket ("(watch in original audio with subs)") can never become a
+     * version label. Case-insensitive.
+     */
+    val LANGUAGE_AUDIO_BRACKET: Regex =
+        Regex("[\\[(]\\s*([a-z][a-z ]{0,23}?)\\s+audio\\s*[\\])]", RegexOption.IGNORE_CASE)
+
+    /**
+     * D-551 — the WHOLE-SEGMENT form: a full " - " segment that IS
+     * "<words> Audio" — "MovieBox - Hindi Audio - 1080p". Anchored both ends;
+     * group 1 = the language words. The separator it splits on mirrors
+     * CsServerNames.SEPARATOR (`\s+-\s+`) — kept in sync by contract.
+     */
+    val LANGUAGE_AUDIO_SEGMENT: Regex =
+        Regex("^([a-z][a-z ]{0,23}?)\\s+audio$", RegexOption.IGNORE_CASE)
+
+    /** D-551 — segment splitter for [parse]'s whole-segment pass (mirrors CsServerNames.SEPARATOR). */
+    private val SEGMENT_SPLIT = Regex("\\s+-\\s+")
+
+    /**
+     * D-551 — captures that are NOT a language version: the multi-audio
+     * family (stays a decoration — "Default" — as it always was), the sub/dub
+     * families (the word pass owns them; belt-and-braces here), and the
+     * meaningless "audio"-only capture.
+     */
+    private val NOT_A_LANGUAGE = setOf(
+        "multi", "multi audio", "mixed", "mix", "sub", "subs", "subbed", "dub",
+        "dubbed", "hsub", "hardsub", "softsub", "audio", "track", "unknown", "none",
+    )
+
+    /** D-551 — common abbreviations → the display label. */
+    private val LANGUAGE_NAMES = mapOf(
+        "eng" to "English", "en" to "English", "english" to "English",
+        "jp" to "Japanese", "jap" to "Japanese", "jpn" to "Japanese", "japanese" to "Japanese",
+        "hin" to "Hindi", "hindi" to "Hindi",
+        "kor" to "Korean", "kr" to "Korean", "korean" to "Korean",
+        "chi" to "Chinese", "zh" to "Chinese", "mand" to "Mandarin", "mandarin" to "Mandarin",
+        "tam" to "Tamil", "tamil" to "Tamil",
+        "tel" to "Telugu", "telugu" to "Telugu",
+        "mal" to "Malayalam", "malayalam" to "Malayalam",
+        "kan" to "Kannada", "kannada" to "Kannada",
+        "ben" to "Bengali", "bengali" to "Bengali",
+        "pan" to "Punjabi", "punjabi" to "Punjabi",
+        "mar" to "Marathi", "marathi" to "Marathi",
+        "urd" to "Urdu", "urdu" to "Urdu",
+        "ara" to "Arabic", "arabic" to "Arabic",
+        "spa" to "Spanish", "spanish" to "Spanish",
+        "por" to "Portuguese", "portuguese" to "Portuguese",
+        "fre" to "French", "fra" to "French", "french" to "French",
+        "ger" to "German", "deu" to "German", "german" to "German",
+        "rus" to "Russian", "russian" to "Russian",
+        "ind" to "Indonesian", "indo" to "Indonesian", "indonesian" to "Indonesian",
+        "tha" to "Thai", "thai" to "Thai",
+        "vie" to "Vietnamese", "viet" to "Vietnamese", "vietnamese" to "Vietnamese",
+        "fil" to "Filipino", "tagalog" to "Filipino", "filipino" to "Filipino",
+        "orig" to "Original", "original" to "Original",
+    )
+
+    /**
+     * D-551 — normalizes a captured language-audio token ("hindi", "ENG",
+     * "orig") into the display label ("Hindi", "English", "Original"); null
+     * when the capture is NOT a language (the [NOT_A_LANGUAGE] family).
+     */
+    fun languageAudioLabel(capture: String): String? {
+        val key = capture.trim().lowercase()
+        if (key.isEmpty() || key in NOT_A_LANGUAGE) return null
+        return LANGUAGE_NAMES[key] ?: key.split(' ').joinToString(" ") { word ->
+            word.replaceFirstChar { it.uppercase() }
+        }
+    }
+
+    /**
      * Parses an audio-version label from free text (a link name, an episode
      * name). Examples:
      *   "HD-1 - Sub - 1080p"       → "SUB"
@@ -93,11 +193,23 @@ object CsAudioTag {
      *   "SomeName_Sub"             → "SUB"  (underscore decoration pass)
      *   "Name_Dub"                 → "DUB"  (underscore decoration pass)
      *   "Mirror 1080p"             → "Default"
+     *   "MovieBox (Hindi Audio)"   → "Hindi"    (D-551 language-audio pass)
+     *   "MovieBox (Original Audio)" → "Original" (D-551)
+     *   "MovieBox - Hindi Audio"   → "Hindi"    (D-551 whole-segment form)
+     *   "Server [Multi Audio]"     → "Default"  (multi-audio stays a decoration)
+     *   "MovieBox Audio Server"    → "Default"  (no free-form over-matching)
      */
     fun parse(text: String?): String {
         if (text.isNullOrBlank()) return DEFAULT
         for ((pattern, label) in wordPatterns) {
             if (pattern.containsMatchIn(text)) return label
+        }
+        // D-551: the language-audio pass — bracketed first, then whole segments.
+        LANGUAGE_AUDIO_BRACKET.find(text)?.let { return languageAudioLabel(it.groupValues[1]) ?: DEFAULT }
+        for (segment in text.split(SEGMENT_SPLIT)) {
+            LANGUAGE_AUDIO_SEGMENT.find(segment.trim())?.let {
+                return languageAudioLabel(it.groupValues[1]) ?: DEFAULT
+            }
         }
         bracketToken.find(text)?.let { return labelFor(it.groupValues[1]) }
         underscoreToken.find(text)?.let { return labelFor(it.groupValues[1]) }

@@ -57,6 +57,18 @@ data class CsVideoLink(
      * engine ignores it.
      */
     val audioTag: String? = null,
+    /**
+     * D-551: every video RESOLUTION the stream actually offers, best-effort —
+     * for a DASH link the heights of ALL video representations its manifest
+     * lists (1080p + 720p + 480p on the aoneroom shape), parsed from the
+     * manifest bytes the sheet probes in the background (silent failure →
+     * null = "unknown", the sheets then show only [quality]). Presentation-
+     * only: the pick target stays the link itself (ABR serves every listed
+     * resolution; the player's per-stream quality section switches them).
+     * Type-agnostic by design — an HLS master playlist's variants can ride
+     * the same field when a probe learns to read them.
+     */
+    val availableQualities: List<Int>? = null,
 ) {
     /** Headers + referer merged (upstream `ExtractorLink.getAllHeaders` semantics). */
     val allHeaders: Map<String, String>
