@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -219,6 +221,11 @@ fun CsResolveSheet(
             return
         }
         sourceMemory.remember(key.mainId, link.name)
+        // D-553: the picked height rides WITH the server — one memory unit.
+        // A null height (declared chip / raw row — the label lies) clears it:
+        // an unpinnable choice must not fake a preference for the re-entry /
+        // auto-advance paths (which read this back as the start pin).
+        sourceMemory.rememberHeight(key.mainId, height)
         Logger.i(SHEET_TAG) {
             "picked: ${link.displayLabel}" +
                 (link.audioLabel.takeIf { it != "Default" }?.let { " ($it)" } ?: "") +
@@ -380,6 +387,11 @@ fun CsResolveSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = maxSheetHeight)
+                // D-553: the body scrolls as ONE unit now — the accordion and
+                // the raw list are plain Columns (tiny lists), so the outer
+                // scroll owns the scrolling and nothing clips (parity with the
+                // player's links sheet).
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {

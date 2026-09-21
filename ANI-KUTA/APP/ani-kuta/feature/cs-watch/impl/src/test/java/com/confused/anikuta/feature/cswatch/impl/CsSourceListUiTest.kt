@@ -78,6 +78,48 @@ class CsSourceListUiTest {
         assertEquals(listOf("SUB", "DUB", "Default"), servers[0].audioVersions.map { it.label })
     }
 
+    // ── D-553: the collapsed header's short audio-version forms ──────────────
+
+    @Test
+    fun `short audio labels map the moviebox languages`() {
+        // The device round's exact set — 4 versions overflowed the header row.
+        assertEquals("HIN", shortAudioLabel("Hindi"))
+        assertEquals("ORIG", shortAudioLabel("Original"))
+        assertEquals("MAL", shortAudioLabel("Malayalam"))
+        assertEquals("TAM", shortAudioLabel("Tamil"))
+    }
+
+    @Test
+    fun `short audio labels tolerate the audio suffix and case`() {
+        assertEquals("HIN", shortAudioLabel("Hindi Audio"))
+        assertEquals("HIN", shortAudioLabel(" hindi "))
+        assertEquals("ENG", shortAudioLabel("English"))
+    }
+
+    @Test
+    fun `short audio labels pass minimal tags through`() {
+        // SUB/DUB are already minimal — they must survive unchanged.
+        assertEquals("SUB", shortAudioLabel("SUB"))
+        assertEquals("DUB", shortAudioLabel("DUB"))
+        assertEquals("Dual", shortAudioLabel("Dual"))
+    }
+
+    @Test
+    fun `short audio labels fall back to three letters`() {
+        // Unknown languages minimize deterministically instead of truncating
+        // mid-word with an ellipsis in a 10sp chip.
+        assertEquals("KAZ", shortAudioLabel("Kazakh"))
+        assertEquals("XYZ", shortAudioLabel("Xyzzyish"))
+    }
+
+    @Test
+    fun `short audio labels never return blank`() {
+        // A label that IS the suffix has nothing left after stripping — the
+        // three-letter fallback applies (deterministic, never blank mid-chip).
+        assertEquals("AUD", shortAudioLabel("Audio"))
+        assertEquals("", shortAudioLabel(""))
+    }
+
     @Test
     fun `qualities sort descending within a version`() {
         val servers = groupServers(

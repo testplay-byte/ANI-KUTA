@@ -482,13 +482,21 @@ fun CsWatchScreen(
     var audioTracks by remember { mutableStateOf<List<com.confused.anikuta.core.csplayer.CsAudioTrackInfo>>(emptyList()) }
     var selectedAudioId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(showLinksSheet, uiState.currentLink?.url, engineState.bufferState) {
+    // D-553: the keys include engineState.videoHeight — the sheet's track
+    // snapshot and the selected marker REFRESH live while ABR moves (the
+    // pre-D-553 marker froze at open time).
+    LaunchedEffect(showLinksSheet, uiState.currentLink?.url, engineState.bufferState, engineState.videoHeight) {
         if (showLinksSheet) {
             videoTracks = engine.videoTracks()
+            // D-553: isTrackSelected(trackIndex) — the ACTUALLY-playing rep.
+            // The old group.isSelected predicate is true for the WHOLE group
+            // when any of its tracks plays, so firstOrNull always returned the
+            // FIRST rep (track 0 = the top quality) — the marker would have
+            // lied HIGH (1080p highlighted while 480p plays).
             val selected = videoTracks.firstOrNull { track ->
                 runCatching {
                     engine.player.currentTracks.groups.getOrNull(track.groupIndex)
-                        ?.isSelected == true
+                        ?.isTrackSelected(track.trackIndex) == true
                 }.getOrDefault(false)
             }
             selectedTrackLabel = selected?.label
@@ -644,6 +652,9 @@ fun CsWatchScreen(
             links = uiState.links,
             currentLinkUrl = uiState.currentLink?.url,
             failedLinkUrls = uiState.failedLinkUrls,
+            // D-553: the decoder's LIVE height — the accordion's current chip
+            // marker + the "Now playing" line ride on it.
+            currentPlayingHeight = engineState.videoHeight.takeIf { it > 0 },
             videoTracks = videoTracks,
             selectedTrackLabel = selectedTrackLabel,
             onLinkSelect = { link, height ->

@@ -195,6 +195,18 @@ class CsPlayerEngine(
     private var autoSubSelectAttempted = false
 
     /**
+     * D-553: the last video size LOGGED — the truth log dedupes on it. The
+     * device round's verdict ("I have concerns that maybe it was playing in
+     * 1080p even though I had selected 480p") exposed that the playback
+     * resolution was INVISIBLE: the start-height pin logged once, but nothing
+     * ever logged what the DECODER actually delivered. Now every size change
+     * emits the decoder's own verdict (WxH + the quality label), making the
+     * playing resolution permanently diagnosable from logcat.
+     */
+    private var lastLoggedVideoWidth = 0
+    private var lastLoggedVideoHeight = 0
+
+    /**
      * Task 57 (P6b — the embedded-click crash guard): when a playback error
      * lands within [TEXT_OVERRIDE_GUARD_MS] of an EMBEDDED text-track pick,
      * the override is reverted + playback retried ONCE — the device round's
@@ -293,6 +305,19 @@ class CsPlayerEngine(
                     videoWidth = videoSize.width,
                     videoHeight = videoSize.height,
                 )
+                // D-553: the truth log — what the decoder ACTUALLY delivers.
+                // Deduped on (width, height); a no-size event is skipped.
+                if (videoSize.height > 0 &&
+                    (videoSize.width != lastLoggedVideoWidth || videoSize.height != lastLoggedVideoHeight)
+                ) {
+                    lastLoggedVideoWidth = videoSize.width
+                    lastLoggedVideoHeight = videoSize.height
+                    Logger.i(TAG) {
+                        "video size: ${videoSize.width}x${videoSize.height} — " +
+                            "playing ${CsQuality.label(videoSize.height)} " +
+                            "(url=${_state.value.currentLinkUrl?.take(64)})"
+                    }
+                }
             }
 
             override fun onPlaybackParametersChanged(params: androidx.media3.common.PlaybackParameters) {

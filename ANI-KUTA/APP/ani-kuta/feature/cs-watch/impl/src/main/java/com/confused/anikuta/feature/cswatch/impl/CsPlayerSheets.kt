@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.csplayer.CsAudioTag
 import com.confused.anikuta.core.csplayer.CsTextTrack
 import com.confused.anikuta.core.csplayer.CsVideoLink
 import com.confused.anikuta.core.csplayer.CsVideoTrack
@@ -207,6 +209,12 @@ internal fun CsLinksSheet(
     links: List<CsVideoLink>,
     currentLinkUrl: String?,
     failedLinkUrls: Set<String>,
+    /**
+     * D-553: the LIVE decoder height of the playing stream (null = resolve
+     * context / no size yet) — lights the currently-playing probed chip and
+     * feeds the "Now playing" line. The screen passes `engineState.videoHeight`.
+     */
+    currentPlayingHeight: Int? = null,
     videoTracks: List<CsVideoTrack>,
     selectedTrackLabel: String?,
     onLinkSelect: (CsVideoLink, Int?) -> Unit,
@@ -229,6 +237,12 @@ internal fun CsLinksSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = csSheetMaxHeight())
+                // D-553: ONE scrollable body — the device round's "no qualities
+                // for this stream" verdict was a LAYOUT clipping: the variants
+                // section rendered below a tall accordion inside a non-scrolling
+                // Column and was pushed out of the clipped bottom. Everything
+                // now scrolls together and the section is always reachable.
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
@@ -265,6 +279,30 @@ internal fun CsLinksSheet(
                 modifier = Modifier.padding(bottom = 12.dp),
             )
 
+            // ── D-553: the NOW-PLAYING line — the playback truth at the top.
+            // The device round: "it showed none of the resolutions was selected
+            // and I also have concerns that maybe it was playing in 1080p even
+            // though I had selected 480p." The audio label + the ACTUALLY-
+            // selected track (the isTrackSelected fix) answer it at a glance.
+            val nowPlaying = links.firstOrNull { it.url == currentLinkUrl }
+            if (nowPlaying != null) {
+                Text(
+                    text = buildString {
+                        append("Now playing: ")
+                        nowPlaying.audioLabel.takeIf { it != CsAudioTag.DEFAULT }?.let { append("$it · ") }
+                        append(selectedTrackLabel ?: "Auto")
+                        if (currentPlayingHeight != null && selectedTrackLabel == null) {
+                            append(" · ${currentPlayingHeight}p")
+                        }
+                    },
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+
             if (links.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
@@ -287,6 +325,7 @@ internal fun CsLinksSheet(
                     preferredServer = null,
                     currentLinkUrl = currentLinkUrl,
                     failedLinkUrls = failedLinkUrls,
+                    currentPlayingHeight = currentPlayingHeight,
                     onPickVideo = onLinkSelect,
                     onCopyUrl = onCopyUrl,
                 )
@@ -318,18 +357,19 @@ internal fun CsLinksSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-                LazyColumn(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    item(key = "auto") {
-                        CsTrackRow(
-                            label = "Auto",
-                            isSelected = selectedTrackLabel == null,
-                            onClick = { onTrackSelect(null) },
-                        )
-                    }
-                    items(videoTracks, key = { "${it.groupIndex}-${it.trackIndex}" }) { track ->
+                    // D-553: plain Column under the sheet's verticalScroll —
+                    // a LazyColumn here would measure with infinite height
+                    // constraints and crash; the rows are few.
+                    CsTrackRow(
+                        label = "Auto",
+                        isSelected = selectedTrackLabel == null,
+                        onClick = { onTrackSelect(null) },
+                    )
+                    videoTracks.forEach { track ->
                         CsTrackRow(
                             label = track.label,
                             isSelected = track.label == selectedTrackLabel,

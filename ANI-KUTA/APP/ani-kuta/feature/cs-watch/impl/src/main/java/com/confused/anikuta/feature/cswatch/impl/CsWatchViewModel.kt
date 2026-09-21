@@ -288,9 +288,20 @@ class CsWatchViewModel(
                         // decision context and re-validate after; a resolution
                         // that started meanwhile wins and drops this request.
                         val gen = _uiState.value.resolveGeneration
+                        // D-553: the remembered height rides the re-entry — the
+                        // sheet pick's 480p must survive back → tap-same-episode
+                        // (the pre-D-553 hole: the link survived, the height did
+                        // not → ABR climbed to 1080p over the user's pick).
+                        val rememberedHeight = currentKey?.let { sourceMemory.recallHeight(it.mainId) }
                         val resumeMs = lookupResumePositionMs()
                         if (_uiState.value.resolveGeneration == gen && currentKey == key) {
-                            requestPlay(link, resumeMs, isResume = true, keepPosition = false)
+                            requestPlay(
+                                link,
+                                resumeMs,
+                                isResume = true,
+                                keepPosition = false,
+                                initialHeight = rememberedHeight,
+                            )
                         } else {
                             Logger.w(TAG) { "re-entry play dropped: resolution changed during resume lookup" }
                         }
@@ -671,19 +682,29 @@ class CsWatchViewModel(
         // dub/server-consistency scoring, simplified) — auto-advance keeps the
         // same server across episodes; quality within it stays max-first.
         val remembered = currentKey?.let { sourceMemory.recall(it.mainId) }
-        val best = remembered
-            ?.let { r -> flavorPool.filter { it.name == r }.maxByOrNull { it.quality } }
+        // D-553: when the remembered SERVER matched, its remembered HEIGHT pins
+        // too — one memory unit. A fresh show (no memory) stays on ABR; a
+        // remembered height the new episode's stream lacks self-heals through
+        // the engine's "not offered → ABR" start-pin semantics.
+        val rememberedMatch = remembered?.let { r -> flavorPool.filter { it.name == r }.maxByOrNull { it.quality } }
+        val best = rememberedMatch
             ?: flavorPool.maxByOrNull { it.quality }
             ?: links.firstOrNull()
             ?: return
+        val rememberedHeight = if (rememberedMatch != null) {
+            currentKey?.let { sourceMemory.recallHeight(it.mainId) }
+        } else {
+            null
+        }
         preferredFlavor = null
         Logger.i(TAG) {
             "autoStart: ${best.displayLabel}" +
-                (if (remembered != null && best.name == remembered) " (remembered server)" else "")
+                (if (remembered != null && best.name == remembered) " (remembered server)" else "") +
+                (rememberedHeight?.let { " at ${it}p (remembered height)" } ?: "")
         }
         // A new episode's FIRST link is a FRESH start (resume ms or 0) — never
         // position-keeping (R12-REVIEW F2).
-        requestPlay(best, resumeMs, isResume = resumeMs > 0, keepPosition = false)
+        requestPlay(best, resumeMs, isResume = resumeMs > 0, keepPosition = false, initialHeight = rememberedHeight)
     }
 
     /** Task 56: the target episode row's flavor (see [selectEpisode] / [autoStart]). */
@@ -751,7 +772,13 @@ class CsWatchViewModel(
         Logger.i(TAG) {
             "user selected link: ${link.displayLabel}" + (initialHeight?.let { " at ${it}p" } ?: "")
         }
-        currentKey?.let { sourceMemory.remember(it.mainId, link.name) }
+        currentKey?.let {
+            sourceMemory.remember(it.mainId, link.name)
+            // D-553: the in-player pick remembers the height too — the same
+            // memory unit the resolve sheet's pick writes (null clears: a
+            // declared chip / raw row cannot pin, so it must not fake one).
+            sourceMemory.rememberHeight(it.mainId, initialHeight)
+        }
         requestPlay(link, 0L, isResume = false, keepPosition = true, initialHeight = initialHeight)
     }
 

@@ -23,9 +23,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -157,6 +154,60 @@ internal fun qualityRank(quality: Int): Int = when (quality) {
     400 -> -1 // Unknown
     else -> quality
 }
+
+/**
+ * D-553 — the COLLAPSED header's short audio-version forms.
+ *
+ * The header renders the version labels as chips at intrinsic width beside the
+ * weighted server name; with 3+ versions (MovieBox ships 4: Hindi / Original /
+ * Malayalam / Tamil) the row overflows and the names truncate. The device
+ * verdict: "if there is not enough space to show the full names of the
+ * available audio versions then their simplified or minimified versions
+ * should show."
+ *
+ * Deterministic, pure, unit-tested — no text measuring, no layout feedback
+ * loops. The render rule (≤2 chips = full, ≥3 = short) lives at the call
+ * site; [shortAudioLabel] only translates one label.
+ */
+internal fun shortAudioLabel(label: String): String {
+    val base = label.trim().removeSuffix(" Audio").trim()
+    if (base.isEmpty()) return label
+    SHORT_AUDIO_LABELS[base.lowercase()]?.let { return it }
+    // SUB/DUB (and any ≤4-char tag) are already minimal.
+    if (base.length <= 4) return base
+    return base.take(3).uppercase()
+}
+
+/** The curated short forms — the languages the current providers ship plus
+ *  the common fallbacks; anything unknown falls back to its first 3 letters. */
+private val SHORT_AUDIO_LABELS: Map<String, String> = mapOf(
+    "hindi" to "HIN",
+    "original" to "ORIG",
+    "malayalam" to "MAL",
+    "tamil" to "TAM",
+    "telugu" to "TEL",
+    "kannada" to "KAN",
+    "bengali" to "BEN",
+    "marathi" to "MAR",
+    "punjabi" to "PUN",
+    "english" to "ENG",
+    "japanese" to "JPN",
+    "korean" to "KOR",
+    "chinese" to "CHN",
+    "mandarin" to "CHN",
+    "spanish" to "SPA",
+    "portuguese" to "POR",
+    "french" to "FRE",
+    "german" to "GER",
+    "russian" to "RUS",
+    "arabic" to "ARA",
+    "turkish" to "TUR",
+    "indonesian" to "IND",
+    "thai" to "THA",
+    "vietnamese" to "VIE",
+    "filipino" to "FIL",
+    "urdu" to "URD",
+)
 
 /**
  * The SERVER part of a link name — D-551: the derivation MOVED to
@@ -415,6 +466,13 @@ internal fun CsServerAccordion(
     currentLinkUrl: String? = null,
     /** URLs that errored in the engine (in-player sheet: strike-through). */
     failedLinkUrls: Set<String> = emptySet(),
+    /**
+     * D-553: the LIVE decoder height of the playing stream (null elsewhere).
+     * With [currentLinkUrl] it lights exactly ONE probed chip — the resolution
+     * actually playing of the version actually playing — instead of the old
+     * D-552 "no marking at all" compromise.
+     */
+    currentPlayingHeight: Int? = null,
     onCopyUrl: ((String) -> Unit)? = null,
     /** Task 57 (P4): the debug affordances' gate (copy icon + raw source
      *  lines). Default OFF — see [rememberCopyFeedback]. */
@@ -439,17 +497,22 @@ internal fun CsServerAccordion(
         )
     }
 
-    LazyColumn(
+    // D-553: a plain Column — the host sheets own the scrolling now (the
+    // player's links sheet is ONE scrollable body so the "Quality for this
+    // stream" section can never be clipped out of reach again). Server counts
+    // are tiny (≤ a handful); laziness bought nothing and cost the section.
+    Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        items(servers, key = { it.name }) { server ->
+        servers.forEach { server ->
             val isExpanded = expandedServer == server.name
             CsServerCard(
                 server = server,
                 isExpanded = isExpanded,
                 currentLinkUrl = currentLinkUrl,
                 failedLinkUrls = failedLinkUrls,
+                currentPlayingHeight = currentPlayingHeight,
                 onToggle = {
                     expandedServer = if (isExpanded) null else server.name
                 },
@@ -469,6 +532,7 @@ private fun CsServerCard(
     isExpanded: Boolean,
     currentLinkUrl: String?,
     failedLinkUrls: Set<String>,
+    currentPlayingHeight: Int?,
     onToggle: () -> Unit,
     onPickVideo: (CsVideoLink, Int?) -> Unit,
     onCopyUrl: ((String) -> Unit)?,
@@ -509,17 +573,37 @@ private fun CsServerCard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     val audioChips = server.audioVersions.filter { it.label != CsAudioTag.DEFAULT }
+                    // D-553: 3+ versions render the SHORT forms — four full
+                    // labels ("Hindi Original Malayalam Tamil") overflow the
+                    // row beside the server name; the device verdict asked for
+                    // exactly this minimification. One/two versions keep the
+                    // full names (they always fit).
+                    val shortForms = audioChips.size > 2
                     audioChips.reversed().forEach { version ->
+                        // D-553: the CURRENTLY-PLAYING version's label lights
+                        // up (in-player context only; the resolve sheet passes
+                        // no currentLinkUrl so nothing lights there).
+                        val isCurrentVersion = version.links.any { it.url == currentLinkUrl }
                         Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                            color = if (isCurrentVersion) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                            } else {
+                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                            },
                             shape = RoundedCornerShape(6.dp),
                         ) {
                             Text(
-                                text = version.label,
+                                text = if (shortForms) shortAudioLabel(version.label) else version.label,
                                 fontFamily = RobotoFamily,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                color = if (isCurrentVersion) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             )
                         }
@@ -548,12 +632,19 @@ private fun CsServerCard(
                         // Audio version label (e.g. "SUB", "DUB") — only when
                         // the server actually has multiple versions (aniyomi).
                         if (server.audioVersions.size > 1) {
+                            // D-553: the playing version's label is tinted —
+                            // the same current marker the header chips carry.
+                            val isCurrentVersion = version.links.any { it.url == currentLinkUrl }
                             Text(
                                 text = version.label,
                                 fontFamily = RobotoFamily,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (isCurrentVersion) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                             )
                         }
                         FlowRow(
@@ -575,15 +666,23 @@ private fun CsServerCard(
                                 // variant's manifest carries the same spread, and
                                 // the user gets the other extensions' experience:
                                 // every resolution visible, every resolution
-                                // tappable. No isSelected marking (all chips of
-                                // the current link would light up — the player's
-                                // "Quality for this stream" section is the live
-                                // truth); copy/debug affordances ride the same
-                                // single link as before.
+                                // tappable. D-553: the marking now EXISTS —
+                                // the current link's chip at the live decoder
+                                // height lights (see the isSelected below); the
+                                // resolve sheet still marks nothing. copy/debug
+                                // affordances ride the same single link as before.
                                 probedHeights.forEach { height ->
                                     CsQualityChip(
                                         quality = "${height}p",
-                                        isSelected = false,
+                                        // D-553: the D-552 "no marking" compromise
+                                        // dies — with the LIVE decoder height riding
+                                        // in, exactly ONE chip lights: the resolution
+                                        // actually playing of the version actually
+                                        // playing. The resolve sheet (no
+                                        // currentLinkUrl) still marks nothing.
+                                        isSelected = probedLink.url == currentLinkUrl &&
+                                            currentPlayingHeight != null &&
+                                            height == currentPlayingHeight,
                                         isFailed = probedLink.url in failedLinkUrls,
                                         onClick = { onPickVideo(probedLink, height) },
                                         onLongClick = onCopyUrl?.let { cb -> { cb(probedLink.url) } },
@@ -720,7 +819,7 @@ private fun CsQualityChip(
  * in-player sheet provides them.
  *
  * Task 56 (F5): keys carry the row INDEX — a provider that emits the same
- * URL twice (multi-quality DASH manifests) must never crash the LazyColumn
+ * URL twice (multi-quality DASH manifests) must never render a duplicated row
  * with duplicate keys (the resolver dedups by URL; this is defense in depth).
  *
  * Task 57 (P4 — debug affordances, both default-OFF): a trailing copy icon
@@ -737,19 +836,20 @@ internal fun CsRawLinkList(
      *  lines). Default OFF. */
     debugPreferences: DebugPreferences = koinInject(),
 ) {
-    // Task 57 (P4): LIVE-collected debug flags — default false, so the
-    // default path renders byte-identical to the pre-Task-57 rows.
+    // D-553: plain Column — see the CsServerAccordion note (the host sheet's
+    // single scroll body owns the scrolling; duplicate URLs stay guarded by
+    // the resolver's dedup, and the per-row key was only the LazyColumn's).
     val copyEnabled by debugPreferences.resolveCopyButtonFlow()
         .collectAsState(initial = false)
     val showSources by debugPreferences.showResolveSourcesFlow()
         .collectAsState(initial = false)
     val copyFeedback = rememberCopyFeedback()
 
-    LazyColumn(
+    Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        itemsIndexed(links, key = { index, link -> "${link.url}#$index" }) { _, link ->
+        links.forEachIndexed { _, link ->
             val label = link.displayLabel +
                 (link.audioLabel.takeIf { it != CsAudioTag.DEFAULT }?.let { " · $it" } ?: "")
             val isCurrent = link.url == currentLinkUrl
