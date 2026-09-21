@@ -130,6 +130,12 @@ class DownloadScanner(
                 } else {
                     index
                 }
+                // D-550: the DASH audio sets' home — one folder beside episodes/
+                // and subtitles/, exactly the layout the user asked for. The
+                // v1.1.23 episodes keep their audio in episodes/ (legacy
+                // location), so sibling lookups check BOTH.
+                val audioDir = index["audio"]?.takeIf { it.isDirectory }
+                val audioFileIndex = audioDir?.listFiles()?.associateBy { it.name!! } ?: emptyMap()
                 // Subtitle files are in the "subtitles" subfolder (new) or root (legacy).
                 val subtitlesDir = index["subtitles"]?.takeIf { it.isDirectory }
                 val subtitleIndex = if (subtitlesDir != null) {
@@ -231,7 +237,8 @@ class DownloadScanner(
                             ),
                             videoUri = rowVideoUri,
                             subtitleUris = subtitleUris,
-                            sizeBytes = file.length() + audioSiblingBytes(videoIndex, fileName),
+                            sizeBytes = file.length() +
+                                audioSiblingBytes(videoIndex, audioFileIndex, fileName),
                             quality = existing?.quality,
                             completedAt = existing?.downloadedAt ?: dataJson.updatedAt,
                         ),
@@ -249,7 +256,7 @@ class DownloadScanner(
                     // the rewritten .data.json entry into a plain file row and
                     // the NEXT scan would route the episode to the MPV player
                     // (a lone video fMP4: silent + unseekable).
-                    val dashAudioBytes = audioSiblingBytes(videoIndex, fileName)
+                    val dashAudioBytes = audioSiblingBytes(videoIndex, audioFileIndex, fileName)
                     rebuiltEpisodes += DownloadedEpisodeInfo(
                         episodeKey = episodeKey,
                         episodeNumber = episodeNumber.toDouble(),
@@ -265,6 +272,13 @@ class DownloadScanner(
                         downloadedAt = existing?.downloadedAt ?: dataJson.updatedAt,
                         fileSize = file.length() + dashAudioBytes,
                         dashManifestUrl = existing?.dashManifestUrl,
+                        // D-550: the audio URIs rebuild from the on-disk
+                        // siblings (a reinstall re-issues every SAF uri, the
+                        // recorded ones are dead) — the disk truth wins; a
+                        // DASH episode whose audio files are gone records an
+                        // empty list, a progressive episode's empty list is
+                        // just the honest shape of "no audio sets".
+                        audioUris = audioSiblingUris(videoIndex, audioFileIndex, fileName),
                     )
                 }
 
@@ -321,6 +335,10 @@ class DownloadScanner(
                         downloadedAt = entry.downloadedAt,
                         fileSize = entry.fileSize,
                         dashManifestUrl = manifestUrl,
+                        // D-550: preserve the durable record (a v1.1.20–22
+                        // cache episode has no published audio files to
+                        // rebuild from — the entry's own copy is the truth).
+                        audioUris = entry.audioUris,
                     )
                     DownloadLogger.d {
                         "scan — DASH cache episode '${entry.episodeKey}' registered from " +
@@ -639,18 +657,49 @@ class DownloadScanner(
      * siblings (`<videoBase>.audio<N>.mp4`) so the rebuilt rows' sizes match
      * what the download recorded (video + audio) — a mismatch would flag the
      * .data.json for a rewrite on EVERY scan.
+     *
+     * D-550: the siblings live in the `audio/` folder (the new publish
+     * layout) OR next to the video in `episodes/` (the v1.1.23 layout) — the
+     * audio/ entry wins when both exist (the publish deletes the legacy
+     * copy, so a leftover duplicate is the anomaly, not the norm).
      */
     private fun audioSiblingBytes(
         videoIndex: Map<String, DocumentFile>,
+        audioFileIndex: Map<String, DocumentFile>,
         videoFileName: String,
-    ): Long {
+    ): Long = audioSiblingFiles(videoIndex, audioFileIndex, videoFileName)
+        .sumOf { (_, file) -> file.length() }
+
+    /**
+     * D-550: the content:// URIs of a DASH episode's audio-set siblings, in
+     * name order (audio1, audio2, …) — the rebuilt `.data.json` entry's
+     * `audioUris`. Empty for progressive episodes (no `.audio` siblings).
+     */
+    private fun audioSiblingUris(
+        videoIndex: Map<String, DocumentFile>,
+        audioFileIndex: Map<String, DocumentFile>,
+        videoFileName: String,
+    ): List<String> = audioSiblingFiles(videoIndex, audioFileIndex, videoFileName)
+        .map { (name, file) -> name to file }
+        .sortedBy { (name, _) -> name }
+        .map { (_, file) -> file.uri.toString() }
+
+    /** The (name → file) audio siblings of [videoFileName] across audio/ + episodes/. */
+    private fun audioSiblingFiles(
+        videoIndex: Map<String, DocumentFile>,
+        audioFileIndex: Map<String, DocumentFile>,
+        videoFileName: String,
+    ): List<Pair<String, DocumentFile>> {
         val base = videoFileName.removeSuffix(".mp4")
-        return videoIndex.entries
-            .filter { (name, file) ->
-                name != videoFileName && file.isFile &&
-                    name.startsWith("$base.audio") && name.endsWith(".mp4")
-            }
-            .sumOf { it.value.length() }
+        val names = buildSet {
+            addAll(videoIndex.keys.filter { it != videoFileName && it.startsWith("$base.audio") && it.endsWith(".mp4") })
+            addAll(audioFileIndex.keys.filter { it.startsWith("$base.audio") && it.endsWith(".mp4") })
+        }
+        return names.mapNotNull { name ->
+            val file = audioFileIndex[name] ?: videoIndex[name] ?: return@mapNotNull null
+            if (!file.isFile) return@mapNotNull null
+            name to file
+        }
     }
 
     /**

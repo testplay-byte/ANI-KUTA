@@ -520,9 +520,39 @@ class CsPlayerEngine(
             }
             val manifest = runCatching {
                 withContext(Dispatchers.IO) {
+                    // D-550: PRUNE the sidecar's manifest to the representations
+                    // the range index actually covers before parsing it. The
+                    // v1.1.23 sidecars stored the ORIGINAL manifest — it lists
+                    // every video rep the CDN offers (1080p + 720p + 480p)
+                    // while only the picked rep is on disk, so ExoPlayer's ABR
+                    // selected an undownloaded rep (its initial bandwidth
+                    // estimate, 1 Mbps, sits below the 1080p rep) and the
+                    // episode failed on the first index miss. Pruning leaves
+                    // only locally-served reps: ABR has nothing to switch to,
+                    // and the audio sets that ARE local (with their variant
+                    // labels) stay selectable. A no-op for the D-550 sidecars
+                    // (composed pruned at download time) and the safety net
+                    // for anything the composer could not foresee. If the
+                    // derivation matches NOTHING (an exotic addressing shape),
+                    // the manifest is left untouched — today's behavior, not
+                    // a worse one.
+                    val recordedUrls = index.ranges.mapTo(HashSet()) { it.url }
+                    val covered = com.confused.anikuta.core.common.DashManifestPruner
+                        .coveredRepIds(index.manifestBytes, index.manifestUrl, recordedUrls)
+                    val playbackBytes = if (covered.isEmpty()) {
+                        index.manifestBytes
+                    } else {
+                        val pruned = com.confused.anikuta.core.common.DashManifestPruner
+                            .pruneRepresentations(index.manifestBytes, covered)
+                        Logger.i(TAG) {
+                            "startOfflineDashLocal — pruned the manifest to the covered reps " +
+                                "(recorded ${recordedUrls.size} url(s), covered ${covered.size} rep(s))"
+                        }
+                        pruned
+                    }
                     androidx.media3.exoplayer.dash.manifest.DashManifestParser().parse(
                         android.net.Uri.parse(index.manifestUrl),
-                        index.manifestBytes.inputStream(),
+                        playbackBytes.inputStream(),
                     )
                 }
             }.getOrElse { e ->

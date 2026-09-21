@@ -437,7 +437,17 @@ class CsWatchViewModel(
             val resumeMs = if (key.startPosition > 0) key.startPosition else lookupResumePositionMs()
             if (_uiState.value.resolveGeneration == generation && currentKey == key) {
                 _uiState.value = _uiState.value.copy(subtitles = resolveOfflineSubtitles(key))
-                requestPlayOffline(mediaUri, resumeMs, maxHeightForOffline(key))
+                // D-550: the height pin rides ONLY the legacy cache payload.
+                // For the local-file episodes the payload is a content://
+                // sidecar whose manifest the engine PRUNES to the covered
+                // reps before parsing — only playable reps exist, so the pin
+                // is redundant; and a stale DB quality label would CAP the
+                // manifest's single (correct) rep into unplayability. The
+                // legacy cache path keeps the pin: its manifest is the
+                // ORIGINAL document and cache misses fall through to the
+                // network, so the height cap is the only offline guard there.
+                val height = if (mediaUri.startsWith("content://")) null else maxHeightForOffline(key)
+                requestPlayOffline(mediaUri, resumeMs, height)
             }
         }
     }

@@ -106,12 +106,12 @@ private const val SHEET_TAG = "Anikuta:CS:Sheet"
  *
  * Task 58 (round 18 — the DOWNLOADS PORT): `downloadMode = true` turns the
  * sheet into the CS download picker — the title reads "Download EP N" (the
- * aniyomi ResolverSheet's download-mode wording), DASH links are filtered
- * out of the pickable list (the download engine supports HTTP + HLS only;
- * they're counted + surfaced like the hidden torrents), and a pick hands
- * the RESOLVED [CsVideoLink] (+ the episode's provider subtitles) to
- * [onDownload] instead of seeding the watch ViewModel — no player, no
- * navigation. The resolve/progressive/dedup/debug behavior is identical.
+ * aniyomi ResolverSheet's download-mode wording), and a pick hands
+ * the RESOLVED [CsVideoLink] (+ the episode's provider subtitles + the FULL
+ * resolved link list — D-550's offline audio-switch needs the sibling DASH
+ * variants) to [onDownload] instead of seeding the watch ViewModel — no
+ * player, no navigation. The resolve/progressive/dedup/debug behavior is
+ * identical.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,8 +120,10 @@ fun CsResolveSheet(
     onDismiss: () -> Unit,
     onPlay: (CsWatchKey) -> Unit,
     // Task 58 (round 18 — downloads): when non-null the sheet is a DOWNLOAD
-    // picker — picks hand off to this instead of the play path.
-    onDownload: ((CsWatchKey, CsVideoLink, List<CsSubtitle>) -> Unit)? = null,
+    // picker — picks hand off to this instead of the play path. D-550: the
+    // callback also carries the FULL resolved link list so the enqueue can
+    // collect the sibling DASH audio variants (offline audio switching).
+    onDownload: ((CsWatchKey, CsVideoLink, List<CsSubtitle>, List<CsVideoLink>) -> Unit)? = null,
     resolver: CloudstreamLinkResolver = koinInject(),
     sourceMemory: CsSourceMemory = koinInject(),
     viewModel: CsWatchViewModel = koinViewModel(),
@@ -175,7 +177,7 @@ fun CsResolveSheet(
                 "download pick: ${link.displayLabel}" +
                     (link.audioLabel.takeIf { it != "Default" }?.let { " ($it)" } ?: "")
             }
-            onDownload?.invoke(key, link, subtitles)
+            onDownload?.invoke(key, link, subtitles, links)
             onDismiss()
             return
         }

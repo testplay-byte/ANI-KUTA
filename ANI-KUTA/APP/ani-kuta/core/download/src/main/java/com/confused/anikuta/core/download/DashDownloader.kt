@@ -51,6 +51,22 @@
 //
 // The SimpleCache is NO LONGER written (it stays only for pre-D-548
 // episodes: playback via startOfflineDash + delete via purgeEpisode).
+//
+// D-550 (the v1.1.23 device round's two verdicts):
+//  - "the episode would not play": the sidecar's manifest was the ORIGINAL
+//    document — it lists every video rep the CDN offers while exactly one
+//    was saved, so ExoPlayer's ABR picked an undownloaded rep (initial
+//    bandwidth estimate 1 Mbps < the 1080p rep's 1.6 Mbps) and died on the
+//    first index miss. The sidecar's manifest is now COMPOSED
+//    (DashOfflineManifestComposer): pruned to the downloaded reps + the
+//    siblings' labeled audio sets. The read side prunes again (defense in
+//    depth, and the fix for the v1.1.23 episodes already on disk).
+//  - "we need the ability to switch between the audio versions offline":
+//    the enqueue step hands the OTHER DASH audio-variant manifests over as
+//    AUDIO_VARIANT tracks; their audio sets download as extra groups (into
+//    the audio/ folder) and ride the composed manifest as LABELED
+//    AdaptationSets — the player's existing audio track selector offers
+//    them offline, exactly like the streaming selector does online.
 package com.confused.anikuta.core.download
 
 import com.confused.anikuta.core.content.ContentRepository
@@ -140,7 +156,61 @@ class DashDownloader(
                 "estimate=${plan.estimatedBytes}"
         }
 
-        val totalHint = plan.estimatedBytes.takeIf { it > 0L } ?: -1L
+        // ── 1b. D-550: the sibling audio variants — the offline audio switch ──
+        // The picked link's manifest carries exactly ONE audio world (the
+        // aoneroom shape: one audio AdaptationSet per variant manifest); the
+        // OTHER variants ("MovieBox (Original Audio)" vs "(English sub)") are
+        // SEPARATE manifests the enqueue step handed over as AUDIO_VARIANT
+        // tracks. Each is fetched + planned for its audio sets only and joins
+        // the download as extra audio groups; the sidecar manifest then carries
+        // every downloaded set as a LABELED AdaptationSet, so the player's
+        // existing audio track selector offers the variants OFFLINE. A sibling
+        // that fails is skipped (best-effort — the picked variant must never
+        // pay for a sibling; the episode still downloads + plays).
+        val siblingVariants = task.audioTracks
+            .filter { it.kind == TrackKind.AUDIO_VARIANT }
+            .distinctBy { it.url }
+        val siblingPlans = mutableListOf<SiblingVariantPlan>()
+        var siblingAudioEstimate = 0L
+        for (variant in siblingVariants) {
+            currentCoroutineContext().ensureActive()
+            try {
+                val variantHeaders = DownloadHeaderParser.parse(variant.headers).toMap()
+                    .takeIf { it.isNotEmpty() } ?: headers
+                val variantBytes = fetchManifestBytes(manifestClient, variant.url, variantHeaders)
+                val variantPlan = DashManifestPlanner.parse(variantBytes, variant.url, null)
+                when {
+                    variantPlan.unsupportedReason != null ->
+                        DownloadLogger.w {
+                            "DashDownloader — sibling audio '${variant.lang}': " +
+                                "${variantPlan.unsupportedReason} — skipped"
+                        }
+                    variantPlan.audioGroups.isEmpty() ->
+                        DownloadLogger.w {
+                            "DashDownloader — sibling audio '${variant.lang}': no downloadable audio sets — skipped"
+                        }
+                    else -> {
+                        siblingPlans += SiblingVariantPlan(variant, variantBytes, variantPlan, variantHeaders)
+                        siblingAudioEstimate += variantPlan.audioEstimatedBytes
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                DownloadLogger.w {
+                    "DashDownloader — sibling audio '${variant.lang}' failed (best-effort): " +
+                        "${e.message ?: e.javaClass.simpleName}"
+                }
+            }
+        }
+        if (siblingVariants.isNotEmpty()) {
+            DownloadLogger.i {
+                "DashDownloader — sibling audio variants: ${siblingVariants.size} requested, " +
+                    "${siblingPlans.size} planned"
+            }
+        }
+
+        val totalHint = (plan.estimatedBytes + siblingAudioEstimate).takeIf { it > 0L } ?: -1L
 
         // ── 2. Download every part into per-representation temp files ────────
         // D-548: plain OkHttp + append (the D-539 CacheWriter→SimpleCache path
@@ -148,16 +218,38 @@ class DashDownloader(
         // the sidecar, truncate any bytes past the recorded count (a crash
         // between append and sidecar write), append part by part, persist the
         // sidecar after each part.
-        val manifestSha = sha1Hex(manifestBytes)
+        val manifestSha = sha1Hex(
+            java.io.ByteArrayOutputStream().apply {
+                write(manifestBytes)
+                // D-550: the siblings' manifests pin the resume sidecar too — a
+                // CDN regeneration of ANY planned manifest changes the sha and
+                // restarts the episode (resuming into a changed plan would be
+                // corrupt; the primary-only pin would not have noticed).
+                siblingPlans.forEach { write(it.manifestBytes) }
+            }.toByteArray(),
+        )
         val videoTemp = tempCache.getTempFile(task.id, VIDEO_TEMP_NAME)
-        val audioTemps = plan.audioGroups.mapIndexed { index, _ ->
+        // D-550: the combined audio groups — the primary's sets first, then
+        // each sibling's sets in variant order. File index N in the sidecar's
+        // ranges maps to audioTemps[N - 1] (0 is the video).
+        val allAudioGroups: List<List<DashPart>> =
+            plan.audioGroups + siblingPlans.flatMap { it.plan.audioGroups }
+        val audioTemps = allAudioGroups.mapIndexed { index, _ ->
             tempCache.getTempFile(task.id, "audio-${index + 1}.fmp4")
         }
-        val sidecar = readResumeSidecar(task.id, manifestSha, plan.audioGroups.size)
+        val audioGroupHeaders: List<Map<String, String>> =
+            List(plan.audioGroups.size) { headers } +
+                siblingPlans.flatMap { sib -> List(sib.plan.audioGroups.size) { sib.headers } }
+        val audioGroupLabels: List<String> =
+            plan.audioGroups.indices.map { "audio-${it + 1}" } +
+                siblingPlans.flatMap { sib ->
+                    sib.plan.audioGroups.indices.map { "audio-${plan.audioGroups.size + it + 1} (${sib.track.lang})" }
+                }
+        val sidecar = readResumeSidecar(task.id, manifestSha, allAudioGroups.size)
         var videoPartsDone = sidecar?.videoPartsDone ?: 0
         var videoBytes = sidecar?.videoBytes ?: 0L
         val audioStates: MutableList<DashResumeSidecar.SetState> = (
-            sidecar?.audioSets ?: plan.audioGroups.map { DashResumeSidecar.SetState() }
+            sidecar?.audioSets ?: allAudioGroups.map { DashResumeSidecar.SetState() }
             ).toMutableList()
         var doneBytes = videoBytes + audioStates.sumOf { it.bytes }
         // D-548: the placements of ALREADY-APPENDED parts ride the sidecar —
@@ -174,6 +266,7 @@ class DashDownloader(
                 fileIndex: Int,
                 startPartsDone: Int,
                 startBytes: Long,
+                groupHeaders: Map<String, String>,
                 persist: (partsDone: Int, bytes: Long) -> Unit,
             ) {
                 // D-548: crash healing — a crash between the file append and
@@ -212,7 +305,7 @@ class DashDownloader(
                     for (index in partsDone until parts.size) {
                         currentCoroutineContext().ensureActive()
                         val part = parts[index]
-                        val appended = fetchAndAppend(part, out, headers, client)
+                        val appended = fetchAndAppend(part, out, groupHeaders, client)
                         placements += DashOfflineSegmentRange(
                             url = part.url,
                             file = fileIndex,
@@ -240,6 +333,7 @@ class DashDownloader(
                 fileIndex = 0,
                 startPartsDone = videoPartsDone,
                 startBytes = videoBytes,
+                groupHeaders = headers,
             ) { partsDone, bytes ->
                 videoPartsDone = partsDone
                 videoBytes = bytes
@@ -248,15 +342,16 @@ class DashDownloader(
                     DashResumeSidecar(manifestSha, partsDone, bytes, audioStates, placements.toList()),
                 )
             }
-            plan.audioGroups.forEachIndexed { groupIndex, groupParts ->
+            allAudioGroups.forEachIndexed { groupIndex, groupParts ->
                 val state = audioStates[groupIndex]
                 runGroup(
-                    label = "audio-${groupIndex + 1}",
+                    label = audioGroupLabels[groupIndex],
                     parts = groupParts,
                     file = audioTemps[groupIndex],
                     fileIndex = groupIndex + 1,
                     startPartsDone = state.partsDone,
                     startBytes = state.bytes,
+                    groupHeaders = audioGroupHeaders[groupIndex],
                 ) { partsDone, bytes ->
                     audioStates[groupIndex] = DashResumeSidecar.SetState(partsDone, bytes)
                     writeResumeSidecar(
@@ -293,6 +388,28 @@ class DashDownloader(
         //    cover + subs + the .dashmeta sidecar playback rides.
         val enrichedContent = enrichContentMetadata(task.content)
         val subtitleLangs = task.subtitleTracks.map { it.lang }
+        // D-550: the sidecar's manifest is COMPOSED, never the original —
+        // pruned to the representations that are actually on disk (the ABR
+        // cannot select an undownloaded rep that no longer exists in the
+        // document) + every downloaded audio variant carried as a LABELED
+        // audio AdaptationSet (the offline audio-version switch).
+        val composedManifest = DashOfflineManifestComposer.compose(
+            primaryManifestBytes = manifestBytes,
+            primaryManifestUrl = manifestUrl,
+            keepRepIds = buildSet {
+                plan.videoRepIds.forEach { add(it) }
+                plan.audioRepIds.forEach { add(it) }
+            },
+            primaryAudioLabel = task.videoAudio.ifBlank { null },
+            siblings = siblingPlans.map { sib ->
+                DashSiblingAudioSet(
+                    manifestUrl = sib.track.url,
+                    label = sib.track.lang,
+                    manifestBytes = sib.manifestBytes,
+                    recordedUrls = sib.plan.audioGroups.flatten().mapTo(HashSet()) { it.url },
+                )
+            },
+        )
         val publishResult = storage.publishDashEpisode(
             downloadId = task.id,
             content = enrichedContent,
@@ -300,7 +417,7 @@ class DashDownloader(
             subtitleFiles = subtitleFiles,
             subtitleLangs = subtitleLangs,
             manifestUrl = manifestUrl,
-            manifestBytes = manifestBytes,
+            manifestBytes = composedManifest,
             videoTempFile = videoTemp,
             audioTempFiles = audioTemps,
             ranges = placements,
@@ -326,6 +443,7 @@ class DashDownloader(
                     downloadedAt = System.currentTimeMillis(),
                     fileSize = doneBytes,
                     dashManifestUrl = manifestUrl,
+                    audioUris = publishResult.audioUris,
                 )
                 storage.upsertEpisodeInDataJson(contentFolder, episodeInfo)
                 DownloadLogger.i {
@@ -682,3 +800,18 @@ private data class DashResumeSidecar(
         @SerialName("bytes") val bytes: Long = 0L,
     )
 }
+
+/**
+ * D-550: one successfully-planned sibling audio variant (the offline audio
+ * switch) — its AUDIO_VARIANT track (label + manifest URL + headers), the
+ * manifest bytes as fetched (the composer's import source + the resume
+ * sidecar's sha pin), the plan (audioGroups join the download; the recorded
+ * URLs drive the composer's covered-set import filter), and the per-variant
+ * request headers the parts are fetched with.
+ */
+private class SiblingVariantPlan(
+    val track: DownloadTrack,
+    val manifestBytes: ByteArray,
+    val plan: DashSegmentPlan,
+    val headers: Map<String, String>,
+)

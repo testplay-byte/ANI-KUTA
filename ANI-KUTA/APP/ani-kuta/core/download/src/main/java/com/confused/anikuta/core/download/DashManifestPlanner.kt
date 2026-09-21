@@ -67,6 +67,20 @@ data class DashSegmentPlan(
     val audioGroups: List<List<DashPart>>,
     /** bandwidth-derived byte estimate (0 = unknowable → progress runs indeterminate). */
     val estimatedBytes: Long,
+    /**
+     * D-550: the AUDIO share of [estimatedBytes] — a sibling audio variant's
+     * manifest is planned for its audio sets only, and the download's total
+     * hint must add that share (the sibling's video estimate is irrelevant:
+     * its video is never downloaded).
+     */
+    val audioEstimatedBytes: Long = 0L,
+    /**
+     * D-550: the ids of EVERY downloaded video representation (one chosen rep
+     * per video AdaptationSet — per Period). The sidecar-composition prune
+     * keeps exactly these + [audioRepIds]; a multi-period manifest's other
+     * periods' chosen reps survive the prune because they are listed here.
+     */
+    val videoRepIds: List<String> = emptyList(),
     val drmProtected: Boolean,
     /** Non-null when the manifest is genuinely undownloadable (live, unaddressable). */
     val unsupportedReason: String?,
@@ -217,9 +231,12 @@ object DashManifestPlanner {
         // audio set. The manifest part is excluded (it rides the sidecar).
 
         val durationSec = totalDurationSec.takeIf { it > 0.0 }
+        // D-550: hoisted so the plan can expose the audio share separately —
+        // a sibling variant's manifest contributes only this part to the
+        // download's total-hint estimate.
+        val audioBytes = durationSec?.let { d -> audioSets.sumOf { (rep, _) -> (rep.bandwidth / 8.0) * d } } ?: 0.0
         val estimated = if (durationSec != null) {
             val videoBytes = (chosenVideo.bandwidth / 8.0) * durationSec
-            val audioBytes = audioSets.sumOf { (rep, _) -> (rep.bandwidth / 8.0) * durationSec }
             (videoBytes + audioBytes).toLong()
         } else 0L
 
@@ -230,6 +247,8 @@ object DashManifestPlanner {
             videoParts = videoReps.flatMap { it.parts },
             audioGroups = audioSets.map { it.second },
             estimatedBytes = estimated,
+            audioEstimatedBytes = audioBytes.toLong(),
+            videoRepIds = videoReps.map { it.id ?: "" },
             drmProtected = false,
             unsupportedReason = null,
         )

@@ -238,13 +238,16 @@ class DownloadStorageProvider(
      *  - `episodes/<title> - E00001.mp4` — the video representation's
      *    init + segments concatenated ([videoTempFile], already assembled by
      *    the downloader);
-     *  - `episodes/<title> - E00001.audio<N>.mp4` — one file per audio set
-     *    ([audioTempFiles], same order as the plan's groups);
+     *  - `audio/<title> - E00001.audio<N>.mp4` — one file per audio set
+     *    ([audioTempFiles], same order as the plan's groups — D-550 moved the
+     *    audio OUT of episodes/: the user's own layout, audio files live in a
+     *    dedicated `audio/` folder exactly like `episodes/` and `subtitles/`);
      *  - `episodes/<title> - E00001.mp4.dashmeta` — the playback sidecar:
-     *    the original manifest bytes + the URL→(file, offset, length) index
-     *    ([ranges]). CsPlayerEngine.startOfflineDashLocal parses it as a
-     *    SIDeloaded DashMediaSource — the manifest is the index media3 cannot
-     *    synthesize over a local fMP4 (an unindexed fragmented MP4 is
+     *    the COMPOSED manifest bytes (D-550: pruned to the downloaded reps +
+     *    the labeled sibling audio sets) + the URL→(file, offset, length)
+     *    index ([ranges]). CsPlayerEngine.startOfflineDashLocal parses it as
+     *    a SIDeloaded DashMediaSource — the manifest is the index media3
+     *    cannot synthesize over a local fMP4 (an unindexed fragmented MP4 is
      *    UNSEEKABLE in ExoPlayer).
      *  - `.data.json` (+ the content identity), `.cover.jpg`, `.nomedia`, and
      *    the subtitle files in `subtitles/` — unchanged from the file pipeline.
@@ -303,15 +306,31 @@ class DownloadStorageProvider(
         copyFile(videoTempFile, videoTarget.uri)
 
         val audioUris = mutableListOf<String>()
+        // D-550: the audio sets live in a dedicated `audio/` subfolder — the
+        // user's layout for the three published artifacts: video in
+        // `episodes/`, audio in `audio/`, subtitles in `subtitles/`. The
+        // sidecar's files[] URIs point wherever the audio actually is, so
+        // playback is layout-agnostic; the delete sweep + the scanner know
+        // BOTH locations (the v1.1.23 episodes keep their episodes/-located
+        // audio working).
+        val audioDir = getOrCreateSubfolder(contentDir, "audio", index)
+        val audioDirIndex = audioDir.listFiles().associateBy { it.name!! }
         for ((audioIndex, audioTemp) in audioTempFiles.withIndex()) {
             val audioName = "$videoBase.audio${audioIndex + 1}.mp4"
+            audioDirIndex[audioName]?.delete()
+            // D-550 stale-copy sweep: the v1.1.23 layout published the audio
+            // NEXT TO the video (episodes/). Re-publishing must delete those
+            // legacy copies — left behind they would orphan (nothing
+            // references them: the new sidecar points into audio/) and the
+            // delete sweep would still clean them, but the folder would carry
+            // a silent duplicate of every audio set.
             epIndex[audioName]?.delete()
             // D-548 (review blocker 1): "video/mp4" — SAF reconciles the
             // display-name extension against the mime (AOSP
             // FileUtils.splitFileName): "audio/mp4" would RENAME the file to
             // …audio1.m4a (the mime's canonical ext) and break the whole
             // audio-sibling naming contract. An exact match keeps the name.
-            val audioTarget = episodesDir.createFile("video/mp4", audioName)
+            val audioTarget = audioDir.createFile("video/mp4", audioName)
                 ?: throw DownloadException("Failed to create DASH audio file: $audioName")
             copyFile(audioTemp, audioTarget.uri)
             audioUris += audioTarget.uri.toString()
@@ -361,7 +380,7 @@ class DownloadStorageProvider(
 
         DownloadLogger.i {
             "publishDashEpisode($downloadId) — published $videoName " +
-                "(${videoTempFile.length()} bytes) + ${audioUris.size} audio file(s) + $metaName " +
+                "(${videoTempFile.length()} bytes) + ${audioUris.size} audio file(s) in audio/ + $metaName " +
                 "(${ranges.size} range(s)) to ${contentDir.name} + " +
                 "${publishedSubtitleUris.size} subtitle(s)"
         }
@@ -370,6 +389,7 @@ class DownloadStorageProvider(
             subtitleUris = publishedSubtitleUris,
             contentFolder = contentDir,
             dataJsonVideoUri = videoTarget.uri.toString(),
+            audioUris = audioUris,
         )
     }
 
@@ -1114,7 +1134,11 @@ class DownloadStorageProvider(
         val dirs = buildList {
             add(folder)
             folder.listFiles().forEach { child ->
-                if (child.isDirectory && (child.name == "episodes" || child.name == "subtitles")) {
+                // D-550: the audio/ subfolder joins the sweep — the D-550
+                // publish puts the DASH audio sets there (the v1.1.23
+                // episodes' audio still lives in episodes/ and matches here
+                // all the same).
+                if (child.isDirectory && (child.name == "episodes" || child.name == "subtitles" || child.name == "audio")) {
                     add(child)
                 }
             }
@@ -1146,7 +1170,8 @@ class DownloadStorageProvider(
         val dirs = buildList {
             add(folder)
             folder.listFiles().forEach { child ->
-                if (child.isDirectory && (child.name == "episodes" || child.name == "subtitles")) {
+                // D-550: audio/ joins the walk (the DASH audio sets' new home).
+                if (child.isDirectory && (child.name == "episodes" || child.name == "subtitles" || child.name == "audio")) {
                     add(child)
                 }
             }

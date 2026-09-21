@@ -110,7 +110,22 @@ data class DownloadTrack(
 )
 
 @Serializable
-enum class TrackKind { SUBTITLE, AUDIO }
+enum class TrackKind {
+    SUBTITLE,
+    AUDIO,
+
+    /**
+     * D-550: a SIBLING audio variant of the same episode (a DASH manifest URL,
+     * not a standalone audio file) — the offline audio-switching carrier.
+     * `lang` = the variant's audio-version label, `url` = its manifest URL,
+     * `headers` = its own MPV-format header string. Only the DashDownloader
+     * consumes these (its extra audio groups + the sidecar manifest's labeled
+     * audio sets); every other downloader ignores them, and they ride the
+     * existing `audio_tracks` JSON column so the queue schema needs no
+     * migration.
+     */
+    AUDIO_VARIANT,
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Download request (the input to DownloadManager.enqueueDownload)
@@ -279,4 +294,12 @@ data class PublishResult(
      * both are the same real file uri).
      */
     val dataJsonVideoUri: String? = null,
+    /**
+     * D-550: the `content://` URIs of the published DASH audio-set files (the
+     * `audio/` folder's `<base>.audio<N>.mp4`, primary variant first) — the
+     * `.data.json` episode entry records them so the durable store describes
+     * the whole published media set (the sidecar's `files[]` remains the
+     * playback-truth copy).
+     */
+    val audioUris: List<String> = emptyList(),
 )

@@ -1691,7 +1691,7 @@ fun AppRoot() {
                     csResolveRequest = null
                 },
                 onDownload = if (csResolveDownloadMode) {
-                    { key, link, subtitles ->
+                    { key, link, subtitles, allLinks ->
                         // D-403: the no-folder gate (retry-after-pick) — the
                         // CS download path gets the same early, clear error.
                         gateDownload {
@@ -1699,6 +1699,7 @@ fun AppRoot() {
                                 key = key,
                                 link = link,
                                 subtitles = subtitles,
+                                allLinks = allLinks,
                                 contentRepository = contentRepository,
                                 downloadManager = downloadManager,
                             )
@@ -2090,6 +2091,7 @@ private fun handleCsDownloadPick(
     key: com.confused.anikuta.feature.cswatch.api.CsWatchKey,
     link: com.confused.anikuta.core.csplayer.CsVideoLink,
     subtitles: List<com.confused.anikuta.core.csplayer.CsSubtitle>,
+    allLinks: List<com.confused.anikuta.core.csplayer.CsVideoLink>,
     contentRepository: com.confused.anikuta.core.content.ContentRepository,
     downloadManager: com.confused.anikuta.core.download.DownloadManager,
 ) {
@@ -2160,6 +2162,7 @@ private fun handleCsDownloadPick(
                 link = link,
                 subtitles = subtitles,
                 sourceId = key.sourceId.takeIf { it != 0L },
+                allLinks = allLinks,
             )
             val taskId = downloadManager.enqueueDownload(request)
             com.confused.anikuta.core.common.Logger.i("MainActivity") {

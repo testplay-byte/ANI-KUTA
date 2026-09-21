@@ -113,6 +113,7 @@ class DownloadOrchestrator(
                     audioLabel = selection.candidate.audio,
                     sourceId = source.id,
                     episodeUrl = episode.url,
+                    servers = servers,
                 )
                 val taskId = downloadManager.enqueueDownload(request)
                 Logger.i(TAG) { "enqueueDownload — success, taskId=$taskId" }
@@ -148,6 +149,7 @@ class DownloadOrchestrator(
         video: ResolverVideo,
         serverName: String,
         audioLabel: String,
+        allServers: List<ResolverServer> = emptyList(),
     ): EnqueueResult {
         val request = buildRequest(
             content = content,
@@ -157,6 +159,7 @@ class DownloadOrchestrator(
             audioLabel = audioLabel,
             sourceId = source.id,
             episodeUrl = episode.url,
+            servers = allServers,
         )
         val taskId = downloadManager.enqueueDownload(request)
         Logger.i(TAG) { "enqueueSpecific — success, taskId=$taskId" }
@@ -185,6 +188,10 @@ class DownloadOrchestrator(
      *
      * REVIEW-5 M15 (proxy-churn fix Layer 1): prefers `video.directUrl` over
      * `video.url` — the direct CDN URL bypasses the extension proxy entirely.
+     *
+     * @param servers The FULL resolved server list (D-550) — the pool the
+     *   sibling DASH audio variants are collected from (the offline audio
+     *   switch). Empty = no siblings.
      */
     private fun buildRequest(
         content: DownloadContentInfo,
@@ -194,6 +201,7 @@ class DownloadOrchestrator(
         audioLabel: String,
         sourceId: Long,
         episodeUrl: String,
+        servers: List<ResolverServer> = emptyList(),
     ): DownloadRequest {
         // Proxy-churn fix Layer 1: prefer directUrl (CDN) over url (proxy).
         val downloadUrl = video.directUrl ?: video.url
@@ -222,7 +230,7 @@ class DownloadOrchestrator(
                 kind = TrackKind.AUDIO,
                 headers = fallbackHeaders,
             )
-        }
+        } + siblingVariantTracks(video, serverName, servers, fallbackHeaders)
         val resolveContext = if (downloadUrl.startsWith("http://localhost") ||
             downloadUrl.startsWith("http://127.0.0.1")
         ) {
@@ -266,4 +274,44 @@ class DownloadOrchestrator(
             "DO_NOT_DOWNLOAD" -> AutoDownloadEngine.GlobalFallback.DO_NOT_DOWNLOAD
             else -> AutoDownloadEngine.GlobalFallback.BEST_EFFORT
         }
+
+    /**
+     * D-550: the sibling DASH audio variants of the picked video — the other
+     * audio versions of the SAME server whose video URL is a DASH manifest
+     * (`.mpd`), one per (label, url), each carrying the picked video's
+     * headers (per-track headers ride the same video headers fallback rule
+     * as the subtitles). The DashDownloader downloads their audio sets and
+     * labels them in the sidecar manifest; every other downloader ignores
+     * the AUDIO_VARIANT kind.
+     */
+    private fun siblingVariantTracks(
+        picked: ResolverVideo,
+        serverName: String,
+        servers: List<ResolverServer>,
+        fallbackHeaders: String?,
+    ): List<DownloadTrack> {
+        val server = servers.firstOrNull { it.name == serverName } ?: return emptyList()
+        // The picked video's audio version (identity by URL — the stable
+        // cross-resolution anchor the picker itself uses).
+        val pickedVersion = server.audioVersions.firstOrNull { version ->
+            version.videos.any { it.url == picked.url }
+        } ?: return emptyList()
+        return server.audioVersions
+            .filter { it !== pickedVersion && it.label.isNotBlank() }
+            .mapNotNull { version ->
+                // Any video of that version shares the variant's manifest;
+                // prefer the same quality, else the first entry.
+                val candidate = version.videos.firstOrNull { it.quality == picked.quality }
+                    ?: version.videos.firstOrNull() ?: return@mapNotNull null
+                val url = candidate.directUrl ?: candidate.url
+                if (!url.substringBefore('?').endsWith(".mpd")) return@mapNotNull null
+                DownloadTrack(
+                    url = url,
+                    lang = version.label,
+                    kind = TrackKind.AUDIO_VARIANT,
+                    headers = fallbackHeaders,
+                )
+            }
+            .distinctBy { it.lang to it.url }
+    }
 }

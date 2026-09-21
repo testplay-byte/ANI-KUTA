@@ -228,4 +228,14 @@ data class DownloadedEpisodeInfo(
      */
     @SerialName("dashManifestUrl")
     val dashManifestUrl: String? = null,
+    /**
+     * D-550: the `content://` URIs of the episode's published DASH audio-set
+     * files (the `audio/` folder's `<base>.audio<N>.mp4`, primary variant
+     * first) — the durable record of the whole published media set (the
+     * `.mp4.dashmeta` sidecar's `files[]` remains the playback-truth copy).
+     * Null/empty for progressive downloads and pre-D-550 episodes; the
+     * scanner rebuilds it from the on-disk siblings after a reinstall.
+     */
+    @SerialName("audioUris")
+    val audioUris: List<String>? = null,
 )
