@@ -155,6 +155,40 @@ class DashDownloader(
                 "video=${plan.videoRep?.id} (${plan.videoRep?.height}p @ ${plan.videoRep?.bandwidth}bps), " +
                 "estimate=${plan.estimatedBytes}"
         }
+        // D-552: the spans are the snippet-guard's evidence line — a truncated
+        // audio plan is diagnosable from the logcat alone (audio seconds <<
+        // video seconds).
+        DownloadLogger.i {
+            "DashDownloader — spans: video=${plan.videoSpanSec?.let { "$it" } ?: "unknown"}s " +
+                "audio=[${plan.audioGroupSpansSec.joinToString(", ") { it?.toString() ?: "unknown" }}]s " +
+                "declaredAudioSets=${plan.audioSetsPresent}"
+        }
+
+        // ── 1a. D-552: the snippet guard — the pipeline never downloads garbage ──
+        // A manifest that declares audio but plans NO downloadable audio groups
+        // would publish a silent video; an audio group whose known span is a
+        // tiny fraction of the video's is the SegmentTimeline r="-1" collapse
+        // (the v1.1.25 device round's "audio 1 was just a random small snippet").
+        // Both are hard, honest failures — the queue shows the message and the
+        // retry is deterministic. The cross-derivation (the planner borrowing
+        // the video timeline's span as the period clock) should make this path
+        // unreachable for the aoneroom shape; it exists so NO future provider
+        // shape can silently ship a truncated audio track again.
+        if (plan.audioSetsPresent > 0 && plan.audioGroups.isEmpty()) {
+            throw DownloadException(
+                "The manifest declares ${plan.audioSetsPresent} audio track(s) but none of them " +
+                    "can be downloaded — this episode would be silent. Try again later or pick another source.",
+            )
+        }
+        val shortAudioIndex = plan.audioGroupSpansSec
+            .indexOfFirst { isTruncatedAudioSpan(plan.videoSpanSec, it) }
+        if (shortAudioIndex >= 0) {
+            throw DownloadException(
+                "The manifest's audio track plans only ${plan.audioGroupSpansSec[shortAudioIndex]}s of media " +
+                    "for a ${plan.videoSpanSec}s episode — the audio timeline is truncated. " +
+                    "Try again later or pick another source.",
+            )
+        }
 
         // ── 1b. D-550: the sibling audio variants — the offline audio switch ──
         // The picked link's manifest carries exactly ONE audio world (the
@@ -190,8 +224,21 @@ class DashDownloader(
                             "DashDownloader — sibling audio '${variant.lang}': no downloadable audio sets — skipped"
                         }
                     else -> {
-                        siblingPlans += SiblingVariantPlan(variant, variantBytes, variantPlan, variantHeaders)
-                        siblingAudioEstimate += variantPlan.audioEstimatedBytes
+                        // D-552: the sibling's own snippet guard — a variant
+                        // whose audio plan collapses is SKIPPED (best-effort,
+                        // the D-550 semantics): a snippet variant must never
+                        // land as audio2, and the picked variant never pays.
+                        val shortSpan = variantPlan.audioGroupSpansSec
+                            .firstOrNull { isTruncatedAudioSpan(variantPlan.videoSpanSec, it) }
+                        if (shortSpan != null) {
+                            DownloadLogger.w {
+                                "DashDownloader — sibling audio '${variant.lang}': truncated audio plan " +
+                                    "(${shortSpan}s vs video ${variantPlan.videoSpanSec}s) — skipped"
+                            }
+                        } else {
+                            siblingPlans += SiblingVariantPlan(variant, variantBytes, variantPlan, variantHeaders)
+                            siblingAudioEstimate += variantPlan.audioEstimatedBytes
+                        }
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -815,3 +862,22 @@ private class SiblingVariantPlan(
     val plan: DashSegmentPlan,
     val headers: Map<String, String>,
 )
+
+/**
+ * D-552: the snippet-guard threshold — an audio group whose KNOWN span falls
+ * below this fraction of the video's is a truncated plan (the SegmentTimeline
+ * r="-1" collapse), never a legitimate track. The margin is deliberately
+ * huge: the planner's floor-division tail loss is one segment (~1% of an
+ * episode), legitimate audio matches video length; a real snippet is orders
+ * of magnitude below. Unknown spans (null) never fire — the guard only
+ * refuses what it can PROVE is broken.
+ */
+private const val AUDIO_SPAN_FRACTION_FLOOR = 0.5
+
+/** True when BOTH spans are known and the audio's is a truncated fraction of the video's. */
+private fun isTruncatedAudioSpan(videoSpanSec: Double?, audioSpanSec: Double?): Boolean {
+    val video = videoSpanSec ?: return false
+    val audio = audioSpanSec ?: return false
+    if (video <= 0.0 || audio < 0.0) return false
+    return audio < video * AUDIO_SPAN_FRACTION_FLOOR
+}

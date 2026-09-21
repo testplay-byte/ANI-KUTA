@@ -13,20 +13,27 @@ import org.junit.Test
  */
 class DashManifestHeightsTest {
 
-    /** Minimal static MPD wrapper around the given AdaptationSet XML. */
-    private fun mpd(vararg adaptationSets: String): ByteArray = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
-          <Period>
-            ${adaptationSets.joinToString("\n")}
-          </Period>
-        </MPD>
-    """.trimIndent().toByteArray()
+    /**
+     * Minimal static MPD wrapper around the given AdaptationSet XML.
+     * Built with append (NOT interpolation-inside-trimIndent): the inserted
+     * set fragments sit at column 0, which would freeze the common indent and
+     * leave whitespace BEFORE the `<?xml?>` prolog — a fatal parse error (the
+     * XML spec forbids anything before the declaration). D-552 test-infra
+     * repair: these fixtures never compiled on CI (`$Number%05d$` is a Kotlin
+     * template; CI runs assembleDebug only), so both bugs sat latent.
+     */
+    private fun mpd(vararg adaptationSets: String): ByteArray = buildString {
+        append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
+        append("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" type=\"static\">\n")
+        append("<Period>\n")
+        adaptationSets.joinTo(this, "\n")
+        append("\n</Period>\n</MPD>\n")
+    }.toByteArray()
 
     /** A video AdaptationSet with one Representation per [height]. */
     private fun videoSet(vararg heights: Int): String = """
         <AdaptationSet mimeType="video/mp4" contentType="video">
-          <SegmentTemplate timescale="1000" media="chunk-stream0-$Number%05d$.m4s" initialization="init-stream0.m4s" startNumber="1"/>
+          <SegmentTemplate timescale="1000" media="chunk-stream0-${'$'}Number%05d$.m4s" initialization="init-stream0.m4s" startNumber="1"/>
           ${heights.joinToString("\n") { h ->
               """<Representation id="v$h" mimeType="video/mp4" bandwidth="${h * 1000}" width="${h * 16 / 9}" height="$h"/>"""
           }}
@@ -35,7 +42,7 @@ class DashManifestHeightsTest {
 
     private val audioSet = """
         <AdaptationSet mimeType="audio/mp4" contentType="audio">
-          <SegmentTemplate timescale="48000" media="chunk-stream1-$Number%05d$.m4s" initialization="init-stream1.m4s" startNumber="1"/>
+          <SegmentTemplate timescale="48000" media="chunk-stream1-${'$'}Number%05d$.m4s" initialization="init-stream1.m4s" startNumber="1"/>
           <Representation id="a1" mimeType="audio/mp4" bandwidth="128000" audioSamplingRate="48000"/>
         </AdaptationSet>
     """.trimIndent()

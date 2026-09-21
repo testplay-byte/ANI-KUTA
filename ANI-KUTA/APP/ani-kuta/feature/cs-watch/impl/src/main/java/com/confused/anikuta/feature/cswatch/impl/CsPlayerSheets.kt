@@ -209,7 +209,7 @@ internal fun CsLinksSheet(
     failedLinkUrls: Set<String>,
     videoTracks: List<CsVideoTrack>,
     selectedTrackLabel: String?,
-    onLinkSelect: (CsVideoLink) -> Unit,
+    onLinkSelect: (CsVideoLink, Int?) -> Unit,
     onTrackSelect: (CsVideoTrack?) -> Unit,
     onCopyUrl: (String) -> Unit,
     onDismiss: () -> Unit,

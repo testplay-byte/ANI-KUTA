@@ -369,14 +369,14 @@ fun CsWatchScreen(
         }
         when {
             // Resume (fresh episode with progress, or same-key re-entry): seek.
-            live.playIsResume -> engine.start(link!!, live.playStartPositionMs)
+            live.playIsResume -> engine.start(link!!, live.playStartPositionMs, live.playInitialVideoHeight)
             // Same-episode link switch (quality/source change, error fallback):
             // keep the position (R12-REVIEW F2). Task 57: no subtitle reattach —
             // provider subs render through the overlay (no reloads, ever).
-            live.playKeepPosition -> engine.switchLink(link!!)
+            live.playKeepPosition -> engine.switchLink(link!!, live.playInitialVideoHeight)
             // A NEW episode's first link: FRESH start — never inherit the
             // previous episode's position (F2: auto-advance cascade).
-            else -> engine.start(link!!, 0L)
+            else -> engine.start(link!!, 0L, live.playInitialVideoHeight)
         }
     }
 
@@ -646,8 +646,9 @@ fun CsWatchScreen(
             failedLinkUrls = uiState.failedLinkUrls,
             videoTracks = videoTracks,
             selectedTrackLabel = selectedTrackLabel,
-            onLinkSelect = { link ->
-                viewModel.selectLink(link)
+            onLinkSelect = { link, height ->
+                // D-552: a resolution-chip pick carries the one-shot start pin.
+                viewModel.selectLink(link, height)
                 showLinksSheet = false
             },
             onTrackSelect = { track ->

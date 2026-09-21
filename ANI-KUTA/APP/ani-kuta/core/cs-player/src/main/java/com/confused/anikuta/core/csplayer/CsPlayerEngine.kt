@@ -204,6 +204,17 @@ class CsPlayerEngine(
     private var textOverrideAtMs: Long = 0L
     private var textOverrideRetryUsed = false
 
+    /**
+     * D-552: the one-shot video height a sheet pick asked to START at — set by
+     * [start]/[switchLink] when the resolve/links sheet's resolution chip is
+     * tapped, applied ONCE at READY via [selectVideoTrack] (the SAME override
+     * the player's "Quality for this stream" section uses — a selector, not
+     * the round-62 cap), then cleared. Not found at READY → cleared, ABR
+     * continues. The offline loaders clear it (their manifest is pruned to
+     * exactly one rep; the intent does not carry across load kinds).
+     */
+    private var pendingVideoHeight: Int? = null
+
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setTrackSelector(androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context))
         .setLoadControl(buildLoadControl())
@@ -267,6 +278,9 @@ class CsPlayerEngine(
                     // Task 55: MPV `slang` parity — auto-select a preferred-language
                     // subtitle track once per load (only when nothing is selected).
                     maybeAutoSelectPreferredSubtitles()
+                    // D-552: the sheet pick's start-height — applied once, with
+                    // the tracks LIVE (the override needs real track groups).
+                    maybeApplyPendingVideoHeight()
                 }
                 if (mapped == CsBufferState.ENDED) {
                     Logger.i(TAG) { "playback ENDED (url=${_state.value.currentLinkUrl})" }
@@ -383,7 +397,8 @@ class CsPlayerEngine(
      *   position (for live M3U8/DASH that is the live edge — the upstream
      *   `playbackPosition = TIME_UNSET` nuance, research R12-A §5).
      */
-    fun start(link: CsVideoLink, startPositionMs: Long = 0L) {
+    fun start(link: CsVideoLink, startPositionMs: Long = 0L, initialVideoHeight: Int? = null) {
+        pendingVideoHeight = initialVideoHeight
         startInternal(link, startPositionMs, clean = false)
     }
 
@@ -417,6 +432,7 @@ class CsPlayerEngine(
         // continuation (sidecar read/parse on IO) must never land over THIS
         // load — every loader bumps the same generation gate.
         offlineLocalLoadGen++
+        pendingVideoHeight = null // D-552: the start-height intent does not cross load kinds
         Logger.i(TAG) {
             "startOfflineDash: $manifestUrl resumeMs=$startPositionMs maxVideoHeight=$maxVideoHeight"
         }
@@ -479,6 +495,7 @@ class CsPlayerEngine(
         Logger.i(TAG) {
             "startOfflineDashLocal: $metaUri resumeMs=$startPositionMs maxVideoHeight=$maxVideoHeight"
         }
+        pendingVideoHeight = null // D-552: the start-height intent does not cross load kinds
         current = null
         cleanRetryUsed = false
         reachedReady = false
@@ -596,10 +613,13 @@ class CsPlayerEngine(
         }
     }
 
-    /** Re-loads [link] keeping the current position (quality/source switch UX). */
-    fun switchLink(link: CsVideoLink) {
+    /** Re-loads [link] keeping the current position (quality/source switch UX).
+     *  [initialVideoHeight] = the D-552 one-shot start-height pin (see
+     *  [pendingVideoHeight]). */
+    fun switchLink(link: CsVideoLink, initialVideoHeight: Int? = null) {
         val keepAt = if (_state.value.durationMs > 0) player.currentPosition else 0L
         Logger.i(TAG) { "switchLink → ${link.displayLabel} keeping position=${keepAt}ms" }
+        pendingVideoHeight = initialVideoHeight
         startInternal(link, keepAt, clean = false)
     }
 
@@ -693,6 +713,7 @@ class CsPlayerEngine(
         autoSubSelectAttempted = false
         textOverrideAtMs = 0L
         textOverrideRetryUsed = false
+        pendingVideoHeight = null // D-552: a reset drops the sheet pick's start-height too
         offlineLocalLoadGen++ // D-548: an in-flight local-file load must not land after a reset
         current = null
         tickerJob?.cancel()
@@ -847,6 +868,27 @@ class CsPlayerEngine(
             .setMaxVideoSize(Int.MAX_VALUE, height ?: Int.MAX_VALUE)
             .build()
         Logger.i(TAG) { "maxVideoHeight=$height" }
+    }
+
+    /**
+     * D-552: applies (and CLEARS) the sheet pick's start-height at READY —
+     * the same TrackSelectionOverride the quality section's pick rides, so
+     * the user's own later picks replace it naturally. A height this stream
+     * does not offer is logged and dropped (ABR continues — never worse).
+     */
+    private fun maybeApplyPendingVideoHeight() {
+        val wanted = pendingVideoHeight ?: return
+        pendingVideoHeight = null
+        if (wanted <= 0) return
+        val match = videoTracks().firstOrNull { it.height == wanted }
+        if (match != null) {
+            Logger.i(TAG) {
+                "start-height pin: ${wanted}p → video group=${match.groupIndex} track=${match.trackIndex}"
+            }
+            selectVideoTrack(match)
+        } else {
+            Logger.i(TAG) { "start-height pin: ${wanted}p not offered by this stream — staying on ABR" }
+        }
     }
 
     /**

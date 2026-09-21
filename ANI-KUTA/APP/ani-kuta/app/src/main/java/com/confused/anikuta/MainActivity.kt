@@ -1691,15 +1691,18 @@ fun AppRoot() {
                     csResolveRequest = null
                 },
                 onDownload = if (csResolveDownloadMode) {
-                    { key, link, subtitles, allLinks ->
+                    { key, link, subtitles, allLinks, chosenHeight ->
                         // D-403: the no-folder gate (retry-after-pick) — the
                         // CS download path gets the same early, clear error.
+                        // D-552: chosenHeight = the clicked resolution chip
+                        // (null = the link's declared quality).
                         gateDownload {
                             handleCsDownloadPick(
                                 key = key,
                                 link = link,
                                 subtitles = subtitles,
                                 allLinks = allLinks,
+                                chosenHeight = chosenHeight,
                                 contentRepository = contentRepository,
                                 downloadManager = downloadManager,
                             )
@@ -2092,12 +2095,14 @@ private fun handleCsDownloadPick(
     link: com.confused.anikuta.core.csplayer.CsVideoLink,
     subtitles: List<com.confused.anikuta.core.csplayer.CsSubtitle>,
     allLinks: List<com.confused.anikuta.core.csplayer.CsVideoLink>,
+    chosenHeight: Int?,
     contentRepository: com.confused.anikuta.core.content.ContentRepository,
     downloadManager: com.confused.anikuta.core.download.DownloadManager,
 ) {
     com.confused.anikuta.core.common.Logger.i("MainActivity") {
         "handleCsDownloadPick — START: episode=${key.episodeData.take(48)}, " +
-            "link=${link.displayLabel}, audio=${link.audioLabel}, subs=${subtitles.size}"
+            "link=${link.displayLabel}, audio=${link.audioLabel}, subs=${subtitles.size}" +
+            (chosenHeight?.let { ", at ${it}p" } ?: "")
     }
     val scope = kotlinx.coroutines.CoroutineScope(
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
@@ -2163,6 +2168,7 @@ private fun handleCsDownloadPick(
                 subtitles = subtitles,
                 sourceId = key.sourceId.takeIf { it != 0L },
                 allLinks = allLinks,
+                chosenHeight = chosenHeight,
             )
             val taskId = downloadManager.enqueueDownload(request)
             com.confused.anikuta.core.common.Logger.i("MainActivity") {

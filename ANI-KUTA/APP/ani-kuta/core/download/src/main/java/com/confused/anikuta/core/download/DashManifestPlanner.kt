@@ -81,6 +81,28 @@ data class DashSegmentPlan(
      * periods' chosen reps survive the prune because they are listed here.
      */
     val videoRepIds: List<String> = emptyList(),
+    /**
+     * D-552: the chosen video's total media span in SECONDS (the timeline's
+     * end time), null when it cannot be known (no timeline, a collapsed
+     * negative-r entry, or a multi-period manifest — per-period spans do not
+     * validate against whole-manifest audio groups safely, so multi-period
+     * stays unvalidated). The snippet-guard's video reference.
+     */
+    val videoSpanSec: Double? = null,
+    /**
+     * D-552: one media span per [audioGroups] entry (same null contract as
+     * [videoSpanSec]) — the snippet-guard's audio side. A group whose known
+     * span is a tiny fraction of the video's is a truncated audio plan (the
+     * SegmentTimeline r="-1" collapse), never a legitimate track.
+     */
+    val audioGroupSpansSec: List<Double?> = emptyList(),
+    /**
+     * D-552: how many audio AdaptationSets the manifest DECLARED (regardless
+     * of planning success). A manifest that declares audio but plans zero
+     * downloadable audio groups would otherwise publish a SILENT video —
+     * the downloader refuses that honestly.
+     */
+    val audioSetsPresent: Int = 0,
     val drmProtected: Boolean,
     /** Non-null when the manifest is genuinely undownloadable (live, unaddressable). */
     val unsupportedReason: String?,
@@ -166,52 +188,80 @@ object DashManifestPlanner {
         val audioSets = mutableListOf<Pair<RepNode, List<DashPart>>>() // chosen rep + its parts
         val parts = mutableListOf<DashPart>()
         var unsupported: String? = null
+        var audioSetsPresent = 0
+        val periodsCount = elementsOf(root, "Period").size
 
+        // D-552: TWO passes per Period. The video sets plan FIRST and lend the
+        // period its CLOCK: a packager that omits mediaPresentationDuration /
+        // Period@duration but writes explicit video timelines still declares
+        // the duration — through the video timeline. The audio sets then
+        // expand their negative-r entries against that derived span. The old
+        // single pass expanded every r="-1" to ONE segment when the duration
+        // attributes were missing (periodTicks = -1 → r = 0) — the audio plan
+        // became init + 1 segment ≈ a few-second "random small snippet" while
+        // the explicit video timeline stayed complete (the v1.1.25 device
+        // round's audio1).
         for (period in elementsOf(root, "Period")) {
             val periodBase = baseUrlOf(period)?.let { absolutize(it, mpdBase) } ?: mpdBase
-            val periodDurationSec = parseIsoDuration(period.getAttribute("duration")) ?: totalDurationSec
-            for (set in elementsOf(period, "AdaptationSet")) {
-                val setBase = baseUrlOf(set)?.let { absolutize(it, periodBase) } ?: periodBase
-                val kind = kindOf(set)
-                val setSegment = segmentSourceOf(set)
+            val declaredDurationSec = parseIsoDuration(period.getAttribute("duration")) ?: totalDurationSec
+            val sets = elementsOf(period, "AdaptationSet").map { set ->
+                PendingSet(
+                    set = set,
+                    setBase = baseUrlOf(set)?.let { absolutize(it, periodBase) } ?: periodBase,
+                    setSegment = segmentSourceOf(set),
+                )
+            }
 
-                val reps = elementsOf(set, "Representation").mapNotNull { repElement ->
-                    repNodeOf(repElement, kind, setBase, setSegment, periodDurationSec)
+            // ── pass 1: video (the period's clock source) ──
+            var videoSpanSec = 0.0
+            for (pending in sets) {
+                val kind = kindOf(pending.set) ?: continue
+                if (kind != "video") continue
+                val reps = elementsOf(pending.set, "Representation").mapNotNull { repElement ->
+                    repNodeOf(repElement, kind, pending.setBase, pending.setSegment, declaredDurationSec)
                 }
                 if (reps.isEmpty()) continue
-
-                when (kind) {
-                    "video" -> {
-                        val best = reps.maxByOrNull {
-                            if (preferredHeight != null && preferredHeight > 0) {
-                                // Prefer the rep closest to the picked quality…
-                                -kotlin.math.abs((it.height ?: 0) - preferredHeight) * 1_000_000L + it.bandwidth
-                            } else {
-                                // …else the highest bandwidth.
-                                it.bandwidth
-                            }
-                        } ?: continue
-                        if (best.unsupportedReason != null) {
-                            if (unsupported == null) unsupported = best.unsupportedReason
-                            continue
-                        }
-                        videoReps += best
-                        parts += best.parts
+                val best = reps.maxByOrNull {
+                    if (preferredHeight != null && preferredHeight > 0) {
+                        // Prefer the rep closest to the picked quality…
+                        -kotlin.math.abs((it.height ?: 0) - preferredHeight) * 1_000_000L + it.bandwidth
+                    } else {
+                        // …else the highest bandwidth.
+                        it.bandwidth
                     }
-                    "audio" -> {
-                        // One (best) rep per audio AdaptationSet — every set is
-                        // usually one language (SUB/DUB manifests carry two
-                        // sets); caching the best rep of EACH keeps every
-                        // audio selection playable offline.
-                        val best = reps.maxByOrNull { it.bandwidth } ?: continue
-                        if (best.unsupportedReason != null) {
-                            if (unsupported == null) unsupported = best.unsupportedReason
-                            continue
-                        }
-                        audioSets += best to best.parts
-                        parts += best.parts
-                    }
+                } ?: continue
+                if (best.unsupportedReason != null) {
+                    if (unsupported == null) unsupported = best.unsupportedReason
+                    continue
                 }
+                videoReps += best
+                parts += best.parts
+                best.spanSec?.let { if (it > videoSpanSec) videoSpanSec = it }
+            }
+            // The period's clock: the declared duration, else the video
+            // timeline's span, else unknown (0.0 — the pre-D-552 collapse).
+            val periodSpanSec = if (declaredDurationSec > 0) declaredDurationSec else videoSpanSec
+
+            // ── pass 2: audio (expanded against the derived span) ──
+            for (pending in sets) {
+                val kind = kindOf(pending.set) ?: continue
+                if (kind != "audio") continue
+                audioSetsPresent++
+                val reps = elementsOf(pending.set, "Representation").mapNotNull { repElement ->
+                    repNodeOf(repElement, kind, pending.setBase, pending.setSegment, periodSpanSec)
+                }
+                if (reps.isEmpty()) continue
+                // One (best) rep per audio AdaptationSet — every set is
+                // usually one language (SUB/DUB manifests carry two
+                // sets); caching the best rep of EACH keeps every
+                // audio selection playable offline.
+                val best = reps.maxByOrNull { it.bandwidth } ?: continue
+                if (best.unsupportedReason != null) {
+                    if (unsupported == null) unsupported = best.unsupportedReason
+                    continue
+                }
+                audioSets += best to best.parts
+                parts += best.parts
             }
         }
 
@@ -230,7 +280,11 @@ object DashManifestPlanner {
         // input. Video sets' parts in document (period) order; one group per
         // audio set. The manifest part is excluded (it rides the sidecar).
 
-        val durationSec = totalDurationSec.takeIf { it > 0.0 }
+        // D-552: the estimate's clock now falls back to the derived video span
+        // — duration-less manifests get a REAL progress hint (was 0 →
+        // indeterminate). Single chosen rep only: a multi-period/multi-set sum
+        // would need per-period bookkeeping this hint does not deserve.
+        val durationSec = totalDurationSec.takeIf { it > 0.0 } ?: videoReps.singleOrNull()?.spanSec
         // D-550: hoisted so the plan can expose the audio share separately —
         // a sibling variant's manifest contributes only this part to the
         // download's total-hint estimate.
@@ -249,6 +303,15 @@ object DashManifestPlanner {
             estimatedBytes = estimated,
             audioEstimatedBytes = audioBytes.toLong(),
             videoRepIds = videoReps.map { it.id ?: "" },
+            // D-552: the snippet-guard's inputs. Single-period only — a
+            // multi-period manifest's audio groups belong to their own
+            // periods, and comparing each against the whole manifest's video
+            // span would false-positive (a short bumper period vs the feature).
+            videoSpanSec = if (periodsCount == 1) {
+                videoReps.mapNotNull { it.spanSec }.maxOrNull()?.takeIf { it > 0.0 }
+            } else null,
+            audioGroupSpansSec = if (periodsCount == 1) audioSets.map { it.first.spanSec } else List(audioSets.size) { null },
+            audioSetsPresent = audioSetsPresent,
             drmProtected = false,
             unsupportedReason = null,
         )
@@ -263,6 +326,27 @@ object DashManifestPlanner {
         val bandwidth: Long,
         val parts: List<DashPart>,
         val unsupportedReason: String?,
+        /**
+         * D-552: the media span in SECONDS — exact only when every timeline
+         * entry resolved to a concrete segment count (a negative-r entry
+         * under an unknown period duration collapses to one segment and the
+         * span becomes unknowable); null for timeline-less addressing
+         * (SegmentList / whole-file BaseURL).
+         */
+        val spanSec: Double?,
+    )
+
+    /** One AdaptationSet resolved to its base + addressing (the two-pass walk). */
+    private class PendingSet(
+        val set: Element,
+        val setBase: String,
+        val setSegment: SegmentSource,
+    )
+
+    /** The outcome of planning ONE representation's segments. */
+    private class TemplatePlan(
+        val error: String?,
+        val spanSec: Double?,
     )
 
     /** The segment-addressing source found at ONE element level (rep/set/period). */
@@ -317,35 +401,28 @@ object DashManifestPlanner {
         val hasSegmentBase = own.hasSegmentBase || setSegment.hasSegmentBase
 
         val parts: MutableList<DashPart> = mutableListOf()
-        val unsupported: String?
-
-        when {
-            template != null -> {
-                val err = planFromTemplate(template, id, bandwidth, repBase, periodDurationSec, kind, parts)
-                unsupported = err
-            }
-            list != null -> {
-                val err = planFromList(list, repBase, kind, parts)
-                unsupported = err
-            }
+        val planned: TemplatePlan = when {
+            template != null ->
+                planFromTemplate(template, id, bandwidth, repBase, periodDurationSec, kind, parts)
+            list != null -> TemplatePlan(planFromList(list, repBase, kind, parts), null)
             repBaseRaw != null -> {
                 // A BaseURL (with or without SegmentBase index ranges) is a
                 // complete file — cache it whole; ranges are spans inside it.
                 parts += DashPart(url = repBase, kind = kind)
-                unsupported = null
+                TemplatePlan(null, null)
             }
-            hasSegmentBase && repBaseRaw == null -> {
-                unsupported = "SegmentBase without a BaseURL is not addressable"
-            }
-            else -> unsupported = "Representation has no resolvable media addressing"
+            hasSegmentBase && repBaseRaw == null ->
+                TemplatePlan("SegmentBase without a BaseURL is not addressable", null)
+            else -> TemplatePlan("Representation has no resolvable media addressing", null)
         }
 
-        return RepNode(id, height, bandwidth, parts, unsupported)
+        return RepNode(id, height, bandwidth, parts, planned.error, planned.spanSec)
     }
 
     // ── SegmentTemplate planning ─────────────────────────────────────────────
 
-    /** Returns null on success, else the unsupported reason. */
+    /** Plans ONE representation's segments; [TemplatePlan.spanSec] is the
+     *  media span in seconds (null when unknowable — see [RepNode.spanSec]). */
     private fun planFromTemplate(
         template: Element,
         id: String?,
@@ -354,15 +431,15 @@ object DashManifestPlanner {
         periodDurationSec: Double,
         kind: String,
         out: MutableList<DashPart>,
-    ): String? {
+    ): TemplatePlan {
         val mediaTemplate = template.getAttribute("media")
         val initTemplate = template.getAttribute("initialization")
         val timescale = template.getAttribute("timescale").toLongOrNull() ?: 1L
         val startNumber = template.getAttribute("startNumber").toLongOrNull() ?: 1L
 
-        if (mediaTemplate.isBlank()) return "SegmentTemplate has no media template"
+        if (mediaTemplate.isBlank()) return TemplatePlan("SegmentTemplate has no media template", null)
         if (mediaTemplate.contains("\$SubNumber\$") || mediaTemplate.contains("\$PartIndex\$")) {
-            return "Low-latency (CTS) segment templates are not supported"
+            return TemplatePlan("Low-latency (CTS) segment templates are not supported", null)
         }
 
         val timeline = elementsOf(template, "SegmentTimeline").firstOrNull()
@@ -374,12 +451,17 @@ object DashManifestPlanner {
             var runningT = 0L
             var number = startNumber
             var emitted = 0L
+            // D-552: the span is knowable only when every negative-r entry had
+            // a real period end to expand against — a collapsed one (unknown
+            // duration) leaves the media span unknowable.
+            var spanKnown = true
             for (s in sEntries) {
                 val t = s.getAttribute("t").toLongOrNull() ?: runningT
                 val d = s.getAttribute("d").toLongOrNull()
-                    ?: return "SegmentTimeline entry without a duration"
+                    ?: return TemplatePlan("SegmentTimeline entry without a duration", null)
                 var r = s.getAttribute("r").toLongOrNull() ?: 0L
                 if (r < 0) {
+                    if (periodTicks <= 0) spanKnown = false
                     r = if (periodTicks > 0) (periodTicks - t) / d - 1 else 0L
                     if (r < 0) r = 0L
                 }
@@ -389,31 +471,54 @@ object DashManifestPlanner {
                     out += DashPart(url = url, kind = kind)
                     number++
                     emitted++
-                    if (emitted > MAX_SEGMENTS) return "Manifest declares more than $MAX_SEGMENTS segments"
+                    if (emitted > MAX_SEGMENTS) {
+                        return TemplatePlan("Manifest declares more than $MAX_SEGMENTS segments", null)
+                    }
                 }
                 runningT = t + (r + 1) * d
             }
+            val span = if (spanKnown && timescale > 0) runningT / timescale.toDouble() else null
+            return finishTemplate(initTemplate, id, bandwidth, repBase, kind, out, span)
         } else {
             val duration = template.getAttribute("duration").toLongOrNull()
-                ?: return "SegmentTemplate has neither a SegmentTimeline nor a duration"
-            val segmentTicks = duration * timescale
-            if (segmentTicks <= 0) return "SegmentTemplate duration/timescale is invalid"
+                ?: return TemplatePlan("SegmentTemplate has neither a SegmentTimeline nor a duration", null)
+            // D-552: @duration is ALREADY in timescale ticks (DASH ISO 23009-1
+            // §5.3.9.2). The old `duration * timescale` double-scaled every
+            // spec-correct manifest (duration="96000" timescale="48000" = 2s
+            // became a 96,000s "segment") — real timeline-less manifests failed
+            // loudly, and post-cross-derivation the wrong math would have
+            // masked a 1-segment snippet behind a huge span.
+            val segmentTicks = duration
+            if (segmentTicks <= 0) return TemplatePlan("SegmentTemplate duration/timescale is invalid", null)
             val periodTicks = if (periodDurationSec > 0) (periodDurationSec * timescale).toLong() else -1L
             val count = if (periodTicks > 0) (periodTicks + segmentTicks - 1) / segmentTicks else 0L
-            if (count <= 0L) return "Manifest declares no segments and no period duration"
-            if (count > MAX_SEGMENTS) return "Manifest declares more than $MAX_SEGMENTS segments"
+            if (count <= 0L) return TemplatePlan("Manifest declares no segments and no period duration", null)
+            if (count > MAX_SEGMENTS) return TemplatePlan("Manifest declares more than $MAX_SEGMENTS segments", null)
             for (i in 0 until count) {
                 val number = startNumber + i
                 val url = absolutize(substitute(mediaTemplate, id, bandwidth, number, null), repBase)
                 out += DashPart(url = url, kind = kind)
             }
+            val span = count * segmentTicks / timescale.toDouble()
+            return finishTemplate(initTemplate, id, bandwidth, repBase, kind, out, span)
         }
+    }
 
+    /** Prepends the init segment (the D-548 shape) and wraps the plan. */
+    private fun finishTemplate(
+        initTemplate: String,
+        id: String?,
+        bandwidth: Long,
+        repBase: String,
+        kind: String,
+        out: MutableList<DashPart>,
+        spanSec: Double?,
+    ): TemplatePlan {
         if (initTemplate.isNotBlank()) {
             val initUrl = absolutize(substitute(initTemplate, id, bandwidth, null, null), repBase)
             out.add(0, DashPart(url = initUrl, isInit = true, kind = kind))
         }
-        return null
+        return TemplatePlan(null, spanSec)
     }
 
     // ── SegmentList planning ─────────────────────────────────────────────────

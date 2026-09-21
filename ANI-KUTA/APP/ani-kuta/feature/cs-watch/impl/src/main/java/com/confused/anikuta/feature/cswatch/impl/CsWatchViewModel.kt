@@ -116,6 +116,13 @@ class CsWatchViewModel(
         val playOfflineMediaUri: String? = null,
         /** D-539: the representation height pin for the offline load (null = no pin). */
         val playOfflineMaxVideoHeight: Int? = null,
+        /**
+         * D-552: the ONLINE play request's one-shot start-height — the resolve
+         * sheet's resolution chip pick. The engine applies it at READY via the
+         * same TrackSelectionOverride the player's quality section uses; null =
+         * ABR picks (every other play request path).
+         */
+        val playInitialVideoHeight: Int? = null,
     )
 
     private val _uiState = MutableStateFlow(CsWatchUiState())
@@ -139,6 +146,8 @@ class CsWatchViewModel(
         val selectedLink: CsVideoLink,
         val hiddenTorrentCount: Int,
         val unsupportedDrmCount: Int,
+        /** D-552: the resolution chip's height — the one-shot start pin (null = ABR). */
+        val initialVideoHeight: Int? = null,
     )
 
     // ── Task 57 (round 17): linked sub/dub progress identity ──────────────────
@@ -210,7 +219,8 @@ class CsWatchViewModel(
         pendingSeed = seed
         Logger.i(TAG) {
             "seeded: '${seed.key.animeTitle}' EP ${seed.key.episodeNumber} " +
-                "links=${seed.links.size} subs=${seed.subtitles.size} selected=${seed.selectedLink.displayLabel}"
+                "links=${seed.links.size} subs=${seed.subtitles.size} selected=${seed.selectedLink.displayLabel}" +
+                (seed.initialVideoHeight?.let { " at ${it}p" } ?: "")
         }
     }
 
@@ -336,7 +346,13 @@ class CsWatchViewModel(
             val resumeMs = if (key.startPosition > 0) key.startPosition else lookupResumePositionMs()
             // R13-REVIEW F2: re-validate after the (suspending) resume lookup.
             if (_uiState.value.resolveGeneration == generation && currentKey == key) {
-                requestPlay(seed.selectedLink, resumeMs, isResume = resumeMs > 0, keepPosition = false)
+                requestPlay(
+                    link = seed.selectedLink,
+                    startPositionMs = resumeMs,
+                    isResume = resumeMs > 0,
+                    keepPosition = false,
+                    initialHeight = seed.initialVideoHeight,
+                )
             } else {
                 Logger.w(TAG) { "seeded play dropped: resolution changed during resume lookup" }
             }
@@ -470,6 +486,11 @@ class CsWatchViewModel(
             playKeepPosition = false,
             playOfflineMediaUri = mediaUri,
             playOfflineMaxVideoHeight = maxHeight,
+            // D-552 symmetry (the D-539 review-blocker-3 contract): an OFFLINE
+            // request clears the ONLINE request's start-height — the offline
+            // loaders pin their own downloaded rep; a stale chip pick from a
+            // previous episode must not leak into the state.
+            playInitialVideoHeight = null,
         )
     }
 
@@ -694,11 +715,13 @@ class CsWatchViewModel(
         startPositionMs: Long,
         isResume: Boolean,
         keepPosition: Boolean = false,
+        initialHeight: Int? = null,
     ) {
         val state = _uiState.value
         Logger.i(TAG) {
             "play request: id=${state.playRequestId + 1} generation=${state.resolveGeneration} " +
-                "link=${link.displayLabel} resume=$isResume keepPosition=$keepPosition positionMs=$startPositionMs"
+                "link=${link.displayLabel} resume=$isResume keepPosition=$keepPosition positionMs=$startPositionMs" +
+                (initialHeight?.let { " startAt=${it}p" } ?: "")
         }
         _uiState.value = state.copy(
             phase = Phase.PLAYING,
@@ -709,6 +732,7 @@ class CsWatchViewModel(
             playStartPositionMs = startPositionMs,
             playIsResume = isResume,
             playKeepPosition = keepPosition,
+            playInitialVideoHeight = initialHeight,
             // D-539 (review blocker 3): an ONLINE play request must CLEAR the
             // offline fields — the screen's trigger gives playOfflineMediaUri
             // priority, so a stale offline request from a previous episode would
@@ -721,11 +745,14 @@ class CsWatchViewModel(
 
     // ── User + engine actions ─────────────────────────────────────────────────
 
-    /** The links sheet: user picked a specific link (same episode → keep position). */
-    fun selectLink(link: CsVideoLink) {
-        Logger.i(TAG) { "user selected link: ${link.displayLabel}" }
+    /** The links sheet: user picked a specific link (same episode → keep position).
+     *  [initialHeight] = the D-552 resolution chip's one-shot start pin. */
+    fun selectLink(link: CsVideoLink, initialHeight: Int? = null) {
+        Logger.i(TAG) {
+            "user selected link: ${link.displayLabel}" + (initialHeight?.let { " at ${it}p" } ?: "")
+        }
         currentKey?.let { sourceMemory.remember(it.mainId, link.name) }
-        requestPlay(link, 0L, isResume = false, keepPosition = true)
+        requestPlay(link, 0L, isResume = false, keepPosition = true, initialHeight = initialHeight)
     }
 
     /**

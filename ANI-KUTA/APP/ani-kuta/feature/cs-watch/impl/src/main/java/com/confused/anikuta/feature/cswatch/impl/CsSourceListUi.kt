@@ -180,9 +180,14 @@ internal data class CsAudioGroup(
     /** True when two links of this version share a quality label — chips then
      *  carry the type badge (HLS/DASH) so rows stay distinguishable. */
     val disambiguateType: Boolean,
-    /** D-551: every resolution the version's single DASH link offers (the
-     *  probed manifest's video rep heights, descending); null = unknown/not
-     *  probed/multi-link version — no "Available:" line renders. */
+    /**
+     * D-551 (D-552): every resolution the version's single DASH link offers
+     * (the probed manifest's video rep heights, descending); null = unknown/
+     * not probed/multi-link version — the version then keeps its declared
+     * chip and NO per-height chips render. Non-null: the per-height chips
+     * REPLACE the declared chip + the old "Available:" text (the chips ARE
+     * the list now).
+     */
     val availableQualities: List<Int>? = null,
 )
 
@@ -403,7 +408,7 @@ internal fun CsFormattingTitle(
 @Composable
 internal fun CsServerAccordion(
     servers: List<CsServerGroup>,
-    onPickVideo: (CsVideoLink) -> Unit,
+    onPickVideo: (CsVideoLink, Int?) -> Unit,
     /** The server to open first (remembered/preferred); null = first server. */
     preferredServer: String? = null,
     /** The currently-playing link's URL (in-player sheet: highlight + open). */
@@ -465,7 +470,7 @@ private fun CsServerCard(
     currentLinkUrl: String?,
     failedLinkUrls: Set<String>,
     onToggle: () -> Unit,
-    onPickVideo: (CsVideoLink) -> Unit,
+    onPickVideo: (CsVideoLink, Int?) -> Unit,
     onCopyUrl: ((String) -> Unit)?,
     /** Task 57 (P4): per-chip copy icon + raw source line gates. */
     copyEnabled: Boolean,
@@ -556,40 +561,61 @@ private fun CsServerCard(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            version.links.forEach { link ->
-                                val label = if (version.disambiguateType) {
-                                    "${link.qualityLabel} · ${link.type.badgeLabel()}"
-                                } else {
-                                    link.qualityLabel
+                            val probedHeights = version.availableQualities
+                            val probedLink = version.links.singleOrNull()
+                            if (probedHeights != null && probedLink != null) {
+                                // D-552: ONE CLICKABLE CHIP PER PROBED RESOLUTION —
+                                // the pick target is (link, height): playback pins
+                                // that rep via the engine's one-shot start-height
+                                // override, download passes the height as the
+                                // request's quality. This REPLACES the declared
+                                // chip + the D-551 "Available:" text: the declared
+                                // max rep was a lie about the version ("1080p is
+                                // the Hindi one, 720p the Original") — every
+                                // variant's manifest carries the same spread, and
+                                // the user gets the other extensions' experience:
+                                // every resolution visible, every resolution
+                                // tappable. No isSelected marking (all chips of
+                                // the current link would light up — the player's
+                                // "Quality for this stream" section is the live
+                                // truth); copy/debug affordances ride the same
+                                // single link as before.
+                                probedHeights.forEach { height ->
+                                    CsQualityChip(
+                                        quality = "${height}p",
+                                        isSelected = false,
+                                        isFailed = probedLink.url in failedLinkUrls,
+                                        onClick = { onPickVideo(probedLink, height) },
+                                        onLongClick = onCopyUrl?.let { cb -> { cb(probedLink.url) } },
+                                        onCopyDetails = if (copyEnabled) {
+                                            { copyFeedback(buildLinkDetail(probedLink), "Copied 1 link details") }
+                                        } else null,
+                                        sourceDetail = if (showSources) "${probedLink.type} · ${probedLink.url}" else null,
+                                    )
                                 }
-                                val isCurrent = link.url == currentLinkUrl
-                                val isFailed = link.url in failedLinkUrls
-                                CsQualityChip(
-                                    quality = label,
-                                    isSelected = isCurrent,
-                                    isFailed = isFailed,
-                                    onClick = { onPickVideo(link) },
-                                    onLongClick = onCopyUrl?.let { cb -> { cb(link.url) } },
-                                    onCopyDetails = if (copyEnabled) {
-                                        // Task 57 (P4): copies THIS link's full details.
-                                        { copyFeedback(buildLinkDetail(link), "Copied 1 link details") }
-                                    } else null,
-                                    sourceDetail = if (showSources) "${link.type} · ${link.url}" else null,
-                                )
+                            } else {
+                                version.links.forEach { link ->
+                                    val label = if (version.disambiguateType) {
+                                        "${link.qualityLabel} · ${link.type.badgeLabel()}"
+                                    } else {
+                                        link.qualityLabel
+                                    }
+                                    val isCurrent = link.url == currentLinkUrl
+                                    val isFailed = link.url in failedLinkUrls
+                                    CsQualityChip(
+                                        quality = label,
+                                        isSelected = isCurrent,
+                                        isFailed = isFailed,
+                                        onClick = { onPickVideo(link, null) },
+                                        onLongClick = onCopyUrl?.let { cb -> { cb(link.url) } },
+                                        onCopyDetails = if (copyEnabled) {
+                                            // Task 57 (P4): copies THIS link's full details.
+                                            { copyFeedback(buildLinkDetail(link), "Copied 1 link details") }
+                                        } else null,
+                                        sourceDetail = if (showSources) "${link.type} · ${link.url}" else null,
+                                    )
+                                }
                             }
-                        }
-                        // D-551: the version's single DASH link exposes the stream's
-                        // full resolution list (the probed manifest's video reps) —
-                        // the same list the player's per-stream quality section
-                        // shows. Presentation only: the chip above stays the pick
-                        // target (ABR serves every listed resolution from it).
-                        version.availableQualities?.let { heights ->
-                            Text(
-                                text = "Available: " + heights.joinToString(" · ") { "${it}p" },
-                                fontFamily = RobotoFamily,
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
                     }
                 }
@@ -704,7 +730,7 @@ private fun CsQualityChip(
 @Composable
 internal fun CsRawLinkList(
     links: List<CsVideoLink>,
-    onPickVideo: (CsVideoLink) -> Unit,
+    onPickVideo: (CsVideoLink, Int?) -> Unit,
     currentLinkUrl: String? = null,
     failedLinkUrls: Set<String> = emptySet(),
     /** Task 57 (P4): the debug affordances' gate (copy icon + raw source
@@ -733,7 +759,7 @@ internal fun CsRawLinkList(
                         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                 shape = RoundedCornerShape(10.dp),
                 border = if (isCurrent) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-                modifier = Modifier.fillMaxWidth().clickable(enabled = !isFailed) { onPickVideo(link) },
+                modifier = Modifier.fillMaxWidth().clickable(enabled = !isFailed) { onPickVideo(link, null) },
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),

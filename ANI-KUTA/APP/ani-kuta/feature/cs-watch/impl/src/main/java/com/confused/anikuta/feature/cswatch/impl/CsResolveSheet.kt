@@ -116,8 +116,9 @@ private const val SHEET_TAG = "Anikuta:CS:Sheet"
  * the RESOLVED [CsVideoLink] (+ the episode's provider subtitles + the FULL
  * resolved link list — D-550's offline audio-switch needs the sibling DASH
  * variants) to [onDownload] instead of seeding the watch ViewModel — no
- * player, no navigation. The resolve/progressive/dedup/debug behavior is
- * identical.
+ * player, no navigation. D-552: the pick also carries the CHOSEN HEIGHT (the
+ * clickable resolution chip; null = the declared quality). The
+ * resolve/progressive/dedup/debug behavior is identical.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,7 +130,9 @@ fun CsResolveSheet(
     // picker — picks hand off to this instead of the play path. D-550: the
     // callback also carries the FULL resolved link list so the enqueue can
     // collect the sibling DASH audio variants (offline audio switching).
-    onDownload: ((CsWatchKey, CsVideoLink, List<CsSubtitle>, List<CsVideoLink>) -> Unit)? = null,
+    // D-552: + the chosen resolution height (the clickable chip; null = the
+    // link's declared quality).
+    onDownload: ((CsWatchKey, CsVideoLink, List<CsSubtitle>, List<CsVideoLink>, Int?) -> Unit)? = null,
     resolver: CloudstreamLinkResolver = koinInject(),
     sourceMemory: CsSourceMemory = koinInject(),
     viewModel: CsWatchViewModel = koinViewModel(),
@@ -201,14 +204,17 @@ fun CsResolveSheet(
      * Select + hand off. PLAY mode: remember + seed + push the watch screen.
      * DOWNLOAD mode (Task 58): hand the resolved link + subtitles to the
      * caller's enqueue path — no seeding, no navigation, the sheet closes.
+     * D-552: [height] is the clicked resolution chip's height (null = a
+     * declared-quality chip / raw row — the pre-D-552 shape).
      */
-    fun pick(link: CsVideoLink) {
+    fun pick(link: CsVideoLink, height: Int?) {
         if (downloadMode) {
             Logger.i(SHEET_TAG) {
                 "download pick: ${link.displayLabel}" +
-                    (link.audioLabel.takeIf { it != "Default" }?.let { " ($it)" } ?: "")
+                    (link.audioLabel.takeIf { it != "Default" }?.let { " ($it)" } ?: "") +
+                    (height?.let { " at ${it}p" } ?: "")
             }
-            onDownload?.invoke(key, link, subtitles, links)
+            onDownload?.invoke(key, link, subtitles, links, height)
             onDismiss()
             return
         }
@@ -216,6 +222,7 @@ fun CsResolveSheet(
         Logger.i(SHEET_TAG) {
             "picked: ${link.displayLabel}" +
                 (link.audioLabel.takeIf { it != "Default" }?.let { " ($it)" } ?: "") +
+                (height?.let { " at ${it}p" } ?: "") +
                 " (remembered for mainId=${key.mainId.take(8)}…)"
         }
         viewModel.seedResolution(
@@ -228,6 +235,7 @@ fun CsResolveSheet(
                 selectedLink = link,
                 hiddenTorrentCount = hiddenCount,
                 unsupportedDrmCount = drmCount,
+                initialVideoHeight = height,
             ),
         )
         onPlay(key)
@@ -548,14 +556,14 @@ fun CsResolveSheet(
                         CsServerAccordion(
                             servers = servers,
                             preferredServer = remembered?.let(::serverNameOf),
-                            onPickVideo = { link -> pick(link) },
+                            onPickVideo = { link, height -> pick(link, height) },
                         )
                     } else {
                         // Task 55: RAW mode — one row per stream, unformatted
                         // labels, tap = play directly. No collapsing, no chips.
                         CsRawLinkList(
                             links = pickableLinks,
-                            onPickVideo = { link -> pick(link) },
+                            onPickVideo = { link, height -> pick(link, height) },
                         )
                     }
                     if (!completed) {

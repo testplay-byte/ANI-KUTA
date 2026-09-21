@@ -53,6 +53,13 @@ object CsDownloadRequestBuilder {
      *   the sibling DASH audio variants are collected from so a downloaded
      *   episode carries every audio version and the offline player can switch
      *   between them. Null/empty = no siblings (single-variant audio).
+     * @param chosenHeight D-552: the sheet's clicked resolution chip (a probed
+     *   manifest height, e.g. 720); null = the link's declared quality. The
+     *   height rides [DownloadRequest.videoQuality] — the pipeline's EXISTING
+     *   quality carrier (queue label, DB column, data.json's `quality`, and
+     *   the DashDownloader's `preferredHeightOf` → the planner's closest-rep
+     *   pick) — so a precise chip pick downloads THAT representation with no
+     *   schema change. Sibling audio variants are resolution-independent.
      */
     fun build(
         content: DownloadContentInfo,
@@ -61,6 +68,7 @@ object CsDownloadRequestBuilder {
         subtitles: List<CsSubtitle>,
         sourceId: Long?,
         allLinks: List<CsVideoLink> = emptyList(),
+        chosenHeight: Int? = null,
     ): DownloadRequest {
         val headers = toMpvHeaderString(link.allHeaders)
         return DownloadRequest(
@@ -95,7 +103,10 @@ object CsDownloadRequestBuilder {
             },
             sourceId = sourceId,
             videoServer = link.name,
-            videoQuality = link.qualityLabel,
+            // D-552: the resolution chip's height wins; a plain version-chip /
+            // raw-row pick keeps the provider's declared label. The bounds
+            // mirror DashDownloader.preferredHeightOf's parse window.
+            videoQuality = chosenHeight?.takeIf { it in 100..4320 }?.let { "${it}p" } ?: link.qualityLabel,
             videoAudio = link.audioLabel,
             resolveContext = null,
         )

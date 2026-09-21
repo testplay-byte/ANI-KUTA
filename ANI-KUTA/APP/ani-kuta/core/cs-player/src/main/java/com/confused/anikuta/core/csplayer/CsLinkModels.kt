@@ -62,9 +62,11 @@ data class CsVideoLink(
      * for a DASH link the heights of ALL video representations its manifest
      * lists (1080p + 720p + 480p on the aoneroom shape), parsed from the
      * manifest bytes the sheet probes in the background (silent failure →
-     * null = "unknown", the sheets then show only [quality]). Presentation-
-     * only: the pick target stays the link itself (ABR serves every listed
-     * resolution; the player's per-stream quality section switches them).
+     * null = "unknown", the sheets then show only [quality]).
+     * D-552: no longer presentation-only — a probed single-DASH version
+     * renders ONE CLICKABLE chip per height; the pick target becomes
+     * (link, height): playback pins the height via the engine's one-shot
+     * start-height override, download passes it as the request's quality.
      * Type-agnostic by design — an HLS master playlist's variants can ride
      * the same field when a probe learns to read them.
      */
