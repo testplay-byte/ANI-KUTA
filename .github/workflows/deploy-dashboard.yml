@@ -11,7 +11,10 @@ name: Deploy Dashboard
 
 on:
   push:
-    branches: [ main ]
+    # D-552 branch cleanup: the mainline is the feature branch (main was
+    # deleted — 0 unique commits vs the feature line, verified before the
+    # delete) — the dashboard's deploy trigger rides it now.
+    branches: [ 'feature/round-57-cloudstream-downloads' ]
     paths:
       - 'ANI-KUTA/DASHBOARD/webpage/**'
       - '.github/workflows/deploy-dashboard.yml'
