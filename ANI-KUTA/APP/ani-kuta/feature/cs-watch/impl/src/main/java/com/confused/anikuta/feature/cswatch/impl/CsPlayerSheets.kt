@@ -89,6 +89,13 @@ import org.koin.compose.koinInject
  * The sheet-height cap. Task 57 (P6a): the SUBTITLES sheet caps at 0.55 (the
  * v0.4.4 device round found 0.70 too tall — it swallowed the player); the
  * other sheets keep the 0.70 default.
+ *
+ * D-554-A (round 66): the CS quality surfaces opt into 0.60 — the v1.1.27
+ * device round found the qualities/servers sheet (CsLinksSheet) and its
+ * resolve-sheet sibling "a little bit taller in terms of its height". The
+ * cap binds only on overflow (the sheet is still content-fitting), the
+ * accordion's expandVertically keeps growth smooth under it, and the
+ * D-553 single-body scroll absorbs the rest.
  */
 @Composable
 private fun csSheetMaxHeight(fraction: Float = 0.70f) =
@@ -236,7 +243,11 @@ internal fun CsLinksSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = csSheetMaxHeight())
+                // D-554-A: 0.60 — the v1.1.27 device round's one remaining
+                // complaint ("the bottom up menu was a little bit taller in
+                // terms of its height") targets THIS sheet; the explicit
+                // fraction keeps it independent of the shared default.
+                .heightIn(max = csSheetMaxHeight(0.60f))
                 // D-553: ONE scrollable body — the device round's "no qualities
                 // for this stream" verdict was a LAYOUT clipping: the variants
                 // section rendered below a tall accordion inside a non-scrolling
@@ -652,7 +663,11 @@ internal fun CsEpisodesSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = csSheetMaxHeight())
+                // D-554-A: EXPLICIT 0.70 — the episodes sheet is a browsing
+                // surface, not one of the complained-about quality sheets; the
+                // explicit fraction pins it while the quality sheets opt into
+                // 0.60 (a shared-default change must not drag this one down).
+                .heightIn(max = csSheetMaxHeight(0.70f))
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {

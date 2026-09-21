@@ -28,7 +28,8 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
  * Ported from the old project's `AppearanceScreen.kt`. Tapping each row
  * navigates to a sub-page:
  *  - **General** → [AppearanceGeneralScreen] (theme mode, AMOLED, palettes).
- *  - **Episode settings** → the episode settings hub.
+ *  - **Episode list** (D-554) → [EpisodeListSettingsScreen] — the row-appearance
+ *    page with the stationary live preview (layout style + element toggles).
  *  - **Details page** → [DetailsPageSettingsScreen].
  *  - **App Icon** (D-432, round 37 — the user's spec: "at the very bottom,
  *    just below the Details page") → the App Icon page (the GitHub
@@ -38,7 +39,7 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
  *
  * @param onOpenGeneral Navigates to the General appearance screen.
  * @param onOpenDetailsPage Navigates to the Details page appearance screen.
- * @param onOpenEpisodeSettings Navigates to the Episode Settings hub.
+ * @param onOpenEpisodeSettings Navigates to the Episode-list appearance page.
  * @param onOpenAppIcon Navigates to the App Icon page (D-432).
  * @param onBack Pops this screen.
  */
@@ -79,10 +80,13 @@ fun AppearanceScreen(
                     }
                     item {
                         SettingsSectionLabel("Episode List")
+                        // D-554: the row retitles to match the new dedicated page
+                        // (the poster-row parallel: "Notification poster" /
+                        // "Templates + live preview").
                         MoreListRow(
                             icon = Icons.Filled.Tune,
-                            title = "Episode settings",
-                            subtitle = "Display, layout, and metadata",
+                            title = "Episode list",
+                            subtitle = "Layout, elements, and live preview",
                             onClick = onOpenEpisodeSettings,
                         )
                     }

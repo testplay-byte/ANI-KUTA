@@ -200,6 +200,65 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         KEY_SUB_DUB_MODE, "SEPARATE", StringSerializer,
     )
 
+    // ════════════════════════════════════════════════════════════════════════
+    //  9. Row appearance (D-554 — the episode-list customization first draft)
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * D-554: the row layout style. Rendered by the (shared) episode row —
+     * the SAME renderer the Appearance → "Episode list" settings page's live
+     * preview uses (the D-481 doctrine: what you tune is exactly what you
+     * get).
+     *
+     * - `"DETAILED"` (default = the look that has always been): 120×68dp
+     *     thumbnail (when available), the date/audio pills, the up-to-2-line
+     *     synopsis, the download control.
+     * - `"COMPACT"`: a smaller 84×48dp thumbnail; the synopsis NEVER renders
+     *     (that is the style's point); pills + download control stay.
+     * - `"MINIMAL"`: no thumbnail at all (the number-disc path), no date
+     *     pill, no synopsis — number + title + audio pills + download.
+     *
+     * Element toggles below are honored WITHIN the style's frame (a style
+     * that never renders a section cannot be talked into rendering it).
+     */
+    val rowStyle = store.preference(
+        KEY_ROW_STYLE, "DETAILED", StringSerializer,
+    )
+
+    /** D-554: show the two-line synopsis under the title row (DETAILED only). */
+    val showSynopsis = store.preference(
+        KEY_SHOW_SYNOPSIS, true, BooleanSerializer,
+    )
+
+    /** D-554: show the release-date pill (DETAILED + COMPACT). */
+    val showDatePill = store.preference(
+        KEY_SHOW_DATE_PILL, true, BooleanSerializer,
+    )
+
+    /** D-554: show the SUB · DUB · HSUB audio-availability pills. */
+    val showAudioPills = store.preference(
+        KEY_SHOW_AUDIO_PILLS, true, BooleanSerializer,
+    )
+
+    /**
+     * D-554: show the watch-progress bar on the thumbnail's bottom edge.
+     * The download-progress overlay is NOT covered by this — it is transient
+     * state feedback (only visible mid-download), not decoration.
+     */
+    val showWatchProgress = store.preference(
+        KEY_SHOW_WATCH_PROGRESS, true, BooleanSerializer,
+    )
+
+    /** D-554: dim + grayscale watched episodes (the alpha 0.5 treatment). */
+    val dimWatched = store.preference(
+        KEY_DIM_WATCHED, true, BooleanSerializer,
+    )
+
+    /** D-554: show the per-row download control. */
+    val showDownloadControl = store.preference(
+        KEY_SHOW_DOWNLOAD_CONTROL, true, BooleanSerializer,
+    )
+
     /**
      * D-233: Reset all filters to their defaults (downloaded=OFF, watched=OFF,
      * audio=BOTH). Called when the user taps "Reset filters" on the empty-state.
@@ -223,5 +282,12 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_ORGANIZE_MODE = "pref_episode_list_organize_mode"
         private const val KEY_SEASON_TAG_IN_NUMBER = "pref_episode_list_season_tag_in_number"
         private const val KEY_SUB_DUB_MODE = "pref_episode_list_sub_dub_mode"
+        private const val KEY_ROW_STYLE = "pref_episode_list_row_style"
+        private const val KEY_SHOW_SYNOPSIS = "pref_episode_list_show_synopsis"
+        private const val KEY_SHOW_DATE_PILL = "pref_episode_list_show_date_pill"
+        private const val KEY_SHOW_AUDIO_PILLS = "pref_episode_list_show_audio_pills"
+        private const val KEY_SHOW_WATCH_PROGRESS = "pref_episode_list_show_watch_progress"
+        private const val KEY_DIM_WATCHED = "pref_episode_list_dim_watched"
+        private const val KEY_SHOW_DOWNLOAD_CONTROL = "pref_episode_list_show_download_control"
     }
 }

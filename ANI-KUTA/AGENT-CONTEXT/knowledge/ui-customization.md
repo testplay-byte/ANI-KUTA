@@ -42,6 +42,13 @@ The **frontend (UI layer)** must be customizable without touching the **backend 
    - Live-apply via `MPVLib.setPropertyInt` / `setPropertyDouble` (NOT `setPropertyString` for numerics — D-064).
    - `SubtitleSettingsSheet` + `NumericEntrySheet` (custom keypad) + `ColorPickerSheet` (swatches + RGBA sliders).
 
+6. **Episode-list appearance** (`EpisodeListPreferences` — D-554, round 66):
+   - `EpisodeListRowStyle`: DETAILED (the historical 120×68 row) / COMPACT (84×48 thumbnail, no synopsis) / MINIMAL (number-disc, no thumbnail/date/synopsis) — curated presets, not a free-form editor (the D-523 lesson).
+   - Six element toggles (defaults == pre-D-554 behavior): synopsis (DETAILED only), date pill (DETAILED+COMPACT), audio pills, watch-progress bar, dim-watched treatment, download control. Honored WITHIN the style's frame — a style that never renders a section can't be talked into rendering it.
+   - `EpisodeRow` is the ONE shared renderer: the details-page list AND the Appearance → "Episode list" page's stationary live preview call the SAME composable with the SAME prefs (the D-481 "what you tune is what you get" doctrine; one source of truth, zero drift). Style knobs are collected ONCE per screen and ride a single `EpisodeListDisplayStyle` into each row.
+   - The pure (style × content) algebra (`fromKey` leniency + `pillsRowVisible`) is unit-locked in `EpisodeListStyleTest` (the module's first test source set).
+   - Coexists with the details-page list-settings SHEET: the sheet is list SHAPING (sort/filter/grouping), the page is row APPEARANCE.
+
 ## Contract Between UI and Data
 - UI talks to data only through **repository interfaces** (in `:core:*` modules).
 - Data emits state via `Flow<T>` / `StateFlow<UiState>`.

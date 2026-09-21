@@ -31,8 +31,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Category
@@ -112,6 +110,7 @@ import com.confused.anikuta.settings.AboutScreen
 import com.confused.anikuta.settings.AppIconScreen
 import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.DetailsPageSettingsScreen
+import com.confused.anikuta.settings.EpisodeListSettingsScreen
 import com.confused.anikuta.settings.AppearanceScreen
 import com.confused.anikuta.settings.SettingsScreen
 import com.confused.anikuta.settings.UpdateCategoriesScreen
@@ -1501,11 +1500,12 @@ fun AppRoot() {
                 onBack = pop,
             )
             is DetailsPageSettingsKey -> DetailsPageSettingsScreen(onBack = pop)
-            is EpisodeSettingsKey -> PlaceholderScreen(
-                title = "Episode settings",
-                description = "More episode options in a future phase",
-                onBack = pop,
-            )
+            is EpisodeSettingsKey ->
+                // D-554: the placeholder retires — the episode-list appearance
+                // page (the D-477/D-481 pattern: a dedicated page whose top is
+                // a stationary LIVE PREVIEW rendered through the SAME EpisodeRow
+                // the details list draws). The key object name stays (zero churn).
+                EpisodeListSettingsScreen(onBack = pop)
             is PlayerSettingsKey -> PlayerSettingsScreen(
                 onBack = pop,
             )
@@ -2295,54 +2295,9 @@ private fun SelectionButton(
     }
 }
 
-@Composable
-private fun PlaceholderScreen(
-    title: String,
-    description: String,
-    onBack: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            CollapsingHeader(
-                title = title,
-                collapsed = false,
-                actions = {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(50),
-                            )
-                            .clickable(onClick = onBack),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                },
-            )
-            Text(
-                text = description,
-                fontFamily = RobotoFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(horizontal = 24.dp, vertical = 32.dp)
-                    .statusBarsPadding(),
-            )
-        }
-    }
-}
+// D-554: the PlaceholderScreen composable is DELETED — its last caller (the
+// Appearance → "Episode list" row) now renders the real EpisodeListSettings-
+// Screen, and a placeholder with zero callers is dead code.
 
 /**
  * D-151-fix: Builds a [WatchKey] for playing a downloaded episode, with ALL DB

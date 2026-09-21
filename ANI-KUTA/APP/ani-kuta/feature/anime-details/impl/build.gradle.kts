@@ -51,4 +51,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     debugImplementation(libs.androidx.ui.tooling)
+
+    // D-554: the module's FIRST test source set — the pure (style × content)
+    // row-appearance algebra (fromKey leniency + pillsRowVisible) locked
+    // without Compose (mirrors the cs-watch/impl one-liner).
+    testImplementation(libs.junit)
 }
