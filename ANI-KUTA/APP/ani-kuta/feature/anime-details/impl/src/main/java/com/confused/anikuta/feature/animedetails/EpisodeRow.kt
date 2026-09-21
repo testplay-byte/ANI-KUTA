@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -163,8 +164,15 @@ data class EpisodeTag(
 )
 
 // ── Audio availability parsing (ported from old project) ──
-
-data class AudioAvailability(
+// FILE-PRIVATE by design (D-554 CI round): EpisodeListProcessor.kt declares a
+// file-private parseAudioAvailability with an IDENTICAL parameter list (a
+// different, coarser algorithm — its sub check folds HSUB in). Both were
+// file-private for rounds (the row's lived in DetailsScreen.kt); the
+// extraction made this one PUBLIC, and two same-package top-level functions
+// with the same signature are a "Conflicting overloads" compile error, not
+// shadowing. Nothing outside this file needs it — the row is the only
+// consumer of the HSUB-distinct pills parse.
+private data class AudioAvailability(
     val hasSub: Boolean,
     val hasDub: Boolean,
     val hasHsub: Boolean,
@@ -177,7 +185,7 @@ data class AudioAvailability(
     }
 }
 
-fun parseAudioAvailability(scanlator: String?, episodeName: String): AudioAvailability {
+private fun parseAudioAvailability(scanlator: String?, episodeName: String): AudioAvailability {
     val haystack = ((scanlator ?: "") + " " + episodeName).uppercase()
     val hasHsub = haystack.contains("HSUB") || haystack.contains("HARDSUB")
     val hasSub = haystack.contains("SUB") && !hasHsub
