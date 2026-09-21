@@ -1946,3 +1946,5 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 
 ## Round 63 (Task 1) — D-551: one server, every audio version, every resolution
 - **D-551:** the v1.1.24 device round validated the whole offline chain ("quite satisfied") and exposed the language-audio blind spot: "MovieBox (Hindi Audio)" + "MovieBox (Original Audio)" rendered as TWO servers and only ONE audio version downloaded (the D-550 sibling matcher compared RAW names). CsAudioTag learns the language-audio pass (bracketed + whole-segment, normalized labels, conservative exclusions); serverNameOf moved to CsServerNames (:core:cs-player) so the sheets AND the :app sibling matcher share one derivation; siblingAudioVariants matches by server → D-550's offline audio switching engages for the MovieBox shape; the sheet probes DASH manifests with the link's own headers (DashManifestHeights in :core:common + CsDashQualityProbe) and renders "Available: 1080p · 720p · 480p" under the version chip. Record: download-research/23.
+
+### v1.1.25 LIVE (release run 35594620963 GREEN first-try) — release/1.1.25 from d763ff52, bump 864780ed, tag v1.1.25
