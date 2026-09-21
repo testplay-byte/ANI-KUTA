@@ -544,8 +544,36 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10126
+    const val versionName = "1.1.26"
+    // D-552 (round 64): release/1.1.26 — cut from the round-64 feature head
+    // f036f855 (CI green on the FIRST implementation run — 35612188522; the
+    // planner's pure-JVM test set was compiled AND executed in the sandbox
+    // before the push — 14/14 green). What the release carries on top of
+    // v1.1.25 (the v1.1.25 device round — the grouping confirmed, three
+    // demands; full detail: AGENT-CONTEXT/memory/decisions.md +
+    // download-research/24):
+    // D-552 THE RESOLUTIONS BECOME PICK TARGETS — the probed "Available:"
+    // line was display-only and the declared quality lied (each variant
+    // manifest carries the same spread). A single-DASH probed version now
+    // renders ONE CLICKABLE chip per height; the pick target is (link,
+    // height): playback pins the height via the engine's one-shot start
+    // override at READY (the same TrackSelectionOverride the player's quality
+    // section uses), download rides videoQuality ("720p") — the pipeline's
+    // EXISTING carrier — with zero schema change; both audio versions ride at
+    // the chosen resolution.
+    // D-552 THE AUDIO SNIPPET FIX — the planner's SegmentTimeline branch
+    // collapsed every r="-1" entry to ONE segment when the MPD declares no
+    // parseable duration (the audio1 snippet); the planner now borrows the
+    // video timeline's span as the period clock, the downloader REFUSES a
+    // primary audio whose known span is <50% of the video's (honest error —
+    // never a published snippet), skips known-short siblings, and refuses
+    // declared-but-unplannable audio; SegmentTemplate@duration is already in
+    // timescale ticks (the duration*timescale double-scaling fixed to spec).
+    // D-552 THE TEST-INFRA REPAIR — the D-551 heights test never compiled
+    // ($Number%05d$ is a Kotlin template; CI runs assembleDebug only) and its
+    // fixture broke the XML prolog; both fixed; the planner tests are EXECUTED
+    // in the sandbox (8/8) and the heights tests 6/6.
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
