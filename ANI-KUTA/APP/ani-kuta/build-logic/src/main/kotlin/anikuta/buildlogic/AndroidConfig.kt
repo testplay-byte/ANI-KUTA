@@ -544,72 +544,42 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
-    // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
-    // head cf067e68 (CI green — implementation run 35522908889 after four
-    // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
-    // escapes + the resume imports, the module-isolation primitives rule, and
-    // the AnimatedVisibility receiver resolution). What the release carries on
-    // top of v1.1.19 (the round-57 device round, D-536..D-540 — full detail:
-    // AGENT-CONTEXT/memory/decisions.md + download-research/18):
-    // D-536 THE POSTER TOGGLE'S FINAL HOME — the master switch is the Elements
-    // card's LAST row, titled "Poster" (the round-57 verdict); everything else
-    // (preview, Shuffle, Layout, Artwork, the element rows, the section label)
-    // collapses around it and ONLY it never disappears.
-    // D-537 THE CS PLAYER PAUSES ON APP-BACKGROUND — the MPV watch screen's
-    // exact ON_STOP observer (no auto-resume on return — both players behave
-    // identically; the user taps play).
-    // D-538 THE AUTO-LINK SKIP IS PERSISTENT — "Skip AniList link" survives
-    // app restarts per (sourceId, animeUrl); reopening content never
-    // re-attempts; swipe-dismiss stays session-only; a manual link/unlink
-    // clears the flag.
-    // D-539 CS DASH DOWNLOADS (the headline) — DASH manifests are downloadable:
-    // the resolve sheet's DASH filter is gone, the manifest + segments cache
-    // into the app-private SimpleCache (the SAME queue/service/notifications),
-    // the SAF folder keeps .data.json + cover + subtitles with NO video file,
-    // DB rows carry the csdash: marker uri (zero schema changes), offline
-    // playback rides the EXISTING CS watch screen (engine.startOfflineDash over
-    // a CacheDataSource with a quality pin), downloaded-season switching
-    // prefers the cache, the delete path purges it, DRM manifests fail
-    // honestly in the queue.
-    // D-540 ECOSYSTEM TRUTH + THE DATA TRANSLATION — CS content records
-    // system/extension_type "cloudstream" (the bit-62 flag), an idempotent
-    // startup heal relabels old rows, and switching a content's extension
-    // (CloudStream ↔ aniyomi) now syncs the download tables' content_id (the
-    // two previously-dead queries) and rewrites the durable .data.json
-    // identity block — downloads SURVIVE the switch, files never move.
-    // head 2b5d7730 (CI green on the FIRST implementation run, 35474291318 —
-    // the pre-push review round caught the one compile blocker before the
-    // push, saving the usual fix CI). What the release carries on top of
-    // v1.1.16 (the round-54 device round, D-518..D-521 — full detail:
-    // AGENT-CONTEXT/memory/decisions.md): D-518 THE STUDIO SHELL REBUILT —
-    // the round's named bug: the header lived inside the left panel with
-    // ZERO inset handling on a forced-landscape edge-to-edge screen, so the
-    // whole control row (Save included) rendered UNDER the status bar and
-    // Save was literally unclickable ("There should be padding at the top
-    // for the notification bar so that the buttons do not show under it");
-    // now statusBarsPadding once at the root, a full-width header bar with
-    // LABELLED reachable Reset/Save buttons, the left panel's sections on
-    // tonal SectionCards (planned structure), and the nav-bar inset on the
-    // whole body Row (SENSOR_LANDSCAPE can put the bar on either edge);
-    // D-519 THE ELEMENT-AWARE TEXT COLUMNS — "the content title is showing
-    // under some corner elements": the title/episode-title wrap width now
-    // ends BEFORE the left edge of any visible neighbour sharing the text's
-    // vertical band (PosterDrawing.awareWrapWidth — a two-pass text-driven
-    // band, left-edge-only neighbour rects, a 120px floor, mirrored
-    // composer/studio with render-exact clamps), and the composer's
-    // thumbnail render clamp was RANGE-GUARDED — the last unguarded
-    // coerceIn had made every real notification silently fall back to plain
-    // text whenever the saved thumbnail scale exceeded ~1.78×; D-520 THE
-    // SHUFFLE THAT ALWAYS SHUFFLES — the old exclude handshake silently
-    // no-op'd when the on-stage id was still null (the pulse played and
-    // nothing changed); an explicit shufflePending flag now forces a
-    // re-selection on EVERY tap and an honest progress rail docks to the
-    // preview's bottom edge while the new banner composes; D-521 THE
-    // SIMPLER DESCRIPTION — the notification reads TITLE / "New Episode"
-    // ("maybe we can simplify it more to just 'New Episode'. Let's make it
-    // simpler like that.").
+    const val versionCode = 10124
+    const val versionName = "1.1.24"
+    // D-498 (round 62): release/1.1.24 — cut from the round-61/62 feature head
+    // 784a9525 (CI green on the FIRST implementation run — 35554707595). What
+    // the release carries on top of v1.1.23 (the v1.1.23 device round — full
+    // detail: AGENT-CONTEXT/memory/decisions.md +
+    // download-research/22):
+    // D-550 THE SIDECAR MANIFEST IS COMPOSED, NOT ORIGINAL — the v1.1.23
+    // round validated the real-files download layout but the episode WOULD
+    // NOT PLAY: the sidecar stored the ORIGINAL manifest whose video set
+    // lists THREE representations (1080p/720p/480p) while only the picked
+    // one is on disk — ExoPlayer's ABR boots on a 1 Mbps initial estimate,
+    // picked the 720p rep, and died on the first local-index miss (the
+    // height pin cannot prevent SMALLER undownloaded picks). Fixed BOTH
+    // ends: the READ side prunes the sideloaded manifest to the reps the
+    // range index covers (DashManifestPruner, :core:common — the planner's
+    // exact derivation mirrored), so the v1.1.23 episodes ALREADY on the
+    // device play after the update, no re-download; the WRITE side composes
+    // the sidecar manifest (DashOfflineManifestComposer — pruned to the
+    // downloaded reps, the sibling audio sets imported with absolutized
+    // addressing, every audio set labeled).
+    // D-550 OFFLINE AUDIO-VERSION SWITCHING — the source exposes each audio
+    // version as a SEPARATE manifest (one audio AdaptationSet each), so the
+    // enqueue plumbing now collects the sibling DASH variants (same server,
+    // different audio label) as AUDIO_VARIANT tracks through the existing
+    // audio_tracks JSON column (zero schema migration); their audio sets
+    // download as extra groups (best-effort; the resume sha pins all
+    // manifests; per-variant headers), and the composed manifest carries
+    // them as LABELED sets — the player's existing audio track selector
+    // offers the versions OFFLINE, exactly like the streaming selector.
+    // D-550 THE AUDIO/ FOLDER — the user's requested layout: audio sets
+    // publish to <content>/audio/<base>.audio<N>.mp4 (like episodes/ +
+    // subtitles/); re-publishing sweeps the v1.1.23 legacy-location copies;
+    // the delete sweeps + the scanner's sibling accounting know BOTH
+    // locations; .data.json gains the additive audioUris (rebuilt from disk
+    // truth on scan; every older reader stays safe).
     // D-430 (round 37): the version STAYS 0.4.20/85 on main — version
     // discipline (D-425: the version never moves without the user's explicit
     // instruction). The release line (release/1.1.1) carries 1.1.1/10101;
