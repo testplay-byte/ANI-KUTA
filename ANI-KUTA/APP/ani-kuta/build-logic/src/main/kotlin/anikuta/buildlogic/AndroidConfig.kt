@@ -544,8 +544,32 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10125
+    const val versionName = "1.1.25"
+    // D-551 (round 63): release/1.1.25 — cut from the round-63 feature head
+    // 392c79b3 (CI green on the FIRST implementation run — 35592484357). What
+    // the release carries on top of v1.1.24 (the v1.1.24 device round — full
+    // detail: AGENT-CONTEXT/memory/decisions.md +
+    // download-research/23):
+    // D-551 ONE SERVER, EVERY AUDIO VERSION — the link-name vocabulary learns
+    // LANGUAGE-AUDIO: "MovieBox (Hindi Audio)" + "MovieBox (Original Audio)"
+    // rendered as TWO server cards and only ONE audio version downloaded (the
+    // D-550 sibling matcher compared RAW names and never matched). The
+    // vocabulary now knows the bracketed "(<words> Audio)" and whole-segment
+    // "<words> Audio" forms (normalized labels — "Hindi", "Original",
+    // "eng"→"English"; multi-audio + sub/dub families excluded; no free-form
+    // matching); the server-name derivation moved to CsServerNames
+    // (:core:cs-player) so the sheets AND the download sibling matcher share
+    // one function; the sibling matcher matches by the derived SERVER → the
+    // D-550 offline audio switching engages (both versions download, the
+    // sidecar labels them, the offline selector offers both).
+    // D-551 EVERY RESOLUTION — the resolve sheet probes each DASH link's
+    // manifest with the LINK'S OWN headers (DashManifestHeights in
+    // :core:common + CsDashQualityProbe; bounded + silent by contract) and
+    // the formatted server card renders "Available: 1080p · 720p · 480p"
+    // under the version chip — the same list the player's per-stream quality
+    // section shows. Untouched: RAW mode, the player, the downloaders, the
+    // queue, the scanner, the publish layout, data.json's schema.
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
