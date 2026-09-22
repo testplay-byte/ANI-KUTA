@@ -544,8 +544,19 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // D-561 release bump (release/1.1.35): 1.1.20/10120 -> 1.1.35/10135 —
+    // the v1.1.34 device round: the wizard's overlay step says ONLY "Let's
+    // AniKuta show floating elements, which make things easier.", the sponsor
+    // popup drops every sponsor word ("Support AniKuta" + "(It just takes a
+    // few seconds)" + the buttons; the overlay row gains ONE description
+    // line), the hidden Always-sponsor debug page (long-press the Debug
+    // options row; default OFF; ON = the popup on every app open), and the
+    // six user-provided preset app icons on the App Icon page. BOTH releases
+    // ride THIS tag (the debug arm64 line + the all-ABI artifact line).
+    // Record: download-research/33. The bump rides the release branch
+    // exclusively (D-430); the feature line stays 1.1.20/10120.
+    const val versionCode = 10135
+    const val versionName = "1.1.35"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
