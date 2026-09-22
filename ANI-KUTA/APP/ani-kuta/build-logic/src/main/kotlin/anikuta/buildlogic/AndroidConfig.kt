@@ -544,8 +544,19 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // D-558 (round 70): release/1.1.32 — the v1.1.31 device round: the
+    // deterministic direction-split collapse (preview collapses FIRST on any
+    // down gesture, the consumed fling hands its momentum to the list, the
+    // list reaches the top BEFORE the preview re-opens), the timeline's thin
+    // gap between the date blob and the card, CINEMA's own animated section
+    // (number corner, solid/frosted style, the watched check default OFF) +
+    // the bottom "can be further customized" caption, the SETTINGS SEARCH
+    // (synonym-aware engine + one-file index + navigate/scroll/pulse
+    // landing), and the heading-as-back redesign app-wide. The bump comment
+    // records the round per the D-430 doctrine (the feature line stays
+    // 1.1.20/10120; the bump rides the release branch exclusively).
+    const val versionCode = 10132
+    const val versionName = "1.1.32"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
