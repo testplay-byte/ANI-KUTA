@@ -32,11 +32,8 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -189,6 +186,12 @@ data class EpisodeRowActions(
     val onDelete: () -> Unit = {},
     val onPlayDownloaded: () -> Unit = {},
     val onToggleWatched: () -> Unit = {},
+    /**
+     * D-557: the settings preview's state-cycling demo tap — non-null makes
+     * the download control/badge ONE tap target (see
+     * EpisodeDownloadControl.previewTapAll). Production callers leave null.
+     */
+    val previewTapAll: (() -> Unit)? = null,
 )
 
 /**
@@ -290,6 +293,7 @@ fun EpisodeListEntry(
     progressFraction: Float = 0f,
     onToggleWatched: () -> Unit = {},
     style: EpisodeListDisplayStyle = EpisodeListDisplayStyle(),
+    previewTapAll: (() -> Unit)? = null,
 ) {
     val actions = EpisodeRowActions(
         onClick = onClick,
@@ -301,6 +305,7 @@ fun EpisodeListEntry(
         onDelete = onDelete,
         onPlayDownloaded = onPlayDownloaded,
         onToggleWatched = onToggleWatched,
+        previewTapAll = previewTapAll,
     )
     when (style.rowStyle) {
         EpisodeListRowStyle.CLASSIC -> EpisodeRow(
@@ -321,6 +326,7 @@ fun EpisodeListEntry(
             progressFraction = progressFraction,
             onToggleWatched = onToggleWatched,
             style = style,
+            previewTapAll = previewTapAll,
         )
         EpisodeListRowStyle.GRID -> EpisodeGridCell(
             episode = episode,
@@ -449,6 +455,8 @@ fun EpisodeRow(
     onToggleWatched: () -> Unit = {},
     // D-554: the appearance knobs (defaults == the pre-D-554 look).
     style: EpisodeListDisplayStyle = EpisodeListDisplayStyle(),
+    // D-557: the settings preview's demo tap (see EpisodeListEntry).
+    previewTapAll: (() -> Unit)? = null,
 ) {
     // ── Parse display values ──
     // D-555: the resolution lives in ONE place — rememberEpisodeDisplayData —
@@ -520,7 +528,7 @@ fun EpisodeRow(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top,
             ) {
-                // ── Thumbnail (left) with EP tag overlay (TopStart, themed primary) ──
+                // ── Thumbnail (left) — imagery ONLY (D-557) ──
                 if (thumbnailUrl != null) {
                     Box(
                         modifier = Modifier.size(width = 120.dp, height = 68.dp),
@@ -535,76 +543,22 @@ fun EpisodeRow(
                             // Phase WP: grayscale when watched (IM4 — GPU-side, cheap).
                             colorFilter = colorFilter,
                         )
-                        // EP tag — themed primary background, 6dp corners, Bold White text.
-                        // Shows 'EP N' (not just 'N'). Positioned at TopStart (like old project).
-                        // D-317: contextual variants — a per-season number inside a season
-                        // slice, or the "S-3/E-5" compound tag (season + episode in two
-                        // shades of the theme color, slash separator) in the All list when
-                        // the "season in episode tag" setting is on.
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                        ) {
-                            if (episodeTag != null && episodeTag.season != null) {
-                                val tagColor = MaterialTheme.colorScheme.onPrimary
-                                val compoundTag = androidx.compose.ui.text.buildAnnotatedString {
-                                    withStyle(
-                                        SpanStyle(
-                                            color = tagColor.copy(alpha = 0.68f),
-                                            fontWeight = FontWeight.Bold,
-                                        ),
-                                    ) { append("S-${episodeTag.season}") }
-                                    withStyle(
-                                        SpanStyle(
-                                            color = tagColor.copy(alpha = 0.45f),
-                                            fontWeight = FontWeight.Bold,
-                                        ),
-                                    ) { append("/") }
-                                    withStyle(
-                                        SpanStyle(
-                                            color = tagColor,
-                                            fontWeight = FontWeight.ExtraBold,
-                                        ),
-                                    ) { append("E-${episodeTag.number}") }
-                                }
-                                Text(
-                                    text = compoundTag,
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 11.sp,
-                                    lineHeight = 14.sp,
-                                    letterSpacing = 0.3.sp,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                )
-                            } else {
-                                Text(
-                                    text = "EP ${episodeTag?.number ?: epNumText}",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 11.sp,
-                                    lineHeight = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                )
-                            }
-                        }
-                        // Phase 2d: watch progress bar at the bottom of the thumbnail (like YouTube).
-                        // Only shows when the episode is partially watched (not when fully watched —
-                        // fully watched is indicated by grayscale + alpha fade instead).
-                        // D-554: the bar is a USER TOGGLE now.
+                        // D-557: the EP pill is GONE from the imagery — the
+                        // v1.1.30 device round: the tags "are shown on the top
+                        // left corner of the image … the image gets covered way
+                        // too much, the UI looks bad". The number now lives
+                        // ABOVE THE TITLE in the text column
+                        // (EpisodeNumberLabel); the thumbnail renders only
+                        // imagery + the D-557 rounded inset watch-progress pill
+                        // (the old square-capped full-width indicator was the
+                        // user's "little bit glitch" — it overflowed the
+                        // rounded corners).
                         if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
-                            LinearProgressIndicator(
-                                progress = { progressFraction },
+                            EpisodeWatchProgressBar(
+                                fraction = progressFraction,
                                 modifier = Modifier
                                     .align(Alignment.BottomStart)
-                                    .fillMaxWidth()
-                                    .height(3.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                    .padding(horizontal = 6.dp, vertical = 5.dp),
                             )
                         }
                     }
@@ -631,11 +585,20 @@ fun EpisodeRow(
                     Spacer(Modifier.width(10.dp))
                 }
 
-                // ── Right column: title (top) + date/audio pills (bottom) ──
+                // ── Right column: EP number label (D-557) + title (top) + date/audio pills (bottom) ──
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.SpaceBetween,
                 ) {
+                    // D-557: the episode number lives HERE now — a quiet themed
+                    // mini-label above the title (the compound "S-n/E-m" tag's
+                    // two-shade rendering moved with it). The imagery stays
+                    // uncovered.
+                    EpisodeNumberLabel(
+                        episodeTag = episodeTag,
+                        epNumText = epNumText,
+                        modifier = Modifier.padding(bottom = 3.dp),
+                    )
                     // Title — with subtle background surface
                     Surface(
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
@@ -695,6 +658,7 @@ fun EpisodeRow(
                                     onRetry = onRetry,
                                     onDelete = onDelete,
                                     onPlayDownloaded = onPlayDownloaded,
+                                    previewTapAll = previewTapAll,
                                 )
                             }
                         }
@@ -744,6 +708,7 @@ fun EpisodeRow(
                             onRetry = onRetry,
                             onDelete = onDelete,
                             onPlayDownloaded = onPlayDownloaded,
+                            previewTapAll = previewTapAll,
                         )
                     }
                 }

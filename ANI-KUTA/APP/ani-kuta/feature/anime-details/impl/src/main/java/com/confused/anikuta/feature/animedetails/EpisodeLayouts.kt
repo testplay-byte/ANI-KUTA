@@ -3,7 +3,6 @@ package com.confused.anikuta.feature.animedetails
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,7 +37,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,17 +45,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -66,14 +68,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.common.HapticHelper
-import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import eu.kanade.tachiyomi.animesource.model.SEpisode
@@ -184,6 +187,108 @@ internal fun EpisodeAudioChip(label: String, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * D-557: the shared EPISODE NUMBER label — the number OFF the imagery. The
+ * v1.1.30 device round: the tags "are shown on the top left corner of the
+ * image … the image gets covered way too much, the UI looks bad" (CLASSIC's
+ * pill + GRID's pill on the thumbnail corner). The label now sits in the
+ * text block above the title: a quiet themed mini-label ("EP 5" in the
+ * details page's primary) with the D-317 compound "S-n/E-m" two-shade
+ * rendering preserved verbatim. Shared by CLASSIC + GRID.
+ */
+@Composable
+internal fun EpisodeNumberLabel(
+    episodeTag: EpisodeTag?,
+    epNumText: String,
+    modifier: Modifier = Modifier,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    if (episodeTag != null && episodeTag.season != null) {
+        // D-317: the compound tag — season + episode in two shades of the
+        // theme color with the dimmed slash separator (verbatim from the
+        // old on-image pill).
+        val compoundTag = androidx.compose.ui.text.buildAnnotatedString {
+            withStyle(
+                androidx.compose.ui.text.SpanStyle(
+                    color = accent.copy(alpha = 0.62f),
+                    fontWeight = FontWeight.Bold,
+                ),
+            ) { append("S-${episodeTag.season}") }
+            withStyle(
+                androidx.compose.ui.text.SpanStyle(
+                    color = accent.copy(alpha = 0.40f),
+                    fontWeight = FontWeight.Bold,
+                ),
+            ) { append("/") }
+            withStyle(
+                androidx.compose.ui.text.SpanStyle(
+                    color = accent,
+                    fontWeight = FontWeight.ExtraBold,
+                ),
+            ) { append("E-${episodeTag.number}") }
+        }
+        Text(
+            text = compoundTag,
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            letterSpacing = 0.4.sp,
+            modifier = modifier,
+            maxLines = 1,
+            softWrap = false,
+        )
+    } else {
+        Text(
+            text = "EP ${episodeTag?.number ?: epNumText}",
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.5.sp,
+            color = accent,
+            modifier = modifier,
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
+/**
+ * D-557: the shared WATCH-PROGRESS bar — a rounded INSET pill replacing the
+ * square-capped M3 LinearProgressIndicator everywhere. The v1.1.30 device
+ * round: "you can improve the watch progress on the cinema one … the
+ * timeline one … the grid view one, and also most definitely … the classic
+ * one. There is a little bit glitch on the classic one." THE GLITCH'S ROOT
+ * CAUSE: the full-width indicator drew square caps over the thumbnail's
+ * rounded bottom corners (the wrapper Box is not clipped), so the bar
+ * visually overflowed the image. The pill is fully rounded and rides a
+ * translucent track; callers INSET it from the imagery's edges via their own
+ * padding — YouTube's treatment, glitch-free on any radius.
+ */
+@Composable
+internal fun EpisodeWatchProgressBar(
+    fraction: Float,
+    modifier: Modifier = Modifier,
+    progressColor: Color = MaterialTheme.colorScheme.primary,
+    trackColor: Color = Color.White.copy(alpha = 0.30f),
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(4.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(trackColor),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction.coerceIn(0.02f, 1f))
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(progressColor),
+        )
+    }
+}
+
 /** The short date label ("Jan 1") — the GRID chip + the TIMELINE node label. */
 internal fun formatShortDate(epochMillis: Long): String {
     if (epochMillis <= 0) return ""
@@ -248,6 +353,12 @@ internal fun SwipeToToggleWatched(
     val swipeOffset = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    // D-557: the gesture's pointerInput(Unit) NEVER restarts, so it held the
+    // FIRST composition's onToggleWatched lambda forever — a callback that
+    // captures the watched VALUE (the settings preview's "!isWatched") wrote
+    // the SAME value on every later swipe: toggle once, then dead. The
+    // freshest callback is read through rememberUpdatedState at CALL time.
+    val currentOnToggleWatched by rememberUpdatedState(onToggleWatched)
     val configuration = LocalConfiguration.current
     val screenWidthPx = with(LocalDensity.current) {
         configuration.screenWidthDp.dp.toPx()
@@ -296,7 +407,7 @@ internal fun SwipeToToggleWatched(
                             // If past threshold → toggle + haptic. Else smooth spring back.
                             if (kotlin.math.abs(swipeOffset.value) > swipeThresholdPx) {
                                 HapticHelper.releaseConfirm(context)
-                                onToggleWatched()
+                                currentOnToggleWatched()
                             }
                             coroutineScope.launch {
                                 swipeOffset.animateTo(
@@ -354,6 +465,7 @@ internal fun EpisodeDownloadBadge(
     onPlayDownloaded: () -> Unit,
     modifier: Modifier = Modifier,
     translucent: Boolean = false,
+    previewTapAll: (() -> Unit)? = null,
 ) {
     val bg = if (translucent) Color.Black.copy(alpha = 0.45f)
     else MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
@@ -365,14 +477,24 @@ internal fun EpisodeDownloadBadge(
             .clip(CircleShape)
             .background(bg)
             .clickable {
-                when (state) {
-                    is EpisodeDownloadState.NotDownloaded -> onDownload()
-                    is EpisodeDownloadState.Downloading -> onPause()
-                    is EpisodeDownloadState.Paused -> onResume()
-                    is EpisodeDownloadState.Error -> onRetry()
-                    is EpisodeDownloadState.Downloaded -> onPlayDownloaded()
-                    // Resolving / Queued / Retrying — the cancellable in-flight states.
-                    else -> onCancel()
+                // D-557: the settings preview passes previewTapAll — ONE tap
+                // target for ALL states so the demo cycle can walk every
+                // state (the user: "if I tap that exact same spinning one
+                // again, it does not change to the next state"). Production
+                // call sites pass null → the state contract below, unchanged.
+                val tap = previewTapAll
+                if (tap != null) {
+                    tap()
+                } else {
+                    when (state) {
+                        is EpisodeDownloadState.NotDownloaded -> onDownload()
+                        is EpisodeDownloadState.Downloading -> onPause()
+                        is EpisodeDownloadState.Paused -> onResume()
+                        is EpisodeDownloadState.Error -> onRetry()
+                        is EpisodeDownloadState.Downloaded -> onPlayDownloaded()
+                        // Resolving / Queued / Retrying — the cancellable in-flight states.
+                        else -> onCancel()
+                    }
                 }
             },
         contentAlignment = Alignment.Center,
@@ -438,23 +560,21 @@ internal fun EpisodeDownloadBadge(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * GRID — RECREATED for D-556 (the v1.1.29 device round: "try to recreate the
- * whole grid view again. Recreate it, make it much better and much more
- * proper"). Still a two-column wall — that is the layout's identity — but
- * the cell is rebuilt:
+ * GRID — REDESIGN 2 (D-557; the v1.1.30 device round: "I am apparently not
+ * satisfied with the look of the grid view … Its UI is not looking clean…
+ * do a complete UI redesign of the grid view"). Still a two-column wall —
+ * that is the layout's identity — but the cell is now BORDERLESS and QUIET:
  *
- * - The image is TALLER in the hierarchy: a full-bleed 16:9 plate with the
- *   title burned OVER it on a bottom gradient scrim (the wall reads as
- *   posters, not as little classic rows), the themed EP pill top-start, the
- *   download badge top-end.
- * - The watched treatment: grayscale + dim + a check INSIDE a ringed badge
- *   (the old bare centered check read as noise over bright imagery).
- * - The watch-progress bar rides the image's bottom edge (4dp, rounded).
- * - Below the plate: ONE meta line of the D-556 capsule chips (date +
- *   SUB/DUB/HSUB), horizontally scrollable when four chips outgrow a
- *   half-width cell — no more dot-separated grey text.
- * - A hairline border + larger radius give the cell definition on both
- *   light and dark themes.
+ * - THE IMAGE IS THE CELL: a pure 16:9 plate (16dp radius, no border, no
+ *   background box, no scrim, NO EP PILL) — nothing covers the imagery
+ *   except the small translucent download badge (top-end), the watched
+ *   treatment, and the inset rounded progress pill.
+ * - The text lives BELOW in its own block: the themed EP number label
+ *   ([EpisodeNumberLabel]), the title (up to two lines, dimmed when
+ *   watched), and the capsule-chip meta line (date + audio).
+ * - Watched = grayscale + a dim overlay + ONE small translucent check
+ *   bubble bottom-start (the ringed badge read as noise; the bubble is
+ *   quieter and keeps the meta legible).
  *
  * Long-press toggles the watched state — a half-width cell cannot host the
  * horizontal swipe (the other three layouts keep it).
@@ -472,27 +592,21 @@ internal fun EpisodeGridCell(
     style: EpisodeListDisplayStyle,
 ) {
     val epNumText = formatEpisodeNumber(episode.episode_number)
-    val tagNumber = episodeTag?.number ?: epNumText
     val grayscale = watchedImageFilter(isWatched, style.dimWatched)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                shape = RoundedCornerShape(14.dp),
-            )
             .combinedClickable(
                 onClick = actions.onClick,
                 onLongClick = actions.onToggleWatched,
             ),
     ) {
+        // ── The image plate — pure imagery, nothing covering it ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(16f / 9f),
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(16.dp)),
         ) {
             if (display.thumbnailUrl != null) {
                 AsyncImage(
@@ -503,7 +617,7 @@ internal fun EpisodeGridCell(
                     colorFilter = grayscale,
                 )
             } else {
-                // The bare cell — a quiet number plate (no fake imagery).
+                // The bare plate — a quiet number (no fake imagery, no pill).
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -511,62 +625,37 @@ internal fun EpisodeGridCell(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = tagNumber,
+                        text = episodeTag?.number ?: epNumText,
                         fontFamily = RobotoFamily,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
                     )
                 }
             }
-            // The scrim — the overlaid title's contrast guarantee.
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0.35f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.78f),
-                        ),
-                    ),
-            )
-            // The watched treatment: grayscale + dim + a ringed check badge.
+            // The watched treatment: grayscale + dim + ONE quiet check bubble.
             if (isWatched && style.dimWatched) {
                 Box(
                     modifier = Modifier
                         .matchParentSize()
-                        .background(Color.Black.copy(alpha = 0.30f)),
-                    contentAlignment = Alignment.Center,
+                        .background(Color.Black.copy(alpha = 0.32f)),
+                )
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.45f),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.CheckCircle,
                         contentDescription = "Watched",
                         tint = Color.White,
                         modifier = Modifier
-                            .size(30.dp)
-                            .border(2.dp, Color.White.copy(alpha = 0.85f), CircleShape),
+                            .padding(4.dp)
+                            .size(16.dp),
                     )
                 }
-            }
-            // The EP pill — themed primary, the wall's badge language.
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(6.dp),
-            ) {
-                Text(
-                    text = "EP $tagNumber",
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    lineHeight = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                    maxLines = 1,
-                    softWrap = false,
-                )
             }
             if (style.showDownloadControl) {
                 EpisodeDownloadBadge(
@@ -577,50 +666,52 @@ internal fun EpisodeGridCell(
                     onCancel = actions.onCancel,
                     onRetry = actions.onRetry,
                     onPlayDownloaded = actions.onPlayDownloaded,
+                    translucent = true,
+                    previewTapAll = actions.previewTapAll,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(6.dp),
                 )
             }
-            // The title — burned over the scrim (the poster-wall rhythm).
-            Text(
-                text = display.title,
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                lineHeight = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
-                    .padding(bottom = if (style.showWatchProgress && progressFraction > 0f && !isWatched) 4.dp else 0.dp),
-            )
             if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
-                LinearProgressIndicator(
-                    progress = { progressFraction },
+                EpisodeWatchProgressBar(
+                    fraction = progressFraction,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .height(4.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = Color.White.copy(alpha = 0.25f),
+                        .padding(horizontal = 9.dp, vertical = 8.dp),
                 )
             }
         }
-        // The meta line — the D-556 capsule chips (date + audio), scrollable
-        // when four capsules outgrow a half-width cell.
+        // ── The text block — number, title, chips ──
+        Spacer(Modifier.height(7.dp))
+        EpisodeNumberLabel(
+            episodeTag = episodeTag,
+            epNumText = epNumText,
+            modifier = Modifier.padding(horizontal = 2.dp),
+        )
+        Spacer(Modifier.height(1.dp))
+        Text(
+            text = display.title,
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            lineHeight = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = (LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
+                ?: MaterialTheme.colorScheme.onSurface)
+                .let { if (isWatched && style.dimWatched) it.copy(alpha = 0.55f) else it },
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 2.dp),
+        )
         val chips = buildList {
             if (style.showDatePill && display.shortDateText != null) add(display.shortDateText)
             if (style.showAudioPills) addAll(display.audioLabels)
         }
         if (chips.isNotEmpty()) {
+            Spacer(Modifier.height(5.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -634,8 +725,6 @@ internal fun EpisodeGridCell(
                     }
                 }
             }
-        } else {
-            Spacer(Modifier.height(4.dp))
         }
     }
 }
@@ -653,22 +742,24 @@ internal fun EpisodeGridCell(
  * and the caller drops the per-item vertical padding for this layout, so
  * the line reads as ONE continuous rail down the list.
  *
- * D-556 — THE BLOB: the v1.1.29 device round liked the spine but flagged the
- * date node — "the release date is a little bit offset, which is apparently
- * not good. But … I don't want you to correct this offset … I don't want
- * you to use centered alignment … what I want you to do is create a blob
- * kind of effect which merges that section, that circle, that area with the
- * right side smoothly, like a proper abstract style."
+ * D-557 — THE BLOB, REBUILT. The D-556 attempt (a same-color neck drawn in
+ * the rail reaching toward the card) failed the device round three ways:
+ * "it is not symmetric, like at the bottom there is a bit more blob than at
+ * the top", "the blob is not feeling like a blob, like a rounded kind of
+ * experience", and worst: "the blob does not merge smoothly with the right
+ * side. There is a complete cutout between the right side and the left
+ * side" — the neck stopped short of the card's left edge (the 8dp spacer +
+ * the card's own rounded corner left a visible gap).
  *
- * So the node + its date label stay EXACTLY where they were (top-aligned,
- * left rail) and a same-color-as-the-card BLOB now wraps them: two rounded
- * rects — a soft left capsule around the node/label + a narrower neck
- * sliding under the card's left edge — union into one organic shape whose
- * fill is the CARD's own background, so the junction is seamless (same
- * color, no border, no seam) and the date visually lives INSIDE the card's
- * material. Draw order inside the rail Box: spine (behind) → blob → node
- * dot + label (front); the card itself draws after the rail, covering the
- * neck's overlap.
+ * THE FIX removes the seam by CONSTRUCTION: the card now spans the FULL row
+ * width and its background is ONE custom [TimelineBlobCardShape] — the
+ * rounded card body UNION a stadium bump around the node + date, a single
+ * outline, so there is no junction to see. The bump is symmetric around the
+ * node/label group (equal padding all around — "around the actual date a
+ * bit more better") and fully rounded ("a rounded kind of experience").
+ * The node dot + date label render ON the bump; the spine draws in TWO
+ * segments (above and below the bump) so the line passes BEHIND the blob
+ * and stays continuous down the list.
  */
 @Composable
 internal fun EpisodeTimelineRow(
@@ -682,131 +773,50 @@ internal fun EpisodeTimelineRow(
     style: EpisodeListDisplayStyle,
 ) {
     val epNumText = formatEpisodeNumber(episode.episode_number)
-    val tagNumber = episodeTag?.number ?: epNumText
     val nodeLabel = timelineNodeLabel(style.showDatePill, display.shortDateText, epNumText)
     val nodeIsDate = style.showDatePill && !display.shortDateText.isNullOrBlank()
     val grayscale = watchedImageFilter(isWatched, style.dimWatched)
-    // Read ONCE in composition — the Canvas draw lambda is not a composable
-    // scope and cannot call MaterialTheme.
     val cardColor = MaterialTheme.colorScheme.surfaceVariant
+    // The bump geometry (dp, from the row's top-start) — symmetric around
+    // the node(14dp at y=10) + gap(4) + label(~13) group.
+    val bumpLeft = 2.dp
+    val bumpTop = 3.dp
+    val bumpRight = 52.dp
+    val bumpBottom = 49.dp
+    val nodeCx = (bumpLeft + bumpRight) / 2 // 27dp — the spine's x
+    val contentStart = bumpRight + 10.dp    // the card's content clears the bump
+    val blobShape = remember {
+        TimelineBlobCardShape(
+            bumpLeft = bumpLeft,
+            bumpTop = bumpTop,
+            bumpRight = bumpRight,
+            bumpBottom = bumpBottom,
+            cardLeft = 32.dp,
+            cornerRadius = 12.dp,
+        )
+    }
     SwipeToToggleWatched(
         isWatched = isWatched,
         onToggleWatched = actions.onToggleWatched,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Min),
-        ) {
-            // ── The rail: spine line → blob → node + label ──
+        Box(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min).clipToBounds()) {
+            // ── THE CARD — full width, the blob IS its background ──
             Box(
                 modifier = Modifier
-                    .width(64.dp)
-                    .fillMaxHeight(),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .width(2.dp)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-                )
-                // THE BLOB — the abstract merge into the card. Drawn AFTER
-                // the spine (it covers the line where it passes) and BEFORE
-                // the node/label children; the card draws after this Box and
-                // hides the neck's overlap. Same fill as the card = seamless.
-                Canvas(modifier = Modifier.matchParentSize()) {
-                    val railWidth = size.width
-                    val nodeCy = 22.dp.toPx()
-                    val cardEdgeX = railWidth + 6.dp.toPx() // slides UNDER the card
-                    // The left capsule — wraps the node dot + the date label
-                    // (node 14dp at nodeCy, label ≈16dp below a 4dp gap).
-                    val capsuleTop = nodeCy - 18.dp.toPx()
-                    val capsuleBottom = nodeCy + 34.dp.toPx()
-                    val capsuleRect = RoundRect(
-                        rect = Rect(
-                            left = 5.dp.toPx(),
-                            top = capsuleTop,
-                            right = railWidth * 0.82f,
-                            bottom = capsuleBottom,
-                        ),
-                        topLeft = CornerRadius(17.dp.toPx(), 17.dp.toPx()),
-                        bottomLeft = CornerRadius(21.dp.toPx(), 21.dp.toPx()),
-                        topRight = CornerRadius(9.dp.toPx(), 9.dp.toPx()),
-                        bottomRight = CornerRadius(12.dp.toPx(), 12.dp.toPx()),
-                    )
-                    // The neck — narrower, reaching under the card's left
-                    // edge; its smaller height makes the union read as a
-                    // smooth waist between the capsule and the card.
-                    val neckRect = RoundRect(
-                        rect = Rect(
-                            left = railWidth * 0.55f,
-                            top = nodeCy - 9.dp.toPx(),
-                            right = cardEdgeX,
-                            bottom = nodeCy + 20.dp.toPx(),
-                        ),
-                        topLeft = CornerRadius(10.dp.toPx(), 10.dp.toPx()),
-                        bottomLeft = CornerRadius(12.dp.toPx(), 12.dp.toPx()),
-                    )
-                    val blob = Path().apply {
-                        addRoundRect(capsuleRect)
-                        addRoundRect(neckRect)
-                    }
-                    drawPath(blob, color = cardColor)
-                }
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(start = 0.dp, top = 10.dp)
-                        .width(64.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(14.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isWatched) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.surface,
-                            )
-                            .then(
-                                if (isWatched) Modifier
-                                else Modifier.border(
-                                    width = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    shape = CircleShape,
-                                ),
-                            ),
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = nodeLabel,
-                        fontFamily = RobotoFamily,
-                        fontSize = 10.sp,
-                        lineHeight = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (nodeIsDate) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Spacer(Modifier.width(8.dp))
-            // ── The card hanging off the spine ──
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = 8.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable(onClick = actions.onClick),
+                    .fillMaxWidth()
+                    .clip(blobShape)
+                    .background(cardColor)
+                    .clickable(onClick = actions.onClick)
+                    .padding(
+                        start = contentStart,
+                        end = 10.dp,
+                        top = 10.dp,
+                        bottom = 10.dp,
+                    ),
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -858,22 +868,139 @@ internal fun EpisodeTimelineRow(
                             onCancel = actions.onCancel,
                             onRetry = actions.onRetry,
                             onPlayDownloaded = actions.onPlayDownloaded,
+                            previewTapAll = actions.previewTapAll,
                         )
                     }
                 }
-                if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
-                    LinearProgressIndicator(
-                        progress = { progressFraction },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(3.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+            }
+            // ── THE SPINE — two segments, passing BEHIND the blob ──
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = nodeCx - 1.dp)
+                    .width(2.dp)
+                    .height(bumpTop)
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = nodeCx - 1.dp, y = bumpBottom)
+                    .width(2.dp)
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+            )
+            // ── THE NODE + DATE — centered inside the bump ──
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = nodeCx - 7.dp, y = 10.dp)
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isWatched) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surface,
                     )
-                }
+                    .then(
+                        if (isWatched) Modifier
+                        else Modifier.border(
+                            width = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = CircleShape,
+                        ),
+                    ),
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = bumpLeft, y = 28.dp)
+                    .width(bumpRight - bumpLeft),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = nodeLabel,
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (nodeIsDate) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // The watch-progress pill — below the bump zone, inside the card.
+            if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
+                EpisodeWatchProgressBar(
+                    fraction = progressFraction,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = contentStart, end = 10.dp, bottom = 4.dp),
+                )
             }
         }
+    }
+}
+
+/**
+ * The TIMELINE card's background shape — ONE outline uniting the rounded
+ * card body with the stadium bump around the node + date. The union (both
+ * sub-shapes in the SAME path, same fill) is what makes the merge seamless:
+ * there is no junction, no border, no color difference — the bump simply IS
+ * part of the card. The bump's bottom is clamped to the shape's height so a
+ * short card never draws the blob outside its bounds.
+ */
+private class TimelineBlobCardShape(
+    private val bumpLeft: Dp,
+    private val bumpTop: Dp,
+    private val bumpRight: Dp,
+    private val bumpBottom: Dp,
+    private val cardLeft: Dp,
+    private val cornerRadius: Dp,
+) : Shape {
+    override fun createOutline(
+        size: androidx.compose.ui.geometry.Size,
+        layoutDirection: androidx.compose.ui.graphics.LayoutDirection,
+        density: androidx.compose.ui.unit.Density,
+    ): Outline = with(density) {
+        val path = Path()
+        // The card body — its left edge starts INSIDE the bump so the two
+        // rounded shapes overlap and union into one continuous silhouette.
+        path.addRoundRect(
+            RoundRect(
+                rect = Rect(
+                    left = cardLeft.toPx(),
+                    top = 0f,
+                    right = size.width,
+                    bottom = size.height,
+                ),
+                topLeft = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+                topRight = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+                bottomRight = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+                bottomLeft = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+            ),
+        )
+        // The stadium bump — fully rounded (radius = half the height), the
+        // user's "rounded kind of experience", symmetric around the node +
+        // date group.
+        val bumpBottomPx = minOf(bumpBottom.toPx(), size.height - 1f)
+        val bumpHeightPx = bumpBottomPx - bumpTop.toPx()
+        val stadiumRadius = CornerRadius(bumpHeightPx / 2f, bumpHeightPx / 2f)
+        path.addRoundRect(
+            RoundRect(
+                rect = Rect(
+                    left = bumpLeft.toPx(),
+                    top = bumpTop.toPx(),
+                    right = bumpRight.toPx(),
+                    bottom = bumpBottomPx,
+                ),
+                topLeft = stadiumRadius,
+                topRight = stadiumRadius,
+                bottomRight = stadiumRadius,
+                bottomLeft = stadiumRadius,
+            ),
+        )
+        Outline.Generic(path)
     }
 }
 
@@ -912,8 +1039,6 @@ internal fun EpisodeCinemaCard(
     style: EpisodeListDisplayStyle,
 ) {
     val grayscale = watchedImageFilter(isWatched, style.dimWatched)
-    val epNumText = formatEpisodeNumber(episode.episode_number)
-    val tagNumber = episodeTag?.number ?: epNumText
     SwipeToToggleWatched(
         isWatched = isWatched,
         onToggleWatched = actions.onToggleWatched,
@@ -983,44 +1108,35 @@ internal fun EpisodeCinemaCard(
                     )
                 }
             }
-            // THE EP NUMBER — the themed badge (the details page's own theme
-            // color), top-end, readable over any imagery.
-            Surface(
-                shape = RoundedCornerShape(10.dp),
+            // THE GHOST NUMBER — RESTORED (D-557). The v1.1.30 device round:
+            // "I liked the previous numbering on it … the style of numbering
+            // which it had, the proper one. I liked it. But what I told you
+            // to do was to just theme it and make it a bit more visible."
+            // So the huge top-end number is BACK — now in the details page's
+            // own theme color (primary) instead of flat white-alpha, and
+            // MORE visible than the old 0.30 alpha via a near-full-alpha
+            // fill plus a soft dark shadow that keeps it readable over any
+            // imagery. The D-556 badge experiment is gone.
+            Text(
+                text = ghostEpisodeNumber(episode.episode_number),
+                fontFamily = RobotoFamily,
+                fontSize = 56.sp,
+                lineHeight = 56.sp,
+                fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.primary,
-                shadowElevation = 3.dp,
+                style = androidx.compose.ui.text.TextStyle(
+                    shadow = androidx.compose.ui.graphics.Shadow(
+                        color = Color.Black.copy(alpha = 0.55f),
+                        blurRadius = 18f,
+                        offset = Offset(2f, 2f),
+                    ),
+                ),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(12.dp),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        text = "EP",
-                        fontFamily = RobotoFamily,
-                        fontSize = 10.sp,
-                        lineHeight = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp,
-                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
-                        maxLines = 1,
-                        softWrap = false,
-                    )
-                    Text(
-                        text = tagNumber,
-                        fontFamily = RobotoFamily,
-                        fontSize = 15.sp,
-                        lineHeight = 17.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        maxLines = 1,
-                        softWrap = false,
-                    )
-                }
-            }
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                maxLines = 1,
+                softWrap = false,
+            )
             // The overlaid meta — title + one translucent chips pill.
             Column(
                 modifier = Modifier
@@ -1073,20 +1189,18 @@ internal fun EpisodeCinemaCard(
                     onRetry = actions.onRetry,
                     onPlayDownloaded = actions.onPlayDownloaded,
                     translucent = true,
+                    previewTapAll = actions.previewTapAll,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(12.dp),
                 )
             }
             if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
-                LinearProgressIndicator(
-                    progress = { progressFraction },
+                EpisodeWatchProgressBar(
+                    fraction = progressFraction,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .height(3.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = Color.White.copy(alpha = 0.25f),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             }
         }

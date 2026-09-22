@@ -1,6 +1,7 @@
 package com.confused.anikuta.settings
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -27,10 +28,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.layout
@@ -39,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Velocity
 import com.confused.anikuta.R
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.datacache.CachedEpisodeMetadata
@@ -55,8 +62,10 @@ import com.confused.anikuta.feature.animedetails.EpisodeListDisplayStyle
 import com.confused.anikuta.feature.animedetails.EpisodeListEntry
 import com.confused.anikuta.feature.animedetails.EpisodeListRowStyle
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import kotlinx.coroutines.Job
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 
@@ -136,6 +145,42 @@ import org.koin.compose.koinInject
  * options below glide instead of snapping ("the layout section should move
  * down slowly").
  *
+ * # D-556: the preview COLLAPSES as you scroll (the second episode stays)
+ *
+ * The user: "if the user scrolls the bottom section, then the top live
+ * preview section will scroll along with it … only this much that the first
+ * episode list is hidden, and the second one will remain there and will
+ * always be shown properly. When the user scrolls to the very top again,
+ * then both of them will start to show up again." Layout switches animate
+ * smoothly ([animateContentSize]) so the options below glide instead of
+ * snapping ("the layout section should move down slowly").
+ *
+ * # D-557: the collapse became a TWO-PHASE SNAP
+ *
+ * The v1.1.30 device round refined the behavior: "the very first scroll
+ * should not scroll the bottom section, but it should only scroll the live
+ * preview. And if the live preview has been scrolled midway … it will
+ * automatically snap to the next state where only one live preview shows…
+ * If the user scrolls midway past the live preview, then it will
+ * automatically snap to the full view … And the bottom scroll will happen
+ * afterwards." A [NestedScrollConnection] now consumes the WHOLE drag while
+ * a phase change is possible (open→collapsed on a down-drag, collapsed→open
+ * on an up-drag): the options list does not move in that gesture, crossing
+ * the halfway point snaps the preview to the other phase (animated settle),
+ * the leftover fling is swallowed, and the list only scrolls in a LATER
+ * gesture. GRID is exempt.
+ *
+ * # D-557: the download demo became a LIVE cycle
+ *
+ * The Downloading step animates +10% per second and auto-advances to
+ * Downloaded at 100% ("it will move to the next state automatically without
+ * me even pressing"); a tap at any point advances immediately and discards
+ * the progress. EVERY state is tappable via the entry's previewTapAll (the
+ * production widgets keep their visuals; the old dead Resolving spinner was
+ * also fixed at the source — it cancels now, CORE_RULES §23). The swipe
+ * toggle reads the watched map at execution time (the stale pointerInput
+ * closure that killed the second swipe is fixed in the gesture itself).
+ *
  * NOT part of this page (deliberately — the surfaces coexist): sort /
  * filter / grouping live in the list-settings SHEET on the details page
  * (list SHAPING); this page is list APPEARANCE only. The D-555 "More"
@@ -211,35 +256,119 @@ fun EpisodeListSettingsScreen(
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 
-    // ── D-556: the scroll-driven collapse. The fraction tracks the options
-    // list's own scroll: 0 at the very top, 1 after ~200dp of scrolling
-    // (or any first-visible item beyond the first). GRID never collapses
-    // (the user: "not for the grid layout because it is already compressed
-    // enough").
+    // ── D-557: the two-phase SNAP collapse. The v1.1.30 device round: "the
+    // very first scroll should not scroll the bottom section, but it should
+    // only scroll the live preview. And if the live preview has been
+    // scrolled midway … it will automatically snap to the next state where
+    // only one live preview shows. And if the user scrolls to the top
+    // again … it will automatically snap to the full view … And the bottom
+    // scroll will happen afterwards."
+    //
+    // A NestedScrollConnection sits BETWEEN the options list and the screen:
+    // while the preview can collapse (open + scrolling down, or collapsed +
+    // scrolling up) the connection CONSUMES the entire drag — the list does
+    // not move — and accumulates it. Crossing the halfway point of the
+    // collapse distance snaps the preview to the other phase (an animated
+    // settle to fully-open / fully-collapsed — no in-between rest state).
+    // The gesture's leftover fling is swallowed, so ONE gesture = ONE phase
+    // change (or an accumulate-and-settle-back); the bottom section only
+    // scrolls in a later gesture. GRID never collapses
+    // ("already compressed enough" — the D-556 verdict, unchanged).
     val density = LocalDensity.current
-    val collapseRangePx = with(density) { 200.dp.toPx() }
-    val collapseFraction = if (selectedStyle == EpisodeListRowStyle.GRID) {
-        0f
-    } else {
-        with(lazyListState) {
-            when {
-                // No scroll yet → both episodes show (also covers an options
-                // list that fits entirely: it must NOT collapse on entry).
-                firstVisibleItemScrollOffset == 0 && firstVisibleItemIndex == 0 -> 0f
-                // Past the first item, or the options are exhausted — the
-                // collapse must ALWAYS complete (a short options list may
-                // never scroll the full 200dp ramp; reaching the bottom
-                // means episode 1 is gone and episode 2 is pinned).
-                firstVisibleItemIndex > 0 || !canScrollForward -> 1f
-                else -> (firstVisibleItemScrollOffset / collapseRangePx).coerceIn(0f, 1f)
+    val scope = rememberCoroutineScope()
+    var firstRowHeightPx by remember { mutableStateOf(0) }
+    val rowGapPx = with(density) { 8.dp.toPx() }
+    val collapseDistancePx = (firstRowHeightPx + rowGapPx).coerceAtLeast(1)
+    val collapseProgress = remember { Animatable(0f) }
+    val collapseCollapsed = remember { mutableStateOf(false) }
+    val dragAccumulator = remember { mutableStateOf(0f) }
+    val gestureEngaged = remember { mutableStateOf(false) }
+    val collapseDistanceState = remember { mutableStateOf(collapseDistancePx) }
+    collapseDistanceState.value = collapseDistancePx
+    var settleJob by remember { mutableStateOf<Job?>(null) }
+    val nestedConnection = remember(selectedStyle) {
+        object : NestedScrollConnection {
+            // D-557: the crossed latch — a single continuous drag crosses the
+            // halfway point EXACTLY ONCE (the D-556-style accumulate-reset
+            // let a long drag cross twice: collapse → snap → animated-reopen
+            // bounce within one gesture). While latched, further deltas are
+            // consumed silently until the gesture ends (the 180ms settle
+            // window clears the latch).
+            private var crossedLatch = false
+
+            private fun settleLater() {
+                settleJob?.cancel()
+                settleJob = scope.launch {
+                    kotlinx.coroutines.delay(180)
+                    gestureEngaged.value = false
+                    dragAccumulator.value = 0f
+                    crossedLatch = false
+                    collapseProgress.animateTo(
+                        targetValue = if (collapseCollapsed.value) 1f else 0f,
+                        animationSpec = tween(200, easing = FastOutSlowInEasing),
+                    )
+                }
             }
+
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // Programmatic scrolls (scrollToItem etc.) pass through.
+                if (source == NestedScrollSource.SideEffect) return Offset.Zero
+                if (selectedStyle == EpisodeListRowStyle.GRID) return Offset.Zero
+                val scrollingDown = available.y < 0
+                val scrollingUp = available.y > 0
+                val canEngage = (scrollingDown && !collapseCollapsed.value) ||
+                    (scrollingUp && collapseCollapsed.value)
+                if (!canEngage && !gestureEngaged.value) return Offset.Zero
+
+                // Consume the WHOLE delta — the bottom section must not
+                // scroll during the collapse phase ("the very first scroll
+                // should not scroll the bottom section").
+                gestureEngaged.value = true
+                settleJob?.cancel()
+                if (!crossedLatch) {
+                    dragAccumulator.value += kotlin.math.abs(available.y)
+                    val halfway = collapseDistanceState.value / 2f
+                    val crossed = dragAccumulator.value >= halfway
+                    if (crossed) {
+                        // Snapped to the other phase — settle there animated.
+                        crossedLatch = true
+                        collapseCollapsed.value = !collapseCollapsed.value
+                        dragAccumulator.value = 0f
+                        scope.launch {
+                            collapseProgress.animateTo(
+                                targetValue = if (collapseCollapsed.value) 1f else 0f,
+                                animationSpec = tween(260, easing = FastOutSlowInEasing),
+                            )
+                        }
+                    } else {
+                        val ratio = (dragAccumulator.value / halfway).coerceIn(0f, 1f)
+                        val desired = if (collapseCollapsed.value) 1f - 0.45f * ratio
+                        else 0.45f * ratio
+                        scope.launch { collapseProgress.snapTo(desired) }
+                    }
+                }
+                settleLater()
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity =
+                // The consumed gesture's leftover velocity must not fling
+                // the options list — one gesture, one phase.
+                if (gestureEngaged.value) Velocity.Zero else available
         }
+    }
+    // A layout switch always re-opens the preview — a stale collapsed state
+    // under GRID (whose connection never engages) would clip it forever.
+    LaunchedEffect(selectedStyle) {
+        collapseCollapsed.value = false
+        collapseProgress.snapTo(0f)
     }
     // The first episode's measured height + the row gap = the exact shift
     // that hides episode 1 and pins episode 2 at the clip's top edge.
-    var firstRowHeightPx by remember { mutableStateOf(0) }
-    val rowGapPx = with(density) { 8.dp.toPx() }
-    val hidePx = collapseFraction * (firstRowHeightPx + rowGapPx)
+    val hidePx = collapseProgress.value * (firstRowHeightPx + rowGapPx)
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -341,11 +470,15 @@ fun EpisodeListSettingsScreen(
             }
 
             // ── THE SCROLLABLE REGION — the options. Same single-gutter
-            // contentPadding as the poster page (the D-525 8dp rule).
+            // contentPadding as the poster page (the D-525 8dp rule). The
+            // nestedScroll connection intercepts the collapse-phase drags
+            // BEFORE the list sees them (the D-557 two-phase snap).
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
                     state = lazyListState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(nestedConnection),
                     contentPadding = PaddingValues(
                         start = 8.dp,
                         end = 8.dp,
@@ -458,21 +591,23 @@ private data class PreviewItem(
 )
 
 /**
- * The full 8-state download machine, in demonstration order: nothing →
- * resolving → queued → downloading (35%) → paused → downloading (72%) →
- * error → retrying → downloaded → (wraps to nothing). Every tap of the
- * preview's download control/badge advances one step (the user: "it should
- * cycle between all the possible states of the download options, like
- * nothing, normal download button, then the downloading one, then the error
- * ones, and any other if there are").
+ * The 8-state download machine, in demonstration order: nothing → resolving
+ * → queued → DOWNLOADING (LIVE) → paused → error → retrying → downloaded →
+ * (wraps to nothing). D-557 refinement of the user's spec: the Downloading
+ * step is a LIVE animation — the progress jumps +10% every second, and on
+ * reaching 100% it AUTO-ADVANCES to Downloaded "without me even pressing".
+ * Tapping at ANY point advances to the next step immediately ("if I click
+ * on it before it finishes, then it will go to the next one … and the
+ * progress will disappear automatically") — the tap flows through
+ * [EpisodeListEntry]'s previewTapAll so EVERY state (including the old dead
+ * spinner) responds on the production widgets' own visuals.
  */
 private val downloadStateCycle: List<EpisodeDownloadState> = listOf(
     EpisodeDownloadState.NotDownloaded,
     EpisodeDownloadState.Resolving,
     EpisodeDownloadState.Queued,
-    EpisodeDownloadState.Downloading(35),
+    EpisodeDownloadState.Downloading(0),
     EpisodeDownloadState.Paused,
-    EpisodeDownloadState.Downloading(72),
     EpisodeDownloadState.Error("Preview failure (simulated)"),
     EpisodeDownloadState.Retrying,
     EpisodeDownloadState.Downloaded,
@@ -495,7 +630,27 @@ private fun PreviewEpisodeSlot(
     val defaultWatched = slot == 1
     val url = item.episode.url
     val isWatched = watchedOverride[url] ?: defaultWatched
-    val state = downloadStateCycle[cycleIndex[url] ?: 0]
+    val step = cycleIndex[url] ?: 0
+    val baseState = downloadStateCycle[step % downloadStateCycle.size]
+    // D-557: the LIVE Downloading demo — +10% per second; at 100% it
+    // auto-advances to Downloaded without a tap. The effect is keyed on the
+    // step: a tap that leaves Downloading cancels it mid-flight (the
+    // "progress will disappear automatically" behavior).
+    var liveProgress by remember(url) { mutableStateOf(0) }
+    val isDownloading = baseState is EpisodeDownloadState.Downloading
+    LaunchedEffect(url, step) {
+        if (isDownloading) {
+            liveProgress = 0
+            while (liveProgress < 100) {
+                kotlinx.coroutines.delay(1000)
+                liveProgress = (liveProgress + 10).coerceAtMost(100)
+            }
+            cycleIndex[url] = downloadStateCycle
+                .indexOf(EpisodeDownloadState.Downloaded)
+                .coerceAtLeast(0)
+        }
+    }
+    val state = if (isDownloading) EpisodeDownloadState.Downloading(liveProgress) else baseState
     fun advance() {
         cycleIndex[url] = ((cycleIndex[url] ?: 0) + 1) % downloadStateCycle.size
     }
@@ -505,8 +660,9 @@ private fun PreviewEpisodeSlot(
         onClick = { /* the preview is inert — no playback from settings */ },
         downloadState = state,
         fallbackCoverUrl = item.fallbackCoverUrl,
-        // The cycling taps: EVERY control action advances the machine —
-        // download/pause/resume/cancel/retry/play are all "the next state".
+        // The cycling taps: the previewTapAll makes the WHOLE control/badge
+        // one tap target — every state (spinner included) advances. The
+        // per-action callbacks stay wired as a fallback.
         onDownload = { advance() },
         onPause = { advance() },
         onResume = { advance() },
@@ -516,8 +672,16 @@ private fun PreviewEpisodeSlot(
         onPlayDownloaded = { advance() },
         isWatched = isWatched,
         progressFraction = if (slot == 0) 0.4f else 0f,
-        onToggleWatched = { watchedOverride[url] = !isWatched },
+        // D-557: the value-INDEPENDENT toggle — the swipe gesture's stale
+        // pointerInput closure held the old `isWatched`, so the SECOND swipe
+        // wrote the same value back ("it was still not getting marked").
+        // Reading the map at execution time is always correct (and the
+        // gesture itself now reads the freshest callback too).
+        onToggleWatched = {
+            watchedOverride[url] = !(watchedOverride[url] ?: defaultWatched)
+        },
         style = style,
+        previewTapAll = { advance() },
     )
 }
 

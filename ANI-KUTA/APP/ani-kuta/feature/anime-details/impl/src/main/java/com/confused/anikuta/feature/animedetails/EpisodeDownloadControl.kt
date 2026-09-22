@@ -95,6 +95,12 @@ fun EpisodeDownloadControl(
     onDelete: () -> Unit,
     onPlayDownloaded: () -> Unit = {},
     modifier: Modifier = Modifier,
+    // D-557: the settings-page live preview passes previewTapAll to make the
+    // WHOLE control one tap target for its state-cycling demo — the rendered
+    // visuals stay this production widget's (D-481), but no menu opens and
+    // no state is dead. Production call sites leave it null and get the
+    // exact per-state contract below, unchanged.
+    previewTapAll: (() -> Unit)? = null,
 ) {
     // D.8: AnimatedContent for smooth state transitions (fade, 200ms).
     AnimatedContent(
@@ -106,14 +112,38 @@ fun EpisodeDownloadControl(
         label = "episodeDownloadControl",
         modifier = modifier,
     ) { s ->
+        Box(
+            modifier = if (previewTapAll != null) {
+                Modifier.clickable(onClick = previewTapAll)
+            } else {
+                Modifier
+            },
+        ) {
         when (s) {
             is EpisodeDownloadState.NotDownloaded -> DownloadButton(onClick = onDownload)
 
-            is EpisodeDownloadState.Resolving -> CircularProgressIndicator(
-                modifier = Modifier.size(24.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            is EpisodeDownloadState.Resolving -> {
+                // D-557: this was a BARE spinner — a dead state that broke
+                // CORE_RULES §23 ("every state is interactive") and stalled
+                // the v1.1.30 preview demo on the second tap (the user's
+                // "if I tap that exact same spinning one again, it does not
+                // change"). Now it cancels like every other in-flight state
+                // (the badge's contract already treated Resolving as
+                // cancellable). Visually identical.
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onCancel),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
 
             is EpisodeDownloadState.Queued -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(
@@ -161,7 +191,12 @@ fun EpisodeDownloadControl(
                                 .size(24.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha))
-                                .clickable { showMenu = true },
+                                .clickable {
+                                    // D-557: the preview demo advances instead of
+                                    // opening the pause/cancel menu.
+                                    val tap = previewTapAll
+                                    if (tap != null) tap() else showMenu = true
+                                },
                             contentAlignment = Alignment.Center,
                         ) {
                             // D-214: changed from Download to Downloading icon (down arrow
@@ -247,7 +282,12 @@ fun EpisodeDownloadControl(
                             .size(36.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                            .clickable { showMenu = true },
+                            .clickable {
+                                // D-557: the preview demo advances instead of
+                                // opening the play/delete menu.
+                                val tap = previewTapAll
+                                if (tap != null) tap() else showMenu = true
+                            },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -284,6 +324,7 @@ fun EpisodeDownloadControl(
                     }
                 }
             }
+        }
         }
     }
 }
