@@ -544,8 +544,17 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // D-560 release bump (release/1.1.34): 1.1.20/10120 -> 1.1.34/10134 —
+    // the v1.1.33 device round: the sponsor popup un-cramped (a hero bubble,
+    // a quiet SPONSORED eyebrow, ONE line of copy per state, a measured
+    // rhythm), the "draw over other apps" option that appears ONLY while the
+    // consent is missing and vanishes the moment it is granted, and the
+    // ONE-TIME all-ABI release-build line (release-build-once.yml,
+    // dispatch-only — the D-447 policy untouched). Record:
+    // cloudstream-v2/63. The bump rides the release branch exclusively
+    // (D-430); the feature line stays 1.1.20/10120.
+    const val versionCode = 10134
+    const val versionName = "1.1.34"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
