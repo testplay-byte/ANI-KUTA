@@ -25,7 +25,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
@@ -254,6 +253,9 @@ fun ExtensionsSettingsScreen(
             CollapsingHeader(
                 title = "Extensions",
                 collapsed = collapsed,
+                // D-558: the heading IS the back button (leading arrow + tappable title);
+                // the old trailing back HeaderIconButton retired.
+                onBack = onBack,
                 actions = {
                     if (reorderMode) {
                         HeaderIconButton(
@@ -276,11 +278,6 @@ fun ExtensionsSettingsScreen(
                             onClick = onOpenRepoSettings,
                         )
                     }
-                    HeaderIconButton(
-                        icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        onClick = onBack,
-                    )
                 },
             )
 

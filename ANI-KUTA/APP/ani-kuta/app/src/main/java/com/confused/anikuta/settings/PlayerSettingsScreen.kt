@@ -40,12 +40,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.feature.download.components.DragReorderableList
+import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 import org.koin.compose.koinInject
 
 /**
@@ -62,6 +62,8 @@ import org.koin.compose.koinInject
 @Composable
 fun PlayerSettingsScreen(
     onBack: () -> Unit,
+    /** D-558: the search-landing anchor (see SettingsSearchNavigator). */
+    highlightAnchor: String? = null,
     preferences: PlayerPreferences = koinInject(),
 ) {
     val lazyListState = rememberLazyListState()
@@ -99,12 +101,41 @@ fun PlayerSettingsScreen(
 
     var expandedSection by remember { mutableIntStateOf(0) }
 
+    // ── D-558: the search-landing scroll + AUTO-EXPAND. The four preference
+    // sections only exist while auto-select is ON — an anchor targeting one
+    // of them expands its section (so the row is visible) and scrolls to it;
+    // with auto-select OFF every non-master anchor lands on the master card.
+    androidx.compose.runtime.LaunchedEffect(highlightAnchor, autoSelect) {
+        when (highlightAnchor) {
+            "player_priority" -> if (autoSelect) expandedSection = 1
+            "player_quality" -> if (autoSelect) expandedSection = 2
+            "player_audio" -> if (autoSelect) expandedSection = 3
+            "player_server" -> if (autoSelect) expandedSection = 4
+        }
+    }
+    rememberSettingsAnchorScroll(
+        anchor = highlightAnchor,
+        anchorIndexFor = { anchor ->
+            when {
+                anchor == "player_autoselect" || anchor == "player" -> 0
+                !autoSelect -> 0
+                anchor == "player_priority" -> 1
+                anchor == "player_quality" -> 2
+                anchor == "player_audio" -> 3
+                anchor == "player_server" -> 4
+                anchor == "player_global_fallback" -> 5
+                else -> null
+            }
+        },
+        listState = lazyListState,
+    )
+
     Box(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxWidth()) {
             CollapsingHeader(
                 title = "Player",
                 collapsed = collapsed,
-                actions = { BackAction(onBack) },
+                onBack = onBack,
             )
 
             Box(modifier = Modifier.fillMaxWidth()) {

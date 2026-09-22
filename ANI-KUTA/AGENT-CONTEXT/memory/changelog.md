@@ -1989,3 +1989,10 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **The collapse:** a two-phase snap via NestedScrollConnection — the first gesture consumed entirely, midway snap open↔collapsed, one flip per gesture, fling swallowed, GRID exempt.
 - **The visuals:** the numbers left the imagery (EpisodeNumberLabel above the title), GRID redesign 2 (borderless plate + text block), the timeline blob as ONE custom shape (symmetric stadium bump unioned with the card), the cinema ghost number restored themed (primary + shadow), the shared rounded progress pill on all four surfaces.
 - **v1.1.31 LIVE:** the D-557 round released — every preview interaction works every time (the swipe, the full 8-state tap cycle with the live +10%/s downloading step), the two-phase snap collapse, the numbers above the titles, the clean grid, the seamless symmetric timeline blob, the themed cinema ghost number, and the rounded progress pill everywhere.
+
+## Round 70 — D-558: the settings search + the heading-back + the deterministic collapse
+- **The collapse v3:** split by direction — the preview collapses FIRST on any down gesture (however fast; the fling's momentum hands off to the list), the list scrolls to the top FIRST on the way up (expansion only from the leftover).
+- **The timeline:** a thin background-colored breath between the date blob and the card (disjoint sub-shapes in one outline).
+- **CINEMA:** its own animated settings section (number corner top-left/top-right, number style solid/frosted glass, watched check mark default off) + the bottom "can be further customized" caption.
+- **The settings search:** a synonym-aware relevance engine + a data-driven index + the hub search bar with breadcrumb results + navigate/scroll/highlight landing on the target row.
+- **The heading-back:** the back arrow sits left of the title and the title itself is tappable back across ~24 screens; the top-right BackAction retires.

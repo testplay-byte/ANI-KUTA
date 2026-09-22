@@ -259,6 +259,48 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         KEY_SHOW_DOWNLOAD_CONTROL, true, BooleanSerializer,
     )
 
+    // ════════════════════════════════════════════════════════════════════════
+    //  10. CINEMA layout customizability (D-558)
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * D-558: which corner of the CINEMA banner carries the big ghost episode
+     * number. The user asked for the choice itself ("give the customizability
+     * option to select where the episode number should be shown. Should it be
+     * shown on the top right corner, or should it be shown on the top left
+     * corner?").
+     *
+     * - `"RIGHT"` (default = today's behavior): top-end of the banner.
+     * - `"LEFT"`: top-start of the banner.
+     */
+    val cinemaNumberCorner = store.preference(
+        KEY_CINEMA_NUMBER_CORNER, "RIGHT", StringSerializer,
+    )
+
+    /**
+     * D-558: the ghost number's rendering style.
+     *
+     * - `"SOLID"` (default = today's behavior): the themed number straight on
+     *     the imagery (the D-557 themed ghost).
+     * - `"FROSTED"`: the number seen THROUGH a frosted-glass plate — a
+     *     translucent rounded material behind it AND a frost veil layered on
+     *     top ("the text will actually be frosted glass kind of effect …
+     *     slightly transparent, frosted effect will be on top of it").
+     */
+    val cinemaNumberStyle = store.preference(
+        KEY_CINEMA_NUMBER_STYLE, "SOLID", StringSerializer,
+    )
+
+    /**
+     * D-558: whether watched CINEMA episodes draw the big centered circular
+     * check mark. The grayscale/dim treatment is NOT covered by this — only
+     * the badge ("the user can configure it and turn it on or off. By
+     * default it will be turned off").
+     */
+    val cinemaWatchedCheck = store.preference(
+        KEY_CINEMA_WATCHED_CHECK, false, BooleanSerializer,
+    )
+
     /**
      * D-233: Reset all filters to their defaults (downloaded=OFF, watched=OFF,
      * audio=BOTH). Called when the user taps "Reset filters" on the empty-state.
@@ -289,5 +331,8 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_SHOW_WATCH_PROGRESS = "pref_episode_list_show_watch_progress"
         private const val KEY_DIM_WATCHED = "pref_episode_list_dim_watched"
         private const val KEY_SHOW_DOWNLOAD_CONTROL = "pref_episode_list_show_download_control"
+        private const val KEY_CINEMA_NUMBER_CORNER = "pref_episode_list_cinema_number_corner"
+        private const val KEY_CINEMA_NUMBER_STYLE = "pref_episode_list_cinema_number_style"
+        private const val KEY_CINEMA_WATCHED_CHECK = "pref_episode_list_cinema_watched_check"
     }
 }

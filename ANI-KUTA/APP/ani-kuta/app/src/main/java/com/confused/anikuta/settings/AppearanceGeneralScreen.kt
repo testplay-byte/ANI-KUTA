@@ -49,7 +49,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.AccentPreset
@@ -58,6 +57,8 @@ import com.confused.anikuta.core.designsystem.theme.BgLight
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.designsystem.theme.Surface1Dark
 import com.confused.anikuta.core.designsystem.theme.Surface1Light
+import com.confused.anikuta.settings.search.SettingsHighlightTarget
+import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 import org.koin.compose.koinInject
 
 /**
@@ -79,6 +80,8 @@ import org.koin.compose.koinInject
 @Composable
 fun AppearanceGeneralScreen(
     onBack: () -> Unit,
+    /** D-558: the search-landing anchor (see SettingsSearchNavigator). */
+    highlightAnchor: String? = null,
 ) {
     val prefs = koinInject<ThemePreferences>()
 
@@ -106,10 +109,29 @@ fun AppearanceGeneralScreen(
             CollapsingHeader(
                 title = "General",
                 collapsed = collapsed,
-                actions = { BackAction(onBack) },
+                onBack = onBack,
             )
 
             Box(modifier = Modifier.fillMaxWidth()) {
+                // ── D-558: the search-landing scroll (item order:
+                // 0 theme mode · 1 palettes label · 2 carousel · 3 AMOLED ·
+                // 4 adaptive label · 5 adaptive details · 6 adaptive player ·
+                // 7 effects label · 8 header blur).
+                rememberSettingsAnchorScroll(
+                    anchor = highlightAnchor,
+                    anchorIndexFor = { anchor ->
+                        when (anchor) {
+                            "appearance_general", "theme_mode" -> 0
+                            "palettes" -> 2
+                            "amoled" -> 3
+                            "adaptive_details" -> 5
+                            "adaptive_player" -> 6
+                            "header_blur" -> 8
+                            else -> null
+                        }
+                    },
+                    listState = lazyListState,
+                )
                 LazyColumn(
                     state = lazyListState,
                     modifier = Modifier.fillMaxWidth(),
@@ -118,7 +140,8 @@ fun AppearanceGeneralScreen(
                     // ── Theme mode ──
                     item {
                         SettingsSectionLabel("Theme mode")
-                        SettingsCard {
+                        SettingsHighlightTarget(anchorId = "theme_mode", activeAnchor = highlightAnchor) {
+                            SettingsCard {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -133,6 +156,7 @@ fun AppearanceGeneralScreen(
                                 )
                             }
                         }
+                        }
                     }
 
                     // ── Palettes carousel ──
@@ -141,7 +165,8 @@ fun AppearanceGeneralScreen(
                         SettingsSectionLabel("Palettes")
                     }
                     item {
-                        PalettesCarousel(
+                        SettingsHighlightTarget(anchorId = "palettes", activeAnchor = highlightAnchor) {
+                            PalettesCarousel(
                             currentPreset = prefs.accentPreset.value,
                             customColor = prefs.customTheme.value.accent,
                             isDark = isDark,
@@ -154,6 +179,7 @@ fun AppearanceGeneralScreen(
                                 }
                             },
                         )
+                        }
                     }
 
                     // ── AMOLED (dark-only, smooth expand/collapse) ──
@@ -170,12 +196,14 @@ fun AppearanceGeneralScreen(
                                 Column {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     SettingsSectionLabel("Display")
-                                    SwitchCard(
-                                        title = "AMOLED black surfaces",
-                                        subtitle = "Pure black for OLED screens",
-                                        checked = amoled,
-                                        onCheckedChange = { prefs.setAmoled(it) },
-                                    )
+                                    SettingsHighlightTarget(anchorId = "amoled", activeAnchor = highlightAnchor) {
+                                        SwitchCard(
+                                            title = "AMOLED black surfaces",
+                                            subtitle = "Pure black for OLED screens",
+                                            checked = amoled,
+                                            onCheckedChange = { prefs.setAmoled(it) },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -187,20 +215,24 @@ fun AppearanceGeneralScreen(
                         SettingsSectionLabel("Adaptive colors")
                     }
                     item {
-                        SwitchCard(
-                            title = "Adaptive colors",
-                            subtitle = "Details page with cover colors",
-                            checked = adaptiveDetails,
-                            onCheckedChange = { prefs.setAdaptiveColorsDetails(it) },
-                        )
+                        SettingsHighlightTarget(anchorId = "adaptive_details", activeAnchor = highlightAnchor) {
+                            SwitchCard(
+                                title = "Adaptive colors",
+                                subtitle = "Details page with cover colors",
+                                checked = adaptiveDetails,
+                                onCheckedChange = { prefs.setAdaptiveColorsDetails(it) },
+                            )
+                        }
                     }
                     item {
-                        SwitchCard(
-                            title = "Adaptive colors (Player)",
-                            subtitle = "Player with cover art colors",
-                            checked = adaptivePlayer,
-                            onCheckedChange = { prefs.setAdaptiveColorsPlayer(it) },
-                        )
+                        SettingsHighlightTarget(anchorId = "adaptive_player", activeAnchor = highlightAnchor) {
+                            SwitchCard(
+                                title = "Adaptive colors (Player)",
+                                subtitle = "Player with cover art colors",
+                                checked = adaptivePlayer,
+                                onCheckedChange = { prefs.setAdaptiveColorsPlayer(it) },
+                            )
+                        }
                     }
 
                     // ── Effects ──
@@ -209,12 +241,14 @@ fun AppearanceGeneralScreen(
                         SettingsSectionLabel("Effects")
                     }
                     item {
-                        SwitchCard(
-                            title = "Header blur effect",
-                            subtitle = "Blur content under pinned headers",
-                            checked = headerBlur,
-                            onCheckedChange = { prefs.setHeaderBlurEffect(it) },
-                        )
+                        SettingsHighlightTarget(anchorId = "header_blur", activeAnchor = highlightAnchor) {
+                            SwitchCard(
+                                title = "Header blur effect",
+                                subtitle = "Blur content under pinned headers",
+                                checked = headerBlur,
+                                onCheckedChange = { prefs.setHeaderBlurEffect(it) },
+                            )
+                        }
                     }
                 }
 

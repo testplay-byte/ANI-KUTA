@@ -48,7 +48,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil3.compose.AsyncImage
-import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -112,7 +111,7 @@ fun UpdateCheckLogScreen(
             CollapsingHeader(
                 title = "Update check history",
                 collapsed = collapsed,
-                actions = { BackAction(onBack) },
+                onBack = onBack,
             )
             Box(modifier = Modifier.fillMaxSize()) {
                 if (sessions.isEmpty() && nextCheck == null) {

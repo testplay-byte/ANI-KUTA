@@ -30,11 +30,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.AppPreferences
+import com.confused.anikuta.settings.search.SettingsHighlightTarget
+import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 import org.koin.compose.koinInject
 
 // D-237: Reuse the shared helpers from AppearanceGeneralScreen (same package).
@@ -50,6 +51,8 @@ import org.koin.compose.koinInject
 @Composable
 fun DetailsPageSettingsScreen(
     onBack: () -> Unit,
+    /** D-558: the search-landing anchor (see SettingsSearchNavigator). */
+    highlightAnchor: String? = null,
 ) {
     val appPrefs = koinInject<AppPreferences>()
 
@@ -70,12 +73,26 @@ fun DetailsPageSettingsScreen(
             CollapsingHeader(
                 title = "Details page",
                 collapsed = collapsed,
-                actions = {
-                    BackAction(onBack)
-                },
+                onBack = onBack,
             )
 
             Box(modifier = Modifier.fillMaxSize()) {
+                // ── D-558: the search-landing scroll (item order:
+                // 0 label · 1 accent tint · 2 background card · 3 animated bg ·
+                // 4 nav label · 5 cover transition).
+                rememberSettingsAnchorScroll(
+                    anchor = highlightAnchor,
+                    anchorIndexFor = { anchor ->
+                        when (anchor) {
+                            "details_page" -> 0
+                            "details_accent" -> 1
+                            "details_animation" -> 3
+                            "details_cover_transition" -> 5
+                            else -> null
+                        }
+                    },
+                    listState = lazyListState,
+                )
                 LazyColumn(
                     state = lazyListState,
                     modifier = Modifier.fillMaxSize(),
@@ -87,6 +104,7 @@ fun DetailsPageSettingsScreen(
                         SettingsSectionLabel("Background")
                     }
                     item {
+                        SettingsHighlightTarget(anchorId = "details_accent", activeAnchor = highlightAnchor) {
                         SwitchCard(
                             title = "Accent tint",
                             subtitle = "Tint with the cover-derived accent",
@@ -96,6 +114,7 @@ fun DetailsPageSettingsScreen(
                                 appPrefs.detailsBannerTint = it
                             },
                         )
+                        }
                     }
                     item {
                         SettingsCard {
@@ -154,6 +173,7 @@ fun DetailsPageSettingsScreen(
                         }
                     }
                     item {
+                        SettingsHighlightTarget(anchorId = "details_animation", activeAnchor = highlightAnchor) {
                         SwitchCard(
                             title = "Animated background",
                             subtitle = "Slow pan for a dynamic effect",
@@ -163,12 +183,14 @@ fun DetailsPageSettingsScreen(
                                 appPrefs.detailsBannerAnimation = it
                             },
                         )
+                        }
                     }
                     // ── D-320: experimental cover transition ──
                     item {
                         SettingsSectionLabel("Navigation")
                     }
                     item {
+                        SettingsHighlightTarget(anchorId = "details_cover_transition", activeAnchor = highlightAnchor) {
                         SwitchCard(
                             title = "Cover transition (experimental)",
                             subtitle = "Covers morph into the details page",
@@ -178,6 +200,7 @@ fun DetailsPageSettingsScreen(
                                 appPrefs.coverTransitionEnabled = it
                             },
                         )
+                        }
                     }
                 }
 

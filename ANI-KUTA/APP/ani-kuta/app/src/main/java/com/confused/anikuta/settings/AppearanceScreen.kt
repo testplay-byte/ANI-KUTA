@@ -17,10 +17,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.MoreListRow
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.settings.search.SettingsHighlightTarget
+import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 
 /**
  * The Appearance screen — a list of appearance-related option rows.
@@ -50,6 +51,8 @@ fun AppearanceScreen(
     onOpenEpisodeSettings: () -> Unit,
     onOpenAppIcon: () -> Unit,
     onBack: () -> Unit,
+    /** D-558: the search-landing anchor (see SettingsSearchNavigator). */
+    highlightAnchor: String? = null,
 ) {
     val lazyListState = rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
@@ -60,10 +63,20 @@ fun AppearanceScreen(
             CollapsingHeader(
                 title = "Appearance",
                 collapsed = collapsed,
-                actions = { BackAction(onBack) },
+                onBack = onBack,
             )
 
             Box(modifier = Modifier.fillMaxSize()) {
+                // ── D-558: the search-landing scroll (the anchor map is this
+                // screen's half of the search contract).
+                rememberSettingsAnchorScroll(
+                    anchor = highlightAnchor,
+                    anchorIndexFor = { anchor ->
+                        listOf("appearance_general", "episode_list", "details_page", "app_icon")
+                            .indexOf(anchor).takeIf { it >= 0 }
+                    },
+                    listState = lazyListState,
+                )
                 LazyColumn(
                     state = lazyListState,
                     modifier = Modifier.fillMaxSize(),
@@ -71,24 +84,28 @@ fun AppearanceScreen(
                 ) {
                     item {
                         SettingsSectionLabel("General")
-                        MoreListRow(
-                            icon = Icons.Filled.Palette,
-                            title = "General",
-                            subtitle = "Theme mode, palettes, and colors",
-                            onClick = onOpenGeneral,
-                        )
+                        SettingsHighlightTarget(anchorId = "appearance_general", activeAnchor = highlightAnchor) {
+                            MoreListRow(
+                                icon = Icons.Filled.Palette,
+                                title = "General",
+                                subtitle = "Theme mode, palettes, and colors",
+                                onClick = onOpenGeneral,
+                            )
+                        }
                     }
                     item {
                         SettingsSectionLabel("Episode List")
                         // D-554: the row retitles to match the new dedicated page
                         // (the poster-row parallel: "Notification poster" /
                         // "Templates + live preview").
-                        MoreListRow(
-                            icon = Icons.Filled.Tune,
-                            title = "Episode list",
-                            subtitle = "Layout, elements, and live preview",
-                            onClick = onOpenEpisodeSettings,
-                        )
+                        SettingsHighlightTarget(anchorId = "episode_list", activeAnchor = highlightAnchor) {
+                            MoreListRow(
+                                icon = Icons.Filled.Tune,
+                                title = "Episode list",
+                                subtitle = "Layout, elements, and live preview",
+                                onClick = onOpenEpisodeSettings,
+                            )
+                        }
                     }
                     item {
                         // D-418 (round 34): the Details page row moved to the
@@ -96,20 +113,24 @@ fun AppearanceScreen(
                         // it as the very last item (the user's exact spec:
                         // "at the very bottom, just below the Details page").
                         SettingsSectionLabel("Details")
-                        MoreListRow(
-                            icon = Icons.Filled.Image,
-                            title = "Details page",
-                            subtitle = "Background image, tint, and animation",
-                            onClick = onOpenDetailsPage,
-                        )
+                        SettingsHighlightTarget(anchorId = "details_page", activeAnchor = highlightAnchor) {
+                            MoreListRow(
+                                icon = Icons.Filled.Image,
+                                title = "Details page",
+                                subtitle = "Background image, tint, and animation",
+                                onClick = onOpenDetailsPage,
+                            )
+                        }
                     }
                     item {
-                        MoreListRow(
-                            icon = Icons.Filled.AppShortcut,
-                            title = "App Icon",
-                            subtitle = "Icons from the repository's folder",
-                            onClick = onOpenAppIcon,
-                        )
+                        SettingsHighlightTarget(anchorId = "app_icon", activeAnchor = highlightAnchor) {
+                            MoreListRow(
+                                icon = Icons.Filled.AppShortcut,
+                                title = "App Icon",
+                                subtitle = "Icons from the repository's folder",
+                                onClick = onOpenAppIcon,
+                            )
+                        }
                     }
                 }
 

@@ -35,7 +35,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.content.LibraryCategory
-import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -95,7 +94,7 @@ fun UpdateCategoriesScreen(
             CollapsingHeader(
                 title = "Update categories",
                 collapsed = collapsed,
-                actions = { BackAction(onBack) },
+                onBack = onBack,
             )
 
             Box(modifier = Modifier.fillMaxSize()) {

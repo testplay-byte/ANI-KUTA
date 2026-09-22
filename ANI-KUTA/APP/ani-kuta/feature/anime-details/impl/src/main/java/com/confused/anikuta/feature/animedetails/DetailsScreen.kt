@@ -343,9 +343,20 @@ fun DetailsScreen(
     val showDownloadControlPref by episodeListPrefs.showDownloadControl.changes.collectAsState(
         initial = episodeListPrefs.showDownloadControl.get(),
     )
+    // D-558: the CINEMA customizability knobs — same ONE-subscription pattern.
+    val cinemaNumberCornerPref by episodeListPrefs.cinemaNumberCorner.changes.collectAsState(
+        initial = episodeListPrefs.cinemaNumberCorner.get(),
+    )
+    val cinemaNumberStylePref by episodeListPrefs.cinemaNumberStyle.changes.collectAsState(
+        initial = episodeListPrefs.cinemaNumberStyle.get(),
+    )
+    val cinemaWatchedCheckPref by episodeListPrefs.cinemaWatchedCheck.changes.collectAsState(
+        initial = episodeListPrefs.cinemaWatchedCheck.get(),
+    )
     val episodeDisplayStyle = remember(
         rowStyleKey, showSynopsisPref, showDatePillPref, showAudioPillsPref,
         showWatchProgressPref, dimWatchedPref, showDownloadControlPref,
+        cinemaNumberCornerPref, cinemaNumberStylePref, cinemaWatchedCheckPref,
     ) {
         EpisodeListDisplayStyle(
             rowStyle = EpisodeListRowStyle.fromKey(rowStyleKey),
@@ -355,6 +366,9 @@ fun DetailsScreen(
             showWatchProgress = showWatchProgressPref,
             dimWatched = dimWatchedPref,
             showDownloadControl = showDownloadControlPref,
+            cinemaNumberAtTopStart = cinemaNumberCornerPref.trim().equals("LEFT", ignoreCase = true),
+            cinemaNumberFrosted = cinemaNumberStylePref.trim().equals("FROSTED", ignoreCase = true),
+            cinemaWatchedCheckBadge = cinemaWatchedCheckPref,
         )
     }
 

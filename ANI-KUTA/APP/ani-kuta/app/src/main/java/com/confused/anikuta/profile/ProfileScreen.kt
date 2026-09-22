@@ -77,7 +77,7 @@ import org.koin.compose.viewmodel.koinViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    @Suppress("UNUSED_PARAMETER") onBack: () -> Unit,
+    onBack: () -> Unit,
     onNavigateToAnime: (Int) -> Unit,
     @Suppress("UNUSED_PARAMETER") onOpenTimeDna: () -> Unit = {},
     viewModel: ProfileViewModel = koinViewModel(),
@@ -137,6 +137,8 @@ fun ProfileScreen(
             CollapsingHeader(
                 title = "My Profile",
                 collapsed = collapsed,
+                // D-558: the heading IS the back button (leading arrow + tappable title).
+                onBack = onBack,
                 actions = {
                     // Mini tab pill — equal-width segments. Alpha driven by scroll
                     // fraction so it fades in exactly as the full tabs fade out.

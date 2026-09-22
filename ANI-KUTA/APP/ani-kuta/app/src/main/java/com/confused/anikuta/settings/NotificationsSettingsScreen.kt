@@ -42,12 +42,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.common.Logger
-import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.MoreListRow
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SettingsGroupCard
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.settings.search.SettingsHighlightTarget
+import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 import com.confused.anikuta.core.notifications.TriggerState
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -77,6 +78,8 @@ fun NotificationsSettingsScreen(
     onBack: () -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenPosterSettings: () -> Unit,
+    /** D-558: the search-landing anchor (see SettingsSearchNavigator). */
+    highlightAnchor: String? = null,
     viewModel: NotificationsSettingsViewModel = koinViewModel(),
     notificationManager: com.confused.anikuta.core.notifications.NotificationManager = koinInject(),
     // D-478: the real-sample tester.
@@ -113,10 +116,22 @@ fun NotificationsSettingsScreen(
             CollapsingHeader(
                 title = "Notifications",
                 collapsed = collapsed,
-                actions = { BackAction(onBack) },
+                onBack = onBack,
             )
 
             Box(modifier = Modifier.fillMaxSize()) {
+                // ── D-558: the search-landing scroll (0 general · 1 the
+                // defaults/library/test block).
+                rememberSettingsAnchorScroll(
+                    anchor = highlightAnchor,
+                    anchorIndexFor = { anchor ->
+                        when (anchor) {
+                            "notifications", "notifications_library", "notification_poster" -> 0
+                            else -> null
+                        }
+                    },
+                    listState = lazyListState,
+                )
                 LazyColumn(
                     state = lazyListState,
                     modifier = Modifier.fillMaxSize(),
@@ -128,6 +143,7 @@ fun NotificationsSettingsScreen(
                     // was pure noise (the round-56 verdict: the line below
                     // entries is "not good").
                     item {
+                        SettingsHighlightTarget(anchorId = "notifications", activeAnchor = highlightAnchor) {
                         SettingsGroupCard(label = "General", showDividers = false) {
                             SettingRow(
                                 title = "Enable notifications",
@@ -139,6 +155,7 @@ fun NotificationsSettingsScreen(
                                     )
                                 },
                             )
+                        }
                         }
                     }
 

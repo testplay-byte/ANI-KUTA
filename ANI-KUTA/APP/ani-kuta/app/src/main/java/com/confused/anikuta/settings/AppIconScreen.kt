@@ -50,7 +50,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.R
-import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -235,6 +234,8 @@ private val IconCellShape = RoundedCornerShape(16.dp)
 @Composable
 fun AppIconScreen(
     onBack: () -> Unit,
+    /** D-558: the search-landing anchor (see SettingsSearchNavigator). */
+    highlightAnchor: String? = null,
     preferences: AppIconPreferences = koinInject(),
 ) {
     val context = LocalContext.current
@@ -283,10 +284,18 @@ fun AppIconScreen(
             CollapsingHeader(
                 title = "App Icon",
                 collapsed = collapsed,
-                actions = { BackAction(onBack) },
+                onBack = onBack,
             )
 
             Box(modifier = Modifier.fillMaxSize()) {
+                // ── D-558: the search-landing scroll (0 hero · …).
+                com.confused.anikuta.settings.search.rememberSettingsAnchorScroll(
+                    anchor = highlightAnchor,
+                    anchorIndexFor = { anchor ->
+                        if (anchor == "app_icon") 0 else null
+                    },
+                    listState = lazyListState,
+                )
                 LazyColumn(
                     state = lazyListState,
                     modifier = Modifier.fillMaxSize(),

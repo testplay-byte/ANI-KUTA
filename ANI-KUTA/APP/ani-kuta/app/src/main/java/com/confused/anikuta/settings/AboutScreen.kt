@@ -51,10 +51,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.appupdate.AppUpdateManager
 import com.confused.anikuta.core.appupdate.AppUpdatePreferences
 import com.confused.anikuta.core.appupdate.DownloadedApk
-import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.settings.search.SettingsHighlightTarget
+import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import java.io.File
@@ -112,6 +113,8 @@ import java.util.Locale
 fun AboutScreen(
     updateManager: AppUpdateManager,
     onBack: () -> Unit,
+    /** D-558: the search-landing anchor (see SettingsSearchNavigator). */
+    highlightAnchor: String? = null,
 ) {
     val context = LocalContext.current
     val updatePrefs = koinInject<AppUpdatePreferences>()
@@ -185,10 +188,23 @@ fun AboutScreen(
             CollapsingHeader(
                 title = "About",
                 collapsed = collapsed,
-                actions = { BackAction(onBack) },
+                onBack = onBack,
             )
 
             Box(modifier = Modifier.fillMaxSize()) {
+                // ── D-558: the search-landing scroll (0 version · 1 updates
+                // label · 2 auto-check · 3 manual check · …).
+                rememberSettingsAnchorScroll(
+                    anchor = highlightAnchor,
+                    anchorIndexFor = { anchor ->
+                        when (anchor) {
+                            "about_page" -> 0
+                            "about_autocheck" -> 2
+                            else -> null
+                        }
+                    },
+                    listState = listState,
+                )
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -233,12 +249,14 @@ fun AboutScreen(
                     }
                     // Auto-update toggle
                     item {
+                        SettingsHighlightTarget(anchorId = "about_autocheck", activeAnchor = highlightAnchor) {
                         GeneralToggleCard(
                             title = "Auto-check for updates",
                             subtitle = "Show update available dialog",
                             checked = autoCheckEnabled,
                             onCheckedChange = { updatePrefs.setUpdateCheckEnabled(it) },
                         )
+                        }
                     }
 
                     // Manual check button

@@ -1,9 +1,17 @@
 package com.confused.anikuta.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDecay
+import androidx.compose.animation.core.rememberSplineBasedDecay
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,7 +59,6 @@ import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.datacache.CachedEpisodeMetadata
 import com.confused.anikuta.core.datacache.DataCacheRepository
 import com.confused.anikuta.core.datacache.EpisodeAudioAggregates
-import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -61,6 +68,8 @@ import com.confused.anikuta.feature.animedetails.EpisodeDownloadState
 import com.confused.anikuta.feature.animedetails.EpisodeListDisplayStyle
 import com.confused.anikuta.feature.animedetails.EpisodeListEntry
 import com.confused.anikuta.feature.animedetails.EpisodeListRowStyle
+import com.confused.anikuta.settings.search.SettingsHighlightTarget
+import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import kotlinx.coroutines.Job
 import kotlin.math.roundToInt
@@ -155,20 +164,22 @@ import org.koin.compose.koinInject
  * smoothly ([animateContentSize]) so the options below glide instead of
  * snapping ("the layout section should move down slowly").
  *
- * # D-557: the collapse became a TWO-PHASE SNAP
+ * # D-557: the collapse became a TWO-PHASE SNAP … and D-558 made it a
+ * PRIORITY SCROLL
  *
- * The v1.1.30 device round refined the behavior: "the very first scroll
- * should not scroll the bottom section, but it should only scroll the live
- * preview. And if the live preview has been scrolled midway … it will
- * automatically snap to the next state where only one live preview shows…
- * If the user scrolls midway past the live preview, then it will
- * automatically snap to the full view … And the bottom scroll will happen
- * afterwards." A [NestedScrollConnection] now consumes the WHOLE drag while
- * a phase change is possible (open→collapsed on a down-drag, collapsed→open
- * on an up-drag): the options list does not move in that gesture, crossing
- * the halfway point snaps the preview to the other phase (animated settle),
- * the leftover fling is swallowed, and the list only scrolls in a LATER
- * gesture. GRID is exempt.
+ * The v1.1.30 device round: "the very first scroll should not scroll the
+ * bottom section … midway it will automatically snap … And the bottom scroll
+ * will happen afterwards." The v1.1.31 round kept the snap but exposed two
+ * blind spots — fast flings slipped past the drag-only accumulator, and the
+ * up-direction consumed PRE-scroll so the preview expanded while the list
+ * was still scrolled down. The D-558 connection is SPLIT BY DIRECTION:
+ * DOWN-while-open consumes EVERYTHING until the preview snaps collapsed
+ * (then releases the same gesture into the list, and a consumed fling hands
+ * its momentum to the list through a spline-decay scroll); UP never consumes
+ * in pre-scroll — the list scrolls to the very top FIRST and only the
+ * post-scroll leftover (or the finished fling's leftover) expands the
+ * preview. Deterministic order BY CONSTRUCTION, however fast the finger is.
+ * GRID is exempt; a layout switch always re-opens.
  *
  * # D-557: the download demo became a LIVE cycle
  *
@@ -189,6 +200,8 @@ import org.koin.compose.koinInject
 @Composable
 fun EpisodeListSettingsScreen(
     onBack: () -> Unit,
+    /** D-558: the search-landing anchor (see SettingsSearchNavigator). */
+    highlightAnchor: String? = null,
     episodeListPrefs: EpisodeListPreferences = koinInject(),
     contentRepository: ContentRepository = koinInject(),
     dataCacheRepository: DataCacheRepository = koinInject(),
@@ -218,6 +231,16 @@ fun EpisodeListSettingsScreen(
     val showDownloadControl by episodeListPrefs.showDownloadControl.changes.collectAsState(
         initial = episodeListPrefs.showDownloadControl.get(),
     )
+    // ── D-558: the CINEMA customizability knobs (the same reactive reads).
+    val cinemaNumberCorner by episodeListPrefs.cinemaNumberCorner.changes.collectAsState(
+        initial = episodeListPrefs.cinemaNumberCorner.get(),
+    )
+    val cinemaNumberStyle by episodeListPrefs.cinemaNumberStyle.changes.collectAsState(
+        initial = episodeListPrefs.cinemaNumberStyle.get(),
+    )
+    val cinemaWatchedCheck by episodeListPrefs.cinemaWatchedCheck.changes.collectAsState(
+        initial = episodeListPrefs.cinemaWatchedCheck.get(),
+    )
     // D-529 lesson: seed the toggle through the lenient fromKey so the
     // highlighted segment is ALWAYS the style the renderer will draw.
     val selectedStyle = EpisodeListRowStyle.fromKey(rowStyleKey)
@@ -230,6 +253,9 @@ fun EpisodeListSettingsScreen(
         showWatchProgress = showWatchProgress,
         dimWatched = dimWatched,
         showDownloadControl = showDownloadControl,
+        cinemaNumberAtTopStart = cinemaNumberCorner.trim().equals("LEFT", ignoreCase = true),
+        cinemaNumberFrosted = cinemaNumberStyle.trim().equals("FROSTED", ignoreCase = true),
+        cinemaWatchedCheckBadge = cinemaWatchedCheck,
     )
 
     // ── D-556: the preview's content — demo samples first (instant paint),
@@ -256,24 +282,40 @@ fun EpisodeListSettingsScreen(
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 
-    // ── D-557: the two-phase SNAP collapse. The v1.1.30 device round: "the
-    // very first scroll should not scroll the bottom section, but it should
-    // only scroll the live preview. And if the live preview has been
-    // scrolled midway … it will automatically snap to the next state where
-    // only one live preview shows. And if the user scrolls to the top
-    // again … it will automatically snap to the full view … And the bottom
-    // scroll will happen afterwards."
+    // ── D-557 → D-558: the collapse became a PRIORITY SCROLL. The v1.1.31
+    // device round kept the two-phase snap but exposed two blind spots:
+    // "if I quickly swipe up to scroll, then the top live preview does not
+    // scroll first. The bottom section scrolls" (fast flings slipped past
+    // the drag-only accumulator), and "if I have scrolled to the very bottom
+    // and then try to scroll up … the live preview starts to [expand]"
+    // (expansion was a PRE-scroll consumer, so it stole deltas while the
+    // list was still scrolled down).
     //
-    // A NestedScrollConnection sits BETWEEN the options list and the screen:
-    // while the preview can collapse (open + scrolling down, or collapsed +
-    // scrolling up) the connection CONSUMES the entire drag — the list does
-    // not move — and accumulates it. Crossing the halfway point of the
-    // collapse distance snaps the preview to the other phase (an animated
-    // settle to fully-open / fully-collapsed — no in-between rest state).
-    // The gesture's leftover fling is swallowed, so ONE gesture = ONE phase
-    // change (or an accumulate-and-settle-back); the bottom section only
-    // scrolls in a later gesture. GRID never collapses
-    // ("already compressed enough" — the D-556 verdict, unchanged).
+    // The v3 connection is SPLIT BY DIRECTION, which makes the order
+    // deterministic BY CONSTRUCTION:
+    //
+    // - DOWN while open (drag OR fling): the collapse consumes EVERYTHING
+    //   first — the list cannot move until the preview has snapped collapsed
+    //   ("no matter what happens, the first of all thing will be that the
+    //   live preview will move up"). After the snap the connection RELEASES
+    //   the same gesture: the remaining drag deltas flow into the list
+    //   ("and after that then the bottom section will begin to scroll
+    //   over"). A consumed down-fling additionally HANDS ITS MOMENTUM to
+    //   the list through a spline-decay scroll once the collapse settles —
+    //   a fast swipe collapses AND keeps scrolling instead of dying at the
+    //   snap.
+    //
+    // - UP while collapsed: the connection never consumes on the way up in
+    //   PRE-scroll — the list always scrolls first; only the LEFTOVER of an
+    //   up-drag (the list is at the very top) can expand the preview, with
+    //   the same halfway snap. An up-FLING's leftover (the list finished its
+    //   fling at the top) settles the expansion in onPostFling — "first of
+    //   all the bottom section should scroll to the very top" before the
+    //   preview opens.
+    //
+    // The halfway snap, the crossed latch (one flip per gesture), the
+    // animated settles, the GRID exemption and the layout-switch re-open
+    // carry over from the D-557 design unchanged.
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     var firstRowHeightPx by remember { mutableStateOf(0) }
@@ -282,10 +324,13 @@ fun EpisodeListSettingsScreen(
     val collapseProgress = remember { Animatable(0f) }
     val collapseCollapsed = remember { mutableStateOf(false) }
     val dragAccumulator = remember { mutableStateOf(0f) }
-    val gestureEngaged = remember { mutableStateOf(false) }
     val collapseDistanceState = remember { mutableStateOf(collapseDistancePx) }
     collapseDistanceState.value = collapseDistancePx
     var settleJob by remember { mutableStateOf<Job?>(null) }
+    var flingJob by remember { mutableStateOf<Job?>(null) }
+    // The spline decay spec for the fling-momentum handoff — the same
+    // physics curve the list's own flings ride.
+    val flingDecay = rememberSplineBasedDecay<Float>()
     val nestedConnection = remember(selectedStyle) {
         object : NestedScrollConnection {
             // D-557: the crossed latch — a single continuous drag crosses the
@@ -296,13 +341,20 @@ fun EpisodeListSettingsScreen(
             // window clears the latch).
             private var crossedLatch = false
 
+            private fun clearGesture() {
+                crossedLatch = false
+                dragAccumulator.value = 0f
+            }
+
+            // The settle window: after the last delta of a gesture, clear
+            // the latch and settle the preview to its phase anchor — a drag
+            // that ended before the halfway point eases BACK instead of
+            // freezing midway.
             private fun settleLater() {
                 settleJob?.cancel()
                 settleJob = scope.launch {
                     kotlinx.coroutines.delay(180)
-                    gestureEngaged.value = false
-                    dragAccumulator.value = 0f
-                    crossedLatch = false
+                    clearGesture()
                     collapseProgress.animateTo(
                         targetValue = if (collapseCollapsed.value) 1f else 0f,
                         animationSpec = tween(200, easing = FastOutSlowInEasing),
@@ -317,47 +369,140 @@ fun EpisodeListSettingsScreen(
                 // Programmatic scrolls (scrollToItem etc.) pass through.
                 if (source == NestedScrollSource.SideEffect) return Offset.Zero
                 if (selectedStyle == EpisodeListRowStyle.GRID) return Offset.Zero
-                val scrollingDown = available.y < 0
-                val scrollingUp = available.y > 0
-                val canEngage = (scrollingDown && !collapseCollapsed.value) ||
-                    (scrollingUp && collapseCollapsed.value)
-                if (!canEngage && !gestureEngaged.value) return Offset.Zero
-
-                // Consume the WHOLE delta — the bottom section must not
-                // scroll during the collapse phase ("the very first scroll
-                // should not scroll the bottom section").
-                gestureEngaged.value = true
-                settleJob?.cancel()
-                if (!crossedLatch) {
-                    dragAccumulator.value += kotlin.math.abs(available.y)
-                    val halfway = collapseDistanceState.value / 2f
-                    val crossed = dragAccumulator.value >= halfway
-                    if (crossed) {
-                        // Snapped to the other phase — settle there animated.
-                        crossedLatch = true
-                        collapseCollapsed.value = !collapseCollapsed.value
-                        dragAccumulator.value = 0f
-                        scope.launch {
-                            collapseProgress.animateTo(
-                                targetValue = if (collapseCollapsed.value) 1f else 0f,
-                                animationSpec = tween(260, easing = FastOutSlowInEasing),
-                            )
+                // DOWN while open: THE COLLAPSE PHASE. Consume everything —
+                // the list does not move until the preview has collapsed
+                // ("no matter what happens, the first of all thing will be
+                // that the live preview will move up").
+                if (available.y < 0 && !collapseCollapsed.value) {
+                    settleJob?.cancel()
+                    flingJob?.cancel()
+                    if (!crossedLatch) {
+                        dragAccumulator.value += kotlin.math.abs(available.y)
+                        val halfway = collapseDistanceState.value / 2f
+                        if (dragAccumulator.value >= halfway) {
+                            // Snapped collapsed — settle there animated.
+                            crossedLatch = true
+                            collapseCollapsed.value = true
+                            dragAccumulator.value = 0f
+                            scope.launch {
+                                collapseProgress.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
+                                )
+                            }
+                        } else {
+                            val ratio = (dragAccumulator.value / halfway).coerceIn(0f, 1f)
+                            scope.launch { collapseProgress.snapTo(0.45f * ratio) }
                         }
-                    } else {
-                        val ratio = (dragAccumulator.value / halfway).coerceIn(0f, 1f)
-                        val desired = if (collapseCollapsed.value) 1f - 0.45f * ratio
-                        else 0.45f * ratio
-                        scope.launch { collapseProgress.snapTo(desired) }
                     }
+                    settleLater()
+                    // After the snap the connection RELEASES the same gesture
+                    // (the latch is crossed) — the remaining deltas flow into
+                    // the list ("and after that then the bottom section will
+                    // begin to scroll over").
+                    return if (crossedLatch) Offset.Zero else Offset(0f, available.y)
                 }
-                settleLater()
-                return Offset(0f, available.y)
+                // UP (and everything else): never consume in PRE-scroll —
+                // the list scrolls FIRST; the preview only expands from the
+                // POST-scroll leftover.
+                return Offset.Zero
             }
 
-            override suspend fun onPreFling(available: Velocity): Velocity =
-                // The consumed gesture's leftover velocity must not fling
-                // the options list — one gesture, one phase.
-                if (gestureEngaged.value) Velocity.Zero else available
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (source == NestedScrollSource.SideEffect) return Offset.Zero
+                if (selectedStyle == EpisodeListRowStyle.GRID) return Offset.Zero
+                // UP-leftover: the list is at the very top and still has up
+                // delta left — THE ONLY DOOR to the expansion.
+                if (available.y > 0 && collapseCollapsed.value) {
+                    settleJob?.cancel()
+                    flingJob?.cancel()
+                    if (!crossedLatch) {
+                        dragAccumulator.value += available.y
+                        val halfway = collapseDistanceState.value / 2f
+                        if (dragAccumulator.value >= halfway) {
+                            crossedLatch = true
+                            collapseCollapsed.value = false
+                            dragAccumulator.value = 0f
+                            scope.launch {
+                                collapseProgress.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
+                                )
+                            }
+                        } else {
+                            val ratio = (dragAccumulator.value / halfway).coerceIn(0f, 1f)
+                            scope.launch { collapseProgress.snapTo(1f - 0.45f * ratio) }
+                        }
+                    }
+                    settleLater()
+                    return if (crossedLatch) Offset.Zero else Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (selectedStyle == EpisodeListRowStyle.GRID) return available
+                // DOWN-fling while open: a fast swipe must collapse the
+                // preview FIRST — however fast. Consume the fling, snap the
+                // collapse, then hand the momentum to the list so the same
+                // swipe keeps scrolling ("after that then the bottom section
+                // will begin to scroll over"). Below the threshold the
+                // leftover is negligible — pass it through.
+                if (available.y < -1000f && !collapseCollapsed.value) {
+                    val handoffVelocity = available.y
+                    collapseCollapsed.value = true
+                    clearGesture()
+                    flingJob = scope.launch {
+                        collapseProgress.animateTo(
+                            targetValue = 1f,
+                            animationSpec = tween(220, easing = FastOutSlowInEasing),
+                        )
+                        // THE MOMENTUM HANDOFF — a spline-decay scroll on the
+                        // options list with the consumed fling's velocity
+                        // (the documented AnimationState.animateDecay fling
+                        // pattern; dispatchRawDelta bypasses the nested chain
+                        // — no re-entrancy).
+                        var lastValue = 0f
+                        AnimationState(
+                            initialValue = 0f,
+                            initialVelocity = handoffVelocity,
+                        ).animateDecay(flingDecay) {
+                            val delta = value - lastValue
+                            lastValue = value
+                            lazyListState.dispatchRawDelta(delta)
+                        }
+                    }
+                    return Velocity.Zero
+                }
+                return available
+            }
+
+            override suspend fun onPostFling(
+                consumed: Velocity,
+                available: Velocity,
+            ): Velocity {
+                // UP-fling leftover: the list's own fling finished at the
+                // very top with velocity to spare — settle the expansion now
+                // ("first of all the bottom section should scroll to the very
+                // top", THEN the preview opens).
+                if (selectedStyle != EpisodeListRowStyle.GRID &&
+                    collapseCollapsed.value &&
+                    available.y > 0f
+                ) {
+                    collapseCollapsed.value = false
+                    clearGesture()
+                    collapseProgress.animateTo(
+                        targetValue = 0f,
+                        animationSpec = tween(240, easing = FastOutSlowInEasing),
+                    )
+                    return available
+                }
+                return Velocity.Zero
+            }
         }
     }
     // A layout switch always re-opens the preview — a stale collapsed state
@@ -370,12 +515,27 @@ fun EpisodeListSettingsScreen(
     // that hides episode 1 and pins episode 2 at the clip's top edge.
     val hidePx = collapseProgress.value * (firstRowHeightPx + rowGapPx)
 
+    // ── D-558: the search-landing scroll (the anchor map is this screen's
+    // half of the search contract: 0 layout · 1 cinema · 2 elements).
+    rememberSettingsAnchorScroll(
+        anchor = highlightAnchor,
+        anchorIndexFor = { anchor ->
+            when (anchor) {
+                "episode_list", "layout" -> 0
+                "cinema_corner", "cinema_style", "cinema_check" -> 1
+                "el_synopsis", "el_date", "el_audio", "el_progress", "el_dim", "el_download" -> 2
+                else -> null
+            }
+        },
+        listState = lazyListState,
+    )
+
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(
                 title = "Episode list",
                 collapsed = collapsed,
-                actions = { BackAction(onBack) },
+                onBack = onBack,
             )
 
             // ── THE LIVE PREVIEW — real library data (or the demo samples).
@@ -494,6 +654,7 @@ fun EpisodeListSettingsScreen(
                     // (SegmentedToggle) is the selector.
                     item {
                         EpisodeListCard(label = "Layout") {
+                            SettingsHighlightTarget(anchorId = "layout", activeAnchor = highlightAnchor) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -523,49 +684,181 @@ fun EpisodeListSettingsScreen(
                                     )
                                 }
                             }
+                            }
+                        }
+                    }
+
+                    // ── the CINEMA customizability (D-558) — a dedicated
+                    // section that exists ONLY while the Cinema layout is
+                    // selected: "This section will be shown below the layout
+                    // section and above the element section … this will only
+                    // show for the cinema section … if we switch to any other
+                    // section, then it will smoothly, with beautiful clean
+                    // animations, disappear." The option rows are single-row
+                    // segmented toggles in the Layout section's format — no
+                    // description lines (the user's explicit spec).
+                    item {
+                        AnimatedVisibility(
+                            visible = selectedStyle == EpisodeListRowStyle.CINEMA,
+                            enter = fadeIn(animationSpec = tween(300)) +
+                                expandVertically(
+                                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                                ),
+                            exit = fadeOut(animationSpec = tween(240)) +
+                                shrinkVertically(
+                                    animationSpec = tween(240, easing = FastOutSlowInEasing),
+                                ),
+                        ) {
+                            EpisodeListCard(label = "Cinema") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                ) {
+                                    Text(
+                                        text = "Cinema",
+                                        fontFamily = RobotoFamily,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                    Column(
+                                        modifier = Modifier.padding(top = 10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        SettingsHighlightTarget(anchorId = "cinema_corner", activeAnchor = highlightAnchor) {
+                                        Column {
+                                            Text(
+                                                text = "Number position",
+                                                fontFamily = RobotoFamily,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                modifier = Modifier.padding(bottom = 6.dp),
+                                            )
+                                            SegmentedToggle(
+                                                options = listOf("Top left", "Top right"),
+                                                selectedIndex = if (
+                                                    cinemaNumberCorner.trim().equals("LEFT", ignoreCase = true)
+                                                ) 0 else 1,
+                                                onSelect = { idx ->
+                                                    episodeListPrefs.cinemaNumberCorner.set(
+                                                        if (idx == 0) "LEFT" else "RIGHT",
+                                                    )
+                                                },
+                                            )
+                                        }
+                                        }
+                                        SettingsHighlightTarget(anchorId = "cinema_style", activeAnchor = highlightAnchor) {
+                                        Column {
+                                            Text(
+                                                text = "Number style",
+                                                fontFamily = RobotoFamily,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                modifier = Modifier.padding(bottom = 6.dp),
+                                            )
+                                            SegmentedToggle(
+                                                options = listOf("Solid", "Frosted"),
+                                                selectedIndex = if (
+                                                    cinemaNumberStyle.trim().equals("FROSTED", ignoreCase = true)
+                                                ) 1 else 0,
+                                                onSelect = { idx ->
+                                                    episodeListPrefs.cinemaNumberStyle.set(
+                                                        if (idx == 1) "FROSTED" else "SOLID",
+                                                    )
+                                                },
+                                            )
+                                        }
+                                        }
+                                        SettingsHighlightTarget(anchorId = "cinema_check", activeAnchor = highlightAnchor) {
+                                            EpisodeListSwitchRow(
+                                                title = "Watched check mark",
+                                                description = null,
+                                                checked = cinemaWatchedCheck,
+                                                onChecked = { episodeListPrefs.cinemaWatchedCheck.set(it) },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
                     // ── the elements — switches with ONE-LINE descriptions ──
                     item {
                         EpisodeListCard(label = "Elements") {
+                            SettingsHighlightTarget(anchorId = "el_synopsis", activeAnchor = highlightAnchor) {
                             EpisodeListSwitchRow(
                                 title = "Synopsis",
                                 description = "The two-line description (Classic rows only)",
                                 checked = showSynopsis,
                                 onChecked = { episodeListPrefs.showSynopsis.set(it) },
                             )
+                            }
+                            SettingsHighlightTarget(anchorId = "el_date", activeAnchor = highlightAnchor) {
                             EpisodeListSwitchRow(
                                 title = "Release date",
                                 description = "Shown in every layout where it fits",
                                 checked = showDatePill,
                                 onChecked = { episodeListPrefs.showDatePill.set(it) },
                             )
+                            }
+                            SettingsHighlightTarget(anchorId = "el_audio", activeAnchor = highlightAnchor) {
                             EpisodeListSwitchRow(
                                 title = "Audio pills",
                                 description = "SUB · DUB · HSUB availability",
                                 checked = showAudioPills,
                                 onChecked = { episodeListPrefs.showAudioPills.set(it) },
                             )
+                            }
+                            SettingsHighlightTarget(anchorId = "el_progress", activeAnchor = highlightAnchor) {
                             EpisodeListSwitchRow(
                                 title = "Watch progress",
                                 description = "The bar on the imagery's edge",
                                 checked = showWatchProgress,
                                 onChecked = { episodeListPrefs.showWatchProgress.set(it) },
                             )
+                            }
+                            SettingsHighlightTarget(anchorId = "el_dim", activeAnchor = highlightAnchor) {
                             EpisodeListSwitchRow(
                                 title = "Dim watched",
                                 description = "Fade and grayscale watched episodes",
                                 checked = dimWatched,
                                 onChecked = { episodeListPrefs.dimWatched.set(it) },
                             )
+                            }
+                            SettingsHighlightTarget(anchorId = "el_download", activeAnchor = highlightAnchor) {
                             EpisodeListSwitchRow(
                                 title = "Download buttons",
                                 description = "The control/badge on each episode",
                                 checked = showDownloadControl,
                                 onChecked = { episodeListPrefs.showDownloadControl.set(it) },
                             )
+                            }
                         }
+                    }
+
+                    // ── the footer hint (D-558) — the user's ask: "at the
+                    // very bottom of this screen … a dedicated section … it
+                    // should say that can be further customized by clicking
+                    // episodes on the page." A quiet centered caption — the
+                    // interactive preview slots (swipe-to-toggle, the
+                    // download tap-cycle) ARE the click-customization it
+                    // points at.
+                    item {
+                        Text(
+                            text = "Can be further customized by clicking episodes on the page",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 14.dp),
+                        )
                     }
                 }
                 ScrollBlurOverlay(
@@ -893,11 +1186,13 @@ private fun EpisodeListCard(
     }
 }
 
-/** The switch row — title + one-line description + the switch (D-532). */
+/** The switch row — title + optional one-line description + the switch
+ *  (D-532; the D-558 Cinema section's rows pass null — no descriptions
+ *  there, per the user's explicit spec for that section). */
 @Composable
 private fun EpisodeListSwitchRow(
     title: String,
-    description: String,
+    description: String?,
     checked: Boolean,
     onChecked: (Boolean) -> Unit,
 ) {
@@ -914,13 +1209,15 @@ private fun EpisodeListSwitchRow(
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (description != null) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         Switch(checked = checked, onCheckedChange = onChecked)
     }

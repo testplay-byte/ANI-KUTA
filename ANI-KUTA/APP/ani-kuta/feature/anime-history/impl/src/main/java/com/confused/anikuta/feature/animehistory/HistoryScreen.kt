@@ -99,6 +99,8 @@ fun HistoryScreen(
             CollapsingHeader(
                 title = "History",
                 collapsed = collapsed,
+                // D-558: the heading IS the back button (leading arrow + tappable title).
+                onBack = onBack,
                 actions = {
                     IconButton(onClick = { showClearAllDialog = true }) {
                         Icon(

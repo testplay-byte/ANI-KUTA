@@ -144,6 +144,23 @@ data class EpisodeListDisplayStyle(
     val dimWatched: Boolean = true,
     /** The per-row [EpisodeDownloadControl]. */
     val showDownloadControl: Boolean = true,
+    /**
+     * D-558: CINEMA's ghost number in the banner's TOP-START corner (false =
+     * the historical top-end; the pref default keeps today's behavior).
+     */
+    val cinemaNumberAtTopStart: Boolean = false,
+    /**
+     * D-558: CINEMA's ghost number rendered through a frosted-glass plate —
+     * a translucent material behind the number AND a frost veil on top of it
+     * (false = the historical solid themed number).
+     */
+    val cinemaNumberFrosted: Boolean = false,
+    /**
+     * D-558: the big centered circular check on watched CINEMA banners
+     * (default OFF per the user's spec — the grayscale/dim treatment stays
+     * regardless; only the badge is optional).
+     */
+    val cinemaWatchedCheckBadge: Boolean = false,
 )
 
 /**

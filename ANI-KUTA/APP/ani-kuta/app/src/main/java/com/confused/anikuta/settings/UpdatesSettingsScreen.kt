@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.settings.search.SettingsHighlightTarget
+import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 import com.confused.anikuta.core.preferences.UpdateMode
 import com.confused.anikuta.core.updates.UpdateEngine
 import kotlinx.coroutines.launch
@@ -60,10 +62,15 @@ import org.koin.compose.koinInject
  */
 @Composable
 fun UpdatesSettingsScreen(
+    // D-558: the back affordance arrives with the heading-as-back redesign
+    // (previously this page had NO back button — only the system gesture).
+    onBack: () -> Unit = {},
     onOpenNotifications: () -> Unit,
     onOpenCategories: () -> Unit,
     // Task 64 (round 24): opens the content-update history page.
     onOpenCheckLog: () -> Unit = {},
+    /** D-558: the search-landing anchor (see SettingsSearchNavigator). */
+    highlightAnchor: String? = null,
     updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences = koinInject(),
     updateScheduler: com.confused.anikuta.core.updates.UpdateScheduler = koinInject(),
     updateEngine: UpdateEngine = koinInject(),
@@ -102,9 +109,45 @@ fun UpdatesSettingsScreen(
             CollapsingHeader(
                 title = "Updates",
                 collapsed = collapsed,
+                // D-558: the heading IS the back button (leading arrow + tappable title).
+                onBack = onBack,
             )
 
             Box(modifier = Modifier.fillMaxSize()) {
+                // ── D-558: the search-landing scroll — MODE-AWARE because
+                // several cards are conditional items (interval/categories
+                // exist only in MANUAL; dub only when not OFF).
+                rememberSettingsAnchorScroll(
+                    anchor = highlightAnchor,
+                    anchorIndexFor = { anchor ->
+                        // The REAL item order (mode-dependent): 0 mode card;
+                        // (mode != OFF) 1 check-now, 2 check-log; (MANUAL only)
+                        // 3 interval, 4 categories; (mode != OFF) 5 episode-type
+                        // card, 6 dub card; 7 notifications label; 8 the card.
+                        val isManual = mode == UpdateMode.MANUAL
+                        val isAuto = mode == UpdateMode.AUTO
+                        when (anchor) {
+                            "updates_interval" -> if (isManual) 3 else null
+                            "updates_categories" -> if (isManual) 4 else null
+                            "updates_dub" -> when {
+                                isManual -> 6
+                                isAuto -> 4
+                                else -> null
+                            }
+                            "update_check_log" -> when {
+                                mode == UpdateMode.OFF -> 1
+                                else -> 2
+                            }
+                            "updates_notifications" -> when {
+                                isManual -> 8
+                                isAuto -> 6
+                                else -> 3
+                            }
+                            else -> null
+                        }
+                    },
+                    listState = lazyListState,
+                )
                 LazyColumn(
                     state = lazyListState,
                     modifier = Modifier.fillMaxSize(),
@@ -221,6 +264,7 @@ fun UpdatesSettingsScreen(
                         }
                     }
                     item {
+                        SettingsHighlightTarget(anchorId = "update_check_log", activeAnchor = highlightAnchor) {
                         SeparateCard {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -261,6 +305,7 @@ fun UpdatesSettingsScreen(
                                 )
                             }
                         }
+                        }
                     }
 
                     // ── Checking settings (shown when mode != OFF) — each is a SEPARATE card ──
@@ -268,6 +313,7 @@ fun UpdatesSettingsScreen(
                         // Interval + categories — only in MANUAL mode
                         if (mode == UpdateMode.MANUAL) {
                             item {
+                                SettingsHighlightTarget(anchorId = "updates_interval", activeAnchor = highlightAnchor) {
                                 SeparateCard {
                                     NavRowContent(
                                         title = "Check interval",
@@ -282,14 +328,17 @@ fun UpdatesSettingsScreen(
                                         },
                                     )
                                 }
+                                }
                             }
                             item {
+                                SettingsHighlightTarget(anchorId = "updates_categories", activeAnchor = highlightAnchor) {
                                 SeparateCard {
                                     NavRowContent(
                                         title = "Update categories",
                                         description = "Select which categories to check",
                                         onClick = onOpenCategories,
                                     )
+                                }
                                 }
                             }
                         }
@@ -332,6 +381,7 @@ fun UpdatesSettingsScreen(
 
                         // Check dub on completed anime — separate card
                         item {
+                            SettingsHighlightTarget(anchorId = "updates_dub", activeAnchor = highlightAnchor) {
                             SeparateCard {
                                 SwitchRowContent(
                                     title = "Check dub on completed anime",
@@ -339,6 +389,7 @@ fun UpdatesSettingsScreen(
                                     checked = checkDubCompleted,
                                     onCheckedChange = { updatePreferences.setCheckDubCompleted(it) },
                                 )
+                            }
                             }
                         }
                     }
@@ -351,12 +402,14 @@ fun UpdatesSettingsScreen(
                         SectionLabel("Notifications")
                     }
                     item {
+                        SettingsHighlightTarget(anchorId = "updates_notifications", activeAnchor = highlightAnchor) {
                         SeparateCard {
                             NavRowContent(
                                 title = "Notifications",
                                 description = "Enable, triggers, per-anime config, test",
                                 onClick = onOpenNotifications,
                             )
+                        }
                         }
                     }
                 }

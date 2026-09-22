@@ -51,7 +51,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import com.confused.anikuta.core.designsystem.animation.coverSharedElement
 import com.confused.anikuta.core.designsystem.animation.searchCoverKey
-import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
@@ -99,7 +98,7 @@ fun CsCategoryScreen(
         CollapsingHeader(
             title = sectionTitle,
             collapsed = collapsed,
-            actions = { BackAction(onBack) },
+            onBack = onBack,
         )
 
         Box(modifier = Modifier.fillMaxSize()) {

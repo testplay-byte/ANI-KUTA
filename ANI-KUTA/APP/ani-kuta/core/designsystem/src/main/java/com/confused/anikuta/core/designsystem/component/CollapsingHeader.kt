@@ -3,12 +3,20 @@ package com.confused.anikuta.core.designsystem.component
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,6 +45,23 @@ import com.confused.anikuta.core.designsystem.theme.Motion
  *   palette editor's "Headings" color overrides the default onBackground;
  *   presets keep the default (Unspecified sentinel → onBackground).
  *
+ * # D-558: the LEADING BACK — the heading IS the back button
+ *
+ * The v1.1.31 device round: "on a lot of the screens … the options to go
+ * back are not that well handled … in the settings, every single one of the
+ * settings pages, the back button is shown on the top right corner, which is
+ * not good … move the back button to the left side, just left of the top
+ * heading text … we will be turning the top heading text into the back
+ * button … the heading should not be moved to the right that much. It should
+ * just be slightly moved to the right."
+ *
+ * Pass [onBack] and the header renders a COMPACT back arrow just left of the
+ * title (a 30dp box + an 8dp breath — the title only "slightly" shifts) and
+ * makes the WHOLE title row tappable as back. The trailing [actions] slot is
+ * untouched — screens keep their delete/refresh/settings icons there; the
+ * old top-right BackAction in those slots retires. Omit [onBack] and the
+ * header is exactly what it always was (Browse, More — the root screens).
+ *
  * Usage with LazyVerticalGrid:
  * ```kotlin
  * val gridState = rememberLazyGridState()
@@ -52,6 +77,7 @@ fun CollapsingHeader(
     title: String,
     collapsed: Boolean,
     modifier: Modifier = Modifier,
+    onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val targetFontSize = if (collapsed) 24f else 32f
@@ -91,6 +117,27 @@ fun CollapsingHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
+            if (onBack != null) {
+                // D-558: the compact leading back arrow — deliberately SMALL
+                // (30dp hit box, 20dp glyph) so the heading "is not moved to
+                // the right that much"; the tappable title next to it
+                // widens the effective back target to the whole heading.
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clickable(onClick = onBack),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = LocalHeadingColor.current.takeIf { it != Color.Unspecified }
+                            ?: MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+            }
             Text(
                 text = title,
                 fontSize = fontSize.sp,
@@ -100,7 +147,16 @@ fun CollapsingHeader(
                     ?: MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .then(
+                        if (onBack != null) {
+                            // D-558: the heading text IS the back button.
+                            Modifier.clickable(onClick = onBack)
+                        } else {
+                            Modifier
+                        },
+                    ),
             )
             actions()
         }

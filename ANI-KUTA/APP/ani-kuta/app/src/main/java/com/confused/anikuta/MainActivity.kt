@@ -112,6 +112,8 @@ import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.DetailsPageSettingsScreen
 import com.confused.anikuta.settings.EpisodeListSettingsScreen
 import com.confused.anikuta.settings.AppearanceScreen
+import com.confused.anikuta.settings.search.SettingsSearchNavigator
+import com.confused.anikuta.settings.search.SettingsSearchPage
 import com.confused.anikuta.settings.SettingsScreen
 import com.confused.anikuta.settings.UpdateCategoriesScreen
 import com.confused.anikuta.settings.UpdatesSettingsScreen
@@ -1369,6 +1371,69 @@ fun AppRoot() {
                 onOpenVideoCaching = { backstack.add(VideoCachingKey) },
                 onOpenDebug = { backstack.add(DebugSettingsKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
+                // ── D-558: THE SETTINGS SEARCH. A tapped result requests the
+                // pending anchor and pushes the destination's backstack keys —
+                // sub-page targets chain BOTH keys so back pops naturally. The
+                // target screen consumes its anchor via
+                // SettingsSearchNavigator.takeAnchor and scrolls + pulses it.
+                onOpenSearchResult = { entry ->
+                    SettingsSearchNavigator.request(entry.page, entry.anchor)
+                    when (entry.page) {
+                        SettingsSearchPage.SETTINGS -> Unit
+                        SettingsSearchPage.APPEARANCE -> backstack.add(AppearanceKey)
+                        SettingsSearchPage.APPEARANCE_GENERAL -> {
+                            backstack.add(AppearanceKey)
+                            backstack.add(AppearanceGeneralKey)
+                        }
+                        SettingsSearchPage.EPISODE_LIST -> {
+                            backstack.add(AppearanceKey)
+                            backstack.add(EpisodeSettingsKey)
+                        }
+                        SettingsSearchPage.DETAILS_PAGE -> {
+                            backstack.add(AppearanceKey)
+                            backstack.add(DetailsPageSettingsKey)
+                        }
+                        SettingsSearchPage.APP_ICON -> {
+                            backstack.add(AppearanceKey)
+                            backstack.add(AppIconKey)
+                        }
+                        SettingsSearchPage.EXTENSIONS -> backstack.add(ExtensionsSettingsKey())
+                        SettingsSearchPage.AUTO_LINK -> backstack.add(AutoLinkSettingsKey)
+                        SettingsSearchPage.UPDATES_SETTINGS -> backstack.add(UpdatesSettingsKey)
+                        SettingsSearchPage.UPDATE_CATEGORIES -> {
+                            backstack.add(UpdatesSettingsKey)
+                            backstack.add(UpdateCategoriesKey)
+                        }
+                        SettingsSearchPage.UPDATE_CHECK_LOG -> {
+                            backstack.add(UpdatesSettingsKey)
+                            backstack.add(UpdateCheckLogKey)
+                        }
+                        SettingsSearchPage.NOTIFICATIONS -> backstack.add(NotificationsKey)
+                        SettingsSearchPage.NOTIFICATION_POSTER -> {
+                            backstack.add(NotificationsKey)
+                            backstack.add(NotificationPosterKey)
+                        }
+                        SettingsSearchPage.NOTIFICATIONS_LIBRARY -> {
+                            backstack.add(NotificationsKey)
+                            backstack.add(NotificationsLibraryKey)
+                        }
+                        SettingsSearchPage.PLAYER -> backstack.add(PlayerSettingsKey)
+                        SettingsSearchPage.VIDEO_CACHING -> backstack.add(VideoCachingKey)
+                        SettingsSearchPage.DOWNLOAD_SETTINGS -> backstack.add(DownloadSettingsKey)
+                        SettingsSearchPage.DOWNLOADS_PAGE -> backstack.add(DownloadsKey)
+                        SettingsSearchPage.ABOUT -> backstack.add(AboutKey)
+                        SettingsSearchPage.TRACKERS -> backstack.add(TrackersKey)
+                        SettingsSearchPage.DEBUG -> backstack.add(DebugSettingsKey)
+                        SettingsSearchPage.HISTORY ->
+                            backstack.add(com.confused.anikuta.feature.animehistory.HistoryKey)
+                        SettingsSearchPage.UPDATES_PAGE ->
+                            backstack.add(com.confused.anikuta.feature.updates.UpdatesKey)
+                        SettingsSearchPage.PROFILE -> backstack.add(ProfileKey)
+                    }
+                },
+                highlightAnchor = remember {
+                    SettingsSearchNavigator.takeAnchor(SettingsSearchPage.SETTINGS)
+                },
                 onBack = pop,
             )
             // Task 57 (round 17): the dedicated Debug page — bubble toggle
@@ -1404,13 +1469,22 @@ fun AppRoot() {
             is AboutKey -> AboutScreen(
                 updateManager = appUpdateManager,
                 onBack = pop,
+                // D-558: the search-landing anchor.
+                highlightAnchor = remember {
+                    SettingsSearchNavigator.takeAnchor(SettingsSearchPage.ABOUT)
+                },
             )
             // D-193 Phase 3: combined Updates & Notifications settings
             is UpdatesSettingsKey -> UpdatesSettingsScreen(
+                onBack = pop,
                 onOpenNotifications = { backstack.add(NotificationsKey) },
                 onOpenCategories = { backstack.add(UpdateCategoriesKey) },
                 // Task 64 (round 24): the content-update history page.
                 onOpenCheckLog = { backstack.add(UpdateCheckLogKey) },
+                // D-558: the search-landing anchor (mode-aware inside).
+                highlightAnchor = remember {
+                    SettingsSearchNavigator.takeAnchor(SettingsSearchPage.UPDATES_SETTINGS)
+                },
             )
             is UpdateCategoriesKey -> UpdateCategoriesScreen(onBack = pop)
             // Task 64 (round 24): the update-check history — every check
@@ -1445,6 +1519,10 @@ fun AppRoot() {
                 onBack = pop,
                 onOpenLibrary = { backstack.add(NotificationsLibraryKey) },
                 onOpenPosterSettings = { backstack.add(NotificationPosterKey) },
+                // D-558: the search-landing anchor.
+                highlightAnchor = remember {
+                    SettingsSearchNavigator.takeAnchor(SettingsSearchPage.NOTIFICATIONS)
+                },
             )
             is NotificationPosterKey -> NotificationPosterSettingsScreen(
                 onBack = pop,
@@ -1494,20 +1572,50 @@ fun AppRoot() {
                 onOpenEpisodeSettings = { backstack.add(EpisodeSettingsKey) },
                 onOpenAppIcon = { backstack.add(AppIconKey) },
                 onBack = pop,
+                // D-558: the search-landing anchor.
+                highlightAnchor = remember {
+                    SettingsSearchNavigator.takeAnchor(SettingsSearchPage.APPEARANCE)
+                },
             )
-            is AppIconKey -> AppIconScreen(onBack = pop)
+            is AppIconKey -> AppIconScreen(
+                onBack = pop,
+                // D-558: the search-landing anchor.
+                highlightAnchor = remember {
+                    SettingsSearchNavigator.takeAnchor(SettingsSearchPage.APP_ICON)
+                },
+            )
             is AppearanceGeneralKey -> AppearanceGeneralScreen(
                 onBack = pop,
+                // D-558: the search-landing anchor.
+                highlightAnchor = remember {
+                    SettingsSearchNavigator.takeAnchor(SettingsSearchPage.APPEARANCE_GENERAL)
+                },
             )
-            is DetailsPageSettingsKey -> DetailsPageSettingsScreen(onBack = pop)
+            is DetailsPageSettingsKey -> DetailsPageSettingsScreen(
+                onBack = pop,
+                // D-558: the search-landing anchor.
+                highlightAnchor = remember {
+                    SettingsSearchNavigator.takeAnchor(SettingsSearchPage.DETAILS_PAGE)
+                },
+            )
             is EpisodeSettingsKey ->
                 // D-554: the placeholder retires — the episode-list appearance
                 // page (the D-477/D-481 pattern: a dedicated page whose top is
                 // a stationary LIVE PREVIEW rendered through the SAME EpisodeRow
                 // the details list draws). The key object name stays (zero churn).
-                EpisodeListSettingsScreen(onBack = pop)
+                EpisodeListSettingsScreen(
+                    onBack = pop,
+                    // D-558: the search-landing anchor.
+                    highlightAnchor = remember {
+                        SettingsSearchNavigator.takeAnchor(SettingsSearchPage.EPISODE_LIST)
+                    },
+                )
             is PlayerSettingsKey -> PlayerSettingsScreen(
                 onBack = pop,
+                // D-558: the search-landing anchor.
+                highlightAnchor = remember {
+                    SettingsSearchNavigator.takeAnchor(SettingsSearchPage.PLAYER)
+                },
             )
             is VideoCachingKey -> VideoCachingScreen(
                 onBack = pop,

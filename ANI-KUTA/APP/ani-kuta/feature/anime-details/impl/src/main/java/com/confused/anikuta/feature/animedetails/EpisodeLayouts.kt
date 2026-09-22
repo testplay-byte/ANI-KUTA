@@ -751,15 +751,15 @@ internal fun EpisodeGridCell(
  * side" — the neck stopped short of the card's left edge (the 8dp spacer +
  * the card's own rounded corner left a visible gap).
  *
- * THE FIX removes the seam by CONSTRUCTION: the card now spans the FULL row
- * width and its background is ONE custom [TimelineBlobCardShape] — the
- * rounded card body UNION a stadium bump around the node + date, a single
- * outline, so there is no junction to see. The bump is symmetric around the
- * node/label group (equal padding all around — "around the actual date a
- * bit more better") and fully rounded ("a rounded kind of experience").
- * The node dot + date label render ON the bump; the spine draws in TWO
- * segments (above and below the bump) so the line passes BEHIND the blob
- * and stays continuous down the list.
+ * D-558 — THE THIN GAP. The v1.1.31 device round flipped the merge verdict:
+ * with the union shape the card's material now "is kind of way too close to
+ * the release date. Like it is expanding towards the release date side a bit
+ * too much. So I was hoping for a thin area between those to feel like an
+ * actual blob kind of feel." So the blob and the card are SEPARATE rounded
+ * materials again — the symmetric stadium keeps hugging the node + date and
+ * the card body starts 8dp to its right, one thin background-colored breath
+ * between them (the [TimelineBlobCardShape] draws both sub-shapes in ONE
+ * outline; disjoint, so the gap stays honest at any size).
  */
 @Composable
 internal fun EpisodeTimelineRow(
@@ -778,20 +778,23 @@ internal fun EpisodeTimelineRow(
     val grayscale = watchedImageFilter(isWatched, style.dimWatched)
     val cardColor = MaterialTheme.colorScheme.surfaceVariant
     // The bump geometry (dp, from the row's top-start) — symmetric around
-    // the node(14dp at y=10) + gap(4) + label(~13) group.
+    // the node(14dp at y=10) + gap(4) + label(~13) group. D-558: the card
+    // body starts 8dp RIGHT of the bump — the thin area the user asked for
+    // ("a thin area between those to feel like an actual blob kind of feel").
     val bumpLeft = 2.dp
     val bumpTop = 3.dp
-    val bumpRight = 52.dp
+    val bumpRight = 44.dp
     val bumpBottom = 49.dp
-    val nodeCx = (bumpLeft + bumpRight) / 2 // 27dp — the spine's x
-    val contentStart = bumpRight + 10.dp    // the card's content clears the bump
+    val cardLeft = 52.dp
+    val nodeCx = (bumpLeft + bumpRight) / 2 // 23dp — the spine's x
+    val contentStart = cardLeft + 10.dp     // the card's content clears its own edge
     val blobShape = remember {
         TimelineBlobCardShape(
             bumpLeft = bumpLeft,
             bumpTop = bumpTop,
             bumpRight = bumpRight,
             bumpBottom = bumpBottom,
-            cardLeft = 32.dp,
+            cardLeft = cardLeft,
             cornerRadius = 12.dp,
         )
     }
@@ -943,12 +946,14 @@ internal fun EpisodeTimelineRow(
 }
 
 /**
- * The TIMELINE card's background shape — ONE outline uniting the rounded
- * card body with the stadium bump around the node + date. The union (both
- * sub-shapes in the SAME path, same fill) is what makes the merge seamless:
- * there is no junction, no border, no color difference — the bump simply IS
- * part of the card. The bump's bottom is clamped to the shape's height so a
- * short card never draws the blob outside its bounds.
+ * The TIMELINE card's background shape — ONE outline carrying the rounded
+ * card body AND the stadium bump around the node + date. D-558: the two
+ * sub-shapes are DISJOINT — the card starts 8dp right of the bump, so a thin
+ * background-colored breath separates the date blob from the details card
+ * (the v1.1.31 device round: the merged union "is expanding towards the
+ * release date side a bit too much … hoping for a thin area between those").
+ * The bump's bottom is clamped to the shape's height so a short card never
+ * draws the blob outside its bounds.
  */
 private class TimelineBlobCardShape(
     private val bumpLeft: Dp,
@@ -964,8 +969,8 @@ private class TimelineBlobCardShape(
         density: androidx.compose.ui.unit.Density,
     ): Outline = with(density) {
         val path = Path()
-        // The card body — its left edge starts INSIDE the bump so the two
-        // rounded shapes overlap and union into one continuous silhouette.
+        // The card body — its left edge sits RIGHT of the bump (disjoint:
+        // the gap between them reads as the screen's background).
         path.addRoundRect(
             RoundRect(
                 rect = Rect(
@@ -1010,22 +1015,14 @@ private class TimelineBlobCardShape(
 
 /**
  * CINEMA — the thumbnail IS the card: a full-width 16:9 banner with a bottom
- * gradient scrim, a themed EP NUMBER BADGE top-end, the title + a
- * translucent date/audio/WATCHED chip overlaid bottom-start, the download
- * badge floating bottom-end (the translucent variant), and the
- * watch-progress bar on the banner's bottom edge. Immersive, image-first —
- * the exact opposite pole of the CLASSIC row.
+ * gradient scrim, a themed ghost EP number (D-558: corner + solid/frosted
+ * style are USER choices), the title + a translucent date/audio/WATCHED chip
+ * overlaid bottom-start, the download badge floating bottom-end (the
+ * translucent variant), and the watch-progress bar on the banner's bottom
+ * edge. Immersive, image-first — the exact opposite pole of the CLASSIC row.
  *
- * D-556 — THE NUMBER: the v1.1.29 device round rejected the huge
- * white-alpha ghost number ("the episode numbers are not handled properly.
- * They do not look good or proper … I also feel like the episode numbers
- * should actually be in the theme color of the details page"). The badge
- * replaces it: the DETAILS PAGE'S OWN THEME (the per-anime accent
- * MaterialTheme the list renders under) supplies the surface — a primary
- * rounded plate with the zero-padded number in onPrimary, floating top-end
- * with a soft elevation shadow so it reads on ANY imagery. The ghost number
- * survives exactly ONE place: the no-thumbnail placeholder (there it is the
- * plate, not an overlay fighting an image).
+ * D-558 — the watched check: the centered circular check became a USER
+ * TOGGLE (default OFF; the grayscale/dim treatment itself is untouched).
  */
 @Composable
 internal fun EpisodeCinemaCard(
@@ -1091,8 +1088,13 @@ internal fun EpisodeCinemaCard(
                         ),
                     ),
             )
-            // The watched treatment: dim + centered check (the imagery, not
-            // the text — the chips stay legible).
+            // The watched treatment: the dim overlay stays tied to the
+            // dimWatched toggle; the big centered circular CHECK is the D-558
+            // USER TOGGLE ("we should give the user the option to turn on or
+            // off the check mark on the watched episodes … By default it will
+            // be turned off"). Default OFF → only the quiet dim + the
+            // grayscale imagery; the WATCHED chip in the meta line still
+            // speaks.
             if (isWatched && style.dimWatched) {
                 Box(
                     modifier = Modifier
@@ -1100,43 +1102,88 @@ internal fun EpisodeCinemaCard(
                         .background(Color.Black.copy(alpha = 0.30f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = "Watched",
-                        tint = Color.White,
-                        modifier = Modifier.size(34.dp),
-                    )
+                    if (style.cinemaWatchedCheckBadge) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = "Watched",
+                            tint = Color.White,
+                            modifier = Modifier.size(34.dp),
+                        )
+                    }
                 }
             }
-            // THE GHOST NUMBER — RESTORED (D-557). The v1.1.30 device round:
-            // "I liked the previous numbering on it … the style of numbering
-            // which it had, the proper one. I liked it. But what I told you
-            // to do was to just theme it and make it a bit more visible."
-            // So the huge top-end number is BACK — now in the details page's
-            // own theme color (primary) instead of flat white-alpha, and
-            // MORE visible than the old 0.30 alpha via a near-full-alpha
-            // fill plus a soft dark shadow that keeps it readable over any
-            // imagery. The D-556 badge experiment is gone.
-            Text(
-                text = ghostEpisodeNumber(episode.episode_number),
-                fontFamily = RobotoFamily,
-                fontSize = 56.sp,
-                lineHeight = 56.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.primary,
-                style = androidx.compose.ui.text.TextStyle(
-                    shadow = androidx.compose.ui.graphics.Shadow(
-                        color = Color.Black.copy(alpha = 0.55f),
-                        blurRadius = 18f,
-                        offset = Offset(2f, 2f),
+            // THE GHOST NUMBER — RESTORED (D-557), CUSTOMIZABLE (D-558). The
+            // v1.1.30 device round brought the themed number back; the v1.1.31
+            // round adds the two choices the user asked for: WHICH CORNER it
+            // lives in ("select where the episode number should be shown. top
+            // right corner, or … top left corner?") and its STYLE — SOLID (the
+            // themed number straight on the imagery) or FROSTED GLASS ("the
+            // text will actually be frosted glass kind of effect … slightly
+            // transparent, frosted effect will be on top of it"): a
+            // translucent rounded material behind the number AND a frost veil
+            // layered OVER it, so the number reads as if seen through glass.
+            val numberCorner = if (style.cinemaNumberAtTopStart) Alignment.TopStart
+            else Alignment.TopEnd
+            if (style.cinemaNumberFrosted) {
+                // FROSTED: the plate (behind) + the veil (on top) — the
+                // number sits BETWEEN two layers of glass.
+                Box(
+                    modifier = Modifier
+                        .align(numberCorner)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color.White.copy(alpha = 0.16f))
+                        .border(
+                            width = 1.dp,
+                            color = Color.White.copy(alpha = 0.28f),
+                            shape = RoundedCornerShape(14.dp),
+                        ),
+                ) {
+                    Text(
+                        text = ghostEpisodeNumber(episode.episode_number),
+                        fontFamily = RobotoFamily,
+                        fontSize = 48.sp,
+                        lineHeight = 56.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                    // The frost veil ON TOP of the number — the glass layer.
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to Color.White.copy(alpha = 0.22f),
+                                    1f to Color.White.copy(alpha = 0.06f),
+                                ),
+                            ),
+                    )
+                }
+            } else {
+                Text(
+                    text = ghostEpisodeNumber(episode.episode_number),
+                    fontFamily = RobotoFamily,
+                    fontSize = 56.sp,
+                    lineHeight = 56.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    style = androidx.compose.ui.text.TextStyle(
+                        shadow = androidx.compose.ui.graphics.Shadow(
+                            color = Color.Black.copy(alpha = 0.55f),
+                            blurRadius = 18f,
+                            offset = Offset(2f, 2f),
+                        ),
                     ),
-                ),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                maxLines = 1,
-                softWrap = false,
-            )
+                    modifier = Modifier
+                        .align(numberCorner)
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
             // The overlaid meta — title + one translucent chips pill.
             Column(
                 modifier = Modifier

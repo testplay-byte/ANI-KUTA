@@ -90,6 +90,8 @@ fun UpdatesScreen(
             CollapsingHeader(
                 title = if (selectedTab == 0) "Updates" else "Schedule",
                 collapsed = collapsed,
+                // D-558: the heading IS the back button (leading arrow + tappable title).
+                onBack = onBack,
                 actions = {
                     // D-249: Clear button — visible only on the Updates tab with content.
                     if (selectedTab == 0 && state is UpdatesUiState.Loaded) {
