@@ -544,8 +544,19 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // D-559 release bump (release/1.1.33): 1.1.20/10120 -> 1.1.33/10133 —
+    // the v1.1.32 device round's corrections: the timeline's chicken neck
+    // (the date blob and the card CONNECT through a thin bridge), the
+    // cinema's frosted TEXT (the frost lives in the glyphs, not a plate),
+    // the ONE-element heading-back (the arrow beyond the padding, the title
+    // back near its old spot), My Profile's un-truncated title, and the
+    // search polish (grouped results, invariant bar height, "episode
+    // thumbnail" coverage via the phrase scores + the poster-row index, the
+    // fresh-entry reset, the back-clears-first gesture). Record:
+    // cloudstream-v2/62. The bump rides the release branch exclusively
+    // (D-430); the feature line stays 1.1.20/10120.
+    const val versionCode = 10133
+    const val versionName = "1.1.33"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
