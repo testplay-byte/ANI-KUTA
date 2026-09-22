@@ -1975,3 +1975,10 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 
 ### v1.1.29 LIVE (release run 35680661661 GREEN first-try) — release/1.1.29 from b71e8345, bump 1.1.29/10129, tag v1.1.29 (the concise subject lesson honored)
 - **v1.1.29 LIVE (D-555):** CI ledger: 3 runs — 2 Build (1 RED: the forgotten `thumbnailUrl` local; 1 GREEN fix) + the Release run GREEN on the FIRST try; disclosed per the honest-ledger pattern. API-verified stable/--latest, 67MB APK + SHA256SUMS. release/1.1.28 deleted (204, post-tag delta zero commits).
+## Round 68 — D-556: the preview shows YOUR library + the layout refinements
+- **D-556-A:** CsLinksSheet + CsResolveSheet 0.65 → **0.67** (the v1.1.29 device round's "just slightly" more — the user's exact number); CsEpisodesSheet stays 0.70.
+- **D-556-B:** the preview-image root cause PROVEN — Coil 3.0.4 has NO DataUriFetcher (AAR-verified); demo stills → real drawable resources via android.resource:// URIs; the live preview loads a RANDOM qualifying LIBRARY series (≥2 cached episodes, imagery preferred, honest aggregate audio hints) reconstructed field-for-field like the details cache-restore; demo fallback only when nothing qualifies.
+- **D-556-C:** the preview went LIVE — swipe/long-press toggles watched (1 fresh / 2 watched defaults), every download tap cycles ALL EIGHT download states.
+- **D-556-D:** the scroll collapse — scrolling the options hides the preview's first episode and pins the second; GRID exempt; layout switches glide via animateContentSize.
+- **D-556-E:** the selector cleaned — descriptions + the identity line + the "More" card deleted; SegmentedToggle's selection pill slides on a spring (shared control, 8 call sites).
+- **D-556-F:** CINEMA's themed EP badge (theme color per the user's spec), TIMELINE's blob merge (offset incorporated), GRID recreated, and the type-coded capsule chips for CLASSIC+GRID.
