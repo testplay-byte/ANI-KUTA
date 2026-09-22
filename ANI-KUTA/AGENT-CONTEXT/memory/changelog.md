@@ -1983,3 +1983,8 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **D-556-E:** the selector cleaned — descriptions + the identity line + the "More" card deleted; SegmentedToggle's selection pill slides on a spring (shared control, 8 call sites).
 - **D-556-F:** CINEMA's themed EP badge (theme color per the user's spec), TIMELINE's blob merge (offset incorporated), GRID recreated, and the type-coded capsule chips for CLASSIC+GRID.
 - **v1.1.30 LIVE:** the D-556 round released — 0.67 sheets, the library-data live preview with REAL thumbnails (the Coil-3 fetcher-registry root cause closed), the interactive preview (watched swipes + the 8-state download cycle), the scroll collapse with the pinned second episode, the sliding selector pill, CINEMA's themed badge, TIMELINE's blob merge, the recreated GRID, and the capsule chips. 2 CI runs, both first-try green.
+
+## Round 69 — D-557: the preview works twice + the snap collapse + the layout polish
+- **Interactions:** the stale-swipe closure fixed (rememberUpdatedState), the dead Resolving spinner made tappable (§23), the previewTapAll demo channel (production call sites unchanged), the LIVE Downloading demo (+10%/s → auto-Downloaded, tap skips).
+- **The collapse:** a two-phase snap via NestedScrollConnection — the first gesture consumed entirely, midway snap open↔collapsed, one flip per gesture, fling swallowed, GRID exempt.
+- **The visuals:** the numbers left the imagery (EpisodeNumberLabel above the title), GRID redesign 2 (borderless plate + text block), the timeline blob as ONE custom shape (symmetric stadium bump unioned with the card), the cinema ghost number restored themed (primary + shadow), the shared rounded progress pill on all four surfaces.
