@@ -960,7 +960,7 @@ private class TimelineBlobCardShape(
 ) : Shape {
     override fun createOutline(
         size: androidx.compose.ui.geometry.Size,
-        layoutDirection: androidx.compose.ui.graphics.LayoutDirection,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
         density: androidx.compose.ui.unit.Density,
     ): Outline = with(density) {
         val path = Path()
