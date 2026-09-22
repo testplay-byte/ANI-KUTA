@@ -113,6 +113,11 @@ fun SettingsScreen(
     onOpenPlayerSettings: () -> Unit,
     onOpenVideoCaching: () -> Unit,
     onOpenDebug: () -> Unit,
+    // D-561 (round 73): LONG-PRESS on the "Debug options" row opens the
+    // hidden Always-sponsor page (the toggle that fires the sponsor popup on
+    // every app open). A normal tap still opens the ordinary Debug page —
+    // the long-press is the secret gate and the row gives no visual hint.
+    onOpenSponsorDebug: () -> Unit = {},
     onOpenAbout: () -> Unit,
     onOpenSearchResult: (SettingsSearchEntry) -> Unit = {},
     /** D-558: the pending search anchor when a result targets the hub itself. */
@@ -390,6 +395,10 @@ fun SettingsScreen(
                                 title = "Debug options",
                                 subtitle = "Debug bubble and source details",
                                 onClick = onOpenDebug,
+                                // D-561: the hidden gate — HOLD the row to
+                                // open the Always-sponsor page. No visual
+                                // hint anywhere; you have to know.
+                                onLongClick = onOpenSponsorDebug,
                             )
                         }
                     }
@@ -423,6 +432,7 @@ private fun HubSection(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
 ) {
     SettingsSectionLabel(label)
     SettingsHighlightTarget(anchorId = anchorId, activeAnchor = activeAnchor) {
@@ -431,6 +441,7 @@ private fun HubSection(
             title = title,
             subtitle = subtitle,
             onClick = onClick,
+            onLongClick = onLongClick,
         )
     }
 }

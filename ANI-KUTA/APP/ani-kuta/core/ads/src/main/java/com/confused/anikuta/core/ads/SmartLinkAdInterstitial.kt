@@ -37,10 +37,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
@@ -77,15 +75,25 @@ import org.koin.compose.koinInject
  *   is not that good. It is a bit more cramped… make it fun… clean…
  *   minimal… simple")
  *
- * The card grew air instead of furniture: a tinted hero bubble, a quiet
- * SPONSORED label, ONE short line of copy per state (the previous two-
- * sentence paragraphs are gone — "not say anything too much"), a clear
- * primary action + a quiet escape, and — only while the overlay consent is
- * missing — one compact row offering "draw over other apps" (the return
- * pill's permission, D-443/D-449). Every state keeps its original MEANING
- * and the coordinator contract is untouched: the same Crossfade, the same
- * back-cancels escape, the same pill show-in-tap-handler wiring (a state-
- * effect-driven show could be deferred past the app-backgrounding, D-443).
+ * The card grew air instead of furniture: a tinted hero bubble, ONE short
+ * line of copy per state, a clear primary action + a quiet escape, and —
+ * only while the overlay consent is missing — one compact row offering
+ * "draw over other apps" (the return pill's permission, D-443/D-449).
+ *
+ * # The D-561 rework (the round-73 device feedback)
+ *
+ * The word "sponsor" is GONE from the card — every trace of it (the
+ * SPONSORED eyebrow, "a quick visit to our sponsor…", "stay with our
+ * sponsor…") deleted: "it should never mention sponsored… make sure that
+ * it does not mention sponsor anywhere." The Pending card now says exactly
+ * three things — "Support AniKuta", "(It just takes a few seconds)" in
+ * rounded brackets, and its two buttons; the approved overlay row gains ONE
+ * description line ("Makes things easier for you") and nothing else. The
+ * TryAgain/InProgress states adopt the same parenthetical quietness. Every
+ * state keeps its original MEANING and the coordinator contract is
+ * untouched: the same Crossfade, the same back-cancels escape, the same
+ * pill show-in-tap-handler wiring (a state-effect-driven show could be
+ * deferred past the app-backgrounding, D-443).
  *
  * # Why a Dialog (not a screen pushed onto the backstack)
  *
@@ -267,26 +275,13 @@ private fun HeroBubble(
 }
 
 /**
- * The quiet "SPONSORED" eyebrow — small, tracked-out caps above the title.
- * Discloses what the card is before asking anything of the user.
- */
-@Composable
-private fun SponsoredLabel() {
-    Text(
-        text = "SPONSORED",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontWeight = FontWeight.Medium,
-        letterSpacing = 1.6.sp,
-    )
-}
-
-/**
  * D-560: the one-row "draw over other apps" offer. Renders ONLY while the
  * consent is missing (the caller guards with `if (!overlayGranted)` —
  * granted = nothing at all, the user's exact words). One tappable line that
- * opens the system's per-app overlay toggle; no lecture, no second line —
- * the wizard (D-449) already told the story, this is just the missing switch.
+ * opens the system's per-app overlay toggle. D-561 adds the ONE description
+ * line the user asked for under the title ("Makes things easier for you")
+ * and NOTHING else — the wizard (D-449) already told the story, this is
+ * just the missing switch.
  */
 @Composable
 private fun OverlayPermissionRow(onClick: () -> Unit) {
@@ -307,12 +302,23 @@ private fun OverlayPermissionRow(onClick: () -> Unit) {
                 modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.width(12.dp))
-            Text(
-                text = "Enable draw over other apps",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Enable draw over other apps",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                // D-561: the ONE description the user asked for under the
+                // row's title — "it could show a short description that it
+                // makes things easier for you. And that's it. Besides that,
+                // it won't show any other things."
+                Text(
+                    text = "Makes things easier for you",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 1.dp),
+                )
+            }
             Icon(
                 imageVector = Icons.Filled.ChevronRight,
                 contentDescription = null,
@@ -342,25 +348,27 @@ private fun AdPendingContent(
             modifier = Modifier.size(26.dp),
         )
     }
-    Spacer(Modifier.height(10.dp))
-    SponsoredLabel()
-    Spacer(Modifier.height(2.dp))
+    Spacer(Modifier.height(14.dp))
+    // D-561: the ONLY heading the card carries — "support AniKuta is the
+    // only thing which it should show there". No eyebrow, no disclosure,
+    // no sponsor word anywhere on the card.
     Text(
-        text = "Support ANI-KUTA",
+        text = "Support AniKuta",
         style = MaterialTheme.typography.titleLarge,
         color = MaterialTheme.colorScheme.onSurface,
         textAlign = TextAlign.Center,
     )
     Spacer(Modifier.height(6.dp))
-    // ONE line — the previous two-sentence paragraph is gone (D-560:
-    // "not say anything too much… keep it just normal").
+    // D-561: the ONE quiet line, in rounded brackets — the user dictated
+    // it "in rounded brackets" and nothing more: "below it, it should just
+    // say that it just takes a few seconds".
     Text(
-        text = "A quick visit to our sponsor keeps ANI-KUTA free.",
+        text = "(It just takes a few seconds)",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
     )
-    Spacer(Modifier.height(18.dp))
+    Spacer(Modifier.height(20.dp))
     Button(
         onClick = onContinue,
         modifier = Modifier.fillMaxWidth(),
@@ -389,7 +397,7 @@ private fun AdInProgressContent() {
             modifier = Modifier.size(26.dp),
         )
     }
-    Spacer(Modifier.height(10.dp))
+    Spacer(Modifier.height(14.dp))
     Text(
         text = "See you in a moment",
         style = MaterialTheme.typography.titleMedium,
@@ -397,8 +405,9 @@ private fun AdInProgressContent() {
         textAlign = TextAlign.Center,
     )
     Spacer(Modifier.height(6.dp))
+    // D-561: the parenthetical quietness matches the other states.
     Text(
-        text = "Come back to ANI-KUTA when you're ready.",
+        text = "(Come back to AniKuta when you're ready)",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
@@ -422,9 +431,7 @@ private fun AdTryAgainContent(
             modifier = Modifier.size(26.dp),
         )
     }
-    Spacer(Modifier.height(10.dp))
-    SponsoredLabel()
-    Spacer(Modifier.height(2.dp))
+    Spacer(Modifier.height(14.dp))
     Text(
         text = "That was too quick",
         style = MaterialTheme.typography.titleLarge,
@@ -432,15 +439,16 @@ private fun AdTryAgainContent(
         textAlign = TextAlign.Center,
     )
     Spacer(Modifier.height(6.dp))
-    // ONE line, with the real threshold (the pill counts the same number).
+    // ONE line, with the real threshold (the pill counts the same number),
+    // in the D-561 parenthetical style — and the sponsor word is gone.
     val seconds = (config.smartLink.minTimeOutsideMs / 1000).coerceAtLeast(1)
     Text(
-        text = "Stay with our sponsor for ${seconds}s, then come back.",
+        text = "(Stay for ${seconds}s, then come back)",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
     )
-    Spacer(Modifier.height(18.dp))
+    Spacer(Modifier.height(20.dp))
     Button(
         onClick = onTryAgain,
         modifier = Modifier.fillMaxWidth(),
@@ -456,5 +464,39 @@ private fun AdTryAgainContent(
     if (!overlayGranted) {
         Spacer(Modifier.height(6.dp))
         OverlayPermissionRow(onClick = onEnableOverlay)
+    }
+}
+
+// ── The D-561 always-sponsor app-open gate ────────────────────────────────────
+
+/**
+ * D-561 (round 73): the DEBUG "Always sponsor" trigger. Composed ONCE by the
+ * AppRoot right next to [SmartLinkAdInterstitial]; while the toggle (Settings
+ * → long-press "Debug options" → Always sponsor) is ON, every process
+ * foreground transition — the user "opens it up" — shows the sponsor popup
+ * ([AdsCoordinator.onAppOpened] holds the Idle/in-flight/respawn guards).
+ * With the toggle OFF this is a no-op observer: the normal ad system is the
+ * ONLY path, byte-for-byte as before.
+ *
+ * Why [androidx.lifecycle.ProcessLifecycleOwner] and not the activity's
+ * lifecycle: "the user opens the app" is a PROCESS-foreground fact — an
+ * activity ON_START would also fire on returning from a permission screen /
+ * split-screen resize and re-trigger mid-session. ProcessLifecycleOwner's
+ * ON_START fires once per foreground entry, and its first dispatch posts
+ * AFTER composition (setContent runs in onCreate), so a cold open is caught
+ * too — one observer, both cold and warm opens.
+ */
+@Composable
+fun AlwaysSponsorGate() {
+    val coordinator = koinInject<AdsCoordinator>()
+    val processOwner = androidx.lifecycle.ProcessLifecycleOwner.get()
+    DisposableEffect(processOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) {
+                coordinator.onAppOpened()
+            }
+        }
+        processOwner.lifecycle.addObserver(observer)
+        onDispose { processOwner.lifecycle.removeObserver(observer) }
     }
 }

@@ -68,11 +68,21 @@ import java.net.URL
 // ════════════════════════════════════════════════════════════════════════════
 //
 // The round-37 rework (the user's explicit instructions):
-//  - The 8 PREMADE BAKED app icons are REMOVED COMPLETELY — no
-//    activity-aliases, no baked variant grid, nothing premade. The page
-//    shows ONLY the GitHub repository's icons/ catalog (the user curates
-//    that folder — icons are added/removed there at any time, without an
-//    app release).
+//  - The 8 PREMADE BAKED app icons were REMOVED — no activity-aliases, no
+//    baked variant grid. The page showed ONLY the GitHub repository's
+//    icons/ catalog (the user curates that folder — icons are added/removed
+//    there at any time, without an app release).
+//
+// The D-561 change (round 73 — the user's explicit new order, superseding
+// the no-presets rule): the page had "no pre-set app icons", so SIX
+// user-provided artworks (RAW_ICONS.zip — six anime open-mouth colorways,
+// center-cropped + baked at 512px as drawable-nodpi/preset_icon_*.jpg) now
+// sit in a Presets grid ABOVE the GitHub catalog. Same D-432 display rule
+// (the FULL artwork in a rounded-corner cell, never a circle crop); same
+// override machinery as a catalog pick — the tap exports the baked drawable
+// to filesDir/app-icons/presets/<key>.png and the in-app override points
+// there. The honest Android limitation is unchanged: a launcher icon must
+// be a resource baked into the APK.
 //  - The display format: each icon is shown as its FULL artwork in a
 //    ROUNDED-CORNER (squircle-style) cell — NOT cropped into a circle.
 //    (The round-35 page circle-clipped every icon — the artwork's shape was
@@ -90,6 +100,13 @@ import java.net.URL
 data class CatalogIcon(
     val fileName: String,
     val downloadUrl: String,
+)
+
+/** D-561: one BAKED preset icon (a drawable resource + its display name). */
+data class PresetIcon(
+    val key: String,
+    val resId: Int,
+    val name: String,
 )
 
 /**
@@ -155,6 +172,26 @@ class AppIconController(
         if (target.exists() && target.length() > 0) target else null
     }
 
+    /**
+     * D-561: exports one BAKED preset drawable into the on-disk cache
+     * (filesDir/app-icons/presets/<key>.png — 512px, the same processing a
+     * catalog icon gets). The in-app override points at the exported file,
+     * so a preset pick rides the EXACT machinery a catalog pick does (the
+     * hero reads it, clear-override resets it). Returns the processed file,
+     * or null on any failure.
+     */
+    suspend fun loadPresetIconFile(preset: PresetIcon): File? = withContext(Dispatchers.IO) {
+        val target = File(presetsDir(), "${preset.key}.png")
+        if (target.exists() && target.length() > 0) return@withContext target
+        val source = runCatching {
+            BitmapFactory.decodeResource(context.resources, preset.resId)
+        }.getOrNull() ?: return@withContext null
+        val processed = processSquare(source, 512) ?: return@withContext null
+        runCatching { target.outputStream().use { processed.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+        processed.recycle()
+        if (target.exists() && target.length() > 0) target else null
+    }
+
     /** Clears the in-app override (the hero falls back to the launcher artwork). */
     fun clearOverride() {
         preferences.inAppOverridePath = ""
@@ -163,6 +200,8 @@ class AppIconController(
     private fun iconsDir(): File = File(context.filesDir, "app-icons").apply { mkdirs() }
 
     private fun catalogDir(): File = File(iconsDir(), "catalog").apply { mkdirs() }
+
+    private fun presetsDir(): File = File(iconsDir(), "presets").apply { mkdirs() }
 
     companion object {
         /** The published repo's icons/ listing (the APK-only release repo). */
@@ -230,6 +269,25 @@ class AppIconController(
 
 /** The shared display shape — a rounded-corner square (the D-432 format). */
 private val IconCellShape = RoundedCornerShape(16.dp)
+
+/**
+ * D-561: the BAKED PRESETS — the user's six provided artworks (RAW_ICONS.zip),
+ * center-cropped + baked at 512px into drawable-nodpi. Always present, no
+ * network, listed above the GitHub catalog. The keys ARE the exported file
+ * names (filesDir/app-icons/presets/<key>.png).
+ */
+private val PRESET_ICONS = listOf(
+    PresetIcon("dark", R.drawable.preset_icon_dark, "Dark"),
+    PresetIcon("teal", R.drawable.preset_icon_teal, "Teal"),
+    PresetIcon("sky", R.drawable.preset_icon_sky, "Sky"),
+    PresetIcon("gold", R.drawable.preset_icon_gold, "Gold"),
+    PresetIcon("green", R.drawable.preset_icon_green, "Green"),
+    PresetIcon("pink", R.drawable.preset_icon_pink, "Pink"),
+)
+
+/** The preset export path for [preset] — the override file a tap produces. */
+private fun presetExportPath(preset: PresetIcon): String =
+    "/app-icons/presets/${preset.key}.png"
 
 @Composable
 fun AppIconScreen(
@@ -348,11 +406,16 @@ fun AppIconScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                     Text(
+                                        // D-561: a preset pick shows the preset's
+                                        // name; a catalog pick keeps its lookup.
                                         text = if (override != null) {
-                                            catalogIcons
-                                                .firstOrNull { override.endsWith(processedDisplayName(it)) }
-                                                ?.let { displayIconName(it) }
-                                                ?: "From the repository"
+                                            PRESET_ICONS
+                                                .firstOrNull { override.endsWith(presetExportPath(it)) }
+                                                ?.name
+                                                ?: catalogIcons
+                                                    .firstOrNull { override.endsWith(processedDisplayName(it)) }
+                                                    ?.let { displayIconName(it) }
+                                                    ?: "From the repository"
                                         } else "The app's icon",
                                         fontFamily = RobotoFamily,
                                         fontSize = 16.sp,
@@ -369,6 +432,51 @@ fun AppIconScreen(
                                             modifier = Modifier.padding(top = 2.dp),
                                         )
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── D-561: the BAKED PRESETS — the six provided artworks,
+                    // always here (no network), above the catalog grid. ──
+                    item(key = "presets-header") {
+                        SettingsSectionLabel("Presets")
+                    }
+                    PRESET_ICONS.chunked(4).forEach { rowIcons ->
+                        item(key = "preset-row-${rowIcons.first().key}") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                rowIcons.forEach { preset ->
+                                    PresetCell(
+                                        preset = preset,
+                                        selected = overridePath.endsWith(presetExportPath(preset)),
+                                        onClick = {
+                                            scope.launch {
+                                                val file = controller.loadPresetIconFile(preset)
+                                                if (file == null) {
+                                                    withContext(Dispatchers.Main) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Couldn't load that icon",
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                    }
+                                                } else {
+                                                    withContext(Dispatchers.Main) {
+                                                        overridePath = file.absolutePath
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Applied inside the app",
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
                                 }
                             }
                         }
@@ -488,6 +596,61 @@ fun AppIconScreen(
                 )
             }
         }
+    }
+}
+
+/** One BAKED preset grid cell (D-561) — identical visual language to [CatalogCell]. */
+@Composable
+private fun PresetCell(
+    preset: PresetIcon,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(4.dp),
+    ) {
+        // The D-432 display rule holds: the FULL artwork in a rounded-corner
+        // cell — never a circle crop. The artwork IS the baked drawable, so
+        // the cell paints it straight from the resource (no file I/O).
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .clip(IconCellShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .then(
+                    if (selected) {
+                        Modifier.border(
+                            width = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = IconCellShape,
+                        )
+                    } else {
+                        Modifier
+                    }
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(preset.resId),
+                contentDescription = preset.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Text(
+            text = preset.name,
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 

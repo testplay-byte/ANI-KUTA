@@ -47,6 +47,13 @@ interface AdsRepository {
      * applies). Persisted — survives cold starts + process death.
      */
     fun consumeFirstOpenGrace(): Boolean
+
+    /**
+     * D-561 (round 73): the DEBUG "Always sponsor" toggle (Settings →
+     * long-press "Debug options" → Always sponsor). Default OFF. ON = the
+     * sponsor interstitial fires on EVERY app open, bypassing the cooldown.
+     */
+    fun preferencesAlwaysSponsor(): Boolean
 }
 
 /**
@@ -103,6 +110,8 @@ class AdsRepositoryImpl(
         Logger.i(TAG) { "first-open grace CONSUMED — the first gated navigation is ad-free" }
         return true
     }
+
+    override fun preferencesAlwaysSponsor(): Boolean = preferences.alwaysSponsor
 
     private companion object {
         private const val TAG = "Anikuta:Core:Ads:Repo"

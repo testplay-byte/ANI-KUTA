@@ -63,6 +63,7 @@ import com.confused.anikuta.core.designsystem.animation.searchCoverKey  // D-328
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.appupdate.AppUpdateManager
 import com.confused.anikuta.core.ads.AdsCoordinator  // D-272: smart-link ad coordinator
+import com.confused.anikuta.core.ads.AlwaysSponsorGate  // D-561: the always-sponsor app-open gate
 import com.confused.anikuta.core.ads.SmartLinkAdInterstitial  // D-272: ad interstitial overlay
 import com.confused.anikuta.core.designsystem.component.NavIcons
 import com.confused.anikuta.core.designsystem.component.NavItem
@@ -349,6 +350,13 @@ object VideoCachingKey : NavKey
 @Serializable
 object DebugSettingsKey : NavKey
 
+// D-561 (round 73): the HIDDEN Always-sponsor page — reachable ONLY by
+// long-pressing the "Debug options" row on the Settings hub. Hosts the
+// always-sponsor toggle (default OFF; ON = the sponsor popup fires on every
+// app open, bypassing the cooldown — the debug repeat-viewer).
+@Serializable
+object SponsorDebugKey : NavKey
+
 // About & Updates screen — hosts the app-update UI (version, auto-check toggle,
 // manual check, downloaded APK list). The UpdateBottomSheet overlay is rendered
 // from AppRoot (below) gated on AppUpdateManager.shouldShowUpdateSheet.
@@ -404,6 +412,7 @@ private val allowedUpdateSheetKeys = setOf(
     AppearanceGeneralKey::class,
     DetailsPageSettingsKey::class,
     DebugSettingsKey::class,
+    SponsorDebugKey::class,
     EpisodeSettingsKey::class,
     UpdateCheckLogKey::class,
     PlayerSettingsKey::class,
@@ -1370,6 +1379,8 @@ fun AppRoot() {
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onOpenVideoCaching = { backstack.add(VideoCachingKey) },
                 onOpenDebug = { backstack.add(DebugSettingsKey) },
+                // D-561: the hidden long-press gate on the SAME row.
+                onOpenSponsorDebug = { backstack.add(SponsorDebugKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
                 // ── D-558: THE SETTINGS SEARCH. A tapped result requests the
                 // pending anchor and pushes the destination's backstack keys —
@@ -1446,6 +1457,11 @@ fun AppRoot() {
                 onBack = pop,
                 // D-388 (round 25): the dedicated Update Check History button.
                 onOpenUpdateCheckHistory = { backstack.add(UpdateCheckLogKey) },
+            )
+            // D-561 (round 73): the hidden Always-sponsor page (long-press on
+            // the Debug options row). One toggle, default OFF = normal ops.
+            is SponsorDebugKey -> com.confused.anikuta.settings.SponsorDebugScreen(
+                onBack = pop,
             )
             // CloudStream V2: the plugin detail page — resolves the plugin across
             // Trusted/Untrusted/Failed/Available and shows metadata + live
@@ -1858,6 +1874,10 @@ fun AppRoot() {
         // when AdsCoordinator.state is active (AdPending / AdInProgress / AdTryAgain).
         // Idle = no-op (renders nothing). Sibling of UpdateBottomSheet above.
         SmartLinkAdInterstitial()
+        // D-561: the ALWAYS-SPONSOR app-open gate — a no-op observer while the
+        // debug toggle (Settings → long-press Debug options → Always sponsor)
+        // is OFF; ON = the popup above fires on every process foreground entry.
+        AlwaysSponsorGate()
         } // end CompositionLocalProvider Box
     } // end CompositionLocalProvider
 }

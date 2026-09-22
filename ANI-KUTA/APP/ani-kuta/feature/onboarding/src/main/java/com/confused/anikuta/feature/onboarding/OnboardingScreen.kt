@@ -312,9 +312,11 @@ fun OnboardingScreen(
                     stepNumber = 5,
                     icon = Icons.Filled.Layers,
                     title = "Draw over other apps",
-                    description = "Lets ANI-KUTA show a small floating timer while the " +
-                        "sponsor opens, with a Go back button that brings you straight " +
-                        "back into the app.",
+                    // D-561 (round 73): the description the user dictated, WORD
+                    // FOR WORD — "the description is way too big… what the
+                    // description should say is this: … And that's it, nothing
+                    // more." One short line; the pill story stays untold here.
+                    description = "Let's AniKuta show floating elements, which make things easier.",
                     actionLabel = "Allow drawing over apps",
                     onAction = { OnboardingPermissions.requestOverlayPermission(context) },
                     statusGranted = overlayGranted,

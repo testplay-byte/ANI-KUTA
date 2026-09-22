@@ -4,7 +4,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -60,6 +60,9 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
  * @param subtitle Row subtitle.
  * @param onClick Click handler.
  * @param showDot Optional red notification dot at the icon's top-end corner.
+ * @param onLongClick D-561: an optional long-press handler — null (default)
+ *   keeps the exact tap-only behavior; set (Settings' "Debug options" row)
+ *   the row upgrades to combinedClickable and a held press fires it.
  */
 @Composable
 fun MoreListRow(
@@ -69,6 +72,7 @@ fun MoreListRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     showDot: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -85,10 +89,13 @@ fun MoreListRow(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null, // No ripple — clean press animation per design language
                 onClick = onClick,
+                // D-561: null (default) = identical to the old .clickable;
+                // non-null = the row's hidden long-press (the debug gate).
+                onLongClick = onLongClick,
             ),
     ) {
         Row(

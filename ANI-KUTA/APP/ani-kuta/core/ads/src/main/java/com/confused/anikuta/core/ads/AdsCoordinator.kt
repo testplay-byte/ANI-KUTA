@@ -90,6 +90,14 @@ class AdsCoordinator(
     private var pendingProceed: (() -> Unit)? = null
 
     /**
+     * D-561: when the ALWAYS-SPONSOR app-open trigger fired most recently —
+     * the suppression guard that keeps the browser's return-to-foreground
+     * (which lands as an app-open too) from respawning the popup the instant
+     * the previous one completes (an inescapable popup loop).
+     */
+    private var lastOpenAdCompletedAt: Long = 0L
+
+    /**
      * Called by the AppRoot's `navigateToDetails` helper.
      * @param proceed the navigation to gate (e.g. `backstack.add(key)`).
      * @return true if the request was accepted (proceed was invoked OR interstitial
@@ -226,6 +234,40 @@ class AdsCoordinator(
         _state.value = AdGateState.Idle
     }
 
+    /**
+     * D-561 (round 73): the ALWAYS-SPONSOR app-open trigger — called by the
+     * AppRoot's gate on every ProcessLifecycleOwner ON_START while the DEBUG
+     * toggle (Settings → long-press "Debug options" → Always sponsor) is on.
+     * The user's spec: "every single time the user tries to open it up, it
+     * will open up the sponsor page" — the interstitial appears with nothing
+     * to proceed TO (the popup is the whole point), so the held proceed is a
+     * no-op and completion simply returns the user to wherever they are.
+     *
+     * Deliberately DIFFERENT from [requestNavigation]: no cooldown check (the
+     * toggle means ALWAYS), no first-open grace, no offline gate (the popup
+     * itself is the deliverable; a failed browser-open completes gracefully
+     * via [openSmartLinkUrl]'s catch). The guards that DO apply:
+     * - an ad already in flight → ignored (the browser-return ON_START is
+     *   exactly this case); and
+     * - an open-ad that completed within [OPEN_AD_RESPAWN_SUPPRESS_MS] →
+     *   ignored — the return-from-browser fires ON_START around the same
+     *   dispatch as [completeAd]; without this window the popup would
+     *   respawn the instant it finished and trap the user in a loop.
+     */
+    fun onAppOpened() {
+        if (!repository.preferencesAlwaysSponsor()) return
+        val current = _state.value
+        if (current !is AdGateState.Idle) return
+        val sinceCompleted = System.currentTimeMillis() - lastOpenAdCompletedAt
+        if (sinceCompleted < OPEN_AD_RESPAWN_SUPPRESS_MS) {
+            Logger.d(TAG) { "always-sponsor open suppressed — the previous open-ad just completed (${sinceCompleted}ms ago)" }
+            return
+        }
+        pendingProceed = {}  // nothing to proceed TO — the popup is the deliverable
+        _state.value = AdGateState.AdPending
+        Logger.i(TAG) { "always-sponsor — interstitial shown on app open (AdPending, no proceed)" }
+    }
+
     // ── internals ─────────────────────────────────────────────────────────────
 
     /**
@@ -279,6 +321,11 @@ class AdsCoordinator(
 
     /** Records the ad as completed + runs the held proceed-callback + returns to Idle. */
     private fun completeAd() {
+        if (repository.preferencesAlwaysSponsor()) {
+            // D-561: stamp WHEN the open-ad completed so the same
+            // foreground-return can't instantly respawn the popup.
+            lastOpenAdCompletedAt = System.currentTimeMillis()
+        }
         repository.recordAdShown()
         val proceed = pendingProceed
         pendingProceed = null
@@ -289,6 +336,15 @@ class AdsCoordinator(
 
     private companion object {
         private const val TAG = "Anikuta:Core:Ads:Coordinator"
+
+        /**
+         * D-561: the respawn-suppression window after an always-sponsor
+         * open-ad completes. It only has to outlive the SAME ON_START
+         * dispatch that completed the ad (the observer callbacks land
+         * within one main-thread loop) — 2s is generously safe and still
+         * invisible to a human re-opening the app.
+         */
+        private const val OPEN_AD_RESPAWN_SUPPRESS_MS = 2_000L
     }
 }
 

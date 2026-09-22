@@ -2,6 +2,7 @@ package com.confused.anikuta.core.ads
 
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.preferences.PreferenceStore
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Persistent state for the ad system (isolated from [com.confused.anikuta.core.preferences.AppPreferences]
@@ -54,9 +55,28 @@ class AdPreferences(
             Logger.i(TAG) { "firstOpenGraceConsumed persisted = $value" }
         }
 
+    /**
+     * D-561 (round 73): the DEBUG "Always sponsor" switch (Settings → long-
+     * press "Debug options" → the Always-sponsor page). Default OFF = the
+     * normal ad system. ON = the sponsor interstitial fires on EVERY app
+     * open (foreground transition), bypassing the cooldown entirely —
+     * "every single time the user tries to open it up, it will open up the
+     * sponsor page." Persisted so it survives process death.
+     */
+    var alwaysSponsor: Boolean
+        get() = preferenceStore.getBoolean(KEY_ALWAYS_SPONSOR, false)
+        set(value) {
+            preferenceStore.putBoolean(KEY_ALWAYS_SPONSOR, value)
+            Logger.i(TAG) { "alwaysSponsor persisted = $value" }
+        }
+
+    /** Reactive read for the toggle row (the DebugPreferences pattern). */
+    fun alwaysSponsorFlow(): Flow<Boolean> = preferenceStore.booleanFlow(KEY_ALWAYS_SPONSOR, false)
+
     private companion object {
         private const val TAG = "Anikuta:Core:Ads:Prefs"
         private const val KEY_LAST_AD_SHOWN = "ads_last_shown_timestamp"
         private const val KEY_FIRST_OPEN_GRACE = "ads_first_open_grace_consumed"
+        private const val KEY_ALWAYS_SPONSOR = "ads_always_sponsor"
     }
 }
