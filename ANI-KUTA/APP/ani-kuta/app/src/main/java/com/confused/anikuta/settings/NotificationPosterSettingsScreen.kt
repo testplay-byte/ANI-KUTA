@@ -67,6 +67,8 @@ import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.notifications.EpisodeBannerComposer
 import com.confused.anikuta.notifications.EpisodeDemoPicker
 import com.confused.anikuta.notifications.PosterTemplate
+import com.confused.anikuta.settings.search.SettingsHighlightTarget
+import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -132,6 +134,11 @@ import org.koin.compose.koinInject
 @Composable
 fun NotificationPosterSettingsScreen(
     onBack: () -> Unit,
+    // D-559: the search-landing anchor — the v1.1.32 round's "episode
+    // thumbnail" query reaches THIS page's rows now; the screen scrolls to
+    // the entry's row and pulses it (the D-558 search contract's missing
+    // half on this screen).
+    highlightAnchor: String? = null,
     posterPrefs: NotificationPreferences = koinInject(),
     composer: EpisodeBannerComposer = koinInject(),
     demoPicker: EpisodeDemoPicker = koinInject(),
@@ -290,6 +297,22 @@ fun NotificationPosterSettingsScreen(
             if (isShuffle) shuffling = false
         }
     }
+
+    // ── D-559: the search-landing scroll (the anchor map is this screen's
+    // half of the search contract: 0 layout · 1 artwork · 2 elements).
+    rememberSettingsAnchorScroll(
+        anchor = highlightAnchor,
+        anchorIndexFor = { anchor ->
+            when (anchor) {
+                "notification_poster", "poster_layout" -> 0
+                "poster_artwork" -> 1
+                "poster_title", "poster_thumbnail", "poster_badges",
+                "poster_branding", "poster_master" -> 2
+                else -> null
+            }
+        },
+        listState = lazyListState,
+    )
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -499,6 +522,7 @@ fun NotificationPosterSettingsScreen(
                     // ── D-524: the template picker — the FIVE-WAY toggle ──
                     item {
                         CollapseAnimated(visible = posterEnabled) {
+                            SettingsHighlightTarget(anchorId = "poster_layout", activeAnchor = highlightAnchor) {
                             PosterCard(label = "Layout") {
                                 SegmentedOptionBlock(
                                     title = "Layout",
@@ -518,12 +542,14 @@ fun NotificationPosterSettingsScreen(
                                     )
                                 }
                             }
+                            }
                         }
                     }
 
                     // ── D-526: the artwork source — the THREE-WAY toggle ──
                     item {
                         CollapseAnimated(visible = posterEnabled) {
+                            SettingsHighlightTarget(anchorId = "poster_artwork", activeAnchor = highlightAnchor) {
                             PosterCard(label = "Artwork") {
                                 SegmentedOptionBlock(
                                     title = "Artwork",
@@ -541,6 +567,7 @@ fun NotificationPosterSettingsScreen(
                                     )
                                 }
                             }
+                            }
                         }
                     }
 
@@ -549,6 +576,8 @@ fun NotificationPosterSettingsScreen(
                     // this card (the round-57 verdict) and the ONE row that
                     // never collapses; the label + the four element rows
                     // wrap in AnimatedVisibility keyed on it.
+                    // D-559: every row is a SettingsHighlightTarget — the
+                    // search landing's scroll + pulse targets.
                     item {
                         PosterCard(
                             label = "Elements",
@@ -560,6 +589,7 @@ fun NotificationPosterSettingsScreen(
                                 exit = fadeOut() + shrinkVertically(),
                             ) {
                                 Column {
+                                    SettingsHighlightTarget(anchorId = "poster_title", activeAnchor = highlightAnchor) {
                                     PosterSwitchRow(
                                         title = "Episode title",
                                         description = "Shown under the tags",
@@ -569,6 +599,8 @@ fun NotificationPosterSettingsScreen(
                                             showEpTitleState = it
                                         },
                                     )
+                                    }
+                                    SettingsHighlightTarget(anchorId = "poster_thumbnail", activeAnchor = highlightAnchor) {
                                     PosterSwitchRow(
                                         title = "Episode thumbnail",
                                         description = "The art card beside the text",
@@ -578,6 +610,8 @@ fun NotificationPosterSettingsScreen(
                                             showThumbState = it
                                         },
                                     )
+                                    }
+                                    SettingsHighlightTarget(anchorId = "poster_badges", activeAnchor = highlightAnchor) {
                                     PosterSwitchRow(
                                         title = "SUB / DUB badges",
                                         description = "The audio chips row",
@@ -587,6 +621,8 @@ fun NotificationPosterSettingsScreen(
                                             showBadgeState = it
                                         },
                                     )
+                                    }
+                                    SettingsHighlightTarget(anchorId = "poster_branding", activeAnchor = highlightAnchor) {
                                     PosterSwitchRow(
                                         title = "ANI-KUTA branding",
                                         description = "The corner wordmark",
@@ -596,8 +632,10 @@ fun NotificationPosterSettingsScreen(
                                             showBrandingState = it
                                         },
                                     )
+                                    }
                                 }
                             }
+                            SettingsHighlightTarget(anchorId = "poster_master", activeAnchor = highlightAnchor) {
                             PosterSwitchRow(
                                 title = "Poster",
                                 description = "Render notifications as banners",
@@ -606,6 +644,7 @@ fun NotificationPosterSettingsScreen(
                                     posterPrefs.posterEnabled = it
                                 },
                             )
+                            }
                         }
                     }
                 }

@@ -16,6 +16,9 @@ package com.confused.anikuta.settings.search
  *  -  85  title starts with the token
  *  -  75  title contains the token at a word boundary
  *  -  60  title contains the token anywhere
+ *  -  90  the FULL phrase matches the title (multi-token queries, D-559)
+ *  -  70  the FULL phrase matches the keywords (multi-token queries, D-559:
+ *         curated multi-word synonyms like "episode thumbnail" hit whole)
  *  -  65  a keyword IS the token (exact synonym hit)
  *  -  50  a keyword starts with the token
  *  -  40  the keywords contain the token anywhere
@@ -40,9 +43,11 @@ object SettingsSearchEngine {
 
     /** Weights — the single tuning surface (see the class KDoc). */
     private const val W_TITLE_EXACT = 100
+    private const val W_TITLE_PHRASE = 90
     private const val W_TITLE_PREFIX = 85
     private const val W_TITLE_WORD = 75
     private const val W_TITLE_CONTAINS = 60
+    private const val W_KEYWORD_PHRASE = 70
     private const val W_KEYWORD_EXACT = 65
     private const val W_KEYWORD_PREFIX = 50
     private const val W_KEYWORD_CONTAINS = 40
@@ -73,6 +78,14 @@ object SettingsSearchEngine {
         "ep" to listOf("episode"),
         "eps" to listOf("episode"),
         "episodes" to listOf("episode"),
+        // D-559: the v1.1.32 round searched "episode thumbnail" and got
+        // NOTHING — neither token had a synonym entry, so entries that only
+        // spoke of posters/images (or carried no thumbnail word at all)
+        // never matched. Both nouns now expand (and the reverse lookup
+        // feeds off them).
+        "episode" to listOf("ep", "episodes", "chapter"),
+        "thumbnail" to listOf("thumbnails", "poster", "image", "cover", "art"),
+        "thumbnails" to listOf("thumbnail", "poster", "image", "cover", "art"),
         "numbering" to listOf("number", "episode"),
         "dl" to listOf("download"),
         "downloads" to listOf("download"),
@@ -124,6 +137,11 @@ object SettingsSearchEngine {
     ): List<SettingsSearchResult> {
         val tokens = tokenize(query)
         if (tokens.isEmpty()) return emptyList()
+        // D-559: the FULL normalized query as one phrase — the unit the
+        // phrase bonus/rescue below matches (only meaningful for
+        // multi-token queries).
+        val phrase = normalize(query)
+        val isMultiToken = tokens.size > 1
         val results = ArrayList<SettingsSearchResult>(index.size)
         for (entry in index) {
             val fields = ScoredFields(
@@ -139,7 +157,21 @@ object SettingsSearchEngine {
                 }
                 total += tokenScore
             }
+            // D-559: the PHRASE BONUS — when the full phrase lands on the
+            // title or the curated keywords, the entry outranks its
+            // token-only rivals ("Episode thumbnail" the row beats
+            // everything else for the query "episode thumbnail"). The
+            // per-token pass already guarantees the match (every token of
+            // a phrase present in a field is that field's substring), so
+            // the phrase only ever BONUSSES — no rescue path, no
+            // double-counting.
             if (allMatched && total > 0) {
+                if (isMultiToken) {
+                    when {
+                        fields.title.contains(phrase) -> total += W_TITLE_PHRASE
+                        fields.keywords.contains(phrase) -> total += W_KEYWORD_PHRASE
+                    }
+                }
                 results += SettingsSearchResult(entry, total)
             }
         }

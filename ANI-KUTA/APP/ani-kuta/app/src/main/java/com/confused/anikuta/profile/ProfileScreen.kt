@@ -1,5 +1,8 @@
 package com.confused.anikuta.profile
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -140,15 +143,29 @@ fun ProfileScreen(
                 // D-558: the heading IS the back button (leading arrow + tappable title).
                 onBack = onBack,
                 actions = {
-                    // Mini tab pill — equal-width segments. Alpha driven by scroll
-                    // fraction so it fades in exactly as the full tabs fade out.
-                    // Sits to the LEFT of the settings gear.
+                    // Mini tab pill — equal-width segments. D-559: the pill's
+                    // WIDTH now follows the collapse too (the same 300ms
+                    // FastOutSlowIn curve as the header's own animation): at
+                    // the top it occupies ZERO width, so the 32sp "My
+                    // Profile" title gets its full room back. The v1.1.32
+                    // device round caught the alpha-0 pill still eating
+                    // 120dp of layout width and truncating the title to
+                    // "My PR…" until the first scroll collapsed the header
+                    // (24sp fit where 32sp didn't). Alpha stays
+                    // scroll-driven — it fades in exactly as the full tabs
+                    // fade out; the width is the fix. Sits to the LEFT of
+                    // the settings gear.
+                    val pillWidthFraction by animateFloatAsState(
+                        targetValue = if (collapsed) 1f else 0f,
+                        animationSpec = tween(300, easing = FastOutSlowInEasing),
+                        label = "profileMiniPillWidth",
+                    )
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                         shape = RoundedCornerShape(9.dp),
                         modifier = Modifier
                             .graphicsLayer { alpha = scrollFraction() }
-                            .width(120.dp),
+                            .width((120 * pillWidthFraction).dp),
                     ) {
                         Row(modifier = Modifier.padding(2.dp)) {
                             listOf("Stats", "Timeline").forEachIndexed { idx, label ->

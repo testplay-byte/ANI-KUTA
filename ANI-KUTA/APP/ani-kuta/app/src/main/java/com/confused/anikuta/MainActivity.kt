@@ -1526,6 +1526,12 @@ fun AppRoot() {
             )
             is NotificationPosterKey -> NotificationPosterSettingsScreen(
                 onBack = pop,
+                // D-559: the search-landing anchor — the poster screen's rows
+                // are searchable now, so the screen takes its half of the
+                // contract (scroll + pulse the "Episode thumbnail" row etc.).
+                highlightAnchor = remember {
+                    SettingsSearchNavigator.takeAnchor(SettingsSearchPage.NOTIFICATION_POSTER)
+                },
             )
             is NotificationsLibraryKey -> NotificationsLibraryScreen(
                 onBack = pop,

@@ -1,5 +1,6 @@
 package com.confused.anikuta.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -20,18 +21,30 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -39,11 +52,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -57,6 +71,7 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.settings.search.SettingsHighlightTarget
 import com.confused.anikuta.settings.search.SettingsSearchEngine
 import com.confused.anikuta.settings.search.SettingsSearchEntry
+import com.confused.anikuta.settings.search.SettingsSearchPage
 import com.confused.anikuta.settings.search.SettingsSearchResult
 import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 
@@ -108,13 +123,30 @@ fun SettingsScreen(
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 
-    // ── D-558: the search state. rememberSaveable so a process death while
-    // typing restores the query; the results derive purely from it.
-    var query by rememberSaveable { mutableStateOf("") }
+    // ── D-559: the search state. Plain `remember` — the v1.1.32 device
+    // round: "when the user enters the settings screen, then the search bar
+    // should be empty. No results should be shown." The old
+    // rememberSaveable survived pop + re-entry (the AppRoot's
+    // SaveableStateProvider keys are never removed), so the stale query AND
+    // its results resurrected on every return; a screen left is a screen
+    // forgotten. (Process-death typing preservation is the deliberate
+    // trade — the user's fresh-entry rule wins.)
+    var query by remember { mutableStateOf("") }
     val results = remember(query) {
         if (query.isBlank()) emptyList() else SettingsSearchEngine.search(query)
     }
     val focusManager = LocalFocusManager.current
+
+    // D-559: the DEVICE back gesture while a query is typed clears the
+    // search FIRST ("if the user has typed something and then the user uses
+    // the back gesture of his own device … then what should happen is that
+    // instead of going back, the search bar will be cleared"). With the
+    // query empty the handler disables itself and back pops the screen as
+    // usual (the AppRoot's BackHandler).
+    BackHandler(enabled = query.isNotBlank()) {
+        query = ""
+        focusManager.clearFocus()
+    }
 
     // D-558: the hub's search-landing scroll — the anchor map is this
     // screen's half of the search contract (search bar = item 0, hub rows
@@ -199,17 +231,45 @@ fun SettingsScreen(
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp),
+                                    modifier = Modifier.padding(start = 20.dp, top = 10.dp, bottom = 6.dp),
                                 )
                             }
-                            items(results.size) { idx ->
-                                SettingsSearchResultRow(
-                                    result = results[idx],
-                                    onClick = {
-                                        focusManager.clearFocus()
-                                        onOpenSearchResult(results[idx].entry)
-                                    },
-                                )
+                            // D-559: ONE grouped card. The v1.1.32 device
+                            // round found the loose flat rows ugly ("They
+                            // should be shown properly. They should be
+                            // formatted better … much more cleanly"). Every
+                            // hit now sits inside a single rounded surface —
+                            // hairline dividers between rows, a per-page icon
+                            // tile (the destination speaks at a glance), the
+                            // two-line identity (title + breadcrumb) and a
+                            // quiet trailing chevron: the app's own
+                            // list-row anatomy, compacted for search.
+                            item {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                    shape = RoundedCornerShape(18.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp),
+                                ) {
+                                    Column {
+                                        results.forEachIndexed { idx, result ->
+                                            SettingsSearchResultRow(
+                                                result = result,
+                                                onClick = {
+                                                    focusManager.clearFocus()
+                                                    onOpenSearchResult(result.entry)
+                                                },
+                                            )
+                                            if (idx != results.lastIndex) {
+                                                HorizontalDivider(
+                                                    modifier = Modifier.padding(start = 64.dp),
+                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -378,6 +438,13 @@ private fun HubSection(
 /**
  * The D-558 search bar — a rounded quiet surface with the search glyph, the
  * text field and a clear button. Sits above the hub rows / results.
+ *
+ * D-559: the bar's HEIGHT is now INVARIANT. The old clear button was an
+ * IconButton — a 48dp minimum touch target that appeared only when typing,
+ * growing the whole bar ("when I click on the search bar and type in
+ * anything, then the search bar becomes ugly. Its height becomes bigger").
+ * The clear affordance is a 24dp clickable Box now — the row's metrics are
+ * identical empty or full.
  */
 @Composable
 private fun SettingsSearchBar(
@@ -431,7 +498,14 @@ private fun SettingsSearchBar(
                 )
             }
             if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) {
+                // D-559: a 24dp tap target — NOT an IconButton (48dp), which
+                // was the bar's height growth when typing.
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clickable { onQueryChange("") },
+                    contentAlignment = Alignment.Center,
+                ) {
                     Icon(
                         imageVector = Icons.Filled.Close,
                         contentDescription = "Clear search",
@@ -445,10 +519,11 @@ private fun SettingsSearchBar(
 }
 
 /**
- * ONE search result row (D-558): the destination's icon-sized breadcrumb
- * chip, the title, and the "Settings → Appearance → General" path — a hit is
- * self-describing ("the results are shown in a beautiful, well-formatted,
- * well-handled way").
+ * ONE search result row (D-558, redesigned D-559): the destination's icon
+ * tile, the title, the "Settings → Appearance → General" path, and a quiet
+ * trailing chevron — a hit is self-describing and the row reads like the
+ * app's own list rows ("shown properly … formatted better … much more
+ * cleanly and much more better"). Sits inside the grouped results card.
  */
 @Composable
 private fun SettingsSearchResultRow(
@@ -456,46 +531,88 @@ private fun SettingsSearchResultRow(
     onClick: () -> Unit,
 ) {
     val entry = result.entry
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(14.dp),
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = Icons.Filled.Search,
+                imageVector = searchIconFor(entry.page),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
             )
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = entry.title,
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = entry.page.breadcrumb,
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = entry.title,
+                fontFamily = RobotoFamily,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(1.dp))
+            Text(
+                text = entry.page.breadcrumb,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(6.dp))
+        Icon(
+            imageVector = Icons.Filled.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.size(18.dp),
+        )
     }
+}
+
+/**
+ * D-559: the destination's OWN icon in the results list — a Palette result
+ * reads as Appearance, a PlayCircle as Player, before the label is read.
+ * Pure page → glyph mapping; new pages join here when they join the enum.
+ */
+private fun searchIconFor(page: SettingsSearchPage): ImageVector = when (page) {
+    SettingsSearchPage.SETTINGS -> Icons.Filled.Settings
+    SettingsSearchPage.APPEARANCE -> Icons.Filled.Palette
+    SettingsSearchPage.APPEARANCE_GENERAL -> Icons.Filled.Palette
+    SettingsSearchPage.EPISODE_LIST -> Icons.Filled.VideoLibrary
+    SettingsSearchPage.DETAILS_PAGE -> Icons.Filled.Image
+    SettingsSearchPage.APP_ICON -> Icons.Filled.Apps
+    SettingsSearchPage.EXTENSIONS -> Icons.Filled.Extension
+    SettingsSearchPage.AUTO_LINK -> Icons.Filled.Link
+    SettingsSearchPage.UPDATES_SETTINGS -> Icons.Filled.Notifications
+    SettingsSearchPage.UPDATE_CATEGORIES -> Icons.Filled.Category
+    SettingsSearchPage.UPDATE_CHECK_LOG -> Icons.Filled.History
+    SettingsSearchPage.NOTIFICATIONS -> Icons.Filled.Notifications
+    SettingsSearchPage.NOTIFICATION_POSTER -> Icons.Filled.Image
+    SettingsSearchPage.NOTIFICATIONS_LIBRARY -> Icons.Filled.PhotoLibrary
+    SettingsSearchPage.PLAYER -> Icons.Filled.PlayCircle
+    SettingsSearchPage.VIDEO_CACHING -> Icons.Filled.VideoLibrary
+    SettingsSearchPage.DOWNLOAD_SETTINGS -> Icons.Filled.Download
+    SettingsSearchPage.DOWNLOADS_PAGE -> Icons.Filled.Download
+    SettingsSearchPage.ABOUT -> Icons.Filled.Info
+    SettingsSearchPage.TRACKERS -> Icons.Filled.Sync
+    SettingsSearchPage.DEBUG -> Icons.Filled.BugReport
+    SettingsSearchPage.HISTORY -> Icons.Filled.History
+    SettingsSearchPage.UPDATES_PAGE -> Icons.Filled.Update
+    SettingsSearchPage.PROFILE -> Icons.Filled.Person
 }
 
 @Composable

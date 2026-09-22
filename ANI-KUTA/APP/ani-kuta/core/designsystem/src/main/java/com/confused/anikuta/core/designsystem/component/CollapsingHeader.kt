@@ -4,7 +4,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -25,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,12 +55,23 @@ import com.confused.anikuta.core.designsystem.theme.Motion
  * button … the heading should not be moved to the right that much. It should
  * just be slightly moved to the right."
  *
- * Pass [onBack] and the header renders a COMPACT back arrow just left of the
- * title (a 30dp box + an 8dp breath — the title only "slightly" shifts) and
- * makes the WHOLE title row tappable as back. The trailing [actions] slot is
- * untouched — screens keep their delete/refresh/settings icons there; the
- * old top-right BackAction in those slots retires. Omit [onBack] and the
- * header is exactly what it always was (Browse, More — the root screens).
+ * # D-559: ONE element — the arrow + heading are THE SAME button
+ *
+ * The v1.1.32 device round refined the composition: "combine the back arrow
+ * button and the settings headings … into a single element … reduce the gap
+ * between the two, and also move the arrow much more to the left side, more
+ * than the padding on the left side … so that the title stays exactly where
+ * it was previously, almost." So the arrow and the title now render inside
+ * ONE clickable row — a single ripple, a single tap target, no matter which
+ * half you touch — with the arrow hugging the screen edge (2dp, inside the
+ * 16dp content padding), a 4dp gap, and the title back near its pre-D-558
+ * position.
+ *
+ * Pass [onBack] and the header renders that combined leading element; the
+ * trailing [actions] slot is untouched — screens keep their delete/refresh/
+ * settings icons there. Omit [onBack] and the header is exactly what it
+ * always was (Browse, More — the root screens; the title keeps its original
+ * 16dp start).
  *
  * Usage with LazyVerticalGrid:
  * ```kotlin
@@ -108,56 +119,76 @@ fun CollapsingHeader(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    start = 16.dp,
                     end = 16.dp,
                     top = paddingTop.dp,
                     bottom = paddingBottom.dp,
                 )
                 .statusBarsPadding(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             if (onBack != null) {
-                // D-558: the compact leading back arrow — deliberately SMALL
-                // (30dp hit box, 20dp glyph) so the heading "is not moved to
-                // the right that much"; the tappable title next to it
-                // widens the effective back target to the whole heading.
-                Box(
+                // D-559: ONE element. The v1.1.32 device round: "combine the
+                // back arrow button and the settings headings … into a single
+                // element. If the user clicks on the back button, it is
+                // considered as clicking on the heading. If the user clicks
+                // on the heading, then it is considered as clicking the back
+                // button. So reduce the gap between the two, and also move
+                // the arrow much more to the left side, more than the padding
+                // on the left side … so that the title stays exactly where it
+                // was previously, almost." So the arrow + title are ONE
+                // clickable row (a single ripple, a single tap target): the
+                // arrow hugs the screen edge (2dp — INSIDE the 16dp content
+                // padding), the gap tightens to 4dp, and the title lands
+                // ~26dp from the edge — back near its pre-D-558 position
+                // (the D-558 arrow box had pushed it to ~54dp).
+                Row(
                     modifier = Modifier
-                        .size(30.dp)
-                        .clickable(onClick = onBack),
-                    contentAlignment = Alignment.Center,
+                        .weight(1f)
+                        .clickable(onClick = onBack, role = Role.Button),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = LocalHeadingColor.current.takeIf { it != Color.Unspecified }
+                    Box(
+                        modifier = Modifier
+                            .padding(start = 2.dp)
+                            .size(20.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = LocalHeadingColor.current.takeIf { it != Color.Unspecified }
+                                ?: MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = title,
+                        fontSize = fontSize.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = (-0.02).sp,
+                        color = LocalHeadingColor.current.takeIf { it != Color.Unspecified }
                             ?: MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.size(20.dp),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
                 }
-                Spacer(Modifier.width(8.dp))
+            } else {
+                Text(
+                    text = title,
+                    fontSize = fontSize.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.02).sp,
+                    color = LocalHeadingColor.current.takeIf { it != Color.Unspecified }
+                        ?: MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 16.dp),
+                )
             }
-            Text(
-                text = title,
-                fontSize = fontSize.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-0.02).sp,
-                color = LocalHeadingColor.current.takeIf { it != Color.Unspecified }
-                    ?: MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f)
-                    .then(
-                        if (onBack != null) {
-                            // D-558: the heading text IS the back button.
-                            Modifier.clickable(onClick = onBack)
-                        } else {
-                            Modifier
-                        },
-                    ),
-            )
             actions()
         }
     }

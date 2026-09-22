@@ -1,5 +1,6 @@
 package com.confused.anikuta.feature.animedetails
 
+import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -56,6 +57,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
@@ -755,11 +757,18 @@ internal fun EpisodeGridCell(
  * with the union shape the card's material now "is kind of way too close to
  * the release date. Like it is expanding towards the release date side a bit
  * too much. So I was hoping for a thin area between those to feel like an
- * actual blob kind of feel." So the blob and the card are SEPARATE rounded
- * materials again — the symmetric stadium keeps hugging the node + date and
- * the card body starts 8dp to its right, one thin background-colored breath
- * between them (the [TimelineBlobCardShape] draws both sub-shapes in ONE
- * outline; disjoint, so the gap stays honest at any size).
+ * actual blob kind of feel." So the card body pulled back 8dp from the bump.
+ *
+ * D-559 — THE CHICKEN NECK. The v1.1.32 device round rejected the disjoint
+ * gap: "instead of making the gap thin, you just outright removed it, like
+ * there is no connection between the left release date and the right side
+ * content itself … it should be like a chicken neck kind of thing, like a
+ * blob kind of effect, both of them being connected but with a thin chicken
+ * neck kind of feel." So the shape now carries THREE sub-shapes in ONE
+ * outline — the stadium bump, the card body, and a ~10dp-tall NECK bridging
+ * them: the connection is back, but the joined area stays thin, so the card
+ * no longer "expands towards the release date side" (the D-558 verdict is
+ * preserved — the neck is the thin area, now attached).
  */
 @Composable
 internal fun EpisodeTimelineRow(
@@ -779,8 +788,8 @@ internal fun EpisodeTimelineRow(
     val cardColor = MaterialTheme.colorScheme.surfaceVariant
     // The bump geometry (dp, from the row's top-start) — symmetric around
     // the node(14dp at y=10) + gap(4) + label(~13) group. D-558: the card
-    // body starts 8dp RIGHT of the bump — the thin area the user asked for
-    // ("a thin area between those to feel like an actual blob kind of feel").
+    // body starts 8dp RIGHT of the bump. D-559: a thin NECK spans that 8dp
+    // gap — connected, but the join stays thin (the chicken-neck feel).
     val bumpLeft = 2.dp
     val bumpTop = 3.dp
     val bumpRight = 44.dp
@@ -946,14 +955,19 @@ internal fun EpisodeTimelineRow(
 }
 
 /**
- * The TIMELINE card's background shape — ONE outline carrying the rounded
- * card body AND the stadium bump around the node + date. D-558: the two
- * sub-shapes are DISJOINT — the card starts 8dp right of the bump, so a thin
- * background-colored breath separates the date blob from the details card
- * (the v1.1.31 device round: the merged union "is expanding towards the
- * release date side a bit too much … hoping for a thin area between those").
- * The bump's bottom is clamped to the shape's height so a short card never
- * draws the blob outside its bounds.
+ * The TIMELINE card's background shape — ONE outline carrying THREE
+ * sub-shapes: the rounded card body, the stadium bump around the node +
+ * date, and (D-559) the thin NECK that CONNECTS them. The v1.1.31 round
+ * wanted the card to stop "expanding towards the release date side"; the
+ * v1.1.32 round rejected the resulting full disconnection ("it should be
+ * like a chicken neck … both of them being connected but with a thin
+ * chicken neck kind of feel"). The neck is a ~10dp-tall horizontal band,
+ * centered on the bump's vertical midline — where the stadium's edge runs
+ * tangent-vertical, so the bump-side join reads smooth — and overlaps BOTH
+ * bodies by 2dp (an exact-tangent join would leave an antialiasing hairline
+ * at the junction; overlapping same-direction sub-paths fill as their union
+ * under the nonzero winding rule). The bump's bottom is clamped to the
+ * shape's height so a short card never draws the blob outside its bounds.
  */
 private class TimelineBlobCardShape(
     private val bumpLeft: Dp,
@@ -1005,6 +1019,29 @@ private class TimelineBlobCardShape(
                 bottomLeft = stadiumRadius,
             ),
         )
+        // THE NECK (D-559) — the thin bridge between the bump and the card:
+        // ~10dp tall, centered on the bump's midline, overlapping both bodies
+        // by 2dp so no antialiasing hairline survives at either junction.
+        val bumpCenterY = (bumpTop.toPx() + bumpBottomPx) / 2f
+        val neckHalf = 5.dp.toPx()
+        val neckOverlap = 2.dp.toPx()
+        val neckTop = (bumpCenterY - neckHalf).coerceAtLeast(0f)
+        val neckBottom = minOf(bumpCenterY + neckHalf, size.height)
+        val neckRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+        path.addRoundRect(
+            RoundRect(
+                rect = Rect(
+                    left = bumpRight.toPx() - neckOverlap,
+                    top = neckTop,
+                    right = cardLeft.toPx() + neckOverlap,
+                    bottom = maxOf(neckBottom, neckTop + 1f),
+                ),
+                topLeft = neckRadius,
+                topRight = neckRadius,
+                bottomRight = neckRadius,
+                bottomLeft = neckRadius,
+            ),
+        )
         Outline.Generic(path)
     }
 }
@@ -1023,6 +1060,16 @@ private class TimelineBlobCardShape(
  *
  * D-558 — the watched check: the centered circular check became a USER
  * TOGGLE (default OFF; the grayscale/dim treatment itself is untouched).
+ *
+ * D-559 — the frosted NUMBER is the TEXT ITSELF. The v1.1.32 device round:
+ * "By frosted effect, what I meant for you was that the text itself being
+ * frosted rather than it getting a frosted effect on it." The plate + veil
+ * died; the number now renders as TWO stacked copies of the same glyphs —
+ * a blurred halo behind (a real RenderEffect blur on Android 12+; below S
+ * the halo is a plain low-alpha under-copy, which still reads as the soft
+ * double-exposure frost) and a translucent crisp copy on top with a soft
+ * dark shadow for legibility. The imagery shows THROUGH the number — glass,
+ * not sticker.
  */
 @Composable
 internal fun EpisodeCinemaCard(
@@ -1117,27 +1164,20 @@ internal fun EpisodeCinemaCard(
             // round adds the two choices the user asked for: WHICH CORNER it
             // lives in ("select where the episode number should be shown. top
             // right corner, or … top left corner?") and its STYLE — SOLID (the
-            // themed number straight on the imagery) or FROSTED GLASS ("the
-            // text will actually be frosted glass kind of effect … slightly
-            // transparent, frosted effect will be on top of it"): a
-            // translucent rounded material behind the number AND a frost veil
-            // layered OVER it, so the number reads as if seen through glass.
+            // themed number straight on the imagery) or FROSTED — the TEXT
+            // ITSELF frosted (D-559, the v1.1.32 round: "the text itself
+            // should be given the frosted effect").
             val numberCorner = if (style.cinemaNumberAtTopStart) Alignment.TopStart
             else Alignment.TopEnd
             if (style.cinemaNumberFrosted) {
-                // FROSTED: the plate (behind) + the veil (on top) — the
-                // number sits BETWEEN two layers of glass.
+                // FROSTED TEXT (D-559) — NO plate, NO veil. The halo copy
+                // behind is blurred on S+ (a plain low-alpha under-copy below
+                // S — RenderEffect is a no-op there) and the crisp copy on
+                // top is translucent: the frost lives IN the glyphs.
                 Box(
                     modifier = Modifier
                         .align(numberCorner)
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color.White.copy(alpha = 0.16f))
-                        .border(
-                            width = 1.dp,
-                            color = Color.White.copy(alpha = 0.28f),
-                            shape = RoundedCornerShape(14.dp),
-                        ),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     Text(
                         text = ghostEpisodeNumber(episode.episode_number),
@@ -1145,21 +1185,33 @@ internal fun EpisodeCinemaCard(
                         fontSize = 48.sp,
                         lineHeight = 56.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+                        color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
                         softWrap = false,
+                        modifier = Modifier.graphicsLayer {
+                            alpha = 0.45f
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                renderEffect = BlurEffect(14f, 14f)
+                            }
+                        },
                     )
-                    // The frost veil ON TOP of the number — the glass layer.
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    0f to Color.White.copy(alpha = 0.22f),
-                                    1f to Color.White.copy(alpha = 0.06f),
-                                ),
+                    Text(
+                        text = ghostEpisodeNumber(episode.episode_number),
+                        fontFamily = RobotoFamily,
+                        fontSize = 48.sp,
+                        lineHeight = 56.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.58f),
+                        maxLines = 1,
+                        softWrap = false,
+                        style = androidx.compose.ui.text.TextStyle(
+                            shadow = androidx.compose.ui.graphics.Shadow(
+                                color = Color.Black.copy(alpha = 0.45f),
+                                blurRadius = 14f,
+                                offset = Offset(1f, 1f),
                             ),
+                        ),
+                        modifier = Modifier.align(Alignment.Center),
                     )
                 }
             } else {

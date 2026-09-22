@@ -193,9 +193,14 @@ object SettingsSearchIndex {
                 title = "Episode list",
                 page = SettingsSearchPage.EPISODE_LIST,
                 anchor = "episode_list",
+                // D-559: the episode list RENDERS episode thumbnails, so the
+                // v1.1.32 round's "episode thumbnail" query must reach this
+                // page — the thumbnail/image/poster family joined the
+                // keywords (the engine's phrase scores then rank it).
                 keywords = listOf("episode", "episodes", "list", "layout", "row",
                     "preview", "live preview", "appearance", "style", "grid", "timeline",
-                    "cinema", "classic"),
+                    "cinema", "classic", "thumbnails", "episode thumbnails",
+                    "episode thumbnail", "poster", "images", "covers", "art"),
             ),
         )
         add(
@@ -422,7 +427,84 @@ object SettingsSearchIndex {
                 title = "Notification poster",
                 page = SettingsSearchPage.NOTIFICATION_POSTER,
                 anchor = "notification_poster",
-                keywords = listOf("poster", "template", "thumbnail", "style", "preview"),
+                // D-559: enriched — the poster page hosts the "Episode
+                // thumbnail" element row the v1.1.32 round went looking for.
+                keywords = listOf("poster", "template", "thumbnail", "style", "preview",
+                    "episode thumbnail", "episode thumbnails", "elements", "banner",
+                    "art", "image", "episode title", "thumbnail"),
+            ),
+        )
+        // ── D-559: the poster screen's ROWS — every toggle/segment on the
+        // page is now individually searchable and lands with a scroll +
+        // pulse (the anchors live in NotificationPosterSettingsScreen's
+        // anchor map; the v1.1.32 round: "there are proper element options
+        // marked as episode thumbnails" — they were invisible to search).
+        add(
+            SettingsSearchEntry(
+                id = "poster.layout",
+                title = "Layout",
+                page = SettingsSearchPage.NOTIFICATION_POSTER,
+                anchor = "poster_layout",
+                keywords = listOf("layout", "template", "arrangement", "banner layout",
+                    "poster layout"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "poster.artwork",
+                title = "Artwork",
+                page = SettingsSearchPage.NOTIFICATION_POSTER,
+                anchor = "poster_artwork",
+                keywords = listOf("artwork", "background", "art", "cover",
+                    "episode art", "auto", "source"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "poster.title",
+                title = "Episode title",
+                page = SettingsSearchPage.NOTIFICATION_POSTER,
+                anchor = "poster_title",
+                keywords = listOf("episode title", "title", "name", "text", "elements"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "poster.thumbnail",
+                title = "Episode thumbnail",
+                page = SettingsSearchPage.NOTIFICATION_POSTER,
+                anchor = "poster_thumbnail",
+                keywords = listOf("episode thumbnail", "episode thumbnails",
+                    "thumbnails", "art card", "image", "still", "picture", "elements"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "poster.badges",
+                title = "SUB / DUB badges",
+                page = SettingsSearchPage.NOTIFICATION_POSTER,
+                anchor = "poster_badges",
+                keywords = listOf("sub", "dub", "badges", "chips", "audio", "elements"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "poster.branding",
+                title = "ANI-KUTA branding",
+                page = SettingsSearchPage.NOTIFICATION_POSTER,
+                anchor = "poster_branding",
+                keywords = listOf("branding", "wordmark", "logo", "corner", "watermark",
+                    "elements"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "poster.master",
+                title = "Poster",
+                page = SettingsSearchPage.NOTIFICATION_POSTER,
+                anchor = "poster_master",
+                keywords = listOf("poster", "enable", "disable", "banners", "master",
+                    "toggle", "render notifications as banners"),
             ),
         )
         add(
