@@ -363,14 +363,13 @@ fun CsResolveSheet(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-    // D-554-A: 0.70 → 0.60 — the v1.1.27 device round's one remaining complaint
-    // ("the bottom up menu was a little bit taller in terms of its height … when
-    // it is in cloud stream and shows the qualities and servers section") covers
-    // BOTH CS quality surfaces; this sheet is the resolve-side sibling of the
-    // player's links sheet and gets the same fraction (parity). The cap binds
-    // only on overflow — the sheet is still content-fitting, and the D-553
-    // single-body scroll absorbs the rest.
-    val maxSheetHeight = screenHeight * 0.60f
+    // D-554-A → D-555: 0.70 → 0.60 → 0.65 — the v1.1.28 device round ruled
+    // 0.60 "way too smaller" and asked for "a bit more taller percentage but
+    // smaller than the previous one". This sheet is the resolve-side sibling
+    // of the player's links sheet and gets the same fraction (parity). The
+    // cap binds only on overflow — the sheet is still content-fitting, and
+    // the D-553 single-body scroll absorbs the rest.
+    val maxSheetHeight = screenHeight * 0.65f
 
     /** Clears the run state so retryTick++ restarts everything fresh. */
     fun resetAndRetry() {

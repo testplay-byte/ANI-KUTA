@@ -100,6 +100,7 @@ import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import eu.kanade.tachiyomi.animesource.model.SEpisode
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.compose.koinInject
 import kotlinx.coroutines.launch  // Phase WP: for swipe animation coroutine
@@ -1311,7 +1312,15 @@ fun DetailsScreen(
                                     )
                                 }
                             }
-                            items(subDubDisplayEpisodes, key = { it.url }) { episode ->
+                            // D-555: ONE shared per-episode rendering path for
+                            // both list shapes below — the EpisodeListEntry
+                            // dispatcher picks the layout renderer, and the
+                            // GRID layout pairs the episodes into a two-column
+                            // poster wall while every other layout stays one
+                            // item per episode (the outer LazyColumn remains
+                            // THE virtualizer for all four layouts — the grid
+                            // is chunked rows, not a nested grid).
+                            val renderEpisode: @Composable (SEpisode) -> Unit = { episode ->
                                 val epNum = episode.episode_number.toInt()
                                 val metadata = episodeMetadata[epNum]
                                 // D-317: contextual episode tag.
@@ -1370,8 +1379,20 @@ fun DetailsScreen(
                                 val epKey = if (mainId != null) "$mainId|${String.format("%05d", identityNum)}" else null
                                 val progress = epKey?.let { watchProgress[it] }
                                 val isWatched = progress?.isWatched ?: false
-                                Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
-                                    EpisodeRow(
+                                Box(
+                                    modifier = Modifier.padding(
+                                        horizontal = 12.dp,
+                                        // D-555: the TIMELINE spine must read as
+                                        // ONE continuous rail down the list — the
+                                        // per-item vertical gap drops to 0 for it
+                                        // (the row's card carries its own spacing,
+                                        // and the spine spans the full item height).
+                                        vertical = if (episodeDisplayStyle.rowStyle ==
+                                            EpisodeListRowStyle.TIMELINE
+                                        ) 0.dp else 3.dp,
+                                    ),
+                                ) {
+                                    EpisodeListEntry(
                                         episode = episode,
                                         metadata = metadata,
                                         episodeTag = effectiveEpisodeTag,
@@ -1415,6 +1436,27 @@ fun DetailsScreen(
                                         progressFraction = progress?.progressFraction ?: 0f,
                                         onToggleWatched = { epKey?.let { viewModel.toggleWatched(it) } },
                                     )
+                                }
+                            }
+                            if (episodeDisplayStyle.rowStyle == EpisodeListRowStyle.GRID) {
+                                items(subDubDisplayEpisodes.chunked(2), key = { pair -> "grid|${pair.first().url}" }) { pair ->
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        pair.forEach { episode ->
+                                            Box(modifier = Modifier.weight(1f)) {
+                                                renderEpisode(episode)
+                                            }
+                                        }
+                                        if (pair.size == 1) {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                            } else {
+                                items(subDubDisplayEpisodes, key = { it.url }) { episode ->
+                                    renderEpisode(episode)
                                 }
                             }
                             // Unlink button at the bottom.

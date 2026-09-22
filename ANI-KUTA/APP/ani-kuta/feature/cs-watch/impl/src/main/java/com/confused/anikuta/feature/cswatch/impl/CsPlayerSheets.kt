@@ -243,11 +243,13 @@ internal fun CsLinksSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // D-554-A: 0.60 — the v1.1.27 device round's one remaining
-                // complaint ("the bottom up menu was a little bit taller in
-                // terms of its height") targets THIS sheet; the explicit
-                // fraction keeps it independent of the shared default.
-                .heightIn(max = csSheetMaxHeight(0.60f))
+                // D-554-A → D-555: 0.70 (the v1.1.27 "a little bit taller"
+                // complaint) → 0.60 → 0.65 — the v1.1.28 device round ruled
+                // 0.60 "way too smaller" and asked for "a bit more taller
+                // percentage but smaller than the previous one": the MIDDLE.
+                // The explicit fraction keeps it independent of the shared
+                // 0.70 default (CsEpisodesSheet).
+                .heightIn(max = csSheetMaxHeight(0.65f))
                 // D-553: ONE scrollable body — the device round's "no qualities
                 // for this stream" verdict was a LAYOUT clipping: the variants
                 // section rendered below a tall accordion inside a non-scrolling
