@@ -1,15 +1,22 @@
 package com.confused.anikuta.core.ads
 
 import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
@@ -23,14 +30,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.common.Logger
 import org.koin.compose.koinInject
@@ -52,6 +67,25 @@ import org.koin.compose.koinInject
  * - [LaunchedEffect] collects [AppLifecycleObserver.onReturnToForeground]
  *   while [AdGateState.AdInProgress] is the current state + advances the
  *   coordinator when the app returns from the browser.
+ * - D-560: a second observer re-reads the overlay consent on every ON_RESUME
+ *   — the user can leave the popup for the system's "Display over other
+ *   apps" screen and the option row disappears the moment they come back
+ *   with consent granted (their explicit spec: granted = "it won't even
+ *   show anything").
+ *
+ * # The D-560 redesign (the round-72 device feedback: "the sponsor pop-up
+ *   is not that good. It is a bit more cramped… make it fun… clean…
+ *   minimal… simple")
+ *
+ * The card grew air instead of furniture: a tinted hero bubble, a quiet
+ * SPONSORED label, ONE short line of copy per state (the previous two-
+ * sentence paragraphs are gone — "not say anything too much"), a clear
+ * primary action + a quiet escape, and — only while the overlay consent is
+ * missing — one compact row offering "draw over other apps" (the return
+ * pill's permission, D-443/D-449). Every state keeps its original MEANING
+ * and the coordinator contract is untouched: the same Crossfade, the same
+ * back-cancels escape, the same pill show-in-tap-handler wiring (a state-
+ * effect-driven show could be deferred past the app-backgrounding, D-443).
  *
  * # Why a Dialog (not a screen pushed onto the backstack)
  *
@@ -123,6 +157,23 @@ fun SmartLinkAdInterstitial() {
         }
     }
 
+    // D-560: the overlay consent, re-read on every ON_RESUME. The user leaves
+    // for the system's toggle screen from the option row, flips it, comes
+    // back — and the row is gone before the card settles. Remember (not
+    // Saveable): the consent is a DEVICE fact, re-read fresh each time the
+    // interstitial composes.
+    var overlayGranted by remember { mutableStateOf(OverlayPermissions.hasAccess(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                overlayGranted = OverlayPermissions.hasAccess(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Idle = no interstitial to render.
     if (state is AdGateState.Idle) return
 
@@ -139,7 +190,7 @@ fun SmartLinkAdInterstitial() {
             contentAlignment = Alignment.Center,
         ) {
             Surface(
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(28.dp),
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 6.dp,
                 modifier = Modifier
@@ -154,13 +205,13 @@ fun SmartLinkAdInterstitial() {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(24.dp),
+                            .padding(start = 28.dp, end = 28.dp, top = 32.dp, bottom = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         when (current) {
                             is AdGateState.AdPending -> AdPendingContent(
                                 config = repository.config,
+                                overlayGranted = overlayGranted,
                                 // The show is IN the tap handler (before
                                 // onUserContinue opens the browser) — a
                                 // state-effect-driven show could be deferred
@@ -170,16 +221,18 @@ fun SmartLinkAdInterstitial() {
                                     coordinator.onUserContinue(context)
                                 },
                                 onCancel = { coordinator.cancel() },
+                                onEnableOverlay = { OverlayPermissions.openSettings(context) },
                             )
                             is AdGateState.AdInProgress -> AdInProgressContent()
                             is AdGateState.AdTryAgain -> AdTryAgainContent(
-                                state = current,
                                 config = repository.config,
+                                overlayGranted = overlayGranted,
                                 onTryAgain = {
                                     pillController.show(context, pillColors, pillDurationMs)
                                     coordinator.onTryAgain(context)
                                 },
                                 onCancel = { coordinator.cancel() },
+                                onEnableOverlay = { OverlayPermissions.openSettings(context) },
                             )
                             else -> { /* Idle — but we returned early above; defensive. */ }
                         }
@@ -190,58 +243,162 @@ fun SmartLinkAdInterstitial() {
     }
 }
 
+// ── Shared shells ─────────────────────────────────────────────────────────────
+
+/**
+ * The tinted hero bubble — the card's single piece of "fun": a soft primary
+ * wash behind one glyph, exactly like the app's quiet accent language. No
+ * borders, no gradients, no second color.
+ */
+@Composable
+private fun HeroBubble(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .size(64.dp)
+            .background(
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                shape = CircleShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+/**
+ * The quiet "SPONSORED" eyebrow — small, tracked-out caps above the title.
+ * Discloses what the card is before asking anything of the user.
+ */
+@Composable
+private fun SponsoredLabel() {
+    Text(
+        text = "SPONSORED",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = 1.6.sp,
+    )
+}
+
+/**
+ * D-560: the one-row "draw over other apps" offer. Renders ONLY while the
+ * consent is missing (the caller guards with `if (!overlayGranted)` —
+ * granted = nothing at all, the user's exact words). One tappable line that
+ * opens the system's per-app overlay toggle; no lecture, no second line —
+ * the wizard (D-449) already told the story, this is just the missing switch.
+ */
+@Composable
+private fun OverlayPermissionRow(onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Layers,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "Enable draw over other apps",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
 // ── Per-state content ──────────────────────────────────────────────────────────
 
 /** The "Continue" state — shown when the ad first appears. */
 @Composable
 private fun AdPendingContent(
     config: AdsConfig,
+    overlayGranted: Boolean,
     onContinue: () -> Unit,
     onCancel: () -> Unit,
+    onEnableOverlay: () -> Unit,
 ) {
-    Icon(
-        imageVector = Icons.Filled.OpenInNew,
-        contentDescription = null,
-        tint = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.size(40.dp),
-    )
+    HeroBubble {
+        Icon(
+            imageVector = Icons.Filled.OpenInNew,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(26.dp),
+        )
+    }
+    Spacer(Modifier.height(10.dp))
+    SponsoredLabel()
+    Spacer(Modifier.height(2.dp))
     Text(
-        text = "Sponsored",
+        text = "Support ANI-KUTA",
         style = MaterialTheme.typography.titleLarge,
         color = MaterialTheme.colorScheme.onSurface,
+        textAlign = TextAlign.Center,
     )
+    Spacer(Modifier.height(6.dp))
+    // ONE line — the previous two-sentence paragraph is gone (D-560:
+    // "not say anything too much… keep it just normal").
     Text(
-        text = "Tap continue to support ANI-KUTA. You'll be redirected to our sponsor — come back after a moment to open the details.",
+        text = "A quick visit to our sponsor keeps ANI-KUTA free.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
     )
+    Spacer(Modifier.height(18.dp))
     Button(
         onClick = onContinue,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text("Continue")
     }
+    Spacer(Modifier.height(4.dp))
     TextButton(onClick = onCancel) {
         Text("Not now")
+    }
+    // The overlay offer — ONLY while the consent is missing (granted = the
+    // row does not exist at all).
+    if (!overlayGranted) {
+        Spacer(Modifier.height(6.dp))
+        OverlayPermissionRow(onClick = onEnableOverlay)
     }
 }
 
 /** The "waiting for return" state — spinner while the user is in the browser. */
 @Composable
 private fun AdInProgressContent() {
-    CircularProgressIndicator(
-        color = MaterialTheme.colorScheme.primary,
-        strokeWidth = 3.dp,
-        modifier = Modifier.size(40.dp),
-    )
+    HeroBubble {
+        CircularProgressIndicator(
+            color = MaterialTheme.colorScheme.primary,
+            strokeWidth = 3.dp,
+            modifier = Modifier.size(26.dp),
+        )
+    }
+    Spacer(Modifier.height(10.dp))
     Text(
-        text = "Waiting for you to come back",
+        text = "See you in a moment",
         style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.onSurface,
+        textAlign = TextAlign.Center,
     )
+    Spacer(Modifier.height(6.dp))
     Text(
-        text = "Browse the sponsor for a moment, then return to ANI-KUTA to continue.",
+        text = "Come back to ANI-KUTA when you're ready.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
@@ -251,36 +408,53 @@ private fun AdInProgressContent() {
 /** The "Try again" state — shown when the user returned too quickly. */
 @Composable
 private fun AdTryAgainContent(
-    state: AdGateState.AdTryAgain,
     config: AdsConfig,
+    overlayGranted: Boolean,
     onTryAgain: () -> Unit,
     onCancel: () -> Unit,
+    onEnableOverlay: () -> Unit,
 ) {
-    Icon(
-        imageVector = Icons.Filled.Refresh,
-        contentDescription = null,
-        tint = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.size(40.dp),
-    )
+    HeroBubble {
+        Icon(
+            imageVector = Icons.Filled.Refresh,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(26.dp),
+        )
+    }
+    Spacer(Modifier.height(10.dp))
+    SponsoredLabel()
+    Spacer(Modifier.height(2.dp))
     Text(
-        text = "Try again",
+        text = "That was too quick",
         style = MaterialTheme.typography.titleLarge,
         color = MaterialTheme.colorScheme.onSurface,
+        textAlign = TextAlign.Center,
     )
-    val secondsSpent = (state.lastElapsedMs / 1000).coerceAtLeast(0)
+    Spacer(Modifier.height(6.dp))
+    // ONE line, with the real threshold (the pill counts the same number).
+    val seconds = (config.smartLink.minTimeOutsideMs / 1000).coerceAtLeast(1)
     Text(
-        text = "You came back after ${secondsSpent}s — please stay on the sponsor a little longer. The ad needs at least ${config.smartLink.minTimeOutsideMs / 1000}s outside.",
+        text = "Stay with our sponsor for ${seconds}s, then come back.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
     )
+    Spacer(Modifier.height(18.dp))
     Button(
         onClick = onTryAgain,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text("Try again")
     }
+    Spacer(Modifier.height(4.dp))
     TextButton(onClick = onCancel) {
-        Text("Cancel")
+        Text("Not now")
+    }
+    // The overlay offer — ONLY while the consent is missing (granted = the
+    // row does not exist at all).
+    if (!overlayGranted) {
+        Spacer(Modifier.height(6.dp))
+        OverlayPermissionRow(onClick = onEnableOverlay)
     }
 }
