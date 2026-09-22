@@ -457,6 +457,7 @@ fun EpisodeRow(
     val display = rememberEpisodeDisplayData(episode, metadata, fallbackCoverUrl)
     val displayTitle = display.title
     val description = display.description
+    val thumbnailUrl = display.thumbnailUrl
     val epNumText = formatEpisodeNumber(episode.episode_number)
     val dateText = display.dateText
     val audioLabels = display.audioLabels

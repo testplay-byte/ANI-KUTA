@@ -491,9 +491,9 @@ scrollable body underneath.
 | `feature/download/.../DownloadsScreen.kt` | Download picker | (see file) | (see file) |
 | `feature/download/.../DownloadVideoPickerSheet.kt` | Pick video stream | (see file) | (see file) |
 | `feature/watch/.../sheets/PlayerSheets.kt` (multiple) | Player settings sheets | 70% | 20dp |
-| `feature/cs-watch/.../CsPlayerSheets.kt` (CsLinksSheet) | CS qualities/servers (D-554-A: user-spec 0.60) | **60%** | 20dp |
+| `feature/cs-watch/.../CsPlayerSheets.kt` (CsLinksSheet) | CS qualities/servers (D-555: the middle 0.65 — 0.70 complained tall, 0.60 ruled "way too smaller") | **65%** | 20dp |
 | `feature/cs-watch/.../CsPlayerSheets.kt` (CsEpisodesSheet) | CS episode picker (explicit 0.70 — browsing surface) | 70% | 20dp |
-| `feature/cs-watch/.../CsResolveSheet.kt` | CS resolver (D-554-A: 0.60, the links-sheet sibling) | **60%** | 20dp |
+| `feature/cs-watch/.../CsResolveSheet.kt` | CS resolver (D-555: 0.65, the links-sheet sibling) | **65%** | 20dp |
 | `core/designsystem/.../component/ColorPickerSheet.kt` | Color picker (D-259 redesign: 5-preset line + ThinSliders + keypad) | (screen-height) | — |
 | `core/designsystem/.../component/NumericEntrySheet.kt` | Numeric keypad (moved from :core:player in D-259) | — | 20dp |
 | `core/player/.../controls/SubtitleSettingsSheet.kt` | Subtitle settings | (max height) | — |
@@ -522,11 +522,12 @@ fun FilterSheet(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // User spec: all bottom-up sheets cap at 70% of device screen height.
-    // D-554-A exception: the two CS quality surfaces (CsLinksSheet +
-    // CsResolveSheet) opt into 0.60 — the v1.1.27 device round found them
-    // "a little bit taller in terms of its height" with the qualities and
-    // servers sections on stage. Content-fitting still applies; the cap
-    // binds only on overflow.
+    // D-554-A → D-555 exception: the two CS quality surfaces (CsLinksSheet +
+    // CsResolveSheet) ride the MIDDLE 0.65 — the v1.1.27 device round found
+    // 0.70 "a little bit taller in terms of its height", the v1.1.28 round
+    // ruled the first correction 0.60 "way too smaller" and asked for "a bit
+    // more taller percentage but smaller than the previous one". The cap
+    // binds only on overflow (content-fitting still applies).
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = screenHeight * 0.70f
 
