@@ -544,8 +544,20 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // D-556 (round 68 / release/1.1.30): the v1.1.29 device round's split
+    // verdict — the CS sheets at 0.65 were "proper … exactly like how I
+    // wanted" (asked for "just slightly" more: 0.67), the four layouts
+    // "are good, unique, and different", and the punch list shipped whole:
+    // the Coil-3 no-DataUriFetcher root cause (the preview's demo stills are
+    // drawable resources now), the preview loading a RANDOM qualifying
+    // LIBRARY series (cache-first, field-for-field reconstruction), the LIVE
+    // preview (swipe toggles watched; every download tap walks the full
+    // 8-state cycle), the scroll collapse (first episode hides, second
+    // pinned; GRID exempt), the gliding layout switch + the sliding selector
+    // pill (descriptions deleted), CINEMA's themed EP badge, TIMELINE's blob
+    // merge, the recreated GRID, and the type-coded capsule chips.
+    const val versionCode = 10130
+    const val versionName = "1.1.30"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
