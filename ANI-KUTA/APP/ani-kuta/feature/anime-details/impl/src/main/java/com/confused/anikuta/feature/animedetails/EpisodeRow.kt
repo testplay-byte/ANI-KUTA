@@ -664,57 +664,18 @@ fun EpisodeRow(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            // Date pill
+                            // Date capsule + audio capsules — the D-556 tag
+                            // redesign (EpisodeLayouts.kt): pill CAPSULES
+                            // with type-coded colors instead of the flat
+                            // outlineVariant surfaces the v1.1.29 device
+                            // round called "way too bad". The visibility
+                            // algebra above is unchanged.
                             if (showDate) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant,
-                                ) {
-                                    Text(
-                                        text = dateText,
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 10.sp,
-                                        lineHeight = 14.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                        maxLines = 1,
-                                        softWrap = false,
-                                    )
-                                }
+                                EpisodeDateChip(text = dateText)
                             }
-                            // Audio pills — SUB/DUB/HSUB with dot separators
                             if (showAudio) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant,
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                    ) {
-                                        audioLabels.forEachIndexed { idx, label ->
-                                            if (idx > 0) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(3.dp)
-                                                        .clip(CircleShape)
-                                                        .background(MaterialTheme.colorScheme.onSurfaceVariant),
-                                                )
-                                            }
-                                            Text(
-                                                text = label,
-                                                fontFamily = RobotoFamily,
-                                                fontSize = 10.sp,
-                                                lineHeight = 14.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                            )
-                                        }
-                                    }
+                                audioLabels.forEach { label ->
+                                    EpisodeAudioChip(label = label)
                                 }
                             }
                             // Download button — shown here (next to pills) when no synopsis.
