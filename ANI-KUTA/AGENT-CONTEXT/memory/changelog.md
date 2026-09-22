@@ -2019,3 +2019,4 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **The hidden debug page:** long-press the Settings' "Debug options" row → "Always sponsor" (default OFF; ON = the sponsor popup fires on every app open, bypassing the cooldown; OFF = normal operations, byte-for-byte).
 - **The presets:** the App Icon page gained a Presets grid ABOVE the catalog — six baked colorways (Dark / Teal / Sky / Gold / Green / Pink), tap to apply inside the app, the hero follows, clear-override resets.
 - **CI:** implementation + debug release + the user-ordered all-ABI build — 3 disclosed runs (the budget superseded by explicit instruction).
+- **v1.1.35 LIVE (both lines):** the debug arm64 release (ani-kuta-v1.1.35-debug-arm64-v8a.apk) published as --latest; the actual release set (five release-signed APKs + sums + zip) delivered as the ani-kuta-v1.1.35-release-allabi workflow artifact. All three cycle runs green on their first attempts.
