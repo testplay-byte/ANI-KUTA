@@ -6,7 +6,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDecay
-import androidx.compose.animation.core.rememberDecayAnimationSpec
+import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -328,9 +328,11 @@ fun EpisodeListSettingsScreen(
     collapseDistanceState.value = collapseDistancePx
     var settleJob by remember { mutableStateOf<Job?>(null) }
     var flingJob by remember { mutableStateOf<Job?>(null) }
-    // The spline decay spec for the fling-momentum handoff — the same
-    // physics curve the list's own flings ride.
-    val flingDecay = rememberDecayAnimationSpec<Float>()
+    // The decay spec for the fling-momentum handoff — exponential decay,
+    // the animation-core factory that exists on EVERY Compose line (the
+    // rememberSplineBasedDecay / rememberDecayAnimationSpec names both
+    // failed CI on the 1.10.4 pin). remember-wrapped so the spec is stable.
+    val flingDecay = remember { exponentialDecay<Float>() }
     val nestedConnection = remember(selectedStyle) {
         object : NestedScrollConnection {
             // D-557: the crossed latch — a single continuous drag crosses the
@@ -698,6 +700,7 @@ fun EpisodeListSettingsScreen(
                     // segmented toggles in the Layout section's format — no
                     // description lines (the user's explicit spec).
                     item {
+                        Column {
                         AnimatedVisibility(
                             visible = selectedStyle == EpisodeListRowStyle.CINEMA,
                             enter = fadeIn(animationSpec = tween(300)) +
@@ -783,6 +786,7 @@ fun EpisodeListSettingsScreen(
                                     }
                                 }
                             }
+                        }
                         }
                     }
 
