@@ -6,7 +6,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDecay
-import androidx.compose.animation.core.rememberSplineBasedDecay
+import androidx.compose.animation.core.rememberDecayAnimationSpec
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -330,7 +330,7 @@ fun EpisodeListSettingsScreen(
     var flingJob by remember { mutableStateOf<Job?>(null) }
     // The spline decay spec for the fling-momentum handoff — the same
     // physics curve the list's own flings ride.
-    val flingDecay = rememberSplineBasedDecay<Float>()
+    val flingDecay = rememberDecayAnimationSpec<Float>()
     val nestedConnection = remember(selectedStyle) {
         object : NestedScrollConnection {
             // D-557: the crossed latch — a single continuous drag crosses the
