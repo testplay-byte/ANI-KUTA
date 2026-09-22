@@ -1997,3 +1997,11 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **The settings search:** a synonym-aware relevance engine + a data-driven index + the hub search bar with breadcrumb results + navigate/scroll/highlight landing on the target row.
 - **The heading-back:** the back arrow sits left of the title and the title itself is tappable back across ~24 screens; the top-right BackAction retires.
 - **v1.1.32 LIVE:** the D-558 round released — the deterministic collapse (preview first, momentum handoff, list-top-before-expand), the timeline thin gap, the animated Cinema section (corner/style/check), the settings search with the navigate/scroll/pulse landing, and the heading-as-back everywhere. CI: 2 single-cause RED repairs + a green implementation run + a first-try green release run, all disclosed.
+
+## Round 71 — D-559: the chicken neck, the frosted TEXT, the one-element heading, the search polish
+- **The timeline:** the date blob and the card CONNECT again — one outline, three sub-shapes, a thin ~10dp chicken neck bridging the D-558 gap (2dp overlaps, clamped).
+- **The cinema frosted style:** the TEXT ITSELF is the frost — a blurred halo behind (S+ RenderEffect, low-alpha under-copy below S) + a translucent crisp copy with a soft shadow; the plate and veil are gone.
+- **The heading-back:** the arrow and the title are ONE clickable element — the arrow hugs the screen edge (2dp, inside the padding), a 4dp gap, the title back near its old spot (~26dp).
+- **My Profile:** the alpha-0 mini pill no longer eats 120dp — its width animates with the collapse, so the 32sp title never truncates to "My PR…".
+- **The search:** grouped results card with per-page icon tiles and dividers; the bar's height no longer grows when typing (the 48dp IconButton died); re-entry starts empty (remember, not rememberSaveable); the device back clears the query first; "episode thumbnail" finds the poster row (phrase scores + synonyms + seven new poster-row index entries) and lands with a scroll + pulse on the poster screen (the D-558 gap closed).
+- **v1.1.33 LIVE:** the D-559 round released — CI: the implementation GREEN on the FIRST run + a first-try green release run (2 runs, on budget).
