@@ -3,7 +3,11 @@
 **Round:** 67 (the v1.1.28 device round's verdict: the 0.60 sheet over-corrected, and the
 first draft's three minor row variations are NOT what "customizable" meant)
 **Status:** PLAN → IMPLEMENTED in the same round (the user asked for "proper planning,
-proper understanding, thorough handling").
+proper understanding, thorough handling"). CI ledger: 2 Build runs (35679780981 RED — the
+extraction forgot the sixth local `thumbnailUrl` while renaming the display-value set;
+35680163304 the one-root-cause fix; the moved-code LOCAL-completeness audit joins the
+D-554 import-completeness audit), release run follows the tag. The moved-code lesson
+gains its sibling in lessons-learned.
 
 ---
 
@@ -128,3 +132,28 @@ experience stays byte-identical to pre-D-554 (CLASSIC renders the unchanged row)
 - Untouched: prefs keys (the stored values migrate through fromKey), the download
   control's 7-state contract, the swipe algebra (reused), season/organize systems,
   the sheets' scroll structure.
+
+
+---
+
+## §8 Completion record (round 67)
+
+Implemented EXACTLY as planned in §1–§7, with one compile repair en route:
+
+- The extraction of `rememberEpisodeDisplayData` renamed the display-value set but the
+  classic row's thumbnail block still read the old `thumbnailUrl` local — the CI log's
+  two "Unresolved reference" lines, one root cause, fixed in one commit. LESSON: the
+  moved-code audit must diff the CONSUMED local names against the RE-DECLARED ones
+  (imports alone don't catch a forgotten local).
+- The sandbox test suite grew to 13 locks and executed GREEN against the byte-exact
+  extracted production declarations (kotlinc 2.0.20 + junit, re-downloaded — /tmp had
+  been cleaned between rounds).
+- The two preview thumbnails were GENERATED (image-generation, 1344×768), cropped to
+  16:9, downscaled to 448×252 q64 JPEG, and embedded as PROPER `data:image/jpeg;base64,`
+  URIs (~41KB total; the CINEMA preview renders near-full width so 320px was rejected).
+- The GRID preview pairs the two samples side-by-side (mirroring the real wall's shape);
+  the other three layouts stack them; the preview cap rose 320→380dp for the two CINEMA
+  banners (the options below stay reachable — internal scroll, D-525 stationary rule).
+- The element-toggle descriptions on the settings page now state the per-layout
+  semantics ("Classic rows only" for the synopsis, "Shown in every layout where it
+  fits" for the release date).
