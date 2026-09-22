@@ -278,7 +278,7 @@ fun EpisodeListSettingsScreen(
     val scope = rememberCoroutineScope()
     var firstRowHeightPx by remember { mutableStateOf(0) }
     val rowGapPx = with(density) { 8.dp.toPx() }
-    val collapseDistancePx = (firstRowHeightPx + rowGapPx).coerceAtLeast(1)
+    val collapseDistancePx = (firstRowHeightPx + rowGapPx).coerceAtLeast(1f)
     val collapseProgress = remember { Animatable(0f) }
     val collapseCollapsed = remember { mutableStateOf(false) }
     val dragAccumulator = remember { mutableStateOf(0f) }
