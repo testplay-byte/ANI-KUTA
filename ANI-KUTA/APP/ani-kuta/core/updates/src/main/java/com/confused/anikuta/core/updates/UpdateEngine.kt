@@ -12,9 +12,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
@@ -34,7 +38,8 @@ import java.util.concurrent.TimeUnit
  * - T2: next_check_at gating with backoff (1h→2h→4h→8h→24h capped).
  * - T3: self-improving via details-page visits (onEpisodesRefreshed — CF5: INSERT OR REPLACE).
  * - T4: per-episode audio_variant (sub/dub).
- * - T5: WorkManager worker (1h cadence, NetworkType.CONNECTED + BatteryNotLow).
+ * - T5: WorkManager worker (interval from the update-check pref — default
+ *   24h; NetworkType.CONNECTED + BatteryNotLow).
  * - T6: source-link cache (deferred — uses sourceId from anime_update_state).
  * - T7: concurrency limit (3 parallel, Semaphore).
  * - M3: source-uninstall 3-strike rule.
@@ -73,6 +78,20 @@ class UpdateEngine(
 
     private val concurrencySemaphore = Semaphore(MAX_CONCURRENT)
 
+    // Task 80-a: single-flight guard — manual (settings screen + Updates tab),
+    // periodic worker and smart one-shot flows could previously interleave:
+    // interleaved 2001-notification updates, last-writer-wins on
+    // next_check_at, interleaved history sessions. Serialization is correct
+    // behavior: a queued second caller waits, then runs (usually finding
+    // nothing due and finishing honestly).
+    private val checkMutex = Mutex()
+
+    // Task 80-a: live "a check is running right now" flag — the Updates-tab
+    // UI uses it to avoid wiping a live in-app banner while a background
+    // check runs. True for the whole locked region, reset in a finally.
+    private val _checkActive = MutableStateFlow(false)
+    val checkActive: StateFlow<Boolean> = _checkActive
+
     // D-193 Phase 4: Live-progress flow — emitted before each anime check.
     private val _checkProgress = MutableSharedFlow<CheckProgress>(replay = 1)
     val checkProgress: SharedFlow<CheckProgress> = _checkProgress.asSharedFlow()
@@ -90,6 +109,13 @@ class UpdateEngine(
      * [progressNotifier] (a real-time notification per content item) and logs
      * the completed session — per-content outcomes + the engine's next
      * actions — to [checkLogger] (the content-update history page's data).
+     *
+     * Task 80-a: the run is single-flight ([checkMutex]) — the FIRST thing it
+     * does once the lock is held is [UpdateProgressNotifier.onScanStarted]
+     * (the audible "searching" signal, before the due query + any I/O).
+     * Cancellation is clean: [UpdateProgressNotifier.onCancelled] fires and
+     * the exception is rethrown bare, so no stuck "scanning" notification is
+     * ever left behind. [checkActive] reports the live state to the UI.
      */
     suspend fun checkDueAnime(
         filterMainIds: Set<String>? = null,
@@ -98,8 +124,36 @@ class UpdateEngine(
         val startedAt = System.currentTimeMillis()
         val sessionId = java.util.UUID.randomUUID().toString()
         try {
-            val checked = runCheck(filterMainIds, trigger, sessionId, startedAt)
-            checked
+            checkMutex.withLock {
+                // Task 80-a: the scan-start signal fires the MOMENT a run
+                // holds the lock — before the due query or any other work —
+                // so the audible "searching" state starts immediately.
+                // Inside the lock so a queued second caller cannot post a
+                // second start alert while the first is still live.
+                runCatching { progressNotifier?.onScanStarted(trigger) }
+                _checkActive.value = true
+                try {
+                    runCheck(filterMainIds, trigger, sessionId, startedAt)
+                } catch (t: Throwable) {
+                    // Task 80-a: a cancelled run used to rethrow bare WITHOUT
+                    // any cleanup — the live "checking" notification stayed
+                    // stuck forever (nothing ever finished it).
+                    // onCancelled() lets the notifier silently clean up
+                    // (cancel the live card, post nothing); the cancellation
+                    // is then rethrown bare — never swallowed. Inside the
+                    // lock so this cleanup cannot race a queued second run's
+                    // fresh onScanStarted.
+                    if (t is kotlinx.coroutines.CancellationException) {
+                        runCatching { progressNotifier?.onCancelled() }
+                    }
+                    throw t
+                } finally {
+                    // Task 80-a: every exit path (normal, failure,
+                    // cancellation) resets the live flag — the UI must never
+                    // see a stale "check running" state.
+                    _checkActive.value = false
+                }
+            }
         } catch (t: Throwable) {
             if (t is kotlinx.coroutines.CancellationException) throw t
             // Task 64: a mid-run crash still notifies + still lands in the
@@ -158,6 +212,9 @@ class UpdateEngine(
             // Task 64: an empty run still finishes the notification + lands in
             // the history ("when the app actually checked" — even when idle).
             // D-388: the summary payload (next-check info included).
+            // Task 80-a: this path never called onCheckStart — the run's
+            // onScanStarted already fired at entry, and onFinish (with the
+            // trigger) is the correct single terminal signal here.
             val summary = buildSummary(trigger, 0, 0, emptyList(), startedAt)
             runCatching { progressNotifier?.onFinish(summary) }
             runCatching {
@@ -198,15 +255,26 @@ class UpdateEngine(
                     // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
                     val details = content?.let { contentRepository.getContentDetails(it.mainId) }
                     val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
+                    // Task 80-a: the emission order is deliberate and kept —
+                    // the two local-DB reads above resolve the title FIRST,
+                    // then this block fires onItemStarted, then
+                    // checkSingleAnime does the network work. The live card
+                    // therefore names the item before its check begins.
                     synchronized(this@UpdateEngine) {
                         current++
                         _checkProgress.tryEmit(CheckProgress(current, total, state.mainId, title, coverUrl))
-                        // Task 64: the LIVE per-content notification update —
-                        // the content's NAME while it is being checked.
-                        runCatching { progressNotifier?.onProgress(current, total, title) }
+                        // Task 80-a: onItemStarted (was onProgress) — item
+                        // claimed, title resolved, network check not yet begun.
+                        runCatching { progressNotifier?.onItemStarted(current, total, title) }
                     }
 
-                    val result = checkSingleAnime(state, now)
+                    // Task 80-c review fix: the T7 semaphore was declared but
+                    // never wired — the check actually ran UNBOUNDED parallel
+                    // network calls (the KDoc's "3 parallel" was false). The
+                    // permit now caps concurrent SOURCE fetches at
+                    // MAX_CONCURRENT (the local-DB reads above stay outside
+                    // the permit — only the network work is capped).
+                    val result = concurrencySemaphore.withPermit { checkSingleAnime(state, now) }
                     // D-396 (round 27): the smart-schedule record for this
                     // item — captured from the SAME state the engine just
                     // acted on, so the history can show "what it calculated,
@@ -246,6 +314,15 @@ class UpdateEngine(
                                 expectedCheckAt = expectedCheckAt,
                             )
                         )
+                        // Task 80-a: onItemCompleted fires as soon as the
+                        // item's check lands (result.newEpisodes = the rows
+                        // THIS item upserted) — the live card can tick per
+                        // item instead of going silent until the run ends.
+                        // Same synchronized guard as the started-signal so the
+                        // two can never interleave out of order.
+                        runCatching {
+                            progressNotifier?.onItemCompleted(current, total, title, result.newEpisodes)
+                        }
                     }
                 }
             }.awaitAll()

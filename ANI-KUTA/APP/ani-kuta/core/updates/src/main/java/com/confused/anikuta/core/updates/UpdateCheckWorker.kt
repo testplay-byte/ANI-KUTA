@@ -9,14 +9,23 @@ import java.util.concurrent.TimeUnit
 /**
  * WorkManager worker for the smart update engine (Phase UP — PLAN §4.3 T5, §4.5).
  *
- * Runs periodically (default: every 1 hour) + checks all due anime for new episodes.
+ * Runs periodically (interval from the update-check pref — default 24h)
+ * + checks all due anime for new episodes.
  * Also runs retention cleanup (M9: delete acknowledged updates older than 7 days).
  *
  * D-193 Phase 9: now calls ScheduleRefresher.fetchSchedule() before checking,
  * + also calls NotificationConfigStore.cleanupOldSent() for notification dedup retention.
  *
+ * Task 80-a: the FIRST thing doWork does (before the schedule refresh + any
+ * I/O) is fire `UpdateProgressNotifier.onScanStarted("periodic")` — the
+ * user-visible "searching" state (with sound) must begin the moment the
+ * worker wakes, not only after the AniList refresh round-trip finishes.
+ *
  * Constraints (CF6): NetworkType.CONNECTED + BatteryNotLow.
- * ExistingPeriodicWorkPolicy.KEEP (so setting changes don't reset the timer).
+ * ExistingPeriodicWorkPolicy.UPDATE — UpdateScheduler rewrites the periodic
+ * spec in place when settings change (interval changes take effect at the
+ * next period boundary) while preserving the original schedule anchor, so
+ * re-scheduling on every app open no longer resets/drifts the cadence.
  *
  * Uses GlobalContext to get [UpdateEngine] + [UpdateStore] (avoids the need for a
  * custom WorkerFactory — matches the project's existing pattern for non-composable
@@ -32,7 +41,9 @@ class UpdateCheckWorker(
     companion object {
         const val TAG = "Anikuta:Core:Updates:Worker"
         const val PERIODIC_WORK_NAME = "anikuta_update_check"
-        const val PERIODIC_INTERVAL_HOURS = 1L
+        // Task 80-a: PERIODIC_INTERVAL_HOURS = 1L deleted — dead constant (the
+        // real cadence comes from UpdatePreferences.getIntervalHours(), default
+        // 24h, applied by UpdateScheduler) and its "1 hour" figure was wrong.
         const val RETENTION_DAYS = 7L
         const val NOTIF_RETENTION_DAYS = 90L
     }
@@ -42,6 +53,17 @@ class UpdateCheckWorker(
 
         return try {
             val koin = org.koin.core.context.GlobalContext.get()
+
+            // Task 80-a: fire the audible "searching" signal BEFORE anything
+            // else — the periodic path previously stayed silent through the
+            // whole AniList schedule refresh. The user-visible "searching"
+            // state must begin the moment the worker wakes. getOrNull mirrors
+            // this file's other optional Koin lookups (ScheduleRefresher);
+            // runCatching keeps a notifier failure from failing the worker.
+            runCatching {
+                koin.getOrNull<UpdateProgressNotifier>()?.onScanStarted("periodic")
+            }
+
             val engine = koin.get<UpdateEngine>()
             val store = koin.get<UpdateStore>()
 

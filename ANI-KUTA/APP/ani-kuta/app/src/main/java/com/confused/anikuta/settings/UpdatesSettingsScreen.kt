@@ -74,6 +74,9 @@ fun UpdatesSettingsScreen(
     updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences = koinInject(),
     updateScheduler: com.confused.anikuta.core.updates.UpdateScheduler = koinInject(),
     updateEngine: UpdateEngine = koinInject(),
+    // Task 80-b: resolves the MANUAL category selection → mainIds for the
+    // check-now row (the same resolution the Updates tab uses).
+    contentRepository: com.confused.anikuta.core.content.ContentRepository = koinInject(),
 ) {
     val mode by updatePreferences.mode.collectAsState()
     val intervalHours by updatePreferences.intervalHours.collectAsState()
@@ -82,9 +85,13 @@ fun UpdatesSettingsScreen(
     val checkDubCompleted by updatePreferences.checkDubCompleted.collectAsState()
 
     // D-388 (round 25): the check-now button's state + runner. Runs the engine
-    // with the MANUAL trigger (labeled correctly in the history now), on the
+    // with the MANUAL trigger (labeled correctly in the history).
+    // Task 80-b (honesty fix): the old doc comment claimed the row ran "on the
     // user's Manual-mode category filter — the same semantics as the Updates
-    // tab's pull-to-refresh.
+    // tab" — but the code passed NO filter at all, so a Manual user tapping
+    // check-now silently checked their WHOLE library. Now MANUAL really builds
+    // the same filter the Updates tab builds (same prefs, same resolution);
+    // AUTO passes no filter (all due); OFF disables the row entirely.
     val scope = rememberCoroutineScope()
     var checkNowRunning by remember { mutableStateOf(false) }
     var checkNowResult by remember { mutableStateOf<String?>(null) }
@@ -115,33 +122,35 @@ fun UpdatesSettingsScreen(
 
             Box(modifier = Modifier.fillMaxSize()) {
                 // ── D-558: the search-landing scroll — MODE-AWARE because
-                // several cards are conditional items (interval/categories
-                // exist only in MANUAL; dub only when not OFF).
+                // several cards are conditional items (categories exist only
+                // in MANUAL; interval + check-now exist in AUTO + MANUAL;
+                // dub only when not OFF). Task 80-b: the check-now card is
+                // now ALWAYS rendered (disabled in OFF) and the interval
+                // card renders in AUTO too — the anchor map below matches.
                 rememberSettingsAnchorScroll(
                     anchor = highlightAnchor,
                     anchorIndexFor = { anchor ->
                         // The REAL item order (mode-dependent): 0 mode card;
-                        // (mode != OFF) 1 check-now, 2 check-log; (MANUAL only)
-                        // 3 interval, 4 categories; (mode != OFF) 5 episode-type
-                        // card, 6 dub card; 7 notifications label; 8 the card.
+                        // 1 check-now (always present — disabled in OFF);
+                        // 2 check-log; (AUTO + MANUAL) 3 interval;
+                        // (MANUAL only) 4 categories; (mode != OFF) 5/4
+                        // episode-type, 6/5 dub; 7/6 notifications label;
+                        // 8/7 the card. (OFF: 3 label, 4 card.)
                         val isManual = mode == UpdateMode.MANUAL
                         val isAuto = mode == UpdateMode.AUTO
                         when (anchor) {
-                            "updates_interval" -> if (isManual) 3 else null
+                            "updates_interval" -> if (mode == UpdateMode.OFF) null else 3
                             "updates_categories" -> if (isManual) 4 else null
                             "updates_dub" -> when {
                                 isManual -> 6
-                                isAuto -> 4
+                                isAuto -> 5
                                 else -> null
                             }
-                            "update_check_log" -> when {
-                                mode == UpdateMode.OFF -> 1
-                                else -> 2
-                            }
+                            "update_check_log" -> 2
                             "updates_notifications" -> when {
                                 isManual -> 8
-                                isAuto -> 6
-                                else -> 3
+                                isAuto -> 7
+                                else -> 4
                             }
                             else -> null
                         }
@@ -194,70 +203,102 @@ fun UpdatesSettingsScreen(
                     // ── D-388 (round 25): the CHECK-NOW action + the PROMINENT
                     // history entry — directly under the mode card (the
                     // round-25 report could not find either). ──
-                    if (mode != UpdateMode.OFF) {
-                        item {
-                            SeparateCard {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable(enabled = !checkNowRunning) {
-                                            checkNowRunning = true
-                                            checkNowResult = null
-                                            scope.launch {
-                                                runCatching {
-                                                    updateEngine.checkDueAnime(trigger = "manual")
-                                                }.onSuccess { found ->
-                                                    checkNowResult =
-                                                        if (found > 0) "$found new episode(s) found" else "No new episodes"
-                                                }.onFailure { t ->
-                                                    checkNowResult = "Check failed: ${t.message}"
+                    // Task 80-b: the check-now row is ALWAYS rendered now —
+                    // in OFF it stays visible but DISABLED with an honest
+                    // "Updates are turned off" description (hiding it made
+                    // the page look broken; a dead row lies less than a
+                    // missing one).
+                    item {
+                        SeparateCard {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    // Task 80-b: OFF disables the row — the
+                                    // periodic worker is cancelled in OFF, so
+                                    // a "check now" tap would silently do the
+                                    // opposite of what the page promises.
+                                    .clickable(enabled = !checkNowRunning && mode != UpdateMode.OFF) {
+                                        checkNowRunning = true
+                                        checkNowResult = null
+                                        scope.launch {
+                                            runCatching {
+                                                // Task 80-b: MANUAL builds the SAME
+                                                // manual-mode category filter the
+                                                // Updates tab builds (same prefs,
+                                                // same resolution — mirrored from
+                                                // UpdatesViewModel.checkForUpdates):
+                                                // selected categories → mainIds,
+                                                // empty selection = all due. AUTO
+                                                // passes no filter (all due). This
+                                                // is the parity the old comment
+                                                // claimed and the code never had.
+                                                val filterMainIds: Set<String>? = if (mode == UpdateMode.MANUAL) {
+                                                    val selectedCats = updatePreferences.getSelectedCategories()
+                                                    if (selectedCats.isEmpty()) {
+                                                        null // no filter = check all due (user hasn't picked categories yet)
+                                                    } else {
+                                                        selectedCats.flatMap { catId ->
+                                                            contentRepository.getMainIdsByCategory(catId.toLong())
+                                                        }.toSet()
+                                                    }
+                                                } else {
+                                                    null // AUTO — check all due anime
                                                 }
-                                                checkNowRunning = false
+                                                updateEngine.checkDueAnime(filterMainIds = filterMainIds, trigger = "manual")
+                                            }.onSuccess { found ->
+                                                checkNowResult =
+                                                    if (found > 0) "$found new episode(s) found" else "No new episodes"
+                                            }.onFailure { t ->
+                                                checkNowResult = "Check failed: ${t.message}"
                                             }
+                                            checkNowRunning = false
                                         }
-                                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Refresh,
-                                        contentDescription = null,
-                                        tint = if (checkNowRunning) MaterialTheme.colorScheme.onSurfaceVariant
-                                        else MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp),
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = null,
+                                    tint = if (checkNowRunning || mode == UpdateMode.OFF) MaterialTheme.colorScheme.onSurfaceVariant
+                                    else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Spacer(Modifier.width(11.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (checkNowRunning) "Checking for updates…" else "Check for updates now",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (checkNowRunning || mode == UpdateMode.OFF) MaterialTheme.colorScheme.onSurfaceVariant
+                                        else MaterialTheme.colorScheme.onSurface,
                                     )
-                                    Spacer(Modifier.width(11.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
+                                    // Local binding — `checkNowResult` is a remember-delegated
+                                    // property, so the null-checked form can NOT smart cast
+                                    // (Kotlin rule); the local can.
+                                    val result = checkNowResult
+                                    if (result != null) {
                                         Text(
-                                            text = if (checkNowRunning) "Checking for updates…" else "Check for updates now",
+                                            text = result,
                                             fontFamily = RobotoFamily,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = if (checkNowRunning) MaterialTheme.colorScheme.onSurfaceVariant
-                                            else MaterialTheme.colorScheme.onSurface,
+                                            fontSize = 13.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(top = 2.dp),
                                         )
-                                        // Local binding — `checkNowResult` is a remember-delegated
-                                        // property, so the null-checked form can NOT smart cast
-                                        // (Kotlin rule); the local can.
-                                        val result = checkNowResult
-                                        if (result != null) {
-                                            Text(
-                                                text = result,
-                                                fontFamily = RobotoFamily,
-                                                fontSize = 13.sp,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.padding(top = 2.dp),
-                                            )
-                                        } else {
-                                            Text(
-                                                text = "Runs an episode check right away",
-                                                fontFamily = RobotoFamily,
-                                                fontSize = 13.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                                modifier = Modifier.padding(top = 2.dp),
-                                            )
-                                        }
+                                    } else {
+                                        // Task 80-b: the OFF description is the
+                                        // honest reason the row is dead.
+                                        Text(
+                                            text = if (mode == UpdateMode.OFF) "Updates are turned off"
+                                            else "Runs an episode check right away",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 13.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(top = 2.dp),
+                                        )
                                     }
                                 }
                             }
@@ -310,26 +351,42 @@ fun UpdatesSettingsScreen(
 
                     // ── Checking settings (shown when mode != OFF) — each is a SEPARATE card ──
                     if (mode != UpdateMode.OFF) {
-                        // Interval + categories — only in MANUAL mode
-                        if (mode == UpdateMode.MANUAL) {
-                            item {
-                                SettingsHighlightTarget(anchorId = "updates_interval", activeAnchor = highlightAnchor) {
-                                SeparateCard {
-                                    NavRowContent(
-                                        title = "Check interval",
-                                        description = formatInterval(intervalHours),
-                                        trailingText = formatIntervalShort(intervalHours),
-                                        onClick = {
-                                            val intervals = listOf(6L, 12L, 24L, 48L, 72L, 168L)
-                                            val currentIdx = intervals.indexOf(intervalHours)
-                                            val nextIdx = (currentIdx + 1) % intervals.size
-                                            updatePreferences.setIntervalHours(intervals[nextIdx])
-                                            updateScheduler.reschedule()
-                                        },
-                                    )
-                                }
-                                }
+                        // Task 80-b: the interval row now renders in BOTH AUTO
+                        // and MANUAL (hidden only in OFF). Why: the row used to
+                        // be MANUAL-only, but MANUAL cancels the periodic
+                        // worker (UpdateScheduler.reschedule only schedules in
+                        // AUTO) — so the row was most visible exactly where it
+                        // does the least, and INVISIBLE in AUTO, where the
+                        // interval actually drives the periodic check. The
+                        // description is now mode-honest: AUTO → it controls
+                        // the background cadence; MANUAL → it feeds the
+                        // next-check projection. Same cycle-through-values +
+                        // reschedule() behavior as before.
+                        item {
+                            SettingsHighlightTarget(anchorId = "updates_interval", activeAnchor = highlightAnchor) {
+                            SeparateCard {
+                                NavRowContent(
+                                    title = "Check interval",
+                                    description = when (mode) {
+                                        UpdateMode.AUTO -> "How often background checks run"
+                                        else -> "Feeds the next-check projection"
+                                    },
+                                    trailingText = formatIntervalShort(intervalHours),
+                                    onClick = {
+                                        val intervals = listOf(6L, 12L, 24L, 48L, 72L, 168L)
+                                        val currentIdx = intervals.indexOf(intervalHours)
+                                        val nextIdx = (currentIdx + 1) % intervals.size
+                                        updatePreferences.setIntervalHours(intervals[nextIdx])
+                                        updateScheduler.reschedule()
+                                    },
+                                )
                             }
+                            }
+                        }
+                        // Task 80-b: categories stay MANUAL-only (AUTO checks
+                        // everything due — a category filter would be a lie
+                        // there).
+                        if (mode == UpdateMode.MANUAL) {
                             item {
                                 SettingsHighlightTarget(anchorId = "updates_categories", activeAnchor = highlightAnchor) {
                                 SeparateCard {
@@ -541,15 +598,9 @@ private fun NavRowContent(
 
 // ── Helpers ──
 
-private fun formatInterval(hours: Long): String = when (hours) {
-    6L -> "Every 6 hours"
-    12L -> "Every 12 hours"
-    24L -> "Every 24 hours"
-    48L -> "Every 2 days"
-    72L -> "Every 3 days"
-    168L -> "Weekly"
-    else -> "Every $hours hours"
-}
+// Task 80-b: formatInterval() removed — its only caller (the interval row's
+// description) now renders a mode-honest sentence instead of restating the
+// value the trailing badge already shows.
 
 private fun formatIntervalShort(hours: Long): String = when (hours) {
     6L -> "6h"

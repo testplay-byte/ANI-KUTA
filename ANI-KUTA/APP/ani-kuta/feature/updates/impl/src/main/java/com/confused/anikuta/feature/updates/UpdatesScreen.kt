@@ -70,6 +70,9 @@ fun UpdatesScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val checking by viewModel.checking.collectAsStateWithLifecycle()
     val checkProgress by viewModel.checkProgress.collectAsStateWithLifecycle()
+    // Task 80-b: the refresh-control message (the OFF-mode refusal) — a
+    // small honest banner right under the tab strip, tap to dismiss.
+    val checkMessage by viewModel.checkMessage.collectAsStateWithLifecycle()
     val fetching by scheduleViewModel.fetching.collectAsStateWithLifecycle()
 
     // D-193 improvement: Don't auto-refresh on page entry — clear any stale progress.
@@ -172,6 +175,35 @@ fun UpdatesScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // Task 80-b: the refresh-control message — rendered right under
+            // the tab strip (as close to the refresh control as the layout
+            // allows without touching the header). Same card language as the
+            // rest of this screen (Surface + rounded corners, one-line text);
+            // a tap clears it. No spinner — nothing is running, and the
+            // message must not pretend otherwise.
+            // Local binding first — `checkMessage` is a remember-delegated
+            // property, so IT can not smart cast (Kotlin rule); a local val
+            // can (same pattern as checkNowResult on the settings screen).
+            val checkMessageValue = checkMessage
+            if (checkMessageValue != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clickable { viewModel.clearCheckMessage() },
+                ) {
+                    Text(
+                        text = checkMessageValue,
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
                 }
             }
 

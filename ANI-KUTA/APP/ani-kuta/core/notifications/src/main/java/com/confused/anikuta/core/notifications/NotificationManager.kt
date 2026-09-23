@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.preferences.NotificationPreferences
+import kotlin.math.roundToInt
 
 /**
  * Posts system notifications for new episode releases (Phase NOTIF).
@@ -192,7 +193,29 @@ class NotificationManager(
 
         // 6. Post the notification. Silent → low-importance channel (no sound);
         //    otherwise the default channel (sound + popup).
-        val notifId = (NOTIFICATION_ID_BASE + (mainId.hashCode() and 0x3FFF) + episodeNumber.toInt()).coerceAtMost(Int.MAX_VALUE)
+        //
+        // Task 80-b — the notification-ID collision fix. The old id,
+        // `BASE + (mainId.hashCode() and 0x3FFF) + episodeNumber.toInt()`,
+        // collided in TWO ways:
+        //  1. ACROSS anime — a 14-bit hash range (16384 slots) shared the
+        //     whole +offset space, so two different anime could easily land
+        //     close enough that their episodes overlapped into the SAME id
+        //     (one anime's ep 7 overwrote another's ep 9 banner);
+        //  2. WITHIN one anime — ep 12 and the special ep 12.5 BOTH truncated
+        //     to toInt() == 12 → the second post silently REPLACED the first
+        //     (and the dedup table treats them as distinct rows, so nothing
+        //     re-posted the swallowed banner either).
+        // The new id separates the two axes: a 15-bit anime slot × an
+        // episode slot that keeps ONE decimal (12 → 120, 12.5 → 125).
+        // Residual: two anime still collide only when they share BOTH the
+        // same 15-bit hash AND the same episode number — astronomically
+        // unlikely (and the old within-anime collision class is gone).
+        // Bounds: 30000 + 32767*10000 + 9999 = 327_709_999 < Int.MAX_VALUE,
+        // so the old coerceAtMost(Int.MAX_VALUE) guard is mathematically
+        // redundant now and was dropped.
+        val notifId = NOTIFICATION_ID_BASE +
+            (mainId.hashCode() and 0x7FFF) * 10000 +
+            ((episodeNumber * 10f).roundToInt().coerceIn(0, 9999))
         val displayAudio = if (audioVariant == "sub") "SUB" else if (audioVariant == "dub") "DUB" else ""
         // D-496: "EP 12" not "EP 12.0" (Double toString), and 12.5 stays 12.5.
         val text = "EP ${episodeLabel(episodeNumber)}${if (displayAudio.isNotBlank()) " · $displayAudio" else ""} is now available"

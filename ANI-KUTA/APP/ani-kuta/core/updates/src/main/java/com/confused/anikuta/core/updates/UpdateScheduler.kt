@@ -14,9 +14,11 @@ import java.util.concurrent.TimeUnit
 /**
  * Schedules / cancels the [UpdateCheckWorker] based on user preferences (D-193 Phase 4).
  *
- * - When `update_mode = AUTO` or `MANUAL`: schedules a periodic worker at the configured interval.
+ * - When `update_mode = AUTO`: schedules a periodic worker at the configured interval
+ *   (Task 80-c doc fix — MANUAL never schedules; it is strictly on-demand).
  * - When `update_mode = OFF`: cancels the worker entirely.
- * - When the interval changes: re-enqueues with `ExistingPeriodicWorkPolicy.REPLACE`.
+ * - When the interval changes: re-enqueued with `ExistingPeriodicWorkPolicy.UPDATE`
+ *   (Task 80-a — the spec is rewritten in place; see [schedule]).
  *
  * Called from:
  * - `AnikutaApp.onCreate()` (initial schedule on app start)
@@ -54,7 +56,14 @@ class UpdateScheduler(
 
     /**
      * Schedule the periodic worker at the given interval.
-     * Uses `ExistingPeriodicWorkPolicy.REPLACE` so changing the interval takes effect immediately.
+     *
+     * Task 80-a: uses `ExistingPeriodicWorkPolicy.UPDATE` (WorkManager 2.10.0).
+     * The old REPLACE policy cancelled + re-inserted the periodic work on
+     * EVERY app open (AnikutaApp.onCreate → reschedule), resetting the
+     * periodic anchor by a full interval each time — checks drifted and the
+     * user's "next check" countdown lied. UPDATE rewrites the spec in place
+     * while preserving the original anchor; an explicit interval change takes
+     * effect at the next period boundary instead of immediately.
      */
     private fun schedule(intervalHours: Long) {
         try {
@@ -70,11 +79,15 @@ class UpdateScheduler(
 
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 UpdateCheckWorker.PERIODIC_WORK_NAME,
-                ExistingPeriodicWorkPolicy.REPLACE,
+                // Task 80-a: UPDATE (was REPLACE) — REPLACE reset the periodic
+                // anchor on every app open, so the real check cadence drifted
+                // from the promised one. UPDATE keeps the anchor; interval
+                // edits land at the next period boundary.
+                ExistingPeriodicWorkPolicy.UPDATE,
                 request,
             )
 
-            Logger.i(TAG) { "UpdateCheckWorker scheduled: every ${intervalHours}h (REPLACE)" }
+            Logger.i(TAG) { "UpdateCheckWorker scheduled: every ${intervalHours}h (UPDATE)" }
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to schedule UpdateCheckWorker" }
         }

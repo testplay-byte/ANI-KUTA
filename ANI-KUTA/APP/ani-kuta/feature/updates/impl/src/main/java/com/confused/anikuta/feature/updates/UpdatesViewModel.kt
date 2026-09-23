@@ -69,9 +69,31 @@ class UpdatesViewModel(
     private val _checkProgress = MutableStateFlow<CheckProgress?>(null)
     val checkProgress: StateFlow<CheckProgress?> = _checkProgress.asStateFlow()
 
-    /** Clear the progress banner — called when the Updates screen is entered (no auto-refresh). */
+    // Task 80-b: an honest one-line message for the refresh control (the
+    // OFF-mode refusal). Why not the progress banner: the LiveProgressBanner
+    // renders a SPINNER for any text-only progress — a spinner on "updates
+    // are turned off" would imply activity that never happens. This is the
+    // lightest honest surface; the screen renders it near the refresh
+    // control and a tap dismisses it.
+    private val _checkMessage = MutableStateFlow<String?>(null)
+    val checkMessage: StateFlow<String?> = _checkMessage.asStateFlow()
+
+    /** Dismiss the refresh-control message (the screen calls this on tap). */
+    fun clearCheckMessage() {
+        _checkMessage.value = null
+    }
+
+    /** Clear the progress banner — called when the Updates screen is entered (no auto-refresh).
+     *
+     * Task 80-b: gated behind the engine's live check state — opening the
+     * tab during a BACKGROUND check used to wipe the live in-app banner
+     * (the check kept running; its next emission would re-appear only on
+     * the next item, leaving the user with no progress feedback in between).
+     * While a check is active the banner stays. */
     fun clearProgress() {
-        _checkProgress.value = null
+        if (!updateEngine.checkActive.value) {
+            _checkProgress.value = null
+        }
     }
 
     init {
@@ -92,8 +114,20 @@ class UpdatesViewModel(
 
     /** Check for new episodes (pull-to-refresh or "Check now" button). */
     fun checkForUpdates() {
+        // Task 80-b: OFF-mode honesty — when the user turned updates OFF the
+        // periodic worker is cancelled and the engine is not supposed to run;
+        // silently running a full check anyway (the old behavior) betrayed
+        // the toggle. Refuse with an honest message instead of calling the
+        // engine, and keep the "checking" machinery untouched.
+        if (updatePreferences?.getMode() == com.confused.anikuta.core.preferences.UpdateMode.OFF) {
+            Logger.i(TAG) { "checkForUpdates — refused: updates are turned off" }
+            _checkMessage.value = "Updates are turned off — enable them in Settings → Updates"
+            return
+        }
         viewModelScope.launch {
             _checking.value = true
+            // Task 80-b: a real check supersedes any stale refresh message.
+            _checkMessage.value = null
             // D-193 improvement: emit a "checking" progress so the banner shows immediately
             _checkProgress.value = com.confused.anikuta.core.updates.CheckProgress(0, 0, "", "Checking library…", null)
             runCatching {

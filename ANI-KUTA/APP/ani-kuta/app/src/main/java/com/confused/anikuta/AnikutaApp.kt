@@ -260,6 +260,20 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                         .get<com.confused.anikuta.core.content.ContentRepository>()
                         .healCloudstreamEcosystem()
                 }
+                // Task 80-b: the dedup sent-log's designed 90-day retention
+                // NEVER ran (cleanupOldSent had zero production callers), so
+                // the notification_sent table grew forever. One sweep per app
+                // start, best-effort inside its own runCatching so a Koin/DB
+                // failure cannot take down the download scan below. Cutoff:
+                // now − 90 days, exactly the retention the store documents.
+                runCatching {
+                    org.koin.core.context.GlobalContext.get()
+                        .get<com.confused.anikuta.core.notifications.NotificationConfigStore>()
+                        .cleanupOldSent(System.currentTimeMillis() - 90L * 24 * 60 * 60 * 1000)
+                    Logger.i("AnikutaApp") { "Notification sent-log 90-day retention sweep done" }
+                }.onFailure { t ->
+                    Logger.w("AnikutaApp") { "Notification sent-log cleanup failed: ${t.message}" }
+                }
                 downloadManager.requestFolderRescan()
                 Logger.i("AnikutaApp") { "Download folder scan completed (data.json reconciliation)" }
             }
@@ -338,8 +352,15 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             // the content-update history store (JSON file — NOT the database,
             // this round's constraint). The engine picks both up through its
             // nullable constructor seams (see UpdatesModule).
+            // Task 80-b: the notifier now honors the notifications MASTER
+            // toggle (canPost gates on NotificationPreferences), so the bound
+            // pref singleton rides the existing binding (same module — the
+            // binding itself is unchanged in shape + key).
             single<com.confused.anikuta.core.updates.UpdateProgressNotifier> {
-                com.confused.anikuta.notifications.UpdateProgressNotifierImpl(androidContext())
+                com.confused.anikuta.notifications.UpdateProgressNotifierImpl(
+                    androidContext(),
+                    get<com.confused.anikuta.core.preferences.NotificationPreferences>(),
+                )
             }
             single { UpdateCheckLogStore(androidContext()) }
 

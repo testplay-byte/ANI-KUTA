@@ -17,23 +17,81 @@ import kotlinx.serialization.Serializable
  * it was searching for and it did not tell me the next details, like what it
  * will do next and such."
  *
+ * Task 80-a — the LIVE-check contract. The engine's exact call flow, in
+ * order, for every check run (periodic worker, manual, one-shot):
+ *
+ *   1. [onScanStarted]        ← the VERY first statement of the run, before
+ *                               the due query and before any I/O
+ *   2. [onCheckStart]         ← the due list is now known
+ *   3. per item:
+ *        [onItemStarted]      ← title resolved from the local DB, BEFORE the
+ *                               item's network check begins
+ *        → (the network check)
+ *        [onItemCompleted]    ← the item's check finished
+ *   4. exactly ONE terminal signal:
+ *        [onFinish]           ← the run completed (also on the empty-due path)
+ *      | [onFailed]           ← the run crashed mid-way
+ *      | [onCancelled]        ← the run's coroutine was cancelled
+ *
+ * CONTRACT for implementations:
+ * - [onScanStarted] must ALERT ONCE (sound) and show the "searching for new
+ *   episode releases" state — it is the audible start signal; the run it
+ *   announces exists even if the due list turns out to be empty.
+ * - [onCancelled] must clean up SILENTLY (cancel the live notification, post
+ *   nothing) — a cancelled run must never leave a stuck "scanning" card.
+ *
  * The engine calls these on its IO dispatcher — implementations must be
  * cheap + never throw (best-effort).
  */
 interface UpdateProgressNotifier {
 
-    /** A check is starting — [totalDue] anime are queued. */
+    /**
+     * The check is scanning — fired by [UpdateEngine] as the FIRST statement
+     * of [UpdateEngine.checkDueAnime] (inside the check mutex, before the due
+     * query and before any other work). Only [trigger] is known — no due
+     * count yet.
+     *
+     * Implementation MUST alert once (sound) and show the "searching" state.
+     * Task 80-c doc fix: a PERIODIC run fires this TWICE — the worker calls
+     * it the moment it wakes (before the schedule refresh) and the engine
+     * calls it again at the check mutex. Implementations must tolerate
+     * re-firing on the same post id (alert-once keeps it to a single sound);
+     * manual runs fire it exactly once.
+     */
+    fun onScanStarted(trigger: String)
+
+    /** A check is starting — [totalDue] anime are queued. Called once the
+     *  due list has been queried (after [onScanStarted]); NOT called when
+     *  nothing is due (that run goes straight to [onFinish]). */
     fun onCheckStart(trigger: String, totalDue: Int)
 
-    /** About to check item [current] of [total] — [title] is its name. */
-    fun onProgress(current: Int, total: Int, title: String)
+    /** Item [current] of [total] was claimed and its [title] is resolved from
+     *  the local DB — fired BEFORE the item's network check begins, so the
+     *  live card names the item while it is still being checked. */
+    fun onItemStarted(current: Int, total: Int, title: String)
+
+    /** Item [current] of [total] finished its check — [newEpisodes] is the
+     *  number of episode rows that item's check just upserted. Fired
+     *  immediately after the item's check lands (per item, in check order). */
+    fun onItemCompleted(current: Int, total: Int, title: String, newEpisodes: Int)
 
     /** The check finished — [summary] carries everything the results
-     *  notification + the history need (per-item outcomes, next check). */
+     *  notification + the history need (per-item outcomes, next check).
+     *  Fired on BOTH the completed path and the empty-due path (which never
+     *  called [onCheckStart] — [summary].totalChecked is 0 there). */
     fun onFinish(summary: UpdateCheckSummary)
 
     /** The check failed mid-run (an exception escaped the engine). */
     fun onFailed(error: String)
+
+    /**
+     * The check coroutine was CANCELLED (job replaced, scope torn down,
+     * worker stopped). Implementation must clean up SILENTLY: cancel the
+     * live notification, post nothing. Never fired together with
+     * [onFinish] or [onFailed] — cancellation is rethrown bare by the engine
+     * after this call.
+     */
+    fun onCancelled()
 }
 
 /**
