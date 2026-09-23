@@ -7,7 +7,7 @@
 |------|---------|
 | `SESSION.md` | 60-second session bootstrap: key rules + the loop + end-of-session checklist. **Read first.** |
 | `master.md` | Project orientation: what ANI-KUTA is, folder layout, what to read. |
-| `CORE_RULES.md` | Non-negotiable rules (**30 sections**). Wins over everything. |
+| `CORE_RULES.md` | Non-negotiable rules (**31 sections**). Wins over everything. |
 | `workflow.md` | The task execution loop (Understand→Verify→Implement→Verify→Move On) + project phases. |
 
 ## 🌐 Workspace-Level

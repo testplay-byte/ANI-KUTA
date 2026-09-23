@@ -182,10 +182,10 @@ repo-root/
 
 - **After completing every task**, send a notification via `ntfy.sh`:
   ```bash
-  curl -fsSL -H "Title: ANI-KUTA Agent" -d "<short result, one line>" https://ntfy.sh/TASKISDONE
+  curl -fsSL -H "Title: ANI-KUTA Agent" -d "<short result, one line>" https://ntfy.sh/THE-TASK-IS-DONE
   ```
-- Topic: `TASKISDONE` (user-specified).
-- ⚠️ **Note**: ntfy.sh topics are public. Anyone who guesses `TASKISDONE` can read/spoof messages. Don't put secrets in the message body. If this becomes a problem, switch to a long random topic stored in a GitHub secret.
+- Topic: `THE-TASK-IS-DONE` (user-specified; the older `TASKISDONE` topic predates it — every round since ~round 70 has used `THE-TASK-IS-DONE`).
+- ⚠️ **Note**: ntfy.sh topics are public. Anyone who guesses `THE-TASK-IS-DONE` can read/spoof messages. Don't put secrets in the message body. If this becomes a problem, switch to a long random topic stored in a GitHub secret.
 
 ---
 

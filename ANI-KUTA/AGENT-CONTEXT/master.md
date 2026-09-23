@@ -73,12 +73,12 @@ ANI-KUTA/                        ← repo root (git)
 
 ## Current Status
 
-- **Branch**: `test-feature/video-cache-new-download` — the long-lived active branch; every shipped version since v0.2.48 was built here. `main` is the old pre-v0.2.48 baseline; merging is USER-GATED (CORE_RULES §8).
-- **Phase**: **ALL MAJOR PHASES COMPLETE** (Phases 0-4, 5a/5b/5c, B/C/D/DL/WP/HI/UP/SC/TR/NOTIF/CW, Debug Bubble, Profile UI v1-v6) — plus the ongoing device-feedback polish loop that has produced v0.2.48 → v0.2.62 (seasons module, episode-list integrity, pull-to-refresh, cover viewer + zoom, shared-element cover transitions, compose 1.10.4 runtime alignment… see `memory/decisions.md` D-240..D-326).
-- **Release cadence**: each feedback batch ships as a tagged GitHub Release (in-app updater discovers it); the user device-tests every build on a real OnePlus phone.
-- **Modules**: 50 Gradle modules (1 `:app` + 30 `:core:*` + 1 `:data:extension` + 18 `:feature:*` with api/impl splits). 25 SQLDelight tables across 17 `.sq` files. 408 Kotlin files. Decisions D-001..D-326. 180+ lessons learned.
-- **Dashboard URL**: `https://testplay-byte.github.io/ANI-KUTA/`.
-- **Current focus**: the device-feedback loop (fixes + polish per user report, version bump, release). v0.2.61 (compose compile==runtime alignment, D-322) verified crash-free on device; v0.2.62 (smoother shared-element morph + multi-season-only episode tags) awaiting push after a sandbox-wipe token loss (see SESSION.md).
+- **Branch**: `feature/round-57-cloudstream-downloads` — the MAINLINE and the repo's default branch. `main` was DELETED (D-552 — it had 0 unique commits). Other live branches: `release/1.1.3` (professional), `feature/test-controller-v5` (dormant, kept by user order). Merges/main-branch operations stay USER-GATED (CORE_RULES §8).
+- **Phase**: **ALL MAJOR PHASES COMPLETE** + a long device-feedback polish loop (v0.2.x → v1.1.37) — and since Round 77 the project is in the **DEBUG-FIRST phase (D-565)**: new features/QoL land on the mainline and ship via per-round DEBUG releases (next: v1.1.38/10138); PROFESSIONAL releases pause until the user explicitly orders the next one.
+- **Release cadence**: each feedback batch ships as a tagged GitHub Release (in-app updater discovers it); the user device-tests every build on a real OnePlus phone. Latest LIVE releases: **debug v1.1.37/10137** (testplay-byte) + **professional v1.1.3/10103** (stable, published — the user verified it updates over 1.1.2 and is fully satisfactory). Mainline version stays 1.1.20/10120 (D-430: bumps ride release branches).
+- **Modules**: 56 Gradle modules (1 `:app` + 32 `:core:*` + 2 `:data:*` + 21 `:feature:*` with api/impl splits). 25 SQLDelight tables across 17 `.sq` files. 569 Kotlin files. Decisions D-001..D-565. 180+ lessons learned.
+- **Dashboard URL**: `https://testplay-byte.github.io/ANI-KUTA/` (status data refreshed Round 77; deep history stays representative — see D-565's disclosed debt).
+- **Current focus**: the debug-first device-round loop (features + fixes per user report → mainline → CI green → release/1.1.3N cut → tag v1.1.3N → the debug release → docs → ntfy). The professional line resumes only on the user's explicit order. The official re-host (Confused-Creature-180, D-440) stays blocked on a release-agent token.
 - **Build sanity guard**: `:app` `checkDependencyAlignment` (D-322) fails any build whose packaged compose/lifecycle versions deviate from the pins in `gradle/libs.versions.toml`.
 - **Deferred Concerns** (saved in `memory/progress.md` → "Deferred Concerns"):
   - `HttpDownloader.reResolver` orphaned (D-149) — built but not wired; `:app ReResolver` signatures mismatched.
