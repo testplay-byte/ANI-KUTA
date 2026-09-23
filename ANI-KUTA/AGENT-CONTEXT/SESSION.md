@@ -82,12 +82,13 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (C
 
 ---
 
-## 🚧 Open Items / Blocked (refreshed Round 80)
-- **Round 80 is UNPUSHED (the only blocker):** the notification rework is complete + review-GREEN on the mainline, but the sandbox reset lost the dev PAT (`/home/z/.secrets/github-credentials`). Recovery per this file: ask the user to re-provide it. Then: push → CI run 1/2 → the D-498 release cut (release/1.1.38 + tag v1.1.38 + bump 1.1.38/10138, run 2/2).
+## 🚧 Open Items / Blocked (refreshed Round 81)
+- **Round 81 SHIPPED v1.1.38 (the Round-80 blocker is CLOSED):** both tokens are back in `/home/z/.secrets/` (`github-credentials` = the dev PAT, account `testplay-byte`, admin on the dev repo; `official-repo-token` = account `Confused-Creature-180`). The Round-80 rework shipped as debug **v1.1.38/10138** — implementation run 35887267531 + Release APK run 35888008247, both GREEN first-try (EXACTLY 2 runs, within budget). The user's device round on v1.1.38 is the next input; the NEXT debug release is **v1.1.39/10139**.
+- **release/1.1.38 stays on the remote** (the tag holds the code; branch deletion is user-gated — release/1.1.37 was deleted post-tag, release/1.1.3 kept; mirror the user's next order).
 - **The official repo is LIVE (resolved round 79):** Confused-Creature-180/ANI-KUTA carries professional v1.1.3 (11 assets: 5 APKs + 5 ZIPs + SHA256SUMS.txt) + the Pages download site with the APK|ZIP option selector. The process is documented: `ANI-KUTA-RELEASE-PLAYBOOK.md` (repo-external) + the official repo's `RELEASES.md`. The official-repo token lives at `/home/z/.secrets/official-repo-token`.
 - **Dashboard deep debt (disclosed, D-565):** the dashboard carries REPRESENTATIVE data — decisions D-277..D-562 are not individually listed, and the per-table DB transcription is the D-192-era snapshot (current truth: 25 tables / 17 .sq files). Status-level facts were refreshed Round 77. A full backfill is available on the user's request.
 - **`feature/test-controller-v5`** stays dormant (kept by explicit user order — do not delete).
-- **Version bookkeeping quirk (D-430):** the mainline says 1.1.20/10120 while the shipped debug line is at v1.1.37 — this is CORRECT by doctrine (bumps ride release branches). Don't "fix" it.
+- **Version bookkeeping quirk (D-430):** the mainline says 1.1.20/10120 while the shipped debug line is at v1.1.38 — this is CORRECT by doctrine (bumps ride release branches). Don't "fix" it.
 
 ## 🧪 Testing on the Emulator
 The sandbox CAN run the app on an Android emulator (user-authorized §8 exception) — but read
