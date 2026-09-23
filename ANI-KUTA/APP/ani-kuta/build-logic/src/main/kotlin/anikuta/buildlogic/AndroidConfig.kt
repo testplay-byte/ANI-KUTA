@@ -544,8 +544,31 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // D-564 release bump (release/1.1.3): 1.1.20/10120 -> 1.1.3/10103 — the
+    // PROFESSIONAL release line. The shipped identities: the co-installable
+    // DEBUG line (.debug id, the committed debug keystore, updated in-app
+    // from testplay-byte releases — at v1.1.37) and the PROFESSIONAL line
+    // (the bare com.confused.anikuta, release-keystore-signed, D-440: its
+    // updater checks Confused-Creature-180/ANI-KUTA — the official repo,
+    // whose only release is v1.1.2). The user's order: "previously our
+    // professional release version was version 1.1.2, and this time the
+    // professional actual released version is going to be version 1.1.3 so
+    // that it can be updated on the old one. And it is going to be actually
+    // published, and it is actually going to be released." 10103 > 10102 —
+    // the professional sideload line's monotonicity holds (the internal
+    // 1.1.3x codes belong to the co-installable .debug identity — no
+    // conflict), and the same release keystore via the same CI secrets means
+    // 1.1.3 installs straight over 1.1.2. The release PUBLISHES as a real
+    // stable GitHub release (the D-447 artifact-only doctrine superseded for
+    // this release by the user's explicit order, disclosed in D-564); the
+    // tag is professional-v1.1.3 — v1.1.3 is taken by the old internal round
+    // of September 7 and a tag is never re-pointed, and the professional tag
+    // fails the debug updater's version-tuple parse (skipped outright;
+    // v1.1.37 stays the debug line's best). The bump rides the release
+    // branch exclusively (D-430); the feature line stays 1.1.20/10120.
+    // Record: download-research/36.
+    const val versionCode = 10103
+    const val versionName = "1.1.3"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
