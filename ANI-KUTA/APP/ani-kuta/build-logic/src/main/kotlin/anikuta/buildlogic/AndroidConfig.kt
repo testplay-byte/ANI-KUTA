@@ -544,8 +544,20 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // D-562 release bump (release/1.1.36): 1.1.20/10120 -> 1.1.36/10136 —
+    // the v1.1.35 device round: the launcher icon ACTUALLY changes (the
+    // D-417 alias system restored — MAIN/LAUNCHER on 7 aliases, the six
+    // baked presets each carrying an adaptive mipmap + a legacy JPG, the
+    // enable-target-first switch, the app-update reconcile), the GitHub
+    // icon catalog REMOVED (presets only), the sponsor popup's hero bubbles
+    // gone ("Support AniKuta" stands alone), and the Always-sponsor debug
+    // trigger moved from every app open to EVERY ENTRY CLICK (the page
+    // heading "Debug options"; the toggle without a description). BOTH
+    // releases ride THIS tag (the debug arm64 line + the all-ABI artifact
+    // line). Record: download-research/34. The bump rides the release
+    // branch exclusively (D-430); the feature line stays 1.1.20/10120.
+    const val versionCode = 10136
+    const val versionName = "1.1.36"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
