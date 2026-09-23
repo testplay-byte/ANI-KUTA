@@ -11,12 +11,14 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -434,17 +436,18 @@ private fun SearchBar(
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Search icon — tappable (triggers onSubmit).
+            // Round 82 (D-573): the left icon is now DECORATIVE — the search
+            // submit trigger moved to a filled circular button at the RIGHT
+            // edge of the bar (the device report: "the search button should
+            // be shown on the right side of the search bar").
             Box(
                 modifier = Modifier
-                    .size(if (compact) 36.dp else 40.dp)
-                    .clip(CircleShape)
-                    .clickable { onSubmit() },
+                    .size(if (compact) 36.dp else 40.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = Icons.Filled.Search,
-                    contentDescription = "Search",
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(if (compact) 18.dp else 20.dp),
                 )
@@ -492,6 +495,32 @@ private fun SearchBar(
                         contentDescription = "Clear",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            // Round 82 (D-573): THE search button — a filled primary circle on
+            // the right edge of the bar. Submits (same as the IME Search key).
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                shape = CircleShape,
+                modifier = Modifier
+                    .size(if (compact) 34.dp else 38.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {
+                            onSubmit()
+                            keyboard?.hide()
+                        },
+                    ),
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Icon(
+                        imageVector = Icons.Filled.Search,
+                        contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(if (compact) 17.dp else 19.dp),
                     )
                 }
             }

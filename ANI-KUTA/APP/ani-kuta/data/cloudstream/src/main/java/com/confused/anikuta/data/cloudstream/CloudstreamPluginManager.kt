@@ -107,6 +107,24 @@ class CloudstreamPluginManager(
     private val _retrying = MutableStateFlow<Set<String>>(emptySet())
     val retrying: StateFlow<Set<String>> = _retrying.asStateFlow()
 
+    /**
+     * Round 82 (D-571): the LAST uninstall failure message (null = none).
+     * The uninstall used to be an unguarded `loader.unloadPlugin → File.delete →
+     * pluginStore.delete` chain inside the install mutex — one throw from the
+     * loader (a partial-load state, a missing file) killed the coroutine
+     * SILENTLY: the file stayed, the record stayed, the UI showed nothing.
+     * The uninstall now catches its own failures, keeps the store consistent,
+     * and publishes the reason here; the Extensions screen toasts it so the
+     * user is never left staring at a row that refuses to die quietly.
+     */
+    private val _uninstallError = MutableStateFlow<String?>(null)
+    val uninstallError: StateFlow<String?> = _uninstallError.asStateFlow()
+
+    /** UI ack — clears the current uninstall error after it has been shown. */
+    fun consumeUninstallError() {
+        _uninstallError.value = null
+    }
+
     /** Update-check throttle state (Idle | Checking | updatedAt). */
     sealed interface UpdateCheckState {
         data object Idle : UpdateCheckState
@@ -760,6 +778,15 @@ class CloudstreamPluginManager(
         }
     }
 
+    /**
+     * Uninstall a plugin (file + record + unload).
+     *
+     * Round 82 (D-571): fully guarded — a loader unload failure no longer
+     * aborts the file/record cleanup, the store refresh always runs, and the
+     * failure reason lands in [uninstallError] for the UI to surface. The
+     * in-app confirm dialog in the CloudStream tab stays (plugins are files,
+     * not packages — there is no system uninstaller to delegate to).
+     */
     fun uninstallPlugin(extension: CloudstreamExtension) {
         val (internalName, filePath) = when (extension) {
             is CloudstreamExtension.Installed -> extension.internalName to extension.filePath
@@ -769,12 +796,37 @@ class CloudstreamPluginManager(
         }
         scope.launch {
             installMutex.withLock {
-                loader.unloadPlugin(filePath)
-                File(filePath).delete()
-                // Clean the (now-empty) repo dir if this was its last plugin.
-                File(filePath).parentFile?.takeIf { it.list()?.isEmpty() == true }?.delete()
-                pluginStore.delete(internalName)
-                refreshLocked()
+                try {
+                    try {
+                        loader.unloadPlugin(filePath)
+                    } catch (e: Exception) {
+                        // Unload failure must NOT block the delete below — the
+                        // plugin may never have loaded (untrusted/errored rows).
+                        Logger.w(TAG) { "uninstallPlugin: unload failed for $internalName (continuing): ${e.message}" }
+                    }
+                    val fileDeleted = File(filePath).delete()
+                    if (!fileDeleted) {
+                        Logger.w(TAG) { "uninstallPlugin: file delete returned false for $filePath" }
+                    }
+                    // Clean the (now-empty) repo dir if this was its last plugin.
+                    File(filePath).parentFile?.takeIf { it.list()?.isEmpty() == true }?.delete()
+                    pluginStore.delete(internalName)
+                    // Publish ONLY failures (review round 82: nulling on success
+                    // could overwrite an unconsumed failure from a preceding
+                    // uninstall — the UI consumes the flow within a frame of
+                    // each failure, so a stale value never lingers here).
+                    if (!(fileDeleted || !File(filePath).exists())) {
+                        _uninstallError.value =
+                            "Couldn't remove the plugin file for $internalName — try again"
+                    }
+                } catch (e: Exception) {
+                    Logger.e(TAG, e) { "uninstallPlugin: failed for $internalName" }
+                    _uninstallError.value = "Uninstall failed: ${e.message ?: e::class.java.simpleName}"
+                } finally {
+                    // ALWAYS re-scan — even a partial cleanup must be reflected
+                    // in the lists (the row must never lie about its own state).
+                    refreshLocked()
+                }
             }
         }
     }

@@ -1,6 +1,7 @@
 package com.confused.anikuta.feature.extensionssettings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -37,6 +37,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -150,6 +155,17 @@ fun ExtensionRepoSettingsScreen(
                                 isCloudstream = true,
                                 onDelete = { deleteCsRepoTarget = repo },
                                 deleteRequiresConfirm = true,
+                            )
+                        }
+                        // Round 82 (D-574): discoverability hint for the
+                        // long-press-to-copy action on the rows above.
+                        item(key = "copy-hint") {
+                            Text(
+                                text = "Tip: long-press a repository to copy its URL",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                             )
                         }
                     }
@@ -362,12 +378,33 @@ private fun RepoRow(
     onDelete: () -> Unit,
     deleteRequiresConfirm: Boolean,
 ) {
+    // Round 82 (D-574): LONG-PRESS copies the repository URL to the clipboard
+    // (haptic tick + toast feedback). The repo's URL text is single-line
+    // ellipsized, so this is also the only way to see the full address.
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 3.dp),
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .combinedClickable(
+                // Rows have no detail destination — plain taps do nothing;
+                // the long-press is the copy affordance.
+                onClick = {},
+                onLongClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    clipboard.setText(AnnotatedString(url))
+                    android.widget.Toast.makeText(
+                        context,
+                        "URL copied \u00b7 $name",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                },
+            ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),

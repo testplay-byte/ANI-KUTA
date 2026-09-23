@@ -15,9 +15,9 @@ You are the AI agent for **ANI-KUTA** — an Android anime streaming/downloading
 ## 📍 Current State (refreshed Round 77, 2026-09-23)
 
 - **Mainline branch:** `feature/round-57-cloudstream-downloads` — this IS the default branch. `main` was DELETED (D-552 — it had 0 unique commits). Other live branches: `release/1.1.3` (the professional release branch), `feature/test-controller-v5` (dormant, kept by user order).
-- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.37 / 10137**. Latest **professional** release: **v1.1.3 / 10103** — a real stable GitHub Release (`professional-v1.1.3`), 5 release-signed ABIs + universal, install-as-update over the professional 1.1.2. The user device-verified v1.1.3 as **fully satisfactory**.
-- **Latest records:** Round 76 closed (D-564, `download-research/36`). Docs numbering is strictly sequential — the next record is **37**.
-- **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases (the next one is v1.1.38/10138 — the 1.1.3N debug series continues). **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
+- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.38 / 10138** (the Round-80 notification rework, shipped Round 81). Latest **professional** release: **v1.1.3 / 10103** (`professional-v1.1.3`, 5 release-signed ABIs + universal — device-verified).
+- **Latest records:** Round 82 implemented (D-571..D-576 — the uninstall fix, the source-wheel sheet, the filters/search polish, the repo copy, the EXTENSION TESTING SCREEN); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **64**.
+- **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases (the next one is v1.1.39/10139 — the 1.1.3N debug series continues). **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
 - **The per-round loop is unchanged:** device feedback → implement on the mainline → CI green (≤2 runs/cycle, disclosed ledger, D-472) → `release/1.1.3N` cut from the green head → the bump rides that branch → tag `v1.1.3N` → the debug release publishes → LIVE-mirror docs → ntfy → the user's device round.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` pushes build NOTHING.
 
@@ -27,7 +27,7 @@ You are the AI agent for **ANI-KUTA** — an Android anime streaming/downloading
 1. Clone `https://github.com/testplay-byte/ANI-KUTA.git` (public — read needs no token). **PUSH** uses the credential helper that reads the PAT from `/home/z/.secrets/github-credentials` (repo-external — NEVER commit it, NEVER paste it). If the sandbox lost the file, ask the user.
 2. Checkout the mainline `feature/round-57-cloudstream-downloads` (the default branch).
 3. Read `AGENT-CONTEXT/memory/progress.md` — the TOP **CURRENT STATUS** block first, then the newest `## Round NN` sections at the BOTTOM (the file grows downward; the middle "Historical session" paragraphs are old).
-4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP (D-565, D-564, D-563…), the canonical short entries follow; latest = **D-565**.
+4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-576** (round 82).
 5. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task type.
 6. Read `AGENT-CONTEXT/knowledge/` files on demand (architecture, module-map, tech-stack, ui-customization, emulator-testing…).
 

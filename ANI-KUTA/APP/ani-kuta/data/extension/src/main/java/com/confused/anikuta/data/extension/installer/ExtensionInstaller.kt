@@ -90,31 +90,81 @@ class ExtensionInstaller(
         }
     }.flowOn(Dispatchers.IO)
 
-    /** Uninstall an extension via the system uninstall intent. */
+    /**
+     * Uninstall an extension APK via the SYSTEM uninstaller.
+     *
+     * Round 82 (D-571): this call IS the user confirmation — the Extensions
+     * screen no longer shows its own "Uninstall extension?" dialog before
+     * reaching here, so Android's own prompt ("Do you want to uninstall this
+     * app?" with the app name on top and Cancel / OK) is the one and only
+     * confirmation step, exactly as the user specified.
+     *
+     * Intent ladder (each step logged, every failure surfaced with a toast —
+     * the uninstall can never be a silent no-op again):
+     * 1. [Intent.ACTION_DELETE] — the modern standard uninstall intent; the
+     *    system package installer renders the confirmation prompt.
+     * 2. `android.intent.action.UNINSTALL_PACKAGE` — the legacy action
+     *    (deprecated API 28 but still handled by the platform uninstaller on
+     *    every release since); covers OEM ROMs that don't export a handler
+     *    for ACTION_DELETE.
+     * 3. [android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS] —
+     *    last resort: the app info page where the user uninstalls manually.
+     *
+     * Note (kept from the original implementation): do NOT guard with
+     * resolveActivity() — on Android 11+ package-visibility filtering makes it
+     * return null for ACTION_DELETE even though startActivity() succeeds. The
+     * manifest carries both the ACTION_DELETE <queries> entry AND
+     * QUERY_ALL_PACKAGES, so visibility is not the bottleneck; the ladder
+     * exists for ROMs that genuinely lack an uninstall handler.
+     */
     fun uninstallApk(pkgName: String) {
         Logger.i(TAG) { "Uninstalling: $pkgName" }
         val uri = Uri.fromParts("package", pkgName, null)
-        val intent = Intent(Intent.ACTION_DELETE, uri).apply {
+
+        val primary = Intent(Intent.ACTION_DELETE, uri).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         try {
-            // Do NOT guard with resolveActivity() — on Android 11+ (API 30+),
-            // package-visibility filtering makes resolveActivity() return null
-            // for ACTION_DELETE even though startActivity() would succeed.
-            // The <queries> block in the manifest handles visibility.
-            context.startActivity(intent)
+            context.startActivity(primary)
+            return
         } catch (e: ActivityNotFoundException) {
-            // No activity can handle ACTION_DELETE — fall back to app details.
-            Logger.w(TAG) { "ACTION_DELETE not resolved for $pkgName, opening app settings" }
-            val fallback = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = uri
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(fallback)
-            Toast.makeText(context, "Open the app info to uninstall", Toast.LENGTH_SHORT).show()
+            Logger.w(TAG) { "ACTION_DELETE not resolved for $pkgName — trying the legacy UNINSTALL_PACKAGE action" }
         } catch (e: Exception) {
-            Logger.e(TAG, e) { "Uninstall failed for $pkgName" }
-            Toast.makeText(context, "Uninstall failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            Logger.e(TAG, e) { "ACTION_DELETE launch failed for $pkgName — trying the legacy action" }
+        }
+
+        // Legacy uninstall action (deprecated API 28, still resolved by the
+        // platform uninstaller — the step-2 rung of the ladder).
+        val legacy = Intent("android.intent.action.UNINSTALL_PACKAGE", uri).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            // EXTRA_RETURN_RESULT only matters for onActivityResult callers;
+            // harmless here, kept for parity with the documented contract.
+            putExtra(Intent.EXTRA_RETURN_RESULT, true)
+        }
+        try {
+            context.startActivity(legacy)
+            return
+        } catch (e: ActivityNotFoundException) {
+            Logger.w(TAG) { "UNINSTALL_PACKAGE not resolved for $pkgName — opening app details" }
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "UNINSTALL_PACKAGE launch failed for $pkgName — opening app details" }
+        }
+
+        // Last resort: the app info page (the user uninstalls from there).
+        val fallback = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = uri
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        try {
+            context.startActivity(fallback)
+            Toast.makeText(
+                context,
+                "System uninstaller unavailable — opened App info; uninstall from there",
+                Toast.LENGTH_LONG,
+            ).show()
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "Uninstall completely failed for $pkgName (all three intents)" }
+            Toast.makeText(context, "Uninstall failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 

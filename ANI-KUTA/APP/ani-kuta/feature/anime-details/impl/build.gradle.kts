@@ -32,6 +32,10 @@ dependencies {
     implementation(project(":core:tracker-anilist"))  // D-242: AniList tracking (TrackSheet + sync)
     implementation(project(":core:tracker-api"))  // D-242: Tracker interface + TrackEntry/TrackStatus
     implementation(project(":data:extension"))
+    // Round 82 (D-575): the Link Source sheet's two-column source picker reads
+    // the CloudStream plugin icons (CloudstreamContentRepository.sources) and
+    // the bridged-source identity — data/cloudstream is now a direct dep.
+    implementation(project(":data:cloudstream"))
 
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)

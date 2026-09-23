@@ -101,6 +101,8 @@ import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsKey
 import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsScreen
+import com.confused.anikuta.feature.extensionssettings.ExtensionTestingKey
+import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestingScreen
 import com.confused.anikuta.feature.watch.WatchKey
 import com.confused.anikuta.feature.cswatch.api.CsWatchKey
 import com.confused.anikuta.feature.watch.WatchScreen
@@ -1557,11 +1559,17 @@ fun AppRoot() {
                 onOpenExtensionDetail = { backstack.add(ExtensionDetailKey(it)) },
                 // CloudStream V2: the CS plugin detail page (trust/uninstall/retry hub).
                 onOpenCloudstreamPluginDetail = { backstack.add(CloudstreamPluginDetailKey(it)) },
+                // Round 82 (D-576): the extension TESTING suite entry.
+                onOpenExtensionTesting = { backstack.add(ExtensionTestingKey) },
                 // Task 60: the tab the key asked for (the plugin-import hand-off
                 // pushes "cloudstream"; the branch smart-casts currentKey).
                 initialTab = currentKey.initialTab,
             )
             is ExtensionRepoSettingsKey -> ExtensionRepoSettingsScreen(
+                onBack = pop,
+            )
+            // Round 82 (D-576): the extension TESTING suite screen.
+            is ExtensionTestingKey -> ExtensionTestingScreen(
                 onBack = pop,
             )
             is AutoLinkSettingsKey -> AutoLinkSettingsScreen(

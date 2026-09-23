@@ -64,3 +64,13 @@ data class SourcePreferencesKey(val sourceId: Long) : NavKey
  */
 @Serializable
 data class CloudstreamPluginDetailKey(val internalName: String) : NavKey
+
+/**
+ * Round 82 (D-576): NavKey for the EXTENSION TESTING screen — the suite that
+ * pings, searches, loads details/episodes and resolves streams for every
+ * installed source across BOTH ecosystems (aniyomi extensions + CloudStream
+ * plugins), with batch runs and per-test results. Stateless — the screen
+ * builds its targets from the live managers.
+ */
+@Serializable
+object ExtensionTestingKey : NavKey

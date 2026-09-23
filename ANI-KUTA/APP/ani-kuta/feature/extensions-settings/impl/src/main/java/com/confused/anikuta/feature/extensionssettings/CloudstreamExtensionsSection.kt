@@ -76,6 +76,8 @@ internal fun CloudstreamExtensionsSection(
     csRepoRepository: CloudstreamRepoRepository = koinInject(),
     searchQuery: String = "",
     sortMode: ExtensionSortMode = ExtensionSortMode.NAME,
+    // Round 82 (D-572): ascending/descending, toggled from the sort menu.
+    sortAscending: Boolean = true,
     langFilter: String? = null,
     showNsfw: Boolean = false,
     onOpenPluginDetail: (internalName: String) -> Unit = {},
@@ -100,21 +102,21 @@ internal fun CloudstreamExtensionsSection(
             matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
                 (langFilter == null || it.language == langFilter)
         }
-        .let { sortCsExtensions(it, sortMode) }
+        .let { sortCsExtensions(it, sortMode, sortAscending) }
 
     val filteredUntrusted = untrusted
         .filter {
             matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
                 (langFilter == null || it.language == langFilter)
         }
-        .let { sortCsUntrusted(it, sortMode) }
+        .let { sortCsUntrusted(it, sortMode, sortAscending) }
 
     val filteredErrored = errored
         .filter {
             matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
                 (langFilter == null || it.language == langFilter)
         }
-        .let { sortCsErrored(it, sortMode) }
+        .let { sortCsErrored(it, sortMode, sortAscending) }
 
     val filteredAvailable = available
         .filter { showNsfw || !it.isNsfw }
@@ -122,7 +124,7 @@ internal fun CloudstreamExtensionsSection(
             matchesSearch(it.plugin.name, searchQuery) &&
                 (langFilter == null || it.plugin.language == langFilter)
         }
-        .let { sortCsAvailable(it, sortMode) }
+        .let { sortCsAvailable(it, sortMode, sortAscending) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -616,21 +618,33 @@ private fun CsAvailableRow(
 
 // ── Sorting (CloudStream twins of the shared aniyomi comparators) ───────────
 
-private fun <T> sortCsBase(list: List<T>, mode: ExtensionSortMode, name: (T) -> String, lang: (T) -> String?, nsfw: (T) -> Boolean): List<T> =
-    when (mode) {
-        ExtensionSortMode.NAME -> list.sortedBy { name(it).lowercase() }
-        ExtensionSortMode.LANGUAGE -> list.sortedBy { (lang(it) ?: "zz").lowercase() }
-        ExtensionSortMode.NSFW -> list.sortedByDescending(nsfw)
-    }
+private fun <T> sortCsBase(
+    list: List<T>,
+    mode: ExtensionSortMode,
+    ascending: Boolean,
+    name: (T) -> String,
+    lang: (T) -> String?,
+    nsfw: (T) -> Boolean,
+): List<T> = when (mode) {
+    ExtensionSortMode.NAME ->
+        if (ascending) list.sortedBy { name(it).lowercase() }
+        else list.sortedByDescending { name(it).lowercase() }
+    ExtensionSortMode.LANGUAGE ->
+        if (ascending) list.sortedBy { (lang(it) ?: "zz").lowercase() }
+        else list.sortedByDescending { (lang(it) ?: "").lowercase() }
+    ExtensionSortMode.NSFW ->
+        if (ascending) list.sortedByDescending(nsfw)
+        else list.sortedBy(nsfw)
+}
 
-private fun sortCsExtensions(list: List<CloudstreamExtension.Installed>, mode: ExtensionSortMode): List<CloudstreamExtension.Installed> =
-    sortCsBase(list, mode, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
+private fun sortCsExtensions(list: List<CloudstreamExtension.Installed>, mode: ExtensionSortMode, ascending: Boolean): List<CloudstreamExtension.Installed> =
+    sortCsBase(list, mode, ascending, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
 
-private fun sortCsErrored(list: List<CloudstreamExtension.Errored>, mode: ExtensionSortMode): List<CloudstreamExtension.Errored> =
-    sortCsBase(list, mode, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
+private fun sortCsErrored(list: List<CloudstreamExtension.Errored>, mode: ExtensionSortMode, ascending: Boolean): List<CloudstreamExtension.Errored> =
+    sortCsBase(list, mode, ascending, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
 
-private fun sortCsUntrusted(list: List<CloudstreamExtension.Untrusted>, mode: ExtensionSortMode): List<CloudstreamExtension.Untrusted> =
-    sortCsBase(list, mode, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
+private fun sortCsUntrusted(list: List<CloudstreamExtension.Untrusted>, mode: ExtensionSortMode, ascending: Boolean): List<CloudstreamExtension.Untrusted> =
+    sortCsBase(list, mode, ascending, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
 
-private fun sortCsAvailable(list: List<CloudstreamExtension.Available>, mode: ExtensionSortMode): List<CloudstreamExtension.Available> =
-    sortCsBase(list, mode, name = { it.plugin.name }, lang = { it.plugin.language }, nsfw = { it.isNsfw })
+private fun sortCsAvailable(list: List<CloudstreamExtension.Available>, mode: ExtensionSortMode, ascending: Boolean): List<CloudstreamExtension.Available> =
+    sortCsBase(list, mode, ascending, name = { it.plugin.name }, lang = { it.plugin.language }, nsfw = { it.isNsfw })

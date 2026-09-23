@@ -546,14 +546,27 @@ internal fun ExtensionIconPlaceholder(name: String, size: Dp = 40.dp) {
 internal fun matchesSearch(name: String, query: String): Boolean =
     query.isBlank() || name.contains(query, ignoreCase = true)
 
-internal enum class ExtensionSortMode(val label: String) {
-    NAME("Sort by name"),
-    LANGUAGE("Sort by language"),
-    NSFW("NSFW first"),
+internal enum class ExtensionSortMode(val label: String, val shortLabel: String) {
+    NAME("Sort by name", "Name"),
+    LANGUAGE("Sort by language", "Language"),
+    NSFW("NSFW first", "NSFW"),
 }
 
-internal fun <T : AnimeExtension> sortExtensions(list: List<T>, mode: ExtensionSortMode): List<T> = when (mode) {
-    ExtensionSortMode.NAME -> list.sortedBy { it.name.lowercase() }
-    ExtensionSortMode.LANGUAGE -> list.sortedBy { (it.lang ?: "zz").lowercase() }
-    ExtensionSortMode.NSFW -> list.sortedByDescending { it.isNsfw }
-}
+/**
+ * Round 82 (D-572): [ascending] flips the comparator — the sort menu toggles
+ * it by tapping the active mode again (ascending ↑ / descending ↓). NSFW's
+ * "ascending" means NSFW-first (the mode's declared order); descending
+ * reverses it.
+ */
+internal fun <T : AnimeExtension> sortExtensions(list: List<T>, mode: ExtensionSortMode, ascending: Boolean = true): List<T> =
+    when (mode) {
+        ExtensionSortMode.NAME ->
+            if (ascending) list.sortedBy { it.name.lowercase() }
+            else list.sortedByDescending { it.name.lowercase() }
+        ExtensionSortMode.LANGUAGE ->
+            if (ascending) list.sortedBy { (it.lang ?: "zz").lowercase() }
+            else list.sortedByDescending { (it.lang ?: "").lowercase() }
+        ExtensionSortMode.NSFW ->
+            if (ascending) list.sortedByDescending { it.isNsfw }
+            else list.sortedBy { it.isNsfw }
+    }
