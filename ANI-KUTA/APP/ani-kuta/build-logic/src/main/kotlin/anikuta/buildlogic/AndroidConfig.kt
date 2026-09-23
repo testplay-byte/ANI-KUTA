@@ -544,8 +544,37 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    //
+    // ── v1.1.39 / 10139 (round 82 — D-571..D-576) — the extensions & settings
+    // round, shipped as the debug line per D-498. The story:
+    // (A) THE UNINSTALL FLOW (D-571) — the three in-app Aniyomi uninstall
+    // dialogs are GONE: the trash icon fires the SYSTEM uninstaller directly
+    // (Android's own "Do you want to uninstall this app?" prompt IS the
+    // confirmation); the installer gained a logged 3-rung intent ladder
+    // (ACTION_DELETE → legacy UNINSTALL_PACKAGE → App-info) with a toast on
+    // every fallback; the CloudStream uninstallPlugin silent-death bug fixed
+    // (catch + uninstallError StateFlow + toast + refresh-locked-in-finally).
+    // (B) THE LINK SOURCE WHEEL (D-575) — the details-page source sheet rebuilt:
+    // two snap-fling wheel columns (Aniyomi left / CloudStream right) with a
+    // center highlight band, distance falloff, rim fades and tap-to-center;
+    // per-source icons for BOTH ecosystems; the pill search bar with the RIGHT
+    // circular search button; a results view with a change-source chip.
+    // (C) THE SEARCH BAR BUTTON (D-573) — a filled primary circle at the RIGHT
+    // edge of the main search bars is the submit trigger.
+    // (D) THE FILTERS POLISH (D-572) — the Extensions header's Filters/Settings
+    // are labeled pills with a gap; the filters bar is a pill row where SEARCH
+    // expands into a dedicated auto-focused search view; the language menu is
+    // capped at 320dp; tapping the ACTIVE sort flips ascending/descending;
+    // NSFW is its own toggle pill.
+    // (E) THE REPO COPY (D-574) — long-press on an extension repository copies
+    // its URL (haptic + toast) on both repo types.
+    // (F) THE EXTENSION TESTING SCREEN (D-576) — the new suite at the top of
+    // Settings → Extensions: Ping / Search / Home page / Details / Episode
+    // list / Video resolve / Stream play per source, BOTH ecosystems, batch
+    // runs with a sequential queue and Stop, a user-editable test query, live
+    // per-test rows with durations and honest failure reasons (doc 64).
+    const val versionCode = 10139
+    const val versionName = "1.1.39"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
