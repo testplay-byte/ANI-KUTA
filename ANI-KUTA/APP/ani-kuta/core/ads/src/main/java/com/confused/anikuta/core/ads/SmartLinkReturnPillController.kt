@@ -1,8 +1,11 @@
 package com.confused.anikuta.core.ads
 
+import android.app.Activity
+import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -39,6 +42,39 @@ import com.confused.anikuta.core.common.Logger
  *   ON_STOP ever lands (e.g. odd multi-window timing).
  * - **hide(returnedTooEarly)** picks the exit mark: the green check on
  *   success, the RED X when the coordinator judged the return too early.
+ *
+ * # The D-564 lifecycle fixes (the v1.1.37 device round: "the You can go
+ *   back floating overlay stays there forever… it does not disappear even
+ *   if I close the application… automatically disappear after ten seconds
+ *   if the user does not press the Go Back button")
+ *
+ * The old pill had exactly ONE exit: the coordinator's state change when
+ * the user came back (the interstitial's `LaunchedEffect(state)` → hide).
+ * A user who never came back — kept browsing, moved to other apps, closed
+ * ANI-KUTA entirely — left the overlay floating FOREVER, because the
+ * TYPE_APPLICATION_OVERLAY window belongs to the (still-cached) PROCESS,
+ * not to any activity: nothing removes it. Two new guarantees close that
+ * gap, both CONTAINED in this controller (the pill's visuals, the
+ * coordinator's state machine, and the popup card are untouched):
+ *
+ * 1. **The ready window expires.** The moment the pill becomes tappable
+ *    ("You can go back" + Go back), a [READY_AUTO_DISMISS_MS] timer starts.
+ *    If the user does not press Go back inside it, the pill plays its
+ *    normal exit (the green-check bubble — the stay itself DID complete;
+ *    only the return offer expired) and the window is removed. The pill's
+ *    total life is now bounded in EVERY scenario: ~5s countdown + 10s
+ *    ready, no matter what the user does outside.
+ * 2. **Closing the app dismisses the pill.** While a pill is alive the
+ *    controller watches the application's LIVE-ACTIVITY COUNT (callbacks
+ *    registered at show, unregistered at hide): at show time the app is
+ *    foregrounded with exactly one activity (the single-activity UI), and
+ *    when that LAST activity is destroyed — back-press finish, the recents
+ *    swipe, a system kill of the activity — a "Go back" offer for a closed
+ *    app is meaningless, so the pill dismisses right away. The check rides
+ *    a one-looper-tick beat so a destroy-then-recreate swap (locale or
+ *    density changes — the only recreations left; MainActivity's manifest
+ *    configChanges already absorb rotation/uiMode) can never zero the
+ *    count spuriously.
  */
 class SmartLinkReturnPillController {
 
@@ -53,6 +89,11 @@ class SmartLinkReturnPillController {
         val params: WindowManager.LayoutParams,
         val stopObserver: DefaultLifecycleObserver,
         val fallbackStart: Runnable,
+        /** D-564: the ready-state expiry timer (cancelled on every hide). */
+        val readyTimeout: Runnable,
+        /** D-564: the app-close watcher (unregistered on every hide). */
+        val app: Application?,
+        val closeWatcher: Application.ActivityLifecycleCallbacks,
     )
 
     /**
@@ -80,10 +121,20 @@ class SmartLinkReturnPillController {
 
         // Replace (not stack) an existing pill — the Try-again loop re-shows.
         // The old pill is removed INSTANTLY (no exit animation — it would
-        // overlap the fresh pill's entrance).
+        // overlap the fresh pill's entrance); hideInternal also cancels the
+        // old pill's timers and unregisters its close watcher.
         hideInternal(immediate = true)
 
         val density = appContext.resources.displayMetrics.density
+
+        // D-564 (1): the ready window's expiry. Armed the moment the pill
+        // turns READY (see onReady below); firing it hides the pill with the
+        // graceful green-check exit. hideInternal cancels it on every path.
+        val readyTimeout = Runnable {
+            if (active == null) return@Runnable
+            Logger.i(TAG) { "ready window expired (${READY_AUTO_DISMISS_MS / 1000}s, no Go back) — auto-dismissing the return pill" }
+            hideInternal(returnedTooEarly = false)
+        }
 
         var countdownStarted = false
         val view = ReturnPillView(
@@ -98,10 +149,55 @@ class SmartLinkReturnPillController {
                 if (pill != null) {
                     pill.params.flags = pill.params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
                     runCatching { pill.windowManager.updateViewLayout(pill.view, pill.params) }
-                    Logger.d(TAG) { "pill ready — FLAG_NOT_TOUCHABLE cleared" }
+                    // D-564 (1): the return offer now EXPIRES — if the user
+                    // does not press Go back within the window, the pill
+                    // dismisses itself instead of floating forever.
+                    mainHandler.postDelayed(pill.readyTimeout, READY_AUTO_DISMISS_MS)
+                    Logger.d(TAG) { "pill ready — FLAG_NOT_TOUCHABLE cleared, auto-dismiss armed (${READY_AUTO_DISMISS_MS / 1000}s)" }
                 }
             },
         )
+
+        // D-564 (2): the app-close watcher. Registered only while a pill is
+        // alive (unregistered in hideInternal). The count starts at ONE —
+        // show() runs inside the foregrounded single-activity UI's tap
+        // handler, so exactly one activity of ours exists right now. When
+        // the last one is destroyed without a replacement (true close), the
+        // pill's whole purpose (bring the app back) is gone → dismiss. The
+        // posted beat lets a destroy-then-recreate swap (locale/density
+        // changes) land its onCreate before the zero-check reads the count.
+        var liveActivities = 1
+        val closeWatcher = object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+                liveActivities++
+            }
+
+            override fun onActivityDestroyed(activity: Activity) {
+                liveActivities--
+                if (liveActivities > 0) return
+                mainHandler.post {
+                    if (liveActivities <= 0 && active != null) {
+                        Logger.i(TAG) { "the app's last activity is gone (closed) — dismissing the return pill" }
+                        hideInternal(returnedTooEarly = false)
+                    }
+                }
+            }
+
+            // Not interesting for the pill: foreground/background transitions
+            // are the ProcessLifecycleOwner's job (the countdown sync), and
+            // the coordinator owns the ad session state.
+            override fun onActivityStarted(activity: Activity) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivityStopped(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+        }
+        val application = appContext as? Application
+        if (application == null) {
+            // Never seen in practice (applicationContext IS the Application);
+            // the pill would just lose the close-watch and rely on the expiry.
+            Logger.w(TAG) { "application context is not an Application — the app-close watch is off" }
+        }
 
         // The countdown starts when the app ACTUALLY backgrounds (ON_STOP —
         // the coordinator's own clock), with a fallback for odd timing.
@@ -156,10 +252,22 @@ class SmartLinkReturnPillController {
             return
         }
 
+        // Register the close-watch only after the window is actually up — a
+        // failed add must not leak a registered watcher.
+        application?.registerActivityLifecycleCallbacks(closeWatcher)
         ProcessLifecycleOwner.get().lifecycle.addObserver(stopObserver)
         mainHandler.postDelayed(fallbackStart, FALLBACK_START_MS)
-        active = ActivePill(windowManager, view, params, stopObserver, fallbackStart)
-        Logger.i(TAG) { "return pill shown over the browser (window pre-sized ${params.width}x${params.height}, countdown ${durationMs}ms from ON_STOP)" }
+        active = ActivePill(
+            windowManager = windowManager,
+            view = view,
+            params = params,
+            stopObserver = stopObserver,
+            fallbackStart = fallbackStart,
+            readyTimeout = readyTimeout,
+            app = application,
+            closeWatcher = closeWatcher,
+        )
+        Logger.i(TAG) { "return pill shown over the browser (window pre-sized ${params.width}x${params.height}, countdown ${durationMs}ms from ON_STOP, auto-dismiss ${READY_AUTO_DISMISS_MS / 1000}s after ready)" }
     }
 
     /**
@@ -177,6 +285,11 @@ class SmartLinkReturnPillController {
         active = null
         ProcessLifecycleOwner.get().lifecycle.removeObserver(pill.stopObserver)
         mainHandler.removeCallbacks(pill.fallbackStart)
+        // D-564: every hide path disarms the new lifecycle machinery — the
+        // expiry timer AND the app-close watcher (both directions of the
+        // replace path included, so the old pill's watch never survives).
+        mainHandler.removeCallbacks(pill.readyTimeout)
+        runCatching { pill.app?.unregisterActivityLifecycleCallbacks(pill.closeWatcher) }
         if (immediate) {
             // The replace path — no animation, no overlap with the new pill.
             try {
@@ -223,5 +336,13 @@ class SmartLinkReturnPillController {
         private const val TAG = "Anikuta:Core:Ads:ReturnPillCtl"
         /** If no ON_STOP lands within this window, start the countdown anyway. */
         private const val FALLBACK_START_MS = 2_500L
+
+        /**
+         * D-564: how long the tappable "You can go back" offer stays up
+         * before the pill dismisses itself — the user's exact spec: the
+         * overlay "will automatically disappear after ten seconds if the
+         * user does not press the Go Back button".
+         */
+        private const val READY_AUTO_DISMISS_MS = 10_000L
     }
 }
