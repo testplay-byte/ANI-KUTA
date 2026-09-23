@@ -93,13 +93,13 @@ export default function DatabasePage() {
             </span>
             <StatusDot color="var(--c-primary)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              SQLDelight schema · the engine room every module depends on · 26 tables across 15 .sq files (13 groups)
+              SQLDelight schema · the engine room every module depends on · 25 tables across 17 .sq files (current) · detail below = D-192-era transcription (26 tables / 15 files)
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
             Database Schema{" "}
             <span className="text-text-secondary font-medium">
-              — 26 tables, 15 .sq files
+              — 25 tables, 17 .sq files (current)
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">

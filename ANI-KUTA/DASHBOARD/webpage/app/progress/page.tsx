@@ -9,11 +9,13 @@ import {
 } from "@/lib/data";
 
 /**
- * Progress page (v9) — ALL PHASES DONE. Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB
- * complete + Profile UI v1–v6 + CI verified GREEN on branch `main` (all feature
- * branches merged + deleted). 47 modules built, 26 DB tables across 15 .sq
- * files, 186 decisions confirmed. :core:ads (D-272..D-276 batch, v0.2.53) is
- * on the test-feature/video-cache-new-download branch — NOT merged.
+ * Progress page (v10 — status refresh). ALL original build phases done. Phase 0–5 +
+ * B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete + Profile UI v1–v6, CI verified
+ * GREEN on the mainline branch `feature/round-57-cloudstream-downloads`. 56
+ * modules built, 25 DB tables across 17 .sq files, 565 decisions confirmed
+ * (D-001..D-565). The project is in iterative device-round development and
+ * NOW ENTERS the debug-first phase (D-565) — Round 76 closed with debug
+ * v1.1.37 live + professional v1.1.3 published.
  *
  * Sections:
  *  1. Header card + legend.
@@ -55,16 +57,18 @@ export default function ProgressPage() {
           </span>
         </div>
         <p className="text-[13px] text-text-secondary leading-relaxed max-w-2xl">
-          ALL PHASES COMPLETE + CI verified GREEN on branch {`main`} (all feature branches merged + deleted).
+          ALL ORIGINAL BUILD PHASES COMPLETE + CI verified GREEN on the mainline
+          branch {`feature/round-57-cloudstream-downloads`} ({`main`} was deleted
+          per D-552 — it had 0 unique commits).
           Phase 0 (setup), Phase 1 (architecture plan + design language), Phase 2
           (scaffold — 12 modules), Phase 3 (15 core modules across 4 sub-phases),
           Phase 4 (feature screens + accent palette), Phase 5 (5a–5e — 5f deferred),
           and Phase 10 (post-Phase-5 work: B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL) are
-          all done. 47 modules built (1 app + 27 core + 1 data + 18 feature),
-          26 DB tables across 15 .sq files, 186 decisions confirmed
-          (D-001..D-186). Nav3 REMOVED (D-150) — hand-rolled nav via
-          {`mutableStateListOf<NavKey>`} + {`when(currentKey)`} dispatch (R7
-          process-death backstack survival accepted as known limitation).
+          all done. 56 modules built (1 app + 32 core + 2 data + 21 feature),
+          25 DB tables across 17 .sq files, 565 decisions confirmed
+          (D-001..D-565). The project is now in iterative device-round
+          development — the debug-first phase (D-565): new features land on the
+          mainline and ship via per-round DEBUG releases (v1.1.38+).
           Live status — kept in sync with{" "}
           <code className="font-mono text-text-primary">memory/progress.md</code>.
         </p>
@@ -76,41 +80,43 @@ export default function ProgressPage() {
         </div>
       </Card>
 
-      {/* Active branch callout — D-272..D-276 on test-feature/video-cache-new-download */}
+      {/* Mainline state callout — Round 76 closed (debug-first phase, D-565) */}
       <Card>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="flex-1 min-w-0">
             <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
-              Active branch state
+              Mainline state
             </div>
             <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary mb-1.5">
-              D-272..D-276 on{" "}
+              Round 76 closed on{" "}
               <code className="font-mono text-[14px] text-text-primary break-all">
-                test-feature/video-cache-new-download
+                feature/round-57-cloudstream-downloads
               </code>
             </h3>
             <p className="text-[12.5px] text-text-secondary leading-relaxed max-w-2xl">
-              67 commits ahead of main · v0.2.53 · <strong>NOT merged</strong> —
-              smart-link ad system ({`:core:ads`} module, AdsCoordinator +
-              SmartLinkAdInterstitial UI, navigation interception gating all
-              navigate-to-Details calls) + Browse Hero sharp-banner /
-              blurred-cover fix (removed CPU boxBlur). The merge gate is
-              blocked on the device-verification checklist pass — see the{" "}
-              <a href="/review/" className="text-[var(--c-primary)] hover:underline">
-                Review &amp; Roadmap
-              </a>{" "}
-              page for the full checklist.
+              Latest DEBUG release: <strong>v1.1.37 (10137)</strong> — live on
+              the dev repo with the debug arm64-v8a APK. Latest PROFESSIONAL
+              release: <strong>v1.1.3 (10103)</strong> — the stable GitHub
+              Release{" "}
+              <code className="font-mono text-[12px]">professional-v1.1.3</code>{" "}
+              (7 assets, release-signed — the first published professional
+              release since v1.1.2). The project now enters the{" "}
+              <strong>debug-first phase (D-565)</strong>: new features land on
+              the mainline and ship via per-round DEBUG releases (v1.1.38+);
+              professional releases pause until the user explicitly orders the
+              next one. ({`main`} was deleted per D-552 — it had 0 unique
+              commits.)
             </p>
           </div>
           <span
             className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium shrink-0 self-start"
             style={{
-              backgroundColor: "var(--c-warning)1a",
-              color: "var(--c-warning)",
+              backgroundColor: "var(--c-success)1a",
+              color: "var(--c-success)",
             }}
           >
-            <StatusDot color="var(--c-warning)" size="sm" />
-            NOT merged
+            <StatusDot color="var(--c-success)" size="sm" />
+            Round 76 closed
           </span>
         </div>
       </Card>
@@ -165,7 +171,7 @@ export default function ProgressPage() {
             <li>· Video pipeline working — resolve URL → play via MPV → save progress.</li>
             <li>· Download manager (HTTP + HLS + resume) operational.</li>
             <li>· AniList tracker sync wired (tracker-api + tracker-anilist).</li>
-            <li>· <strong>CI green across all 47 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB additions + Profile UI v1–v6; :core:ads on test-feature branch).</strong></li>
+            <li>· <strong>CI green across all 56 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB additions + Profile UI v1–v6 + the CloudStream V2 stack + the device-round adds).</strong></li>
           </ul>
         </div>
       </Card>

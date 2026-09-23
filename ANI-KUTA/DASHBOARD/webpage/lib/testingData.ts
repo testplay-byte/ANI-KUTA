@@ -94,7 +94,7 @@ export const TESTING_SECTIONS: TestingSection[] = [
     steps: [
       {
         id: "wp-install",
-        text: "Download + install the latest CI APK from the `main` branch (all feature branches merged).",
+        text: "Download + install the latest CI APK from the mainline branch (feature/round-57-cloudstream-downloads).",
       },
       {
         id: "wp-load",

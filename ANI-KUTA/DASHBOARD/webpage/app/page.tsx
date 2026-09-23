@@ -13,12 +13,6 @@ export default function OverviewPage() {
     PHASES.find((p) => p.status === "in-progress" || p.status === "blocked") ??
     PHASES.find((p) => p.id === 10) ??
     PHASES[PHASES.length - 1];
-  const confirmedCount = decisions.filter(
-    (d) => d.status === "confirmed",
-  ).length;
-  const needsInputCount = decisions.filter(
-    (d) => d.status === "needs-input",
-  ).length;
 
   return (
     <div className="space-y-6">
@@ -31,7 +25,7 @@ export default function OverviewPage() {
             </span>
             <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              ALL PHASES DONE · 47 modules built · Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete + Profile UI v1–v6 + CI GREEN
+              56 modules built · Round 76 closed — professional v1.1.3 published + debug v1.1.37 live — the project enters the debug-first phase (D-565) · CI GREEN
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
@@ -41,17 +35,17 @@ export default function OverviewPage() {
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            A calm, living dashboard for the ANI-KUTA project: 47 modules
-            built (1 app + 27 core + 1 data + 18 feature — ALL PLANNED MODULES
-            BUILT, incl. :core:ads on the test-feature branch), all phases 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete
-            + Profile UI v1–v6, 26 DB tables across 15 .sq files (13 logical
-            groups), + CI verified GREEN on branch {`main`} (all feature branches
-            merged + deleted). Phase DL (download system — all 9 phases D.0–D.8)
-            + Phase WP/HI/UP/SC/TR/NOTIF/CW + Phase DB debug-bubble all shipped.
-            Nav3 REMOVED (D-150) — hand-rolled nav via {`mutableStateListOf<NavKey>`}
-            + {`when(currentKey)`} dispatch (R7 process-death backstack survival
-            accepted as known limitation). All decisions D-001..D-186 confirmed.
-            Kept in sync with{" "}
+            A calm, living dashboard for the ANI-KUTA project: 56 modules
+            built (1 app + 32 core + 2 data + 21 feature — incl. the
+            CloudStream V2 stack), all original build phases 0–5 +
+            B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete, 25 DB tables across
+            17 .sq files, 569 Kotlin files. CI verified GREEN on the mainline
+            branch {`feature/round-57-cloudstream-downloads`} ({`main`} was
+            deleted per D-552 — it had 0 unique commits). Latest releases:
+            DEBUG v1.1.37 (10137) + PROFESSIONAL v1.1.3 (10103, the stable
+            GitHub Release {`professional-v1.1.3`}). All decisions D-001..D-565
+            confirmed — the dashboard lists representative entries; the
+            canonical record is{" "}
             <code className="font-mono text-text-primary">AGENT-CONTEXT/</code>{" "}
             on every push.
           </p>
@@ -165,9 +159,9 @@ export default function OverviewPage() {
                 </svg>
               </div>
               <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
-                <span>26 tables</span>
+                <span>25 tables</span>
                 <span className="opacity-50">·</span>
-                <span>15 .sq files</span>
+                <span>17 .sq files</span>
                 <span className="opacity-50">·</span>
                 <span>13 groups</span>
               </div>
@@ -181,7 +175,7 @@ export default function OverviewPage() {
                 filter by group.
               </p>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <MiniStat label="Tables" value="28" />
+                <MiniStat label="Tables" value="25" />
                 <MiniStat label="Columns" value="150+" />
                 <MiniStat label="Indexes" value="30+" />
               </div>
@@ -214,7 +208,7 @@ export default function OverviewPage() {
                     className="text-[18px] font-bold tracking-extra-tight mt-0.5"
                     style={{ color: "#E8E8E8", letterSpacing: "-0.02em" }}
                   >
-                    47 modules — all built ✓
+                    56 modules — all built ✓
                   </div>
                 </div>
                 {/* mini grid glyph */}
@@ -236,9 +230,9 @@ export default function OverviewPage() {
                 </svg>
               </div>
               <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
-                <span>47 planned</span>
+                <span>56 planned</span>
                 <span className="opacity-50">·</span>
-                <span>47 built ✓</span>
+                <span>56 built ✓</span>
                 <span className="opacity-50">·</span>
                 <span>4 layers</span>
               </div>
@@ -252,8 +246,8 @@ export default function OverviewPage() {
                 detail cards with file counts.
               </p>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <MiniStat label="Modules" value="47" />
-                <MiniStat label="Built" value="47" />
+                <MiniStat label="Modules" value="56" />
+                <MiniStat label="Built" value="56" />
                 <MiniStat label="Layers" value="4" />
               </div>
               <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-success)] group-hover:underline">
@@ -432,7 +426,7 @@ export default function OverviewPage() {
               Decisions
             </div>
             <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary">
-              All {decisions.length} decisions confirmed
+              D-001..D-565 — all decisions confirmed
             </h3>
           </div>
           <span
@@ -443,24 +437,24 @@ export default function OverviewPage() {
             }}
           >
             <StatusDot color="var(--c-success)" size="sm" />
-            {confirmedCount}/{decisions.length}
+            565/565
           </span>
         </div>
 
         <p className="text-[12.5px] text-text-secondary leading-relaxed mb-4">
-          D-001 through D-186 — covering the foundational choices (repo layout,
-          app ID, base app, extension compat, identity system, DI, DB, navigation,
-          backup, design language, Phase 4 polish, Phase 5 re-order) AND the later
-          work: watch progress persistence (WP), history page (HI), updates +
-          WorkManager smart engine (UP), schedule + actual-release (SC), ratings
-          (TR), notifications (NOTIF), continue watching (CW), download system
-          (D-148 — all 9 phases D.0–D.8 shipped), proxy-churn gap (D-149), Nav3
-          REMOVED — hand-rolled nav via {`mutableStateListOf<NavKey>`} (D-150; R7
-          process-death backstack survival accepted as known limitation),
-          download future-phase scope (D-151), subtitle fixes (D-152), DB
-          optimization (D-166), audio variants (D-167), extension trust (D-168),
-          watch-progress fixes (D-169), ratings + continue-watching UI (D-170),
-          + Profile UI v4–v6 (D-171..D-186).
+          Canonical range D-001..D-565 — all confirmed (Round 76 closed; the
+          project now enters the debug-first phase, D-565). The dashboard
+          lists REPRESENTATIVE entries — D-277..D-565 are not individually
+          listed; the canonical record is{" "}
+          <code className="font-mono text-text-primary">AGENT-CONTEXT/memory/decisions.md</code>.
+          Latest decisions: D-558 settings search + heading-back · D-559
+          timeline neck/frosted text/search · D-560 sponsor popup + overlay
+          option + one-time release build · D-561 sponsor-less popup + wizard
+          one-liner + Always-sponsor debug page + preset icons · D-562 real
+          launcher icons via activity-aliases + presets-only page · D-563
+          resized launcher icons + animated hero + navbar insets · D-564
+          return-pill lifecycle bounds + professional v1.1.3 · D-565 the
+          debug-first phase doctrine.
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">

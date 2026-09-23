@@ -24,7 +24,7 @@ import {
  *
  * Sections:
  *  1. Snapshot (verified metrics)
- *  2. Schema Inventory (26 tables grouped, with caller counts)
+ *  2. Schema Inventory (26 tables grouped, with caller counts — D-192-era snapshot; current schema: 25 tables across 17 .sq files)
  *  3. Merge Candidates (8 analyzed groups + recommendation badges)
  *  4. Top 3 Improvements (ranked by impact, with risk levels)
  *  5. Overall Assessment (strengths + weaknesses + bottom line)
@@ -133,11 +133,11 @@ export default function DatabaseReviewPage() {
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
         kicker="§2 — Schema Inventory"
-        title="All 26 tables, grouped"
+        title="All 26 tables, grouped (D-192-era review snapshot)"
         right={
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-primary)" size="sm" />
-            26 tables · 15 .sq files
+            26 tables · 15 .sq files at review time · current: 25 tables · 17 .sq files
           </span>
         }
       >

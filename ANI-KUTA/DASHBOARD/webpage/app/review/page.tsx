@@ -30,6 +30,14 @@ import {
  * per DESIGN.md (MEMORY OS v3). Static Server Component — no
  * interactivity needed, no "use client".
  *
+ * DATED SNAPSHOT — kept as-is for the record. STATUS (dashboard refresh,
+ * Round 77, 2026-09-23): current state is Round 76 closed — debug v1.1.37
+ * (10137) live, professional v1.1.3 (10103) published (stable GitHub
+ * Release professional-v1.1.3), mainline branch
+ * feature/round-57-cloudstream-downloads (main deleted per D-552), 56
+ * modules, 25 tables / 17 .sq files, D-001..D-565 confirmed, debug-first
+ * phase (D-565). Canonical record: AGENT-CONTEXT/memory/decisions.md.
+ *
  * TEMPORARY SECTION — replaces the deleted /key-findings/ page
  * (review #2, 2026-08-24). See §9 Footer Note.
  *

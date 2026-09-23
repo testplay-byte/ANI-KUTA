@@ -1,22 +1,41 @@
 /*
- * ANI-KUTA dashboard data (v8 — ALL PHASES DONE, 47 modules built).
+ * ANI-KUTA dashboard data (v9 — status refresh: Round 76 closed, entering
+ * the debug-first phase per D-565).
  *
  * Sources:
  *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md (43 planned)
  *  - APP/ani-kuta/DESIGN-LANGUAGE.md (app design language — lime/dark)
  *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 plan)
- *  - AGENT-CONTEXT/memory/decisions.md (D-001..D-186 + D-187..D-276 on test-feature branch)
- *  - AGENT-CONTEXT/memory/progress.md (Phase 0–5 done + Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB done + Profile UI v1–v6)
+ *  - AGENT-CONTEXT/memory/decisions.md (canonical D-001..D-565 — dashboard lists representative entries only)
+ *  - AGENT-CONTEXT/memory/progress.md
  *
- * Status: All phases complete + CI verified GREEN on branch `main` (all
- * feature branches merged + deleted). 47 modules built across :app (1),
- * :core (27), :data (1), :feature (18 — api/impl splits count as separate
- * Gradle modules). :core:ads is the latest add (D-272, on the
- * test-feature/video-cache-new-download branch — v0.2.53, NOT merged).
- * Nav3 REMOVED (D-150) — hand-rolled navigation via
- * `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch; R7 (process-
- * death backstack survival) accepted as known limitation. 26 DB tables
- * across 15 .sq files (SQLDelight 2.0.2). 331 Kotlin files in APP/ani-kuta/.
+ * Status (verified 2026-09-23): All original build phases complete; the
+ * project is in iterative device-round development and NOW ENTERS the
+ * debug-first phase (D-565) — all new features land on the mainline and
+ * ship via per-round DEBUG releases (v1.1.38+); professional releases
+ * pause until the user explicitly orders the next one. 56 modules built
+ * across :app (1), :core (32), :data (2), :feature (21 — api/impl splits
+ * count as separate Gradle modules). The mainline/default branch is
+ * `feature/round-57-cloudstream-downloads` (`main` was deleted per D-552 —
+ * it had 0 unique commits); also alive: `feature/test-controller-v5`
+ * (dormant, kept by user order) + `release/1.1.3` (professional release
+ * branch). Latest DEBUG release: v1.1.37 (10137), published on the dev
+ * repo with the debug arm64-v8a APK. Latest PROFESSIONAL release:
+ * v1.1.3 (10103) — the stable GitHub Release `professional-v1.1.3` with
+ * 7 assets (5 release-signed split APKs: arm64-v8a/armeabi-v7a/x86/x86_64/
+ * universal + SHA256SUMS.txt + release ZIP), the first published
+ * professional release since v1.1.2. Version bumps ride release branches
+ * per D-430 (the mainline carries 1.1.20/10120). CI: 4 workflows
+ * (build-apk, release-apk, release-build-once, deploy-dashboard; docs-only
+ * pushes trigger no builds per D-472). Nav3 REMOVED (D-150) — hand-rolled
+ * navigation via `mutableStateListOf<NavKey>` + `when(currentKey)`
+ * dispatch; R7 (process-death backstack survival) accepted as known
+ * limitation. 25 DB tables across 17 .sq files (SQLDelight 2.0.2).
+ * 569 Kotlin files in APP/ani-kuta/.
+ *
+ * KNOWN DEBT: the decision entries in lib/decisions.ts remain
+ * REPRESENTATIVE (D-277..D-565 are not individually listed); the canonical
+ * record is AGENT-CONTEXT/memory/decisions.md.
  *
  * Hardcoded for the static demo — no API calls.
  */
@@ -46,28 +65,33 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/", icon: "dashboard", desc: "Project summary, metrics, phase timeline" },
   { label: "Architecture", href: "/architecture/", icon: "architecture", desc: "Module tree, dependency rules, data flow, identity, multi-extension (D-150: Nav3 removed)" },
-  { label: "Modules", href: "/modules/", icon: "modules", desc: "47 modules built — module hierarchy + tree view" },
-  { label: "Database", href: "/database/", icon: "database", desc: "26 tables across 15 .sq files, ER diagram, indexes, FK relationships" },
+  { label: "Modules", href: "/modules/", icon: "modules", desc: "56 modules built — module hierarchy + tree view" },
+  { label: "Database", href: "/database/", icon: "database", desc: "25 tables across 17 .sq files (current), ER diagram, indexes, FK relationships" },
   { label: "DB Review", href: "/database-review/", icon: "dbreview", desc: "Schema review — merge candidates, optimization plan, top improvements" },
   { label: "DB Viewer", href: "/db-viewer/", icon: "database", desc: "Upload + view database JSON exports" },
   { label: "Design", href: "/design/", icon: "design", desc: "App design language — lime/dark surfaces, accent presets, components" },
-  { label: "Progress", href: "/progress/", icon: "progress", desc: "All phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW + D-225→D-238 auto-link/match-preview/schedule overhaul)" },
+  { label: "Progress", href: "/progress/", icon: "progress", desc: "All build phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW + the D-225→D-238 overhaul) — now in iterative device rounds; debug-first release phase (D-565)" },
   { label: "Analytics", href: "/analytics/", icon: "analytics", desc: "Module size distribution, build times, docs coverage" },
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
   { label: "Test Controller", href: "/test-controller/", icon: "testcontroller", desc: "Autonomous remote UI testing — Cloudflare Workers relay + AccessibilityService (D-198 v4)" },
   { label: "D-240 Improvements", href: "/d-240-improvements/", icon: "rocket", desc: "D-240 + D-241 — download persistence + tracking improvements plan (auto-update fix, data.json v3 with episodes list, contentId fallback linking, live sync on download/delete)" },
-  { label: "Review & Roadmap", href: "/review/", icon: "findings", desc: "Full project review — verified state, open concerns, doc drift, features remaining + how to build them" },
+  { label: "Review & Roadmap", href: "/review/", icon: "findings", desc: "Full project review — verified state, open concerns, doc drift, features remaining + how to build them (dated snapshot: review #3, 2026-08-25, v0.2.53 era)" },
 ];
 
 /* ---------------------------------------------------------------------------
- * Full module list (47 modules — ALL BUILT).
- * Source: settings.gradle.kts — 1 :app + 27 :core:* + 1 :data:extension +
- * 18 :feature:* (api/impl splits count as separate Gradle modules).
- * D-001..D-186 confirmed on `main`. D-187..D-276 are on the
- * test-feature/video-cache-new-download branch (v0.2.53, NOT merged) — the
- * :core:ads module (D-272) is the latest add. Nav3 REMOVED (D-150) — hand-
- * rolled navigation via `mutableStateListOf<NavKey>` + `when(currentKey)`
- * dispatch (R7 process-death backstack survival accepted as known limitation).
+ * Full module list (56 modules — ALL BUILT).
+ * Source: settings.gradle.kts — 1 :app + 32 :core:* + 2 :data:* +
+ * 21 :feature:* (api/impl splits count as separate Gradle modules).
+ * All built + CI verified GREEN on the mainline branch
+ * `feature/round-57-cloudstream-downloads` (`main` was deleted per D-552 —
+ * it had 0 unique commits). Includes the device-round adds: :core:seasons
+ * (D-312), :core:app-update, :core:playback-cache (merged from the former
+ * test-feature branch), :feature:onboarding (D-403) and the CloudStream V2
+ * stack (:core:cloudstream-api, :core:cs-player, :data:cloudstream,
+ * :feature:cs-watch:api/impl). Nav3 REMOVED (D-150) — hand-rolled
+ * navigation via `mutableStateListOf<NavKey>` + `when(currentKey)`
+ * dispatch (R7 process-death backstack survival accepted as known
+ * limitation).
  * ------------------------------------------------------------------------- */
 
 export interface ModuleInfo {
@@ -80,24 +104,23 @@ export interface ModuleInfo {
 }
 
 /**
- * The 47 Gradle modules currently in the project. All built + CI verified GREEN
- * on branch `main` (all feature branches merged + deleted), except `:core:ads`
- * which shipped on the `test-feature/video-cache-new-download` branch
- * (D-272..D-276, v0.2.53, NOT merged). The `status` field tags the phase the
- * module was built in (scaffold = Phase 2, phase3 = Phase 3, phase4 = Phase 4
- * feature screens, phase5 = Phase 5 watch/details/extensions +
- * Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL + Phase DB debug-bubble + Profile UI
- * v1–v6, phase6 = Phase 6 ad system — `:core:ads` shipped on the test-feature
- * branch, awaits merge). Manga (phase7) + novels (phase8) are future.
+ * The 56 Gradle modules currently in the project. All built + CI verified
+ * GREEN on the mainline branch `feature/round-57-cloudstream-downloads`
+ * (`main` was deleted per D-552). The `status` field tags the era the module
+ * was built in (scaffold = Phase 2, phase3 = Phase 3, phase4 = Phase 4
+ * feature screens, phase5 = Phase 5 watch/details/extensions + the
+ * Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL + Phase DB debug-bubble + Profile
+ * UI v1–v6 batch + the device-round adds, phase6 = Phase 6 ad system —
+ * `:core:ads`). Manga (phase7) + novels (phase8) are future.
  */
 export const MODULES: ModuleInfo[] = [
   // --- :app (1) ---
   { name: ":app", job: "App shell — Application (Koin + Logger init), MainActivity (single Activity + hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch — D-150 removed Nav3; R7 process-death backstack survival accepted as known limitation)", dependsOn: ["all feature :impl", ":core:*", ":data:*"], layer: "app", files: 24, status: "scaffold" },
 
-  // --- :core (26 modules — infrastructure, no UI screens) ---
+  // --- :core (32 modules — infrastructure, no UI screens) ---
   { name: ":core:common", job: "Logger (lambda-based, zero-overhead), Dispatchers, Result, ContentType enum, base models", dependsOn: [], layer: "core", files: 14, status: "scaffold" },
   { name: ":core:designsystem", job: "Compose theme engine + reusable components (atoms + molecules — :core:ui merged here)", dependsOn: [":core:common"], layer: "core", files: 42, status: "scaffold" },
-  { name: ":core:database", job: "SQLDelight schema (26 tables across 15 .sq files — content, anilist_detail, extension_detail, episode_update, anime_update_state, episode_schedule, user_rating, user_episode_rating, notification_config/sent, etc.) + migrations (onOpen idempotent — D-166) + driver factory", dependsOn: [], layer: "core", files: 32, status: "scaffold" },
+  { name: ":core:database", job: "SQLDelight schema (25 tables across 17 .sq files — content, anilist_detail, extension_detail, episode_update, anime_update_state, episode_schedule, user_rating, user_episode_rating, notification_config/sent, etc.) + migrations (onOpen idempotent — D-166) + driver factory", dependsOn: [], layer: "core", files: 32, status: "scaffold" },
   { name: ":core:preferences", job: "PreferenceStore (reactive Flow<T> API — D.0), ThemePreferences, SettingsPreferences, WatchPreferences (Phase WP)", dependsOn: [], layer: "core", files: 16, status: "scaffold" },
   { name: ":core:navigation-api", job: "NavKey sealed-class contracts (D-150: hand-rolled, Nav3 removed — `mutableStateListOf<NavKey>` backstack; NOT rememberSaveable, NOT StateFlow), ContentMode, Saver helpers", dependsOn: [":core:common"], layer: "core", files: 9, status: "scaffold" },
   { name: ":core:network", job: "OkHttp + ktor client + shared interceptors + timeouts (incl. qualified 'download' OkHttpClient — D.0)", dependsOn: [":core:common"], layer: "core", files: 12, status: "scaffold" },
@@ -121,12 +144,18 @@ export const MODULES: ModuleInfo[] = [
   { name: ":core:ratings", job: "RatingStore (Phase TR) — per-anime + per-episode user ratings (0-100)", dependsOn: [":core:database"], layer: "core", files: 14, status: "phase5" },
   { name: ":core:notifications", job: "NotificationManager + per-anime config (Phase NOTIF) — release/schedule/download/system channels, dedup via notification_sent", dependsOn: [":core:database", ":core:updates", ":core:schedule"], layer: "core", files: 26, status: "phase5" },
   { name: ":core:debug-api", job: "Debug contracts (Phase DB) — debug-bubble module API surface, DebugBuildInfo, log buffer + network stats interfaces (debugImplementation only — excluded from release classpath)", dependsOn: [":core:common"], layer: "core", files: 8, status: "phase5" },
-  { name: ":core:ads", job: "Smart-link ad system (Phase 6 — D-272) — isolated from the rest of the app, bundled config (no user setting), AdsCoordinator state machine + SmartLinkAdInterstitial UI (D-273), navigation interception gating all navigate-to-Details calls (D-274), 6h cooldown + try-again flow, extensible for future ad kinds. Shipped on test-feature/video-cache-new-download branch (v0.2.53, NOT merged).", dependsOn: [":core:common", ":core:designsystem", ":core:navigation-api", ":core:preferences"], layer: "core", files: 22, status: "phase6" },
+  { name: ":core:ads", job: "Smart-link ad system (Phase 6 — D-272) — isolated from the rest of the app, bundled config (no user setting), AdsCoordinator state machine + SmartLinkAdInterstitial UI (D-273), navigation interception gating all navigate-to-Details calls (D-274), 6h cooldown + try-again flow, extensible for future ad kinds. Shipped in Phase 6 (D-272..D-276) — since merged into the mainline.", dependsOn: [":core:common", ":core:designsystem", ":core:navigation-api", ":core:preferences"], layer: "core", files: 22, status: "phase6" },
+  { name: ":core:seasons", job: "Season-management engine (D-312) — pattern registry + provider-hint fusion for dedicated season handling", dependsOn: [":core:database", ":core:anilist"], layer: "core", files: 14, status: "phase5" },
+  { name: ":core:app-update", job: "In-app updater (device rounds) — GitHubUpdateSource release parsing (skips non-version tags like professional-*), versionCode update eligibility, download + install flow", dependsOn: [":core:common", ":core:network", ":core:preferences"], layer: "core", files: 16, status: "phase5" },
+  { name: ":core:playback-cache", job: "Video playback cache — instant-start replay + ±2min window bounds for cached streams (merged from the former test-feature/video-cache-new-download branch)", dependsOn: [":core:database", ":core:network"], layer: "core", files: 20, status: "phase5" },
+  { name: ":core:cloudstream-api", job: "CloudStream V2 (task 52) — clean-room CS3 plugin binary-compat surface", dependsOn: [":core:common"], layer: "core", files: 30, status: "phase5" },
+  { name: ":core:cs-player", job: "CloudStream V2 (task 52) — Media3 ExoPlayer playback engine host; CS links NEVER touch MPV", dependsOn: [":core:cloudstream-api"], layer: "core", files: 16, status: "phase5" },
 
-  // --- :data (1 module — repository implementations, glue :core ↔ :core:database) ---
-  { name: ":data:extension", job: "Aniyomi extension loader/installer/manager (Injekt isolated, ChildFirstPathClassLoader) + repo management. Future: Mangayomi/Cloudstream/Kotatsu providers (D-027)", dependsOn: [":core:source-api", ":core:provider-api"], layer: "data", files: 48, status: "phase3" },
+  // --- :data (2 modules — repository implementations, glue :core ↔ :core:database) ---
+  { name: ":data:extension", job: "Aniyomi extension loader/installer/manager (Injekt isolated, ChildFirstPathClassLoader) + repo management. Future: Mangayomi/Kotatsu providers (D-027)", dependsOn: [":core:source-api", ":core:provider-api"], layer: "data", files: 48, status: "phase3" },
+  { name: ":data:cloudstream", job: "CloudStream V2 extension system runtime (task 52) — CS plugin loader/manager/repos + the bridge into the app's provider contracts", dependsOn: [":core:cloudstream-api", ":core:provider-api"], layer: "data", files: 40, status: "phase5" },
 
-  // --- :feature (18 modules — UI screens, split api/impl per navigable feature; api/impl count as separate Gradle modules) ---
+  // --- :feature (21 modules — UI screens, split api/impl per navigable feature; api/impl count as separate Gradle modules) ---
   { name: ":feature:anime-browse:api", job: "NavKey + contracts (visible to :app for ContentMap)", dependsOn: [":core:navigation-api", ":core:common"], layer: "feature", files: 4, status: "scaffold" },
   { name: ":feature:anime-browse:impl", job: "Browse screen (AniList trending/seasonal) — Phase D: reads from browse_cache, 6hr auto-update (homepage only)", dependsOn: [":feature:anime-browse:api", ":core:anilist", ":core:data-cache", ":core:designsystem"], layer: "feature", files: 22, status: "scaffold" },
   { name: ":feature:anime-details:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "scaffold" },
@@ -138,8 +167,11 @@ export const MODULES: ModuleInfo[] = [
   { name: ":feature:extensions-settings:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase5" },
   { name: ":feature:extensions-settings:impl", job: "Extensions list + repo management + trust flow (Phase 5a)", dependsOn: [":feature:extensions-settings:api", ":data:extension", ":core:designsystem"], layer: "feature", files: 36, status: "phase5" },
   { name: ":feature:download", job: "DownloadsScreen + DownloadedFilesScreen + DownloadSettingsScreen (528-line replication + Priority order section) + DownloadVideoPickerSheet (Phase DL D.5/D.6)", dependsOn: [":core:download", ":core:designsystem", ":core:preferences", ":core:video-resolver"], layer: "feature", files: 92, status: "phase5" },
+  { name: ":feature:onboarding", job: "First-run setup wizard (D-403, round 28) — single-module feature (the :feature:download precedent)", dependsOn: [":core:navigation-api", ":core:designsystem"], layer: "feature", files: 24, status: "phase5" },
   { name: ":feature:watch:api", job: "NavKey + contracts (WatchKey, WatchRequest, WatchEpisodeContext)", dependsOn: [":core:navigation-api"], layer: "feature", files: 6, status: "phase5" },
   { name: ":feature:watch:impl", job: "WatchScreen (Phase 5c) — embeds :core:player MPV, mediates :core:video-resolver, AppController offline short-circuit (Phase DL D.6 — downloaded URI bypasses resolver)", dependsOn: [":feature:watch:api", ":core:player", ":core:video-resolver", ":core:download", ":core:designsystem"], layer: "feature", files: 84, status: "phase5" },
+  { name: ":feature:cs-watch:api", job: "CloudStream V2 (task 52) — CS watch NavKey + contracts (the aniyomi :feature:watch stays untouched)", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase5" },
+  { name: ":feature:cs-watch:impl", job: "CloudStream V2 (task 52) — the dedicated CS watch screen (ExoPlayer via :core:cs-player), mirroring the watch UX with zero aniyomi code shared", dependsOn: [":feature:cs-watch:api", ":core:cs-player", ":core:cloudstream-api", ":core:designsystem"], layer: "feature", files: 40, status: "phase5" },
   { name: ":feature:anime-history:api", job: "NavKey + contracts (Phase HI)", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase5" },
   { name: ":feature:anime-history:impl", job: "History screen (Phase HI) — day-grouped LazyColumn (Today/Yesterday/This Week/Earlier), swipe-left-to-delete, Clear all dialog, watched styling", dependsOn: [":feature:anime-history:api", ":core:watch-progress", ":core:content", ":core:designsystem"], layer: "feature", files: 28, status: "phase5" },
   { name: ":feature:updates:api", job: "NavKey + contracts (Phase UP)", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase5" },
@@ -155,10 +187,10 @@ export interface TreeNode {
 }
 
 /**
- * Visual tree mirroring the actual 47-module project structure. All built +
- * CI verified GREEN on branch `main` (all feature branches merged + deleted),
- * except `:core:ads` which shipped on the test-feature/video-cache-new-download
- * branch (D-272..D-276, v0.2.53, NOT merged).
+ * Visual tree mirroring the actual 56-module project structure. All built +
+ * CI verified GREEN on the mainline branch
+ * `feature/round-57-cloudstream-downloads` (`main` was deleted per D-552 —
+ * it had 0 unique commits).
  * D-150: Nav3 removed — hand-rolled nav via `mutableStateListOf<NavKey>` +
  * `when(currentKey)` dispatch; R7 process-death backstack survival accepted
  * as known limitation.
@@ -181,13 +213,14 @@ export const MODULE_TREE: TreeNode[] = [
         ],
       },
       {
-        label: ":core (27)",
+        label: ":core (32)",
         layer: "core",
-        note: "Infrastructure (no UI screens) — 27 modules (incl. :core:ads on the test-feature branch)",
+        note: "Infrastructure (no UI screens) — 32 modules",
         children: [
           { label: "common", layer: "core", note: "Logger, Dispatchers, Result, ContentType" },
+          { label: "seasons", layer: "core", note: "Season-management engine (D-312) — pattern registry + provider-hint fusion" },
           { label: "designsystem", layer: "core", note: "Theme engine + components (:core:ui merged)" },
-          { label: "database", layer: "core", note: "SQLDelight schema — 26 tables across 15 .sq files (actual current schema post-D-192; PRAGMA foreign_keys = ON)" },
+          { label: "database", layer: "core", note: "SQLDelight schema — 25 tables across 17 .sq files (PRAGMA foreign_keys = ON)" },
           { label: "preferences", layer: "core", note: "PreferenceStore (reactive Flow<T> — D.0) + Theme/Settings/Watch prefs" },
           { label: "navigation-api", layer: "core", note: "NavKey sealed classes (D-150: Nav3 REMOVED — `mutableStateListOf<NavKey>` backstack; NOT rememberSaveable, NOT StateFlow) + ContentMode" },
           { label: "network", layer: "core", note: "OkHttp 5.0.0-alpha.14 + ktor + shared interceptors (incl. 'download' qualified client)" },
@@ -211,19 +244,24 @@ export const MODULE_TREE: TreeNode[] = [
           { label: "ratings", layer: "core", note: "RatingStore (Phase TR) — per-anime + per-episode user ratings (0-100)" },
           { label: "notifications", layer: "core", note: "NotificationManager + per-anime config (Phase NOTIF) — 4 channels, dedup via notification_sent" },
           { label: "debug-api", layer: "core", note: "Debug contracts (Phase DB) — DebugBuildInfo + log buffer + network stats interfaces (debugImplementation only)" },
-          { label: "ads", layer: "core", note: "Smart-link ad system (Phase 6 — D-272) — isolated, extensible, bundled config; 6h cooldown + try-again flow; shipped on test-feature branch (NOT merged)" },
+          { label: "ads", layer: "core", note: "Smart-link ad system (Phase 6 — D-272) — isolated, extensible, bundled config; 6h cooldown + try-again flow; merged into the mainline" },
+          { label: "app-update", layer: "core", note: "In-app updater — GitHubUpdateSource parsing (skips professional-* tags) + versionCode eligibility + install flow" },
+          { label: "playback-cache", layer: "core", note: "Video playback cache — instant-start replay + ±2min window bounds (merged from the former test-feature branch)" },
+          { label: "cloudstream-api", layer: "core", note: "CloudStream V2 — clean-room CS3 plugin binary-compat surface" },
+          { label: "cs-player", layer: "core", note: "CloudStream V2 — Media3 ExoPlayer engine host; CS links never touch MPV" },
         ],
       },
       {
-        label: ":data (1)",
+        label: ":data (2)",
         layer: "data",
         note: "Repository implementations (glue :core ↔ :core:database)",
         children: [
-          { label: "extension", layer: "data", note: "Aniyomi extension loader/installer/manager (Injekt isolated). Future: Mangayomi/Cloudstream/Kotatsu (D-027)" },
+          { label: "extension", layer: "data", note: "Aniyomi extension loader/installer/manager (Injekt isolated). Future: Mangayomi/Kotatsu (D-027)" },
+          { label: "cloudstream", layer: "data", note: "CloudStream V2 runtime (task 52) — CS plugin loader/manager/repos + provider bridge" },
         ],
       },
       {
-        label: ":feature (18)",
+        label: ":feature (21)",
         layer: "feature",
         note: "UI screens — split api/impl per navigable feature (api/impl count as separate Gradle modules)",
         children: [
@@ -233,7 +271,9 @@ export const MODULE_TREE: TreeNode[] = [
           { label: "anime-search:{api,impl}", layer: "feature", note: "Search (AniList + Extension sources, filters)" },
           { label: "extensions-settings:{api,impl}", layer: "feature", note: "Extensions list + repo management + trust flow (Phase 5a)" },
           { label: "download", layer: "feature", note: "DownloadsScreen + DownloadedFilesScreen + DownloadSettingsScreen (528-line + Priority order) + PickerSheet (Phase DL D.5/D.6)" },
+          { label: "onboarding", layer: "feature", note: "First-run setup wizard (D-403) — single module" },
           { label: "watch:{api,impl}", layer: "feature", note: "WatchScreen (Phase 5c) — embeds :core:player MPV, AppController offline short-circuit (D.6)" },
+          { label: "cs-watch:{api,impl}", layer: "feature", note: "CloudStream V2 watch screen (task 52) — ExoPlayer via :core:cs-player; zero aniyomi code shared" },
           { label: "anime-history:{api,impl}", layer: "feature", note: "History screen (Phase HI) — day-grouped, swipe-delete, Clear all, watched styling" },
           { label: "updates:{api,impl}", layer: "feature", note: "Updates screen (Phase UP + SC) — New/Earlier sections + Updates|Schedule tab strip + countdown" },
           { label: "debug-bubble", layer: "feature", note: "Debug Bubble UI (Phase DB DB-1..DB-9) — floating overlay, Network/DB/Logs/Build tabs; debugImplementation only" },
@@ -744,19 +784,17 @@ export const PHASES: Phase[] = [
   {
     id: 6,
     name: "Ad System + Activity Tracker",
-    status: "in-progress",
-    summary: "Smart-link ad system :core:ads built on the test-feature/video-cache-new-download branch (D-272..D-276, v0.2.53, NOT merged) — isolated, extensible, bundled config; navigation interception gates all navigate-to-Details calls. Activity tracker (:core:activity-tracker) was built early per D-039 and is already on `main`.",
+    status: "done",
+    summary: "Smart-link ad system :core:ads (D-272..D-276) — isolated, extensible, bundled config; navigation interception gates all navigate-to-Details calls. Shipped on the former test-feature branch and since MERGED into the mainline; live in every release since (the sponsor popup + return-pill flow ride on it). Activity tracker (:core:activity-tracker) was built early per D-039.",
     done: [
-      ":core:activity-tracker — ActivityDetector + event-log (365-day/unlimited) — built early per D-039 (already on `main`).",
-      ":core:ads (D-272, on test-feature branch — NOT merged): AdFormat interface, bundled JSON placement config (no user setting), AdsCoordinator state machine + SmartLinkAdInterstitial UI (D-273), navigation interception gating all navigate-to-Details calls (D-274), 6h cooldown + try-again flow, extensible for future ad kinds.",
+      ":core:activity-tracker — ActivityDetector + event-log (365-day/unlimited) — built early per D-039.",
+      ":core:ads (D-272, merged): AdFormat interface, bundled JSON placement config (no user setting), AdsCoordinator state machine + SmartLinkAdInterstitial UI (D-273), navigation interception gating all navigate-to-Details calls (D-274), 6h cooldown + try-again flow, extensible for future ad kinds.",
     ],
-    next: [
-      "Merge test-feature/video-cache-new-download → main (67 commits ahead, gated on device-verification).",
-    ],
+    next: [],
     blockers: [],
     startDay: 161,
     days: 18,
-    color: "var(--c-warning)",
+    color: "var(--c-success)",
   },
   {
     id: 7,
@@ -968,26 +1006,26 @@ export interface MetricCardData {
 export const METRIC_CARDS: MetricCardData[] = [
   {
     label: "Modules Built",
-    value: "47",
-    sublabel: "1 app + 27 core + 1 data + 18 feature · ALL BUILT + CI GREEN (:core:ads on test-feature branch)",
+    value: "56",
+    sublabel: "1 app + 32 core + 2 data + 21 feature · ALL BUILT + CI GREEN on the mainline",
     accent: "var(--c-primary)",
-    sparkline: [4, 6, 8, 12, 18, 22, 26, 31, 38, 44, 46, 47],
+    sparkline: [4, 6, 8, 12, 18, 22, 26, 31, 38, 44, 47, 56],
     trend: "up",
     href: "/modules/",
   },
   {
     label: "Decisions Confirmed",
-    value: "186/186",
-    sublabel: "D-001..D-186 · all confirmed (incl. D-148..D-152 download + Nav3 removal + D-166 DB opt + D-171..D-186 Profile UI v4–v6)",
+    value: "565/565",
+    sublabel: "D-001..D-565 · all confirmed (canonical record: AGENT-CONTEXT/memory/decisions.md — dashboard entries are representative)",
     accent: "var(--c-success)",
-    sparkline: [0, 18, 28, 41, 54, 70, 95, 120, 140, 152, 170, 186],
+    sparkline: [0, 18, 28, 41, 54, 70, 95, 186, 276, 420, 520, 565],
     trend: "up",
     href: "/decisions/",
   },
   {
     label: "Phases Done",
     value: "✓",
-    sublabel: "Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB + Profile UI v1–v6 — all complete + CI GREEN on `main`",
+    sublabel: "Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB + Profile UI v1–v6 — all complete · now in device rounds (debug-first phase, D-565)",
     accent: "var(--c-success)",
     sparkline: [0, 0, 1, 1, 1, 2, 2, 3, 4, 5, 10, 12, 14],
     trend: "up",
@@ -995,10 +1033,10 @@ export const METRIC_CARDS: MetricCardData[] = [
   },
   {
     label: "DB Tables",
-    value: "26",
-    sublabel: "26 tables across 15 .sq files · 13 logical groups (incl. Updates/Ratings/Notifications)",
+    value: "25",
+    sublabel: "25 tables across 17 .sq files (current) · 13 logical groups — detail pages carry the D-192-era 26-table transcription",
     accent: "var(--c-warning)",
-    sparkline: [4, 6, 11, 15, 19, 21, 21, 21, 24, 26, 26],
+    sparkline: [4, 6, 11, 15, 19, 21, 21, 21, 24, 25, 25],
     trend: "up",
     href: "/database/",
   },
@@ -1009,14 +1047,14 @@ export const METRIC_CARDS: MetricCardData[] = [
  * ------------------------------------------------------------------------- */
 
 export const QUICK_STATS = {
-  modules: 47,
-  modulesPlanned: 47, // all planned modules now built (incl. :core:ads on test-feature branch)
+  modules: 56,
+  modulesPlanned: 56, // all built (incl. the CloudStream V2 stack + the device-round adds)
   scaffoldModules: PHASE2_SCAFFOLD.length,
   phase3Modules: 15,
   totalFiles: MODULES.reduce((sum, m) => sum + m.files, 0),
-  kotlinFiles: 331, // actual .kt files in APP/ani-kuta/ (excluding /build/)
-  decisions: 186,
-  decisionsConfirmed: 186,
+  kotlinFiles: 569, // actual .kt files in APP/ani-kuta/ (excluding /build/)
+  decisions: 565,
+  decisionsConfirmed: 565,
   decisionsNeedsInput: 0,
   phases: PHASES.length,
   phasesDone: PHASES.filter((p) => p.status === "done").length,
@@ -1154,13 +1192,13 @@ export interface ADR {
 
 export const ADRS: ADR[] = [
   { id: "ADR-001", title: "Build APKs via GitHub Actions only", status: "accepted", summary: "Never build APK locally. Always via CI. Reproducible, no local toolchain." },
-  { id: "ADR-002", title: "Restrict ABIs to ARM64 + armeabi-v7a", status: "accepted", summary: "No x86/x86_64. Matches target devices, keeps APK small." },
+  { id: "ADR-002", title: "Restrict ABIs to ARM64 + armeabi-v7a", status: "superseded", summary: "No x86/x86_64 in the early debug line. SUPERSEDED — the current release pipeline ships all 4 ABIs + universal (5 release-signed split APKs per professional release, e.g. professional-v1.1.3)." },
   { id: "ADR-003", title: "AGENT-CONTEXT versioned in repo", status: "accepted", summary: "Lives inside ANIKUTA-PROJECT/ so any agent can clone and continue." },
   { id: "ADR-004", title: "Frontend/backend separation", status: "accepted", summary: "UI and data layers independent, communicating via contracts. UI never imports :data:*." },
-  { id: "ADR-005", title: "Modular app structure (47 built — ALL PLANNED MODULES BUILT)", status: "accepted", summary: "Independent modules across :app (1), :core (27), :data (1), :feature (18 — api/impl splits count as separate Gradle modules) = 47 runtime modules. All built + CI verified GREEN on branch `main` (all feature branches merged + deleted), except :core:ads which shipped on the test-feature/video-cache-new-download branch (D-272, v0.2.53, NOT merged). Nav3 REMOVED (D-150) — hand-rolled nav via `mutableStateListOf<NavKey>`." },
+  { id: "ADR-005", title: "Modular app structure (56 built — ALL BUILT)", status: "accepted", summary: "Independent modules across :app (1), :core (32), :data (2), :feature (21 — api/impl splits count as separate Gradle modules) = 56 runtime modules. All built + CI verified GREEN on the mainline branch `feature/round-57-cloudstream-downloads` (`main` was deleted per D-552 — it had 0 unique commits). Nav3 REMOVED (D-150) — hand-rolled nav via `mutableStateListOf<NavKey>`." },
   { id: "ADR-006", title: "Companion web dashboard", status: "accepted", summary: "Next.js project → GitHub Pages, visual documentation for the user." },
   { id: "ADR-007", title: "App ID = com.confused.anikuta", status: "accepted", summary: "User-chosen applicationId / namespace." },
-  { id: "ADR-008", title: "SDK levels: min 24, target 36, JDK 17", status: "accepted", summary: "minSdk 24, targetSdk/compileSdk 36 (JDK 17 for CI). ABIs: arm64-v8a + armeabi-v7a ONLY — CI-verified, no x86/x86_64." },
+  { id: "ADR-008", title: "SDK levels: min 24, target 36, JDK 17", status: "accepted", summary: "minSdk 24, targetSdk/compileSdk 36 (JDK 17 for CI). ABIs: originally arm64-v8a + armeabi-v7a only (ADR-002) — the current release pipeline ships all 4 ABIs + universal." },
   { id: "ADR-009", title: "Tech stack: Kotlin 2.2.0 + Compose + Koin + SQLDelight + hand-rolled nav (Nav3 REMOVED D-150)", status: "accepted", summary: "Kotlin 2.2.0, AGP 8.9.1, Gradle 8.11.1, Compose BOM 2025.03.00. Koin 4.2.2 + Annotations + Injekt (isolated). SQLDelight 2.0.2. OkHttp 5.0.0-alpha.14 (Aniyomi ext binary compat). Coil 3.0.4. MPV aniyomi-mpv-lib 1.18.n. Hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch (D-150: replaced Jetpack Nav3 from D-036). (Supersedes original Hilt+Room+Retrofit plan + the Nav3 choice.)" },
   { id: "ADR-010", title: "Dashboard design language (MEMORY OS)", status: "accepted", summary: "Warm canvas, rounded corners, dark mode toggle. Strictly followed. Separate from the APP's design language." },
   { id: "ADR-011", title: "Graph-based identity (ContentUID + ExternalReference)", status: "accepted", summary: "Multi-ecosystem, tracker-optional, confidence levels, user merge/split. Flexible + switchable. See D-032." },

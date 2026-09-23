@@ -452,7 +452,7 @@ export const COMMANDS: CommandRef[] = [
     type: "db_list_tables",
     category: "app-internals",
     example: '{"type":"db_list_tables","id":"dl1"}',
-    returns: "Array of table names from the SQLDelight schema (26 tables across 15 .sq files).",
+    returns: "Array of table names from the SQLDelight schema (25 tables across 17 .sq files).",
   },
   {
     type: "db_query",

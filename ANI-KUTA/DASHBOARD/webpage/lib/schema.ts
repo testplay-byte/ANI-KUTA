@@ -1,11 +1,16 @@
 /*
- * ANI-KUTA database schema — visual data (actual current schema, post-D-192).
+ * ANI-KUTA database schema — visual data (D-192-era transcription; see note).
  *
  * Source: APP/ani-kuta/core/database/src/main/sqldelight/com/confused/anikuta/core/database/*.sq
  * (15 .sq files — read in full and transcribed column-by-column).
  *
- * 26 tables across 15 .sq files (13 logical groups for visualization). This
- * file mirrors the ACTUAL current schema — not the planned Phase-1 design.
+ * STATUS NOTE (dashboard refresh, Round 77 — 2026-09-23): the CURRENT schema
+ * is 25 tables across 17 .sq files (SQLDelight 2.0.2). The transcription
+ * below predates the later device-round schema adds and still shows the
+ * D-192-era state — 26 tables across 15 .sq files (13 logical groups for
+ * visualization). It mirrors the actual schema AS OF that transcription —
+ * not the planned Phase-1 design. A column-by-column re-transcription pass
+ * is queued as known debt; the canonical record is the .sq files in the repo.
  * D-166 (PRAGMA foreign_keys = ON) + D-189 (FK cleanup) + D-190 (episode
  * metadata engine) + D-192 (dropped content_ext + content_ext_repo +
  * user_customization — dead code) are all reflected below.
@@ -196,9 +201,10 @@ export const SCHEMA_GROUPS: GroupMeta[] = [
 ];
 
 /* ---------------------------------------------------------------------------
- * 26 tables — actual current schema (post-D-192). Transcribed column-by-column
- * from the 15 .sq files in core/database/src/main/sqldelight/. The `content`
- * table is the backbone — almost every other table FKs to content.main_id.
+ * D-192-era transcription (26 tables) — current schema: 25 tables across
+ * 17 .sq files. Transcribed column-by-column from the .sq files in
+ * core/database/src/main/sqldelight/. The `content` table is the backbone —
+ * almost every other table FKs to content.main_id.
  * ------------------------------------------------------------------------- */
 
 export const SCHEMA_TABLES: SchemaTable[] = [

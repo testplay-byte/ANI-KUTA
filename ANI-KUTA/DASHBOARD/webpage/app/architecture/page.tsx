@@ -23,7 +23,7 @@ import {
  *
  * Sections:
  *  1. Plan summary + principles (9 principles).
- *  2. Full module tree (47 modules — TreeViewStatic, color-coded by layer).
+ *  2. Full module tree (56 modules — TreeViewStatic, color-coded by layer).
  *  3. Dependency rules (6 strict rules).
  *  4. Data flow diagram (discovery → watch → track, with identity backbone).
  *  5. Identity system model (ContentUID + ExternalReference graph).
@@ -44,7 +44,7 @@ export default function ArchitecturePage() {
             </span>
             <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              All 47 planned modules built · all decisions D-001..D-186 confirmed · Nav3 REMOVED (D-150)
+              All 56 modules built · decisions D-001..D-565 confirmed · Nav3 REMOVED (D-150)
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
@@ -54,17 +54,18 @@ export default function ArchitecturePage() {
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            The full architecture plan for the ANI-KUTA rebuild: 47 modules
-            built across :app (1), :core (27), :data (1), and :feature (18 —
-            api/impl splits count as separate Gradle modules). ALL planned
-            modules are built + CI verified GREEN on branch {`main`} (all
-            feature branches merged + deleted), except :core:ads which
-            shipped on the test-feature/video-cache-new-download branch
-            (D-272, v0.2.53, NOT merged). Phase 0–5 + Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB
-            all complete + Profile UI v1–v6. Nav3 REMOVED (D-150) — hand-rolled
+            The full architecture plan for the ANI-KUTA rebuild: 56 modules
+            built across :app (1), :core (32), :data (2), and :feature (21 —
+            api/impl splits count as separate Gradle modules). ALL modules
+            are built + CI verified GREEN on the mainline branch
+            {`feature/round-57-cloudstream-downloads`} ({`main`} was deleted
+            per D-552 — it had 0 unique commits). Phase 0–5 + Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB
+            all complete + Profile UI v1–v6 + the device-round adds (CloudStream
+            V2 stack, :core:seasons, :core:app-update, :core:playback-cache,
+            :feature:onboarding). Nav3 REMOVED (D-150) — hand-rolled
             nav via {`mutableStateListOf<NavKey>`} + {`when(currentKey)`} dispatch
             (R7 process-death backstack survival accepted as known limitation).
-            26 DB tables across 15 .sq files. Future-proof,
+            25 DB tables across 17 .sq files. Future-proof,
             modular, agent-friendly.
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
@@ -124,8 +125,8 @@ export default function ArchitecturePage() {
       <Card>
         <SectionHeader
           eyebrow="§3 — Full Module Tree"
-          title="47 modules — all built ✓"
-          desc=":app (1) · :core (27 infrastructure modules, incl. :core:ads on the test-feature branch) · :data (1 repository impl) · :feature (18 — anime + extensions + download + watch + history + updates + debug-bubble, split api/impl per navigable feature). All 47 built + CI verified GREEN on `main` (except :core:ads, shipped on test-feature branch — NOT merged). Nav3 REMOVED (D-150) — hand-rolled nav via `mutableStateListOf<NavKey>`."
+          title="56 modules — all built ✓"
+          desc=":app (1) · :core (32 infrastructure modules) · :data (2 repository impls — extension + cloudstream) · :feature (21 — anime + extensions + download + onboarding + watch + cs-watch + history + updates + debug-bubble, split api/impl per navigable feature). All 56 built + CI verified GREEN on the mainline branch `feature/round-57-cloudstream-downloads`. Nav3 REMOVED (D-150) — hand-rolled nav via `mutableStateListOf<NavKey>`."
         />
 
         <div className="rounded-[14px] border border-border bg-surface-alt/40 p-4 overflow-x-auto">
@@ -603,7 +604,7 @@ export default function ArchitecturePage() {
             </h3>
             <p className="text-[12.5px] text-text-secondary leading-relaxed max-w-2xl">
               ~790 lines covering: architecture principles, full module tree
-              (47 modules), dependency rules, data flow, screen map
+              (56 modules), dependency rules, data flow, screen map
               (originally Nav3, now hand-rolled per D-150), identity system
               design, backup/restore architecture (with §7.5 merge semantics),
               multi-extension architecture, multi-content-type architecture,

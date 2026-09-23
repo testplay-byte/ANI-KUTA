@@ -1,39 +1,37 @@
 /*
- * Architecture Decisions (v8 — Phase WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete + Profile UI v1–v6 + D-001..D-186 landed on `main` + D-272..D-276 on test-feature branch).
+ * Architecture Decisions (v9 — status refresh: canonical range D-001..D-565,
+ * Round 77; the project is in the debug-first phase per D-565).
  *
- * All decisions D-001..D-186 are CONFIRMED on `main`. The D-272..D-276 batch
- * (smart-link ad system + Browse Hero sharp-banner/blurred-cover fix +
- * version 0.2.53 + docs) is also CONFIRMED but lives on the
- * test-feature/video-cache-new-download branch (67 commits ahead of main,
- * v0.2.53, NOT merged). Each entry shows the question, the chosen option
- * (with pros/cons for context), and a summary of the decision context.
+ * The canonical decision range is D-001..D-565 (565 decisions, ALL
+ * confirmed). This file carries REPRESENTATIVE entries only — D-277..D-565
+ * are NOT individually listed; the canonical record is
+ * AGENT-CONTEXT/memory/decisions.md. Each entry shows the question, the
+ * chosen option (with pros/cons for context), and a summary of the decision
+ * context.
  *
  * The early decisions (D-001..D-054) cover the foundational choices (repo
  * layout, app ID, base app, extension compat, identity system, DI, DB,
  * navigation, backup, design language, Phase 4 polish, Phase 5 re-order).
- * The newer decisions (D-055..D-186) cover: watch progress persistence,
- * history page, updates + WorkManager smart engine, schedule + actual
- * release, ratings, notifications, continue watching, download system
- * (D-148), proxy-churn gap (D-149), Nav3 removal in favour of hand-rolled
- * navigation (D-150), download future-phase scope (D-151), subtitle
- * fixes (D-152), DB optimization (D-166), audio-variants (D-167),
- * extension trust (D-168), watch-progress fixes (D-169), ratings +
- * continue-watching UI (D-170), + Profile UI v4–v6 (D-171..D-186).
- * The D-272..D-276 batch covers the smart-link ad system (D-272 :core:ads
- * module, D-273 AdsCoordinator + SmartLinkAdInterstitial UI, D-274
- * navigation interception gating all navigate-to-Details calls) + Browse
- * Hero sharp-banner/blurred-cover fix (D-275, removed CPU boxBlur) +
- * version 0.2.53 + docs bump (D-276).
+ * The D-055..D-186 batch covers: watch progress persistence, history page,
+ * updates + WorkManager smart engine, schedule + actual release, ratings,
+ * notifications, continue watching, download system (D-148), proxy-churn
+ * gap (D-149), Nav3 removal in favour of hand-rolled navigation (D-150),
+ * DB optimization (D-166), + Profile UI v4–v6 (D-171..D-186). The
+ * D-272..D-276 batch covers the smart-link ad system. The latest device-
+ * round decisions: D-558 settings search + heading-back; D-559 timeline
+ * neck/frosted text/search; D-560 sponsor popup + overlay option + one-time
+ * release build; D-561 sponsor-less popup + wizard one-liner + Always-
+ * sponsor debug page + preset icons; D-562 real launcher icons via
+ * activity-aliases + presets-only page; D-563 resized launcher icons +
+ * animated hero + navbar insets; D-564 return-pill lifecycle bounds +
+ * professional v1.1.3; D-565 the debug-first phase doctrine.
  *
- * NOTE: This file contains representative entries (D-027..D-054 + D-148..D-170
- * + D-186 + D-272..D-276) — NOT all 186 canonical decisions are listed
- * individually. The full set lives in AGENT-CONTEXT/memory/decisions.md. The
- * dashboard's count (186/186 confirmed) reflects the canonical main-branch
- * record; D-187..D-276 are on the test-feature branch + are represented
- * here as "confirmed" (decided + acted upon, awaiting merge).
+ * NOTE: The dashboard's headline count (565/565 confirmed) reflects the
+ * canonical record (AGENT-CONTEXT/memory/decisions.md), not the number of
+ * entries below.
  *
  * Sources:
- *  - AGENT-CONTEXT/memory/decisions.md (D-001..D-186 + D-187..D-276 on test-feature branch)
+ *  - AGENT-CONTEXT/memory/decisions.md (canonical D-001..D-565)
  *  - REFERENCES/old-kuta/DOCUMENTATION/10-14 (research findings)
  *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md
  *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 — D-053 + D-054)
@@ -914,7 +912,7 @@ export const decisions: Decision[] = [
     status: "confirmed",
     question: "Bump version to 0.2.53 + document the D-272..D-276 batch?",
     context:
-      "D-276 is the version-bump + docs decision for the D-272..D-276 batch (smart-link ad system + Browse Hero sharp-banner/blurred-cover fix). It bumps AndroidConfig.versionCode 52 → 53 + versionName 0.2.52 → 0.2.53, refreshes AGENT-CONTEXT (memory/decisions.md + memory/progress.md + memory/master.md) + the DASHBOARD/webpage/ data files (lib/data.ts + lib/decisions.ts + lib/reviewData.ts + the modules/architecture/progress pages). The release APK is built via the GitHub Actions release-apk.yml workflow (debug-signed per the established convention — release signing is deferred to Phase 2). Branch: test-feature/video-cache-new-download (67 commits ahead of main, v0.2.53, NOT merged). Date: D-272..D-276 batch.",
+      "D-276 is the version-bump + docs decision for the D-272..D-276 batch (smart-link ad system + Browse Hero sharp-banner/blurred-cover fix). It bumps AndroidConfig.versionCode 52 → 53 + versionName 0.2.52 → 0.2.53, refreshes AGENT-CONTEXT (memory/decisions.md + memory/progress.md + memory/master.md) + the DASHBOARD/webpage/ data files (lib/data.ts + lib/decisions.ts + lib/reviewData.ts + the modules/architecture/progress pages). The release APK is built via the GitHub Actions release-apk.yml workflow (debug-signed per the established convention — release signing is deferred to Phase 2). Branch: test-feature/video-cache-new-download (67 commits ahead of main, v0.2.53, NOT merged at the time — since merged; the branch itself is deleted). Date: D-272..D-276 batch.",
     options: [
       {
         name: "Bump version 0.2.52 → 0.2.53 (versionCode 52 → 53) + refresh dashboard + AGENT-CONTEXT docs",
@@ -926,6 +924,73 @@ export const decisions: Decision[] = [
         cons: [
           "Version bump on an unmerged branch means main is now one version behind (acceptable — the branch IS the active state)",
           "Debug-signed release still — release signing deferred to Phase 2 (documented, deliberate)",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-563",
+    title: "Resized launcher icons + animated sponsor hero + bottom-bar navbar insets (v1.1.37)",
+    status: "confirmed",
+    question: "How to fix the cropped/zoomed preset launcher icons, restore the sponsor popup logo with proper animation, and keep the bottom nav clear of 3-button system navigation?",
+    context:
+      "Round 75 (v1.1.37 device round). (1) The round-74 adaptive icons put each preset artwork in the BACKGROUND layer — the 108dp canvas vs the launcher's ~72dp mask rendered the artwork ~1.5× zoomed with ~16.7% cropped per side; fixed resources-only with six inset foregrounds (artwork at 66% of the canvas) + solid edge-matched background colors + regenerated legacy JPGs, verified against full/circle/squircle masks pre-ship. (2) The D-560 HeroBubble returned to all three sponsor-popup states with a MediumBouncy spring entrance pop + a ±4.5% breathing loop, both read in the draw-phase graphicsLayer (zero recompositions). (3) navigationBarsPadding() on AnikutaBottomNavBar + a bottomBarClearance() designsystem helper feeding the four root-tab scroll tails so the last rows clear the lifted pill in 3-button mode. The frozen carry (episode list, search, timeline, headings) untouched.",
+    options: [
+      {
+        name: "Inset foreground layers + spring/breathing hero + navigationBarsPadding with scroll-tail clearance",
+        pros: [
+          "Preset icons render the FULL artwork in every launcher mask shape — matching the in-app preview",
+          "Hero animation is draw-phase only — zero recomposition cost",
+          "Bottom bar floats above button navigation AND the gesture pill; lists stay clear",
+        ],
+        cons: [
+          "Resources-only fix means each preset ships pre-inset (new presets need new insets)",
+          "Tail clearance covers the root tabs only — sub-screens keep the frozen gradient scrims",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-564",
+    title: "Return-pill lifecycle bounds + the professional v1.1.3 release",
+    status: "confirmed",
+    question: "How to stop the 'You can go back' overlay from living forever, and how to actually publish the professional release?",
+    context:
+      "Round 76. (1) The TYPE_APPLICATION_OVERLAY pill belonged to the app's still-cached process and its only exit was the coordinator-driven hide on the user's return — a user who never returned kept the pill over every app and after closing ANI-KUTA. Fixed in SmartLinkReturnPillController only: the ready window auto-expires after 10 seconds (the user's exact spec, firing the normal green-check exit) and an Application.ActivityLifecycleCallbacks close-watcher dismisses immediately when the app's LAST activity is destroyed. (2) The professional line's first published release since v1.1.2: versionName 1.1.3 / versionCode 10103 (> 10102), release-signed, tagged professional-v1.1.3 — a stable --latest GitHub Release with 7 assets (5 release-signed split APKs: arm64-v8a/armeabi-v7a/x86/x86_64/universal + SHA256SUMS.txt + release ZIP), install-as-update over professional 1.1.2. The D-447 artifact-only doctrine superseded for this release by the explicit user order.",
+    options: [
+      {
+        name: "10s ready-window expiry + last-activity close-watcher; publish professional-v1.1.3 as a stable GitHub Release",
+        pros: [
+          "The pill's total life is bounded (~5s countdown + 10s ready) in every scenario",
+          "Professional 1.1.2 users update in place (10103 > 10102, same release signature)",
+          "Updater safety verified — the debug app's best stays v1.1.37 (the professional tag is skipped)",
+        ],
+        cons: [
+          "The professional in-app updater still checks the official repo (Confused-Creature-180/ANI-KUTA) — blocked on the release-agent token; until then install from the release page",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-565",
+    title: "The debug-first phase doctrine",
+    status: "confirmed",
+    question: "Where do new features land and how do they ship, now that all original build phases are long done?",
+    context:
+      "Round 77 project-setup doctrine. All original build phases are long done; the project is in iterative device-round development and NOW ENTERS the debug-first phase: all new features land on the mainline branch (feature/round-57-cloudstream-downloads) and ship via per-round DEBUG releases (v1.1.38+); professional releases pause until the user explicitly orders the next one. Version bumps ride release branches per D-430.",
+    options: [
+      {
+        name: "Mainline-landing features + per-round DEBUG releases; professional releases pause until ordered",
+        pros: [
+          "One integration line — no unmerged feature-branch debt (the D-552 lesson)",
+          "Every device round ships — the user tests real APKs instead of reviewing diffs",
+          "The professional line stays stable and release-pure between explicit orders",
+        ],
+        cons: [
+          "The professional release lags the debug line until the next explicit order",
         ],
         recommended: true,
       },
