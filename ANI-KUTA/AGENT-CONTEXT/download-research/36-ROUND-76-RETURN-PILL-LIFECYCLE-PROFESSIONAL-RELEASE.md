@@ -101,3 +101,36 @@ trigger map verified (a `release/**` push matches no build-apk.yml branch patter
 `professional-v1.1.3` tag does not match the `v*` release trigger; `.github/**` is
 paths-ignored) — the cycle's ledger is EXACTLY 2 runs: the implementation run + the
 professional all-ABI build.
+
+## 5. THE LIVE LEDGER
+
+- **Implementation run 35824217115** (Build APK @ 45fb7384, the D-564 feat commit): **GREEN on
+  the FIRST run** — the unit-test gate + assembleDebug + the arm64-only ABI check.
+- **The release cut:** release/1.1.3 cut from 45fb7384 (the green head) → the bump a8411628
+  (1.1.3/10103, the D-430 doctrine, the record comment rides the bump) → the workflow
+  ref-input commit 561718fb → branch + the annotated tag `professional-v1.1.3` (message file
+  repo-external) pushed.
+- **The professional all-ABI build run 35824777389** (Release Build (One-Time), dispatched with
+  tag=v1.1.3 + ref=release/1.1.3 → HTTP 204): **GREEN on the FIRST run** — every gate success
+  (tag↔versionName 1.1.3↔1.1.3 read from the CHECKED-OUT release branch, keystore-from-secrets
+  + keytool, the build, the 5-APK existence audit, the per-APK lib/ ABI audit —
+  arm64-v8a/armeabi-v7a/x86/x86_64/universal — the per-APK apksigner gate with the cert-DN
+  grep). Artifact `ani-kuta-v1.1.3-release-allabi` (id 10734578918) 500.0MB.
+- **The local verification:** all five APKs + SHA256SUMS verified (`sha256sum -c` ALL OK), the
+  per-APK lib/ ABI audit re-run locally — exact.
+- **THE PUBLISHED RELEASE:** GitHub release id 394339536, tag `professional-v1.1.3`, title
+  "ANI-KUTA v1.1.3 — Professional Release", **stable (not draft, not prerelease),
+  /releases/latest → professional-v1.1.3** — the user's "actually published, actually
+  released" order fulfilled. Assets (7): the five release-signed APKs
+  (arm64-v8a 59.4MB / armeabi-v7a 56.2MB / x86 61.8MB / x86_64 65.6MB / universal 160.9MB) +
+  SHA256SUMS.txt + ANI-KUTA-v1.1.3-RELEASE.zip (248.4MB).
+  URL: https://github.com/testplay-byte/ANI-KUTA/releases/tag/professional-v1.1.3
+- **The post-publish updater simulation (re-run against the live API):** the professional tag
+  is SKIPPED by the updater's parse; the debug app's best stays v1.1.37 (1,1,37) = the
+  installed version → no update offered. The official-repo re-host stays blocked on the
+  release-agent token (the artifact set is the exact round-39 re-host shape).
+- **Branch cleanup:** release/1.1.37's post-tag delta verified DOCS-ONLY (96f51d55, two memory
+  files) → deleted; remote = mainline + test-controller-v5 + release/1.1.3.
+- **CI ledger DISCLOSED: EXACTLY 2 runs, ALL first-try green** (implementation 35824217115 +
+  the professional all-ABI build 35824777389) — within the ≤2 budget, first time since the
+  both-releases cycles began.
