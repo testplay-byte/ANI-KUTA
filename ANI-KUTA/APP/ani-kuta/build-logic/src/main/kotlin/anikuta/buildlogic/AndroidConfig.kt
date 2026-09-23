@@ -544,8 +544,30 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // D-566..D-568 release bump (release/1.1.38): 1.1.20/10120 -> 1.1.38/10138 —
+    // Round 80: the update-check notification system reworked end to end —
+    // the audible "Searching for new episodes" card fires the MOMENT a check
+    // starts (before any work — the user's exact order), the live card shows
+    // true per-item progress ("Checking 4 of 25 · Title" + a
+    // completions-counted bar), every run ends honestly (results card /
+    // manual caught-up card / silent-empty background runs / capped failure
+    // card / silent cancel), and the progress card can never get stuck again
+    // (unconditional cancels on every terminal path + swipeable + 15-min
+    // auto-expiry). ONE notification channel carries the whole lifecycle
+    // (both silent-LOW legacy channels deleted — importance is immutable);
+    // the notifications master toggle now gates the check cards; the
+    // periodic cadence no longer resets on every app open
+    // (ExistingPeriodicWorkPolicy REPLACE -> UPDATE — the anchor survives);
+    // the engine is single-flight with clean cancellation; episode-banner
+    // notification IDs no longer collide (EP 12 vs 12.5 used to overwrite
+    // each other); the designed 90-day notification dedup retention sweep
+    // is finally wired (the table grew forever before); the Updates settings
+    // honesty fixes (the interval row real in AUTO, check-now OFF-gated, a
+    // manual check now matches the Updates tab's filter for real).
+    // Record: download-research/38. The bump rides the release branch
+    // exclusively (D-430); the feature line stays 1.1.20/10120.
+    const val versionCode = 10138
+    const val versionName = "1.1.38"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
