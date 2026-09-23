@@ -16,6 +16,11 @@ dependencies {
     implementation(project(":core:provider-api"))  // CloudStream V2: InstallStep moved here (ecosystem-shared install lifecycle states)
     implementation(project(":data:extension"))
     implementation(project(":data:cloudstream"))  // CloudStream V2: the CS extensions section + plugin detail screens
+    // Round 82 (D-576): the VideoResolveTest reads CsVideoLink members off the
+    // CS resolver's events — :core:cs-player must be ON the compile classpath
+    // (the :feature:cs-watch:impl precedent; :data:cloudstream declares it
+    // implementation-only, dependents declare it themselves).
+    implementation(project(":core:cs-player"))
 
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)

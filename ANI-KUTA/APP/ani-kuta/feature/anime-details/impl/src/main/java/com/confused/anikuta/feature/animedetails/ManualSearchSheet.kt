@@ -545,7 +545,7 @@ private fun SourceWheelColumn(
                     .align(Alignment.Center)
                     .fillMaxWidth()
                     .height(ITEM_HEIGHT),
-            )
+            ) {}
             LazyColumn(
                 state = listState,
                 flingBehavior = snapBehavior,
