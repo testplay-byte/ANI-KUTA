@@ -155,11 +155,15 @@ class AppIconController(
          * names MUST match the manifest exactly (D-562). The FQCN is
          * namespace-resolved — see the class doc.
          */
-        fun aliasClassFor(key: String?): String =
-            "com.confused.anikuta.icons.Icon" +
-                (key?.takeIf { it.isNotBlank() } ?: "Default").replaceFirstChar {
-                    if (it.isLowerCase()) it.uppercase() else it
-                }
+        fun aliasClassFor(key: String?): String {
+            val suffix = key?.takeIf { it.isNotBlank() } ?: "Default"
+            // Capitalize WITHOUT replaceFirstChar — its (Char)->Char and
+            // (Char)->CharSequence overloads are resolution-ambiguous for a
+            // mixed lambda on this Kotlin line (the round-74 first CI run
+            // tripped exactly there).
+            val capped = suffix.substring(0, 1).uppercase() + suffix.substring(1)
+            return "com.confused.anikuta.icons.Icon$capped"
+        }
     }
 }
 
