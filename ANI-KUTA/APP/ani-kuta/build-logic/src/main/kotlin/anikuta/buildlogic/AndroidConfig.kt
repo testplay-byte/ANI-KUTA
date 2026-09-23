@@ -544,8 +544,22 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // D-563 release bump (release/1.1.37): 1.1.20/10120 -> 1.1.37/10137 —
+    // the v1.1.36 device round: the preset launcher icons RESIZED-not-cropped
+    // (the artwork leaves the adaptive icon's cropped 108dp background layer
+    // for a 66%-canvas inset foreground over a SOLID edge-matched background
+    // — the entire design visible under every mask shape, "exactly like how
+    // the preview showed"; the legacy JPGs regenerated the same way), the
+    // sponsor popup's SVG logo RETURNS with a proper animation (a spring
+    // entrance pop replayed per state + a quiet breathing loop), and the
+    // bottom navigation bar clears the system's button navigation
+    // (navigationBarsPadding on the pill + bottomBarClearance on the four
+    // root tabs' scroll tails). BOTH releases ride THIS tag (the debug arm64
+    // line + the all-ABI artifact line). Record: download-research/35. The
+    // bump rides the release branch exclusively (D-430); the feature line
+    // stays 1.1.20/10120.
+    const val versionCode = 10137
+    const val versionName = "1.1.37"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
