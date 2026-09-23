@@ -49,9 +49,11 @@ interface AdsRepository {
     fun consumeFirstOpenGrace(): Boolean
 
     /**
-     * D-561 (round 73): the DEBUG "Always sponsor" toggle (Settings →
-     * long-press "Debug options" → Always sponsor). Default OFF. ON = the
-     * sponsor interstitial fires on EVERY app open, bypassing the cooldown.
+     * D-562 (round 74): the DEBUG "Always sponsor" toggle (Settings →
+     * long-press "Debug options" → the Debug-options page). Default OFF.
+     * ON = the sponsor interstitial fires on EVERY entry click into a
+     * details page (the requestNavigation gate), bypassing the
+     * grace/cooldown/offline gates — the D-561 app-open trigger is gone.
      */
     fun preferencesAlwaysSponsor(): Boolean
 }

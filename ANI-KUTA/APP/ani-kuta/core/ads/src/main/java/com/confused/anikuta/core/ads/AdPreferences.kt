@@ -56,12 +56,14 @@ class AdPreferences(
         }
 
     /**
-     * D-561 (round 73): the DEBUG "Always sponsor" switch (Settings → long-
-     * press "Debug options" → the Always-sponsor page). Default OFF = the
-     * normal ad system. ON = the sponsor interstitial fires on EVERY app
-     * open (foreground transition), bypassing the cooldown entirely —
-     * "every single time the user tries to open it up, it will open up the
-     * sponsor page." Persisted so it survives process death.
+     * D-562 (round 74): the DEBUG "Always sponsor" switch (Settings → long-
+     * press "Debug options" → the Debug-options page). Default OFF = the
+     * normal ad system. ON = the sponsor interstitial fires on EVERY entry
+     * click into a details page ([AdsCoordinator.requestNavigation] bypasses
+     * the grace/cooldown/offline gates) — the v1.1.35 device round re-specced
+     * the D-561 app-open trigger: "what I wanted was that every time the user
+     * clicks on an entry, then it will show the sponsor rather than every
+     * time opening up the app." Persisted so it survives process death.
      */
     var alwaysSponsor: Boolean
         get() = preferenceStore.getBoolean(KEY_ALWAYS_SPONSOR, false)

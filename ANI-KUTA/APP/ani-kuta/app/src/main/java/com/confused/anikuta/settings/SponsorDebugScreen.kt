@@ -33,23 +33,28 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.koinInject
 
 /**
- * D-561 (round 73) — the hidden Always-sponsor page (Settings → LONG-PRESS
+ * D-562 (round 74) — the hidden debug page (Settings → LONG-PRESS
  * "Debug options" → this page).
  *
- * The user's spec: "when the user long presses on the debug options, then it
- * will open up a new page, and what will be on that new page is that it will
- * give the user a toggle to turn on always sponsor. Meaning every single
- * time the user tries to open it up, it will open up the sponsor page. And
- * by default it will be turned off. And if it is turned off, then it will do
- * the normal operations without any problems."
+ * The v1.1.35 device round re-specced the D-561 page in three ways:
+ *  - "The heading of it is not proper" → the page IS the debug-options page
+ *    (it opens from that row), so the heading says **"Debug options"** — the
+ *    D-561 "Always sponsor" heading repeated the toggle's own title below it.
+ *  - "that does not need to be given a description" → the toggle row is the
+ *    title + the Switch, NOTHING else.
+ *  - The trigger moved OFF app-open ONTO the entry click: "what I wanted
+ *    was that every time the user clicks on an entry, then it will show the
+ *    sponsor rather than every time opening up the app." The gate lives in
+ *    [com.confused.anikuta.core.ads.AdsCoordinator.requestNavigation] — the
+ *    one helper every navigate-to-details tap goes through — so ON = EVERY
+ *    entry click into a details page shows the sponsor interstitial, and
+ *    completing it navigates to the tapped entry. OFF = the normal ad
+ *    system, byte-for-byte.
  *
- * ONE toggle, nothing more: [AdPreferences.alwaysSponsor] (default OFF =
- * the normal ad system, untouched). ON = [com.confused.anikuta.core.ads.AlwaysSponsorGate]
- * (AppRoot) fires [com.confused.anikuta.core.ads.AdsCoordinator.onAppOpened]
- * on every process foreground entry → the sponsor interstitial, bypassing
- * the cooldown. The page ships in BOTH build types — it is a debug TOOL,
- * not a debug-build-only row (the same reasoning as the Debug page itself:
- * the user tests release APKs).
+ * ONE toggle, nothing more: [AdPreferences.alwaysSponsor] (default OFF).
+ * The page ships in BOTH build types — it is a debug TOOL, not a
+ * debug-build-only row (the same reasoning as the Debug page itself: the
+ * user tests release APKs).
  */
 @Composable
 fun SponsorDebugScreen(
@@ -68,7 +73,7 @@ fun SponsorDebugScreen(
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(
-                title = "Always sponsor",
+                title = "Debug options",
                 collapsed = collapsed,
                 onBack = onBack,
             )
@@ -95,22 +100,16 @@ fun SponsorDebugScreen(
                                     .padding(horizontal = 16.dp, vertical = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Always sponsor",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                    Text(
-                                        text = "Show the sponsor page every time the app opens",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(top = 2.dp),
-                                    )
-                                }
+                                // D-562: the title + the Switch, NOTHING else —
+                                // "that does not need to be given a description".
+                                Text(
+                                    text = "Always sponsor",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
                                 Spacer(Modifier.width(12.dp))
                                 Switch(
                                     checked = alwaysSponsor,

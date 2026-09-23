@@ -2020,3 +2020,9 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **The presets:** the App Icon page gained a Presets grid ABOVE the catalog — six baked colorways (Dark / Teal / Sky / Gold / Green / Pink), tap to apply inside the app, the hero follows, clear-override resets.
 - **CI:** implementation + debug release + the user-ordered all-ABI build — 3 disclosed runs (the budget superseded by explicit instruction).
 - **v1.1.35 LIVE (both lines):** the debug arm64 release (ani-kuta-v1.1.35-debug-arm64-v8a.apk) published as --latest; the actual release set (five release-signed APKs + sums + zip) delivered as the ani-kuta-v1.1.35-release-allabi workflow artifact. All three cycle runs green on their first attempts.
+
+## Round 74 — D-562: the real launcher icons + the presets-only page + the heading-only popup + the entry-click Always-sponsor
+- **The launcher icon actually changes now:** the D-417 alias system restored for the six presets (7 manifest aliases; adaptive + legacy baked icons; enable-target-first switching; an update-proof reconcile on every process start). The GitHub icon catalog is REMOVED — presets only.
+- **The popup:** the hero bubble is gone from every state — "Support AniKuta" → "(It just takes a few seconds)" → Continue → Not now (the overlay row still appears only while the consent is missing).
+- **The hidden debug page:** long-press "Debug options" → the "Debug options" page → a bare "Always sponsor" switch (no description; default OFF). ON = the sponsor popup fires on EVERY entry click into a details page (completing it lands on the entry); OFF = normal operations.
+- **CI:** implementation + debug release + the user-ordered all-ABI build — 3 disclosed runs (the budget superseded by explicit instruction).

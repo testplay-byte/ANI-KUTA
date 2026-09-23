@@ -33,10 +33,10 @@ import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
  *    page with the stationary live preview (layout style + element toggles).
  *  - **Details page** → [DetailsPageSettingsScreen].
  *  - **App Icon** (D-432, round 37 — the user's spec: "at the very bottom,
- *    just below the Details page") → the App Icon page (the GitHub
- *    repository's icons/ catalog in ONE grid — the 8 premade baked icons
- *    were removed completely per the round-37 instruction; no
- *    custom-image import).
+ *    just below the Details page") → the App Icon page. D-562 (round 74):
+ *    the GitHub-repository catalog is REMOVED ("only keep the preset app
+ *    icons") and a pick now switches the REAL launcher icon (the D-417
+ *    alias system restored) — the page is the hero + the six baked presets.
  *
  * @param onOpenGeneral Navigates to the General appearance screen.
  * @param onOpenDetailsPage Navigates to the Details page appearance screen.
@@ -127,7 +127,9 @@ fun AppearanceScreen(
                             MoreListRow(
                                 icon = Icons.Filled.AppShortcut,
                                 title = "App Icon",
-                                subtitle = "Icons from the repository's folder",
+                                // D-562: the catalog is gone — the page is the
+                                // presets only, and a pick moves the REAL icon.
+                                subtitle = "Preset app icons",
                                 onClick = onOpenAppIcon,
                             )
                         }

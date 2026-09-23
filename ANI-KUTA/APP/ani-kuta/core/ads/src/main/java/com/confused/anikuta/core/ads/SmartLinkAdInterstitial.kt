@@ -1,7 +1,6 @@
 package com.confused.anikuta.core.ads
 
 import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,13 +11,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -94,6 +90,17 @@ import org.koin.compose.koinInject
  * untouched: the same Crossfade, the same back-cancels escape, the same
  * pill show-in-tap-handler wiring (a state-effect-driven show could be
  * deferred past the app-backgrounding, D-443).
+ *
+ * # The D-562 rework (the v1.1.35 device feedback: "the pop-up does not
+ *   look good. I think we should only… show the heading Support AniKuta")
+ *
+ * The hero bubbles are GONE from every state — the heading is the card's
+ * top element, nothing decorates it. Pending = "Support AniKuta" → "(It
+ * just takes a few seconds)" → Continue → Not now (+ the frozen overlay
+ * row while the consent is missing); Waiting keeps its spinner (the state
+ * needs SOMETHING moving) but loses its bubble; TryAgain keeps its real
+ * threshold line. The approved overlay row ("shows properly, and it works
+ * properly too") is untouched — title + ONE description, granted = gone.
  *
  * # Why a Dialog (not a screen pushed onto the backstack)
  *
@@ -254,27 +261,6 @@ fun SmartLinkAdInterstitial() {
 // ── Shared shells ─────────────────────────────────────────────────────────────
 
 /**
- * The tinted hero bubble — the card's single piece of "fun": a soft primary
- * wash behind one glyph, exactly like the app's quiet accent language. No
- * borders, no gradients, no second color.
- */
-@Composable
-private fun HeroBubble(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    Box(
-        modifier = modifier
-            .size(64.dp)
-            .background(
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                shape = CircleShape,
-            ),
-        contentAlignment = Alignment.Center,
-    ) { content() }
-}
-
-/**
  * D-560: the one-row "draw over other apps" offer. Renders ONLY while the
  * consent is missing (the caller guards with `if (!overlayGranted)` —
  * granted = nothing at all, the user's exact words). One tappable line that
@@ -340,15 +326,7 @@ private fun AdPendingContent(
     onCancel: () -> Unit,
     onEnableOverlay: () -> Unit,
 ) {
-    HeroBubble {
-        Icon(
-            imageVector = Icons.Filled.OpenInNew,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(26.dp),
-        )
-    }
-    Spacer(Modifier.height(14.dp))
+    // D-562: NO hero bubble — the heading IS the card's top element.
     // D-561: the ONLY heading the card carries — "support AniKuta is the
     // only thing which it should show there". No eyebrow, no disclosure,
     // no sponsor word anywhere on the card.
@@ -390,13 +368,13 @@ private fun AdPendingContent(
 /** The "waiting for return" state — spinner while the user is in the browser. */
 @Composable
 private fun AdInProgressContent() {
-    HeroBubble {
-        CircularProgressIndicator(
-            color = MaterialTheme.colorScheme.primary,
-            strokeWidth = 3.dp,
-            modifier = Modifier.size(26.dp),
-        )
-    }
+    // D-562: the bubble is gone; the bare spinner stays — the state needs
+    // something moving, nothing decorating it.
+    CircularProgressIndicator(
+        color = MaterialTheme.colorScheme.primary,
+        strokeWidth = 3.dp,
+        modifier = Modifier.size(26.dp),
+    )
     Spacer(Modifier.height(14.dp))
     Text(
         text = "See you in a moment",
@@ -423,15 +401,7 @@ private fun AdTryAgainContent(
     onCancel: () -> Unit,
     onEnableOverlay: () -> Unit,
 ) {
-    HeroBubble {
-        Icon(
-            imageVector = Icons.Filled.Refresh,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(26.dp),
-        )
-    }
-    Spacer(Modifier.height(14.dp))
+    // D-562: NO hero bubble — the heading IS the card's top element.
     Text(
         text = "That was too quick",
         style = MaterialTheme.typography.titleLarge,
@@ -464,39 +434,5 @@ private fun AdTryAgainContent(
     if (!overlayGranted) {
         Spacer(Modifier.height(6.dp))
         OverlayPermissionRow(onClick = onEnableOverlay)
-    }
-}
-
-// ── The D-561 always-sponsor app-open gate ────────────────────────────────────
-
-/**
- * D-561 (round 73): the DEBUG "Always sponsor" trigger. Composed ONCE by the
- * AppRoot right next to [SmartLinkAdInterstitial]; while the toggle (Settings
- * → long-press "Debug options" → Always sponsor) is ON, every process
- * foreground transition — the user "opens it up" — shows the sponsor popup
- * ([AdsCoordinator.onAppOpened] holds the Idle/in-flight/respawn guards).
- * With the toggle OFF this is a no-op observer: the normal ad system is the
- * ONLY path, byte-for-byte as before.
- *
- * Why [androidx.lifecycle.ProcessLifecycleOwner] and not the activity's
- * lifecycle: "the user opens the app" is a PROCESS-foreground fact — an
- * activity ON_START would also fire on returning from a permission screen /
- * split-screen resize and re-trigger mid-session. ProcessLifecycleOwner's
- * ON_START fires once per foreground entry, and its first dispatch posts
- * AFTER composition (setContent runs in onCreate), so a cold open is caught
- * too — one observer, both cold and warm opens.
- */
-@Composable
-fun AlwaysSponsorGate() {
-    val coordinator = koinInject<AdsCoordinator>()
-    val processOwner = androidx.lifecycle.ProcessLifecycleOwner.get()
-    DisposableEffect(processOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START) {
-                coordinator.onAppOpened()
-            }
-        }
-        processOwner.lifecycle.addObserver(observer)
-        onDispose { processOwner.lifecycle.removeObserver(observer) }
     }
 }

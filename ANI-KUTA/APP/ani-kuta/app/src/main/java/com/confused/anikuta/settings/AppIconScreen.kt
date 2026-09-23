@@ -1,8 +1,8 @@
 package com.confused.anikuta.settings
 
+import android.content.ComponentName
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,18 +15,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -35,12 +29,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -48,61 +40,38 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 import com.confused.anikuta.R
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.AppIconPreferences
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import org.koin.compose.koinInject
-import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 // ════════════════════════════════════════════════════════════════════════════
-//  D-432 (round 37): the App Icon page — Settings → Appearance → App Icon.
+//  D-562 (round 74): the App Icon page — Settings → Appearance → App Icon.
 // ════════════════════════════════════════════════════════════════════════════
 //
-// The round-37 rework (the user's explicit instructions):
-//  - The 8 PREMADE BAKED app icons were REMOVED — no activity-aliases, no
-//    baked variant grid. The page showed ONLY the GitHub repository's
-//    icons/ catalog (the user curates that folder — icons are added/removed
-//    there at any time, without an app release).
+// The v1.1.35 device round ordered two things:
+//  - "the app icon functionality is not working… when I change the app icon
+//    in the settings, then the app icon should actually be changed for the
+//    application" — the D-432/D-561 machinery only swapped an IN-APP preview
+//    (an exported PNG + an AsyncImage hero); the home-screen icon never
+//    moved. Android forbids runtime launcher icons from arbitrary bitmaps,
+//    so a REAL switch needs baked resources + activity-aliases — the proven
+//    D-417 shape, restored: MAIN/LAUNCHER lives on 7 aliases (.icons.IconDefault
+//    + one per preset), a pick enables the picked alias and disables the
+//    previous one via PackageManager.setComponentEnabledSetting (target
+//    FIRST — the launcher never has zero entries), DONT_KILL_APP.
+//  - "the functionality that the application searches for the app icons in
+//    the GitHub repository… remove this functionality and only keep the
+//    preset app icons" — the entire catalog machinery (the network fetch,
+//    the cache, the grid, the refresh, the empty note) is deleted outright.
 //
-// The D-561 change (round 73 — the user's explicit new order, superseding
-// the no-presets rule): the page had "no pre-set app icons", so SIX
-// user-provided artworks (RAW_ICONS.zip — six anime open-mouth colorways,
-// center-cropped + baked at 512px as drawable-nodpi/preset_icon_*.jpg) now
-// sit in a Presets grid ABOVE the GitHub catalog. Same D-432 display rule
-// (the FULL artwork in a rounded-corner cell, never a circle crop); same
-// override machinery as a catalog pick — the tap exports the baked drawable
-// to filesDir/app-icons/presets/<key>.png and the in-app override points
-// there. The honest Android limitation is unchanged: a launcher icon must
-// be a resource baked into the APK.
-//  - The display format: each icon is shown as its FULL artwork in a
-//    ROUNDED-CORNER (squircle-style) cell — NOT cropped into a circle.
-//    (The round-35 page circle-clipped every icon — the artwork's shape was
-//    cut to a disc; the user: "I told you to show them in a circular kind
-//    of format but you are showing the app icons in a circle, which is not
-//    good." A rounded-corner cell keeps every pixel of the artwork while
-//    still reading as a circular-soft format — the same full-artwork rule
-//    the launcher layers already follow.)
-//  - Tapping a catalog icon applies it INSIDE THE APP (the honest Android
-//    limitation: a home-screen launcher icon must be a resource baked into
-//    the APK — a picked catalog icon becomes the launcher icon when it is
-//    included in a release).
+// The page is now: the hero (the ACTIVE launcher icon) + the six BAKED
+// presets. Same D-432 display rule: the FULL artwork in a rounded-corner
+// cell — never a circle crop.
 
-/** One GitHub catalog entry (the icons/ folder listing of the published repo). */
-data class CatalogIcon(
-    val fileName: String,
-    val downloadUrl: String,
-)
-
-/** D-561: one BAKED preset icon (a drawable resource + its display name). */
+/** One BAKED preset icon (a drawable resource + its display name). */
 data class PresetIcon(
     val key: String,
     val resId: Int,
@@ -110,156 +79,87 @@ data class PresetIcon(
 )
 
 /**
- * The controller: the GitHub catalog fetch/cache + the image processing
- * (center-crop → 512px) + the in-app override preference.
+ * The controller: the REAL launcher-icon switch. Each preset maps to a
+ * manifest activity-alias carrying MAIN/LAUNCHER with its own baked icon;
+ * applying a pick flips the enabled alias.
+ *
+ * Component-name safety (the D-417 verified pattern): the alias class
+ * strings resolve against the NAMESPACE (com.confused.anikuta), NOT the
+ * applicationId — so the .debug suffixed build uses the SAME strings, with
+ * [ComponentName]'s package taken from [Context.getPackageName] (suffixed
+ * in debug). Suffix-safe by construction.
  */
 class AppIconController(
     private val context: Context,
     private val preferences: AppIconPreferences,
 ) {
 
-    /**
-     * Fetches the icons/ catalog listing from the published repo
-     * (Confused-Creature-180/ANI-KUTA — the same repo the update checker
-     * points at). Fresh when reachable; the cached JSON on any failure
-     * (offline or the folder not created yet). Returns the parsed entries
-     * (image files only).
-     */
-    suspend fun fetchCatalog(): Result<List<CatalogIcon>> =
-        withContext(Dispatchers.IO) {
-            val fetched = runCatching {
-                httpGet(CATALOG_API_URL, CATALOG_MAX_BYTES)?.decodeToString()
-            }.getOrNull()
-            if (fetched != null) {
-                preferences.catalogJson = fetched
-                return@withContext Result.success(parseCatalog(fetched))
-            }
-            // Offline (or the folder doesn't exist yet): the cache, if any.
-            val cached = preferences.catalogJson
-            if (cached.isBlank()) return@withContext Result.failure(Exception("offline"))
-            Result.success(parseCatalog(cached))
-        }
-
-    private fun parseCatalog(raw: String): List<CatalogIcon> = runCatching {
-        val array = JSONArray(raw)
-        buildList {
-            for (i in 0 until array.length()) {
-                val entry = array.optJSONObject(i) ?: continue
-                val name = entry.optString("name")
-                if (!isImageFile(name)) continue
-                val url = entry.optString("download_url")
-                if (url.isBlank()) continue
-                add(CatalogIcon(fileName = name, downloadUrl = url))
-            }
-        }
-    }.getOrElse { emptyList() }
+    /** The persisted launcher choice ("" = the app's default icon). */
+    val activeLauncherKey: String get() = preferences.launcherIconKey
 
     /**
-     * Downloads + processes one catalog icon into the on-disk cache
-     * (filesDir/app-icons/catalog/<name>.png — center-cropped to a square
-     * and resized to 512). Returns the processed file, or null on any
-     * failure (bounded by size and timeouts — never a hang).
+     * Applies [key] (null = back to the default icon) as the REAL launcher
+     * icon: the target alias is enabled FIRST, then the previously-active
+     * alias is disabled — the app never has zero enabled launcher entries.
+     * [PackageManager.DONT_KILL_APP] keeps the process alive through the
+     * switch. Persisted so the choice (and the reconcile below) survives
+     * process death.
      */
-    suspend fun loadCatalogIconFile(icon: CatalogIcon): File? = withContext(Dispatchers.IO) {
-        val target = File(catalogDir(), processedName(icon.fileName))
-        if (target.exists() && target.length() > 0) return@withContext target
-        val bytes = runCatching { httpGet(icon.downloadUrl, ICON_MAX_BYTES) }.getOrNull()
-            ?: return@withContext null
-        val processed = processSquare(BitmapFactory.decodeByteArray(bytes, 0, bytes.size), 512)
-            ?: return@withContext null
-        runCatching { target.outputStream().use { processed.compress(Bitmap.CompressFormat.PNG, 100, it) } }
-            .isSuccess.also { processed.recycle() }
-        if (target.exists() && target.length() > 0) target else null
-    }
-
-    /**
-     * D-561: exports one BAKED preset drawable into the on-disk cache
-     * (filesDir/app-icons/presets/<key>.png — 512px, the same processing a
-     * catalog icon gets). The in-app override points at the exported file,
-     * so a preset pick rides the EXACT machinery a catalog pick does (the
-     * hero reads it, clear-override resets it). Returns the processed file,
-     * or null on any failure.
-     */
-    suspend fun loadPresetIconFile(preset: PresetIcon): File? = withContext(Dispatchers.IO) {
-        val target = File(presetsDir(), "${preset.key}.png")
-        if (target.exists() && target.length() > 0) return@withContext target
-        val source = runCatching {
-            BitmapFactory.decodeResource(context.resources, preset.resId)
-        }.getOrNull() ?: return@withContext null
-        val processed = processSquare(source, 512) ?: return@withContext null
-        runCatching { target.outputStream().use { processed.compress(Bitmap.CompressFormat.PNG, 100, it) } }
-        processed.recycle()
-        if (target.exists() && target.length() > 0) target else null
-    }
-
-    /** Clears the in-app override (the hero falls back to the launcher artwork). */
-    fun clearOverride() {
-        preferences.inAppOverridePath = ""
-    }
-
-    private fun iconsDir(): File = File(context.filesDir, "app-icons").apply { mkdirs() }
-
-    private fun catalogDir(): File = File(iconsDir(), "catalog").apply { mkdirs() }
-
-    private fun presetsDir(): File = File(iconsDir(), "presets").apply { mkdirs() }
-
-    companion object {
-        /** The published repo's icons/ listing (the APK-only release repo). */
-        private const val CATALOG_API_URL =
-            "https://api.github.com/repos/Confused-Creature-180/ANI-KUTA/contents/icons"
-
-        private const val CONNECT_TIMEOUT_MS = 8_000
-        private const val READ_TIMEOUT_MS = 10_000
-        private const val CATALOG_MAX_BYTES = 1 shl 20
-        private const val ICON_MAX_BYTES = 4 shl 20
-
-        private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp")
-
-        private fun isImageFile(name: String): Boolean =
-            IMAGE_EXTENSIONS.any { name.lowercase().endsWith(".$it") }
-
-        private fun processedName(fileName: String): String =
-            fileName.substringBeforeLast('.') + ".png"
-
-        /** A bounded GET (max [maxBytes]); null on any failure. */
-        private fun httpGet(url: String, maxBytes: Int): ByteArray? = runCatching {
-            val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = CONNECT_TIMEOUT_MS
-            connection.readTimeout = READ_TIMEOUT_MS
-            connection.instanceFollowRedirects = true
-            connection.setRequestProperty("Accept", "application/vnd.github+json")
-            try {
-                if (connection.responseCode !in 200..299) return@runCatching null
-                connection.inputStream.use { input ->
-                    val out = java.io.ByteArrayOutputStream()
-                    val buffer = ByteArray(16 * 1024)
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        if (out.size() + read > maxBytes) return@runCatching null
-                        out.write(buffer, 0, read)
-                    }
-                    if (out.size() == 0) null else out.toByteArray()
-                }
-            } finally {
-                connection.disconnect()
-            }
-        }.getOrNull()
-
-        /** Center-crops to a square, then resizes to [size]×[size]. */
-        private fun processSquare(source: Bitmap?, size: Int): Bitmap? {
-            if (source == null || source.width <= 0 || source.height <= 0) return null
-            val side = minOf(source.width, source.height)
-            val cropped = Bitmap.createBitmap(
-                source,
-                (source.width - side) / 2,
-                (source.height - side) / 2,
-                side,
-                side,
+    fun applyLauncherIcon(key: String?) {
+        val pm = context.packageManager
+        val target = aliasClassFor(key)
+        val previous = aliasClassFor(preferences.launcherIconKey.takeIf { it.isNotBlank() })
+        pm.setComponentEnabledSetting(
+            ComponentName(context.packageName, target),
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+            PackageManager.DONT_KILL_APP,
+        )
+        if (previous != target) {
+            pm.setComponentEnabledSetting(
+                ComponentName(context.packageName, previous),
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP,
             )
-            val result = Bitmap.createScaledBitmap(cropped, size, size, true)
-            return if (result != cropped) cropped.recycle().let { result } else result
         }
+        preferences.launcherIconKey = key.orEmpty()
+    }
+
+    /**
+     * Self-heal for the app-UPDATE gap: PackageManager component states
+     * survive an update, but an install that resets them to the manifest
+     * defaults (all presets disabled, the default alias enabled) leaves the
+     * persisted [AppIconPreferences.launcherIconKey] pointing at an alias
+     * that is no longer enabled — the launcher would show the default icon
+     * while the page claims otherwise. Re-apply the saved choice when its
+     * alias is not the one enabled right now. Cheap (one binder read, only
+     * when a preset is persisted) — called on every process start
+     * ([com.confused.anikuta.AnikutaApp]) and on every page open.
+     */
+    fun reconcileLauncherIcon() {
+        val saved = preferences.launcherIconKey.takeIf { it.isNotBlank() } ?: return
+        val pm = context.packageManager
+        // applyLauncherIcon always sets its pick EXPLICITLY enabled — a state
+        // of DEFAULT (manifest reset: the alias is disabled by default) or
+        // DISABLED means the launcher is NOT showing the saved choice.
+        val state = pm.getComponentEnabledSetting(
+            ComponentName(context.packageName, aliasClassFor(saved)),
+        )
+        if (state != PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
+            applyLauncherIcon(saved)
+        }
+    }
+
+    private companion object {
+        /**
+         * "" → `.icons.IconDefault`; "dark" → `.icons.IconDark`; … The alias
+         * names MUST match the manifest exactly (D-562). The FQCN is
+         * namespace-resolved — see the class doc.
+         */
+        fun aliasClassFor(key: String?): String =
+            "com.confused.anikuta.icons.Icon" +
+                (key?.takeIf { it.isNotBlank() } ?: "Default").replaceFirstChar {
+                    if (it.isLowerCase()) it.uppercase() else it
+                }
     }
 }
 
@@ -271,10 +171,11 @@ class AppIconController(
 private val IconCellShape = RoundedCornerShape(16.dp)
 
 /**
- * D-561: the BAKED PRESETS — the user's six provided artworks (RAW_ICONS.zip),
- * center-cropped + baked at 512px into drawable-nodpi. Always present, no
- * network, listed above the GitHub catalog. The keys ARE the exported file
- * names (filesDir/app-icons/presets/<key>.png).
+ * The BAKED PRESETS — the user's six provided artworks (RAW_ICONS.zip),
+ * center-cropped + baked at 512px into drawable-nodpi AND wired as REAL
+ * launcher icons (each carries a manifest alias + an adaptive mipmap —
+ * see [AppIconController]). Always present, no network, no repository.
+ * The keys ARE the alias suffixes (`.icons.Icon<Capitalized>`).
  */
 private val PRESET_ICONS = listOf(
     PresetIcon("dark", R.drawable.preset_icon_dark, "Dark"),
@@ -285,9 +186,9 @@ private val PRESET_ICONS = listOf(
     PresetIcon("pink", R.drawable.preset_icon_pink, "Pink"),
 )
 
-/** The preset export path for [preset] — the override file a tap produces. */
-private fun presetExportPath(preset: PresetIcon): String =
-    "/app-icons/presets/${preset.key}.png"
+/** The active icon's drawable for the hero — a preset's artwork or the app's. */
+private fun activeIconRes(activeKey: String): Int =
+    PRESET_ICONS.firstOrNull { it.key == activeKey }?.resId ?: R.drawable.icon_current
 
 @Composable
 fun AppIconScreen(
@@ -297,40 +198,16 @@ fun AppIconScreen(
     preferences: AppIconPreferences = koinInject(),
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val controller = remember { AppIconController(context, preferences) }
 
-    var overridePath by remember { mutableStateOf(preferences.inAppOverridePath) }
-
-    // ── The GitHub catalog state machine ──
-    // D-437 (round 38): NO descriptive error/empty text — the user's
-    // instruction: remove every "couldn't reach the icon folders / check
-    // your connection / icons come from the repository" description;
-    // the empty state says ONLY "There aren't any icons yet."
-    var catalogLoading by remember { mutableStateOf(true) }
-    var catalogIcons by remember { mutableStateOf<List<CatalogIcon>>(emptyList()) }
-    var catalogFiles by remember { mutableStateOf<Map<String, File>>(emptyMap()) }
-
-    fun refreshCatalog() {
-        scope.launch {
-            catalogLoading = true
-            controller.fetchCatalog()
-                .onSuccess { icons -> catalogIcons = icons }
-                .onFailure { catalogIcons = emptyList() }
-            catalogLoading = false
-        }
-    }
-
-    // Initial load + load the icon files for the grid as the catalog arrives.
-    LaunchedEffect(Unit) { refreshCatalog() }
-    LaunchedEffect(catalogIcons) {
-        if (catalogIcons.isEmpty()) return@LaunchedEffect
-        val loaded = catalogFiles.toMutableMap()
-        for (icon in catalogIcons) {
-            if (loaded[icon.fileName] != null) continue
-            controller.loadCatalogIconFile(icon)?.let { loaded[icon.fileName] = it }
-        }
-        catalogFiles = loaded
+    // The persisted launcher choice — hoisted so the hero AND the grid's
+    // selected rings read the same value. Re-reconciled on open (the
+    // update-reset self-heal; belt-and-braces next to AnikutaApp's start
+    // call).
+    var activeKey by remember { mutableStateOf(controller.activeLauncherKey) }
+    LaunchedEffect(Unit) {
+        controller.reconcileLauncherIcon()
+        activeKey = controller.activeLauncherKey
     }
 
     val lazyListState = rememberLazyListState()
@@ -362,9 +239,6 @@ fun AppIconScreen(
                 ) {
                     // ── The current icon hero ──
                     item(key = "hero") {
-                        // The in-app override (a catalog pick) — hoisted so both
-                        // the preview and the labels read the same value.
-                        val override = overridePath.takeIf { it.isNotBlank() }
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                             shape = RoundedCornerShape(16.dp),
@@ -376,26 +250,21 @@ fun AppIconScreen(
                             ) {
                                 // D-432: the hero shows the FULL artwork in the
                                 // rounded-corner format — never a circle crop.
+                                // D-562: it reads the ACTIVE LAUNCHER icon —
+                                // the exact artwork the home screen shows.
                                 Box(
                                     modifier = Modifier
                                         .size(84.dp)
                                         .clip(RoundedCornerShape(20.dp)),
                                 ) {
-                                    if (override != null) {
-                                        AsyncImage(
-                                            model = File(override),
-                                            contentDescription = "Current app icon",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    } else {
-                                        androidx.compose.foundation.Image(
-                                            painter = androidx.compose.ui.res.painterResource(R.drawable.icon_current),
-                                            contentDescription = "Current app icon",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
+                                    androidx.compose.foundation.Image(
+                                        painter = androidx.compose.ui.res.painterResource(
+                                            activeIconRes(activeKey),
+                                        ),
+                                        contentDescription = "Current app icon",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
                                 }
                                 Spacer(Modifier.width(16.dp))
                                 Column {
@@ -406,26 +275,20 @@ fun AppIconScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                     Text(
-                                        // D-561: a preset pick shows the preset's
-                                        // name; a catalog pick keeps its lookup.
-                                        text = if (override != null) {
-                                            PRESET_ICONS
-                                                .firstOrNull { override.endsWith(presetExportPath(it)) }
-                                                ?.name
-                                                ?: catalogIcons
-                                                    .firstOrNull { override.endsWith(processedDisplayName(it)) }
-                                                    ?.let { displayIconName(it) }
-                                                    ?: "From the repository"
-                                        } else "The app's icon",
+                                        text = PRESET_ICONS
+                                            .firstOrNull { it.key == activeKey }?.name
+                                            ?: "The app's icon",
                                         fontFamily = RobotoFamily,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.padding(top = 2.dp),
                                     )
-                                    if (override != null) {
+                                    if (activeKey.isNotBlank()) {
                                         Text(
-                                            text = "Applied inside the app",
+                                            // The pick is the REAL launcher icon now
+                                            // (the alias switch) — say so, quietly.
+                                            text = "Launcher icon",
                                             fontFamily = RobotoFamily,
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.primary,
@@ -437,8 +300,8 @@ fun AppIconScreen(
                         }
                     }
 
-                    // ── D-561: the BAKED PRESETS — the six provided artworks,
-                    // always here (no network), above the catalog grid. ──
+                    // ── The BAKED PRESETS — the six provided artworks, the
+                    // ONLY icons (the GitHub catalog is removed, D-562). ──
                     item(key = "presets-header") {
                         SettingsSectionLabel("Presets")
                     }
@@ -451,29 +314,15 @@ fun AppIconScreen(
                                 rowIcons.forEach { preset ->
                                     PresetCell(
                                         preset = preset,
-                                        selected = overridePath.endsWith(presetExportPath(preset)),
+                                        selected = activeKey == preset.key,
                                         onClick = {
-                                            scope.launch {
-                                                val file = controller.loadPresetIconFile(preset)
-                                                if (file == null) {
-                                                    withContext(Dispatchers.Main) {
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Couldn't load that icon",
-                                                            Toast.LENGTH_SHORT,
-                                                        ).show()
-                                                    }
-                                                } else {
-                                                    withContext(Dispatchers.Main) {
-                                                        overridePath = file.absolutePath
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Applied inside the app",
-                                                            Toast.LENGTH_SHORT,
-                                                        ).show()
-                                                    }
-                                                }
-                                            }
+                                            controller.applyLauncherIcon(preset.key)
+                                            activeKey = controller.activeLauncherKey
+                                            Toast.makeText(
+                                                context,
+                                                "App icon updated",
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
                                         },
                                         modifier = Modifier.weight(1f),
                                     )
@@ -482,94 +331,21 @@ fun AppIconScreen(
                         }
                     }
 
-                    // ── The icon grid (the GitHub repository's icons/ catalog) ──
-                    item(key = "grid-header") {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            SettingsSectionLabel("Icons")
-                            Spacer(Modifier.weight(1f))
-                            IconButton(onClick = { refreshCatalog() }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Refresh,
-                                    contentDescription = "Refresh icons",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                    }
-                    catalogIcons.chunked(4).forEach { rowIcons ->
-                        item(key = "row-${rowIcons.first().fileName}") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                rowIcons.forEach { icon ->
-                                    CatalogCell(
-                                        icon = icon,
-                                        file = catalogFiles[icon.fileName],
-                                        selected = catalogFiles[icon.fileName]?.let {
-                                            overridePath == it.absolutePath
-                                        } ?: false,
-                                        onClick = {
-                                            scope.launch {
-                                                val file = controller.loadCatalogIconFile(icon)
-                                                if (file == null) {
-                                                    withContext(Dispatchers.Main) {
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Couldn't load that icon",
-                                                            Toast.LENGTH_SHORT,
-                                                        ).show()
-                                                    }
-                                                } else {
-                                                    withContext(Dispatchers.Main) {
-                                                        overridePath = file.absolutePath
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Applied inside the app",
-                                                            Toast.LENGTH_SHORT,
-                                                        ).show()
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    if (catalogLoading) {
-                        item(key = "catalog-loading") {
-                            // D-437: the loading indicator only — no text.
-                            Row(
-                                horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                            ) {
-                                CircularProgressIndicator(
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                        }
-                    } else if (catalogIcons.isEmpty()) {
-                        item(key = "catalog-empty") {
-                            NoteCard(text = "There aren't any icons yet.")
-                        }
-                    }
-
-                    if (overridePath.isNotBlank()) {
-                        item(key = "clear-override") {
+                    if (activeKey.isNotBlank()) {
+                        item(key = "reset-default") {
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                                 shape = RoundedCornerShape(16.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        controller.clearOverride()
-                                        overridePath = ""
+                                        controller.applyLauncherIcon(null)
+                                        activeKey = controller.activeLauncherKey
+                                        Toast.makeText(
+                                            context,
+                                            "App icon updated",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
                                     },
                             ) {
                                 Text(
@@ -599,7 +375,11 @@ fun AppIconScreen(
     }
 }
 
-/** One BAKED preset grid cell (D-561) — identical visual language to [CatalogCell]. */
+/**
+ * One BAKED preset grid cell — identical visual language to the D-561 cell.
+ * The artwork IS the baked drawable, so the cell paints it straight from
+ * the resource (no file I/O anywhere on this page anymore).
+ */
 @Composable
 private fun PresetCell(
     preset: PresetIcon,
@@ -615,8 +395,7 @@ private fun PresetCell(
             .padding(4.dp),
     ) {
         // The D-432 display rule holds: the FULL artwork in a rounded-corner
-        // cell — never a circle crop. The artwork IS the baked drawable, so
-        // the cell paints it straight from the resource (no file I/O).
+        // cell — never a circle crop.
         Box(
             modifier = Modifier
                 .size(64.dp)
@@ -650,101 +429,6 @@ private fun PresetCell(
             overflow = TextOverflow.Ellipsis,
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),
-        )
-    }
-}
-
-/** One catalog grid cell: the downloaded icon (or a placeholder) + name + the selected ring. */
-@Composable
-private fun CatalogCell(
-    icon: CatalogIcon,
-    file: File?,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-            .padding(4.dp),
-    ) {
-        // D-432 (round 37 — the display-format fix): the FULL artwork in a
-        // rounded-corner cell. The round-35 page clipped every icon into a
-        // perfect circle — the artwork itself was cut to a disc (the same
-        // cropping class the user rejected on the launcher in round 35).
-        // A rounded-corner square keeps every pixel of the artwork and still
-        // reads as the soft, circular-adjacent format the user asked for.
-        Box(
-            modifier = Modifier
-                .size(64.dp)
-                .clip(IconCellShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                .then(
-                    if (selected) {
-                        Modifier.border(
-                            width = 2.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = IconCellShape,
-                        )
-                    } else {
-                        Modifier
-                    }
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (file != null) {
-                AsyncImage(
-                    model = file,
-                    contentDescription = icon.fileName,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                CircularProgressIndicator(
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-        Text(
-            text = displayIconName(icon),
-            fontFamily = RobotoFamily,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-    }
-}
-
-/** `icon-03-sunset.png` → "sunset"; `03.png` → "3"; `sunset.png` → "sunset". */
-private fun displayIconName(icon: CatalogIcon): String =
-    icon.fileName.substringBeforeLast('.')
-        .replaceFirst(Regex("^icon-\\d+[-_]?"), "")
-        .replace('_', ' ')
-        .ifBlank { icon.fileName.substringBeforeLast('.') }
-
-/** The processed on-disk name of a catalog file (for the hero label lookup). */
-private fun processedDisplayName(icon: CatalogIcon): String =
-    icon.fileName.substringBeforeLast('.') + ".png"
-
-/** The small explanatory card used across the page. */
-@Composable
-private fun NoteCard(text: String) {
-    Surface(
-        color = Color.Transparent,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(
-            text = text,
-            fontFamily = RobotoFamily,
-            fontSize = 11.sp,
-            lineHeight = 15.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
         )
     }
 }

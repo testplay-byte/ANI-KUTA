@@ -63,7 +63,6 @@ import com.confused.anikuta.core.designsystem.animation.searchCoverKey  // D-328
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.appupdate.AppUpdateManager
 import com.confused.anikuta.core.ads.AdsCoordinator  // D-272: smart-link ad coordinator
-import com.confused.anikuta.core.ads.AlwaysSponsorGate  // D-561: the always-sponsor app-open gate
 import com.confused.anikuta.core.ads.SmartLinkAdInterstitial  // D-272: ad interstitial overlay
 import com.confused.anikuta.core.designsystem.component.NavIcons
 import com.confused.anikuta.core.designsystem.component.NavItem
@@ -1873,11 +1872,10 @@ fun AppRoot() {
         // D-272: smart-link ad interstitial overlay. Renders on top of every screen
         // when AdsCoordinator.state is active (AdPending / AdInProgress / AdTryAgain).
         // Idle = no-op (renders nothing). Sibling of UpdateBottomSheet above.
+        // D-562: the ALWAYS-SPONSOR debug trigger moved into the coordinator's
+        // requestNavigation itself (ON = every entry click shows the popup) —
+        // the D-561 app-open gate composable that used to sit here is gone.
         SmartLinkAdInterstitial()
-        // D-561: the ALWAYS-SPONSOR app-open gate — a no-op observer while the
-        // debug toggle (Settings → long-press Debug options → Always sponsor)
-        // is OFF; ON = the popup above fires on every process foreground entry.
-        AlwaysSponsorGate()
         } // end CompositionLocalProvider Box
     } // end CompositionLocalProvider
 }

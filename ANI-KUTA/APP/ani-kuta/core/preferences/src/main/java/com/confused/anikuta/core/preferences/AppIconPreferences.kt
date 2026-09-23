@@ -3,45 +3,55 @@ package com.confused.anikuta.core.preferences
 import kotlinx.coroutines.flow.Flow
 
 /**
- * D-432 (round 37 — the app-icon system, catalog-only): preferences for the
+ * D-562 (round 74 — the REAL launcher-icon switch): preferences for the
  * App Icon page (Settings → Appearance → App Icon).
  *
  * Backed by [PreferenceStore], replicating the [DebugPreferences] pattern.
  *
- * The round-37 rework: the 8 PREMADE BAKED app icons are REMOVED completely
- * (the user: "There are 8 premade app icons on the app icon page but I told
- * you to remove all of them and you did not. Remove them properly.") — no
- * activity-aliases, no `activeAlias` machinery. The page shows ONLY the
- * GitHub repository's icons/ catalog (the user curates that folder; icons
- * can be added/removed there at any time without an app release).
+ * ## The D-562 history (why this class shrank)
  *
- * ## Settings
- * - `app_icon_catalog_json`: the cached GitHub catalog listing (the icons/
- *   folder of Confused-Creature-180/ANI-KUTA) so the grid survives offline.
- * - `app_icon_override_path`: the in-app override (a catalog pick — applied
- *   inside the app; a catalog icon becomes the HOME-SCREEN launcher icon
- *   only when it is baked into a release).
+ * - D-432 (round 37) built the page catalog-only: the icons/ folder of the
+ *   published GitHub repo listed over the network. The round-37 rework also
+ *   REMOVED the D-417 launcher-alias system entirely (the user's order at
+ *   the time) — from then on a pick only swapped an IN-APP preview
+ *   (`inAppOverridePath` + the exported PNG), never the home-screen icon.
+ * - D-561 (round 73) added the six BAKED presets riding that same in-app
+ *   preview machinery.
+ * - The v1.1.35 device round exposed the gap: "the app icon functionality
+ *   is not working… when I change the app icon in the settings, then the
+ *   app icon should actually be changed for the application" — and the
+ *   GitHub catalog search was ordered removed ("only keep the preset app
+ *   icons").
+ *
+ * So D-562 restores the PROVEN D-417 alias switch (MainActivity's
+ * MAIN/LAUNCHER now lives on activity-aliases; a pick enables the picked
+ * alias and disables the previous one via PackageManager) and the GitHub
+ * catalog is deleted outright. The ONE thing this class now holds is the
+ * persisted launcher choice, `launcherIconKey` ("" = the app's default
+ * icon).
+ *
+ * @param store the shared backing store (Koin-injected singleton).
  */
 class AppIconPreferences(private val store: PreferenceStore) {
 
-    /** The cached GitHub catalog JSON ("" when never fetched). */
-    var catalogJson: String
-        get() = store.getString(KEY_CATALOG_JSON, "")
-        set(value) = store.putString(KEY_CATALOG_JSON, value)
-
     /**
-     * The in-app icon OVERRIDE path — set when the user picks a GitHub
-     * catalog icon (Android forbids runtime launcher icons from arbitrary
-     * bitmaps; the custom-image import was removed in D-422 and stays
-     * removed). "" = the in-app icon shows the launcher artwork
-     * (drawable-nodpi/icon_current).
+     * The ACTIVE launcher icon — the [com.confused.anikuta.settings.PresetIcon.key]
+     * of the picked preset, or "" for the app's own default icon (the
+     * manifest-default `.icons.IconDefault` alias). Persisted so the choice
+     * survives process death; [com.confused.anikuta.AnikutaApp] reconciles it
+     * against the PackageManager component states on every process start
+     * (an app UPDATE restores the manifest defaults but keeps these prefs —
+     * without the reconcile the launcher would fall back to the default
+     * icon while the page still claimed a preset was active).
      */
-    var inAppOverridePath: String
-        get() = store.getString(KEY_OVERRIDE_PATH, "")
-        set(value) = store.putString(KEY_OVERRIDE_PATH, value)
+    var launcherIconKey: String
+        get() = store.getString(KEY_LAUNCHER_ICON, "")
+        set(value) = store.putString(KEY_LAUNCHER_ICON, value)
+
+    /** Reactive read for the page's selected-state rendering. */
+    fun launcherIconKeyFlow(): Flow<String> = store.stringFlow(KEY_LAUNCHER_ICON, "")
 
     companion object {
-        private const val KEY_CATALOG_JSON = "app_icon_catalog_json"
-        private const val KEY_OVERRIDE_PATH = "app_icon_override_path"
+        private const val KEY_LAUNCHER_ICON = "app_icon_launcher_key"
     }
 }

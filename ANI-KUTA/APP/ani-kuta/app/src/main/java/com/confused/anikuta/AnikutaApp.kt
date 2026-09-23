@@ -187,6 +187,24 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             Logger.e("AnikutaApp", e) { "Failed to wire CloudStream source bridge" }
         }
 
+        // D-562 (round 74): the launcher-icon self-heal. PackageManager
+        // component states CAN reset to the manifest defaults on an app
+        // update while SharedPreferences survive — without this, a user who
+        // picked a preset would boot on the default icon after an update
+        // while the App Icon page still claimed otherwise. One binder read
+        // when nothing is persisted (the common case), one re-apply when the
+        // saved alias isn't the one enabled. Belt-and-braces: the App Icon
+        // page re-reconciles on open too.
+        try {
+            val appIconPrefs =
+                org.koin.core.context.GlobalContext.get()
+                    .get<com.confused.anikuta.core.preferences.AppIconPreferences>()
+            com.confused.anikuta.settings.AppIconController(this, appIconPrefs)
+                .reconcileLauncherIcon()
+        } catch (e: Exception) {
+            Logger.e("AnikutaApp", e) { "launcher icon reconcile failed" }
+        }
+
         // Seed lookup tables + Default library category (idempotent — INSERT OR IGNORE).
         // Must run AFTER Koin is started so ContentRepository is available.
         try {
