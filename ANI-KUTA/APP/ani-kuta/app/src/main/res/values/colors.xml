@@ -1,3 +1,15 @@
 <resources>
     <color name="ic_launcher_background">#B1F256</color>
+    <!-- D-563 (round 75): the six preset launcher icons are RESIZED, not
+         cropped. Each adaptive icon now carries a SOLID background matching
+         its artwork's own edge color (sampled from the artwork's outer 6px
+         frame) so the inset foreground artwork blends seamlessly into the
+         mask's background — the full design stays visible under every
+         launcher shape (circle, squircle, rounded square). -->
+    <color name="preset_icon_dark_bg">#23181B</color>
+    <color name="preset_icon_teal_bg">#272738</color>
+    <color name="preset_icon_sky_bg">#BBE0F5</color>
+    <color name="preset_icon_gold_bg">#F8F2E1</color>
+    <color name="preset_icon_green_bg">#282A39</color>
+    <color name="preset_icon_pink_bg">#D5C0C4</color>
 </resources>

@@ -15,8 +15,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.ActiveNavPillShape
@@ -70,6 +75,16 @@ import com.confused.anikuta.core.designsystem.theme.Motion
  * ```
  *
  * CORE_RULES §22: smooth animations (300ms FastOutSlowInEasing).
+ *
+ * D-563 (the v1.1.36 device round): with BUTTON system navigation the pill
+ * rendered UNDER the system's back/home/recents buttons — the app is
+ * edge-to-edge ([enableEdgeToEdge] with a transparent nav bar) and the
+ * outer Box carried only a FIXED 16dp vertical padding, so the pill sat at
+ * the physical bottom edge, hidden behind the buttons. The outer Box now
+ * applies [navigationBarsPadding] BEFORE the fixed padding: the pill lifts
+ * above whatever the system draws at the bottom (48dp+ of buttons, the
+ * ~16dp gesture pill) in EVERY mode, and scrolls-behind still works —
+ * content keeps flowing underneath the floating pill.
  */
 @Composable
 fun AnikutaBottomNavBar(
@@ -87,6 +102,10 @@ fun AnikutaBottomNavBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
+            // D-563: clear the system navigation bar FIRST (buttons or the
+            // gesture pill — the inset reports the right value per mode),
+            // then the design's fixed floating margin on top of it.
+            .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 16.dp),
         contentAlignment = Alignment.BottomCenter,
     ) {
@@ -121,6 +140,32 @@ fun AnikutaBottomNavBar(
         }
     }
 }
+
+// ── D-563: the inset-aware bottom clearance ───────────────────────────────
+
+/**
+ * The bottom clearance the ROOT-TAB scrolling containers reserve for the
+ * floating pill: [base] (the pill's fixed footprint — its 16+16dp margins
+ * + 58dp height, as each screen has always hard-coded) PLUS the system
+ * navigation-bar inset.
+ *
+ * Why the inset term exists: D-563 lifts the pill itself with
+ * [navigationBarsPadding] — with BUTTON navigation the pill's top edge now
+ * reaches ~122dp above the screen bottom, so a screen whose last rows end
+ * at the old fixed 90/110dp would have them slide UNDER the lifted pill
+ * (and behind the system buttons). Adding the inset grows the tail space
+ * so the last rows clear BOTH the pill and the system UI; with gesture
+ * navigation the inset is the small ~16dp gesture pill — the same math
+ * keeps the tail consistent. The scrolling list still draws edge-to-edge
+ * (this is scroll TAIL space after the last item, not a clipping bounds
+ * change), so the approved gesture-mode look is untouched.
+ *
+ * Usage: `contentPadding = PaddingValues(bottom = bottomBarClearance(90.dp))`
+ * on the root tabs' scrolling containers (Browse / Library / Search / More).
+ */
+@Composable
+fun bottomBarClearance(base: Dp): Dp =
+    base + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
 @Composable
 private fun NavPill(

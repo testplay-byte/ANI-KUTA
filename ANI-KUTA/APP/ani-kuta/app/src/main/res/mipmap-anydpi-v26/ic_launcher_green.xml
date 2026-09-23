@@ -1,12 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- D-562 (round 74): the baked green preset launcher icon — the SAME
-     full-bleed adaptive structure as the default icon (the artwork is the
-     background layer, the foreground stays empty so the launcher's own
-     shape mask crops nothing we care about). The artwork is the baked
-     512px drawable (drawable-nodpi/preset_icon_green.jpg). The plain
-     mipmap-xxxhdpi/ic_launcher_green.jpg is the API 24–25 legacy fallback
-     (an adaptive-icon XML cannot inflate below 26 — minSdk is 24). -->
+<!-- D-563 (round 75): the green preset launcher icon is RESIZED, not cropped.
+     Round 74 used the artwork as the adaptive icon's BACKGROUND layer — but a
+     background fills the whole 108dp canvas while the launcher's shape mask
+     only shows the central ~72dp, so the artwork rendered ~1.5x zoomed with
+     its left/right sides cut off (the user's v1.1.36 device report). The fix:
+       • background = a SOLID color sampled from the artwork's own edge frame
+         (values/colors.xml, preset_icon_green_bg) — the artwork's near-uniform
+         background melts into it with no visible seam;
+       • foreground = the full artwork inset to 66% of the canvas
+         (drawable-nodpi/preset_icon_green_fg.png) — 66% of 108dp = ~71dp, so
+         every mask shape (circle, squircle, rounded square) shows the ENTIRE
+         design. Nothing is ever cropped; the icon reads exactly like the
+         in-app preview artwork.
+     The plain mipmap-xxxhdpi/ic_launcher_green.jpg is the API 24-25 legacy
+     fallback (an adaptive-icon XML cannot inflate below 26 — minSdk is 24),
+     regenerated with the same treatment: the artwork at 72% on the matched
+     solid background. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/preset_icon_green" />
-    <foreground android:drawable="@mipmap/ic_launcher_fg_none" />
+    <background android:drawable="@color/preset_icon_green_bg" />
+    <foreground android:drawable="@drawable/preset_icon_green_fg" />
 </adaptive-icon>

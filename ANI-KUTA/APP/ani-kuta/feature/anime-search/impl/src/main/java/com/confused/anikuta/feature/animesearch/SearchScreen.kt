@@ -83,6 +83,7 @@ import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
 import com.confused.anikuta.core.designsystem.animation.searchCoverKey  // D-328
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.designsystem.component.bottomBarClearance // D-563
 import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
 import com.confused.anikuta.core.designsystem.theme.Motion
@@ -350,7 +351,7 @@ fun SearchScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(scrollState)
-                            .padding(top = 0.dp, bottom = 110.dp),
+                            .padding(top = 0.dp, bottom = bottomBarClearance(110.dp)), // D-563: inset-aware
                     ) {
                         if (recents.isNotEmpty()) {
                             RecentSearchesCard(
@@ -770,7 +771,7 @@ private fun ResultsGrid(
             start = 12.dp,
             end = 12.dp,
             top = 4.dp,
-            bottom = 110.dp,
+            bottom = bottomBarClearance(110.dp), // D-563: inset-aware
         ),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1003,7 +1004,7 @@ private fun ExtensionResultsGrid(
             start = 12.dp,
             end = 12.dp,
             top = 4.dp,
-            bottom = 110.dp,
+            bottom = bottomBarClearance(110.dp), // D-563: inset-aware
         ),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1090,7 +1091,7 @@ private fun ExtensionBrowseProgressiveList(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 110.dp),
+        contentPadding = PaddingValues(top = 4.dp, bottom = bottomBarClearance(110.dp)), // D-563: inset-aware
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         if (recentsHeader != null) {
@@ -1260,7 +1261,7 @@ private fun ExtensionBrowseSections(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 110.dp),
+        contentPadding = PaddingValues(top = 4.dp, bottom = bottomBarClearance(110.dp)), // D-563: inset-aware
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         if (recentsHeader != null) {

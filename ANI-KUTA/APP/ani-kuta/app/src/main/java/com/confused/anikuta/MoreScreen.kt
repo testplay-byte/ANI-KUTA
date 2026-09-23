@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.appupdate.AppUpdateManager
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.bottomBarClearance // D-563
 import com.confused.anikuta.core.designsystem.component.MoreListRow
 import com.confused.anikuta.core.designsystem.component.MoreSectionLabel
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
@@ -82,7 +83,7 @@ fun MoreScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
                     state = listState,
-                    contentPadding = PaddingValues(bottom = 110.dp),
+                    contentPadding = PaddingValues(bottom = bottomBarClearance(110.dp)), // D-563: inset-aware
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     // ── General ──

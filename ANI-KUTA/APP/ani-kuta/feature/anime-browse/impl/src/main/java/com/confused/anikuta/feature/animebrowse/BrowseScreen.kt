@@ -44,6 +44,7 @@ import coil3.request.ImageRequest
 import coil3.imageLoader
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.bottomBarClearance // D-563
 import com.confused.anikuta.core.designsystem.component.EmptyState
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -179,7 +180,7 @@ fun BrowseScreen(
                             LazyColumn(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 90.dp),
+                                contentPadding = PaddingValues(bottom = bottomBarClearance(90.dp)), // D-563: inset-aware
                             ) {
                             // ── Hero pager (inset 16:9 card, auto-advancing) ──
                             item(key = "hero") {

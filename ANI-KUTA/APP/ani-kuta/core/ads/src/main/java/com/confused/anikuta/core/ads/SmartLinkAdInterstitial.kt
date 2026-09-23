@@ -1,6 +1,16 @@
 package com.confused.anikuta.core.ads
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,10 +21,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -31,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -101,6 +115,17 @@ import org.koin.compose.koinInject
  * needs SOMETHING moving) but loses its bubble; TryAgain keeps its real
  * threshold line. The approved overlay row ("shows properly, and it works
  * properly too") is untouched — title + ONE description, granted = gone.
+ *
+ * # The D-563 rework (the v1.1.36 device feedback: "previously at the top
+ *   of the pop-up it had an SVG logo, but now it does not. So I would like
+ *   you to add that SVG logo with a proper animation")
+ *
+ * The hero is BACK — the D-560 tinted circle returns to the top of every
+ * state carrying the same vector glyphs it always had (OpenInNew / the
+ * spinner / Refresh), now ANIMATED: a spring entrance pop (scale + fade,
+ * replayed per state — each Crossfade swap composes a fresh hero) and a
+ * quiet breathing loop so the mark feels alive. The heading is still the
+ * first TEXT element; the D-562 minimal card shape stands.
  *
  * # Why a Dialog (not a screen pushed onto the backstack)
  *
@@ -261,6 +286,70 @@ fun SmartLinkAdInterstitial() {
 // ── Shared shells ─────────────────────────────────────────────────────────────
 
 /**
+ * D-563: the hero logo — back by the user's v1.1.36 request ("previously at
+ * the top of the pop-up it had an SVG logo, but now it does not. So I would
+ * like you to add that SVG logo with a proper animation"). The D-560 shape
+ * (a soft primary wash behind one glyph — no borders, no gradients, no
+ * second color) with TWO layers of animation:
+ *
+ *  1. ENTRANCE — a one-shot spring pop: scale 0.6 → 1 with a MediumBouncy
+ *     overshoot + a fade-in. [LaunchedEffect] fires it the moment the hero
+ *     composes, and because the [Crossfade] swaps compose a FRESH hero per
+ *     state, the pop replays on every state transition — the card always
+ *     lands alive.
+ *  2. BREATHING — a slow ±4.5% reverse loop (1.2s each way,
+ *     FastOutSlowInEasing) multiplied into the settled scale, so the mark
+ *     gently breathes while the card waits. Quiet by design: the D-560
+ *     "no furniture" rule holds — it is motion, not decoration.
+ *
+ * Both animations are read inside the draw-phase [graphicsLayer] lambda —
+ * the scale/alpha updates never trigger recompositions.
+ */
+@Composable
+private fun HeroBubble(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    // 1. The entrance: 0 → 1 on a bouncy spring, once per composition.
+    val entrance = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        entrance.animateTo(
+            targetValue = 1f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMediumLow,
+            ),
+        )
+    }
+    // 2. The breathing: an infinite reverse loop, always running (cheap —
+    // draw-phase only), multiplied into the entrance-settled scale.
+    val breath by rememberInfiniteTransition(label = "hero-breath").animateFloat(
+        initialValue = 1f,
+        targetValue = 1.045f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "hero-breath-scale",
+    )
+    Box(
+        modifier = modifier
+            .size(64.dp)
+            .graphicsLayer {
+                val enter = 0.6f + 0.4f * entrance.value
+                scaleX = enter * breath
+                scaleY = enter * breath
+                alpha = entrance.value.coerceIn(0f, 1f)
+            }
+            .background(
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                shape = CircleShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+/**
  * D-560: the one-row "draw over other apps" offer. Renders ONLY while the
  * consent is missing (the caller guards with `if (!overlayGranted)` —
  * granted = nothing at all, the user's exact words). One tappable line that
@@ -326,7 +415,18 @@ private fun AdPendingContent(
     onCancel: () -> Unit,
     onEnableOverlay: () -> Unit,
 ) {
-    // D-562: NO hero bubble — the heading IS the card's top element.
+    // D-563: the animated hero logo is BACK (the user asked for it by
+    // name after v1.1.36 shipped without it) — the heading stays the first
+    // TEXT element, exactly as the D-561 rule demands.
+    HeroBubble {
+        Icon(
+            imageVector = Icons.Filled.OpenInNew,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(26.dp),
+        )
+    }
+    Spacer(Modifier.height(14.dp))
     // D-561: the ONLY heading the card carries — "support AniKuta is the
     // only thing which it should show there". No eyebrow, no disclosure,
     // no sponsor word anywhere on the card.
@@ -368,13 +468,16 @@ private fun AdPendingContent(
 /** The "waiting for return" state — spinner while the user is in the browser. */
 @Composable
 private fun AdInProgressContent() {
-    // D-562: the bubble is gone; the bare spinner stays — the state needs
-    // something moving, nothing decorating it.
-    CircularProgressIndicator(
-        color = MaterialTheme.colorScheme.primary,
-        strokeWidth = 3.dp,
-        modifier = Modifier.size(26.dp),
-    )
+    // D-563: the spinner rides inside the animated hero bubble again —
+    // the state keeps its motion (the spinner) AND the logo the user
+    // asked back, breathing with the same entrance as the other states.
+    HeroBubble {
+        CircularProgressIndicator(
+            color = MaterialTheme.colorScheme.primary,
+            strokeWidth = 3.dp,
+            modifier = Modifier.size(26.dp),
+        )
+    }
     Spacer(Modifier.height(14.dp))
     Text(
         text = "See you in a moment",
@@ -401,7 +504,17 @@ private fun AdTryAgainContent(
     onCancel: () -> Unit,
     onEnableOverlay: () -> Unit,
 ) {
-    // D-562: NO hero bubble — the heading IS the card's top element.
+    // D-563: the animated hero logo is back here too — same entrance,
+    // same breathing, the Refresh glyph it always carried.
+    HeroBubble {
+        Icon(
+            imageVector = Icons.Filled.Refresh,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(26.dp),
+        )
+    }
+    Spacer(Modifier.height(14.dp))
     Text(
         text = "That was too quick",
         style = MaterialTheme.typography.titleLarge,

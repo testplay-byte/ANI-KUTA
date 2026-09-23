@@ -131,6 +131,7 @@ import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.badge.rememberBadgeColorScheme
 import com.confused.anikuta.core.designsystem.component.EmptyState
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.designsystem.component.bottomBarClearance // D-563
 import com.confused.anikuta.core.designsystem.component.SearchField
 import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
@@ -2932,7 +2933,7 @@ private fun LibraryGrid(
                 start = 12.dp,
                 end = 12.dp,
                 top = 4.dp,
-                bottom = if (isSelectionMode) 160.dp else 90.dp,
+                bottom = if (isSelectionMode) bottomBarClearance(160.dp) else bottomBarClearance(90.dp), // D-563: inset-aware
             ),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalItemSpacing = 8.dp,
@@ -2980,14 +2981,14 @@ private fun LibraryGrid(
             contentPadding = if (isCoverOnly) {
                 PaddingValues(
                     top = 0.dp,
-                    bottom = if (isSelectionMode) 160.dp else 90.dp,
+                    bottom = if (isSelectionMode) bottomBarClearance(160.dp) else bottomBarClearance(90.dp), // D-563: inset-aware
                 )
             } else {
                 PaddingValues(
                     start = 12.dp,
                     end = 12.dp,
                     top = 4.dp,
-                    bottom = if (isSelectionMode) 160.dp else 90.dp,
+                    bottom = if (isSelectionMode) bottomBarClearance(160.dp) else bottomBarClearance(90.dp), // D-563: inset-aware
                 )
             },
             horizontalArrangement = Arrangement.spacedBy(if (isCoverOnly) 0.dp else 8.dp),
@@ -3675,7 +3676,7 @@ private fun LibraryList(
             start = 16.dp,
             end = 16.dp,
             top = 4.dp,
-            bottom = if (isSelectionMode) 160.dp else 90.dp,
+            bottom = if (isSelectionMode) bottomBarClearance(160.dp) else bottomBarClearance(90.dp), // D-563: inset-aware
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
