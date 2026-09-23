@@ -41,7 +41,7 @@ You are the AI agent for **ANI-KUTA** — an Android anime streaming/downloading
 - **Push path = DEBUG, arm64-v8a only** (D-445). **Shipped releases = ALL ABIs + universal, release-signed in CI** (D-423).
 - **The version NEVER moves without the user's explicit order** (D-425). Bumps ride the release branch only (D-430).
 - **No R8/minification on the release line** (D-436).
-- **The update repo follows the build type** (D-440): debug builds check `testplay-byte/ANI-KUTA` releases; release builds check `Confused-Creature-180/ANI-KUTA` (the official repo — currently BLOCKED: the dev PAT is pull-only there, so the professional app's in-app updater cannot see v1.1.3 yet; install from the testplay-byte release page).
+- **The update repo follows the build type** (D-440): debug builds check `testplay-byte/ANI-KUTA` releases; release builds check `Confused-Creature-180/ANI-KUTA` (the official repo — LIVE since the repo-external round 79: professional v1.1.3 is published there with the APK+ZIP set and the Pages site).
 - **Merges / main-branch operations are USER-GATED.** The user's explicit instruction is required (and note `main` no longer exists — "merge to main" orders need interpretation at the moment they are given).
 - **No "sponsor"/"sponsored" words anywhere** — code, UI, copy, docs (the user's standing order).
 - **Debug builds = schema freedom** (§30): no migrations needed; stale dev DBs get wiped. Proper migrations return only when the user signals production.
@@ -82,8 +82,9 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (C
 
 ---
 
-## 🚧 Open Items / Blocked (refreshed Round 77)
-- **The official re-host is blocked:** Confused-Creature-180/ANI-KUTA (the professional app's update repo per D-440) needs a release-agent token with write access; the dev PAT is pull-only there. Until the user provides one, the professional app's in-app updater cannot see v1.1.3 — install from the testplay-byte release page. The artifact set stays staged in the exact round-39 re-host shape.
+## 🚧 Open Items / Blocked (refreshed Round 80)
+- **Round 80 is UNPUSHED (the only blocker):** the notification rework is complete + review-GREEN on the mainline, but the sandbox reset lost the dev PAT (`/home/z/.secrets/github-credentials`). Recovery per this file: ask the user to re-provide it. Then: push → CI run 1/2 → the D-498 release cut (release/1.1.38 + tag v1.1.38 + bump 1.1.38/10138, run 2/2).
+- **The official repo is LIVE (resolved round 79):** Confused-Creature-180/ANI-KUTA carries professional v1.1.3 (11 assets: 5 APKs + 5 ZIPs + SHA256SUMS.txt) + the Pages download site with the APK|ZIP option selector. The process is documented: `ANI-KUTA-RELEASE-PLAYBOOK.md` (repo-external) + the official repo's `RELEASES.md`. The official-repo token lives at `/home/z/.secrets/official-repo-token`.
 - **Dashboard deep debt (disclosed, D-565):** the dashboard carries REPRESENTATIVE data — decisions D-277..D-562 are not individually listed, and the per-table DB transcription is the D-192-era snapshot (current truth: 25 tables / 17 .sq files). Status-level facts were refreshed Round 77. A full backfill is available on the user's request.
 - **`feature/test-controller-v5`** stays dormant (kept by explicit user order — do not delete).
 - **Version bookkeeping quirk (D-430):** the mainline says 1.1.20/10120 while the shipped debug line is at v1.1.37 — this is CORRECT by doctrine (bumps ride release branches). Don't "fix" it.
