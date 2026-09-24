@@ -1624,6 +1624,9 @@ fun AppRoot() {
             is ExtensionTestingTargetKey -> TestingTargetDetailScreen(
                 targetId = currentKey.targetId,
                 onBack = pop,
+                // Round 88 (D-619): the detail page's "View live run" pill —
+                // a queued/running target can reach its run page from here.
+                onOpenRun = { pushTesting(ExtensionTestingRunKey()) },
             )
             is ExtensionTestingStatsKey -> TestingStatsScreen(
                 onBack = pop,

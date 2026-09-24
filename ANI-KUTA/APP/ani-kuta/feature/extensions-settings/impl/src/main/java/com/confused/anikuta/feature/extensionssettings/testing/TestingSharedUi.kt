@@ -1,6 +1,5 @@
 package com.confused.anikuta.feature.extensionssettings.testing
 
-import android.graphics.drawable.Drawable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloat
@@ -28,8 +27,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.CircularProgressIndicator
@@ -517,6 +518,7 @@ internal fun KindPayloadView(
     kind: ExtensionTestKind,
     payload: TestPayload?,
     modifier: Modifier = Modifier,
+    autoPlayPreview: Boolean = true,
 ) {
     if (payload == null) return
     when (kind) {
@@ -536,7 +538,9 @@ internal fun KindPayloadView(
         ExtensionTestKind.STREAM_PLAY -> {
             // The chips are gone (same duplication); what the user wants here
             // is the REAL THING — a muted 30s-capped preview of the resolved
-            // stream, rendered whenever the payload carries its URL.
+            // stream, rendered whenever the payload carries its URL. ROUND 88
+            // (D-622): [autoPlayPreview] = false renders a TAP-TO-PLAY strip
+            // instead — a stored page must not start streaming on open.
             payload.streamUrl?.let { url ->
                 StreamPreviewPlayer(
                     url = url,
@@ -544,6 +548,7 @@ internal fun KindPayloadView(
                     userAgent = payload.streamUserAgent,
                     headers = payload.streamHeaders,
                     modifier = modifier,
+                    autoPlay = autoPlayPreview,
                 )
             }
         }
@@ -551,9 +556,28 @@ internal fun KindPayloadView(
 }
 
 /**
- * The ACTUAL search/home entries — the round-86 GRID: the top SIX results in
- * a 3×2 layout ("three results at the top and three results at the bottom"),
- * every title ONE line.
+ * Whether a payload renders anything for [kind] (round 88, D-622) — the
+ * detail page's results section consults this so a kind whose payload view
+ * is intentionally empty (PING since D-592) never shows an empty labeled
+ * box: the block's message/detail lines carry the whole verdict instead.
+ */
+internal fun kindPayloadHasContent(kind: ExtensionTestKind, payload: TestPayload?): Boolean {
+    if (payload == null) return false
+    return when (kind) {
+        ExtensionTestKind.PING -> false
+        ExtensionTestKind.SEARCH, ExtensionTestKind.HOME_PAGE -> !payload.entries.isNullOrEmpty()
+        ExtensionTestKind.DETAILS -> payload.detailsTitle != null ||
+            payload.detailsUrl != null ||
+            payload.detailsSynopsis != null
+        ExtensionTestKind.EPISODE_LIST -> !payload.episodes.isNullOrEmpty()
+        ExtensionTestKind.VIDEO_RESOLVE -> !payload.videos.isNullOrEmpty()
+        ExtensionTestKind.STREAM_PLAY -> payload.streamUrl != null
+    }
+}
+
+/**
+ * The ACTUAL search/home entries — the round-86 GRID, uncapped in round 88
+ * (D-623): ALL the captured results in a 3-wide layout, every title ONE line.
  */
 @Composable
 private fun PayloadEntriesGrid(
@@ -561,7 +585,10 @@ private fun PayloadEntriesGrid(
     modifier: Modifier = Modifier,
 ) {
     if (entries.isNullOrEmpty()) return
-    val grid = entries.take(6).chunked(3)
+    // ROUND 88 (D-623): the grid shows ALL the captured results (12 — four
+    // rows of three) — the old take(6) hid half of what the test actually
+    // returned, on the page whose purpose is the FULL result.
+    val grid = entries.take(12).chunked(3)
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = modifier.fillMaxWidth(),
@@ -601,7 +628,7 @@ private fun PayloadEntriesGrid(
                         Text(
                             text = entry.title,
                             fontFamily = RobotoFamily,
-                            fontSize = 9.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -646,7 +673,9 @@ private fun PayloadDetailsDossier(payload: TestPayload, modifier: Modifier = Mod
                 )
                 val meta = buildList {
                     payload.detailsStatus?.let { add(it) }
-                    payload.detailsGenres?.take(3)?.let { addAll(it) }
+                    // ROUND 88 (D-623): all the captured genres — the old
+                    // take(3) amputated the list on the FULL-details page.
+                    payload.detailsGenres?.take(8)?.let { addAll(it) }
                 }
                 if (meta.isNotEmpty()) {
                     Text(
@@ -666,7 +695,7 @@ private fun PayloadDetailsDossier(payload: TestPayload, modifier: Modifier = Mod
             Text(
                 text = url,
                 fontFamily = FontFamily.Monospace,
-                fontSize = 9.sp,
+                fontSize = 10.sp,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -693,7 +722,10 @@ private fun PayloadDetailsDossier(payload: TestPayload, modifier: Modifier = Mod
 private fun PayloadEpisodeChips(payload: TestPayload, modifier: Modifier = Modifier) {
     val episodes = payload.episodes.orEmpty()
     if (episodes.isEmpty()) return
-    val shown = episodes.take(24)
+    // ROUND 88 (D-623): the chips show the WHOLE captured list (48) — the
+    // old take(24) hid half the episodes behind "+N more" for no reason;
+    // the chips are tiny, the full list fits.
+    val shown = episodes.take(48)
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp),
@@ -707,7 +739,7 @@ private fun PayloadEpisodeChips(payload: TestPayload, modifier: Modifier = Modif
                 Text(
                     text = "EP ${episode.number}",
                     fontFamily = RobotoFamily,
-                    fontSize = 9.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
@@ -723,7 +755,7 @@ private fun PayloadEpisodeChips(payload: TestPayload, modifier: Modifier = Modif
                 Text(
                     text = "+$hidden more",
                     fontFamily = RobotoFamily,
-                    fontSize = 9.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
@@ -865,82 +897,137 @@ internal fun StreamPreviewPlayer(
     userAgent: String?,
     headers: Map<String, String>?,
     modifier: Modifier = Modifier,
+    autoPlay: Boolean = true,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    // ROUND 88 (D-622): the TAP-TO-PLAY GATE. A stored page (an old verdict
+    // being reviewed) must NOT start streaming video the moment it opens —
+    // that was data, battery and surprise spent without consent. The gate
+    // opens only when (a) the preview belongs to a run this screen watched
+    // live ([autoPlay] = true) or (b) the user taps the play strip.
+    var userRequested by remember(url) { mutableStateOf(autoPlay) }
+    if (!userRequested) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            shape = RoundedCornerShape(10.dp),
+            modifier = modifier.fillMaxWidth(),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clickable { userRequested = true }
+                    .padding(horizontal = 11.dp, vertical = 9.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = "Play the 30-second preview",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Spacer(Modifier.width(9.dp))
+                Text(
+                    text = "Tap to preview the stream — muted, capped at ${STREAM_PREVIEW_CAP_S}s",
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        return
+    }
+
     var phase by remember(url) { mutableStateOf(StreamPreviewPhase.PLAYING) }
     var secondsLeft by remember(url) { mutableIntStateOf(STREAM_PREVIEW_CAP_S) }
-    val player = remember(url) {
-        // The stream's own request headers (Referer / User-Agent / the flat
-        // map the capture kept) ride a dedicated DefaultHttpDataSource — the
-        // same contract the StreamPlayTest used to prove the bytes flow.
-        val requestHeaders = buildMap {
-            userAgent?.let { put("User-Agent", it) }
-            referer?.let { put("Referer", it) }
-            headers?.forEach { (name, value) ->
-                if (!name.equals("Range", ignoreCase = true) &&
-                    !name.equals("User-Agent", ignoreCase = true) &&
-                    !name.equals("Referer", ignoreCase = true)
-                ) {
-                    put(name, value)
+
+    if (phase == StreamPreviewPhase.PLAYING) {
+        // The player object lives ONLY while the preview plays — when the
+        // cap (or the stream, or an error) ends the phase, this branch
+        // LEAVES COMPOSITION and the DisposableEffect below releases the
+        // player, the surface and every buffer. No permanent black 16:9
+        // box, no orphaned ExoPlayer.
+        val player = remember(url) {
+            // The stream's own request headers (Referer / User-Agent / the flat
+            // map the capture kept) ride a dedicated DefaultHttpDataSource — the
+            // same contract the StreamPlayTest used to prove the bytes flow.
+            val requestHeaders = buildMap {
+                userAgent?.let { put("User-Agent", it) }
+                referer?.let { put("Referer", it) }
+                headers?.forEach { (name, value) ->
+                    if (!name.equals("Range", ignoreCase = true) &&
+                        !name.equals("User-Agent", ignoreCase = true) &&
+                        !name.equals("Referer", ignoreCase = true)
+                    ) {
+                        put(name, value)
+                    }
                 }
             }
-        }
-        val dataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(10_000)
-            .setReadTimeoutMs(15_000)
-            .setDefaultRequestProperties(requestHeaders)
-        // ExoPlayer.Builder takes a MediaSource.Factory (not a raw
-        // DataSource.Factory) — DefaultMediaSourceFactory wraps it so the
-        // stream's own request headers ride every request.
-        ExoPlayer.Builder(context, DefaultMediaSourceFactory(dataSourceFactory))
-            .build()
-            .apply {
-                volume = 0f
-                // D-598: NO looping — a capped preview ends, and a stream
-                // that finishes before the cap reports success honestly.
-                repeatMode = Player.REPEAT_MODE_OFF
-                playWhenReady = true
-                setMediaItem(MediaItem.fromUri(url))
-                addListener(object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_ENDED) {
-                            phase = StreamPreviewPhase.ENDED
+            val dataSourceFactory = DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(10_000)
+                .setReadTimeoutMs(15_000)
+                .setDefaultRequestProperties(requestHeaders)
+            // ExoPlayer.Builder takes a MediaSource.Factory (not a raw
+            // DataSource.Factory) — DefaultMediaSourceFactory wraps it so the
+            // stream's own request headers ride every request.
+            ExoPlayer.Builder(context, DefaultMediaSourceFactory(dataSourceFactory))
+                .build()
+                .apply {
+                    volume = 0f
+                    // D-598: NO looping — a capped preview ends, and a stream
+                    // that finishes before the cap reports success honestly.
+                    repeatMode = Player.REPEAT_MODE_OFF
+                    playWhenReady = true
+                    setMediaItem(MediaItem.fromUri(url))
+                    addListener(object : Player.Listener {
+                        override fun onPlaybackStateChanged(playbackState: Int) {
+                            if (playbackState == Player.STATE_ENDED) {
+                                phase = StreamPreviewPhase.ENDED
+                            }
                         }
-                    }
 
-                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                        phase = StreamPreviewPhase.FAILED
-                    }
-                })
-                prepare()
+                        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                            phase = StreamPreviewPhase.FAILED
+                        }
+                    })
+                    prepare()
+                }
+        }
+        // THE 30-SECOND CAP — a one-second countdown, then the player stops
+        // itself and the card reports success. Nothing plays past the cap.
+        LaunchedEffect(url) {
+            while (phase == StreamPreviewPhase.PLAYING && secondsLeft > 0) {
+                delay(1_000)
+                if (phase == StreamPreviewPhase.PLAYING) secondsLeft--
             }
-    }
-    // THE 30-SECOND CAP — a one-second countdown, then the player stops
-    // itself and the card reports success. Nothing plays past the cap.
-    LaunchedEffect(url) {
-        while (phase == StreamPreviewPhase.PLAYING && secondsLeft > 0) {
-            delay(1_000)
-            if (phase == StreamPreviewPhase.PLAYING) secondsLeft--
+            if (phase == StreamPreviewPhase.PLAYING) {
+                player.stop()
+                phase = StreamPreviewPhase.ENDED
+            }
         }
-        if (phase == StreamPreviewPhase.PLAYING) {
-            player.stop()
-            phase = StreamPreviewPhase.ENDED
+        DisposableEffect(url) {
+            onDispose {
+                player.stop()
+                player.release()
+            }
         }
-    }
-    DisposableEffect(url) {
-        onDispose {
-            player.stop()
-            player.release()
-        }
-    }
-    Surface(
-        color = Color.Black.copy(alpha = 0.85f),
-        shape = RoundedCornerShape(10.dp),
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        Column {
-            Box {
+        Surface(
+            color = Color.Black.copy(alpha = 0.85f),
+            shape = RoundedCornerShape(10.dp),
+            modifier = modifier.fillMaxWidth(),
+        ) {
+            Column {
                 AndroidView(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
@@ -955,85 +1042,82 @@ internal fun StreamPreviewPlayer(
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f),
                 )
-                if (phase != StreamPreviewPhase.PLAYING) {
-                    // The finish state — a quiet overlay on the frozen frame
-                    // (the user: "it should say that the stream played
-                    // successfully and finish, everything will finish").
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.72f),
-                        shape = RoundedCornerShape(8.dp),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .padding(horizontal = 9.dp, vertical = 5.dp),
+                ) {
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(10.dp),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        ) {
-                            Icon(
-                                imageVector = if (phase == StreamPreviewPhase.ENDED) {
-                                    Icons.Filled.CheckCircle
-                                } else {
-                                    Icons.Filled.Cancel
-                                },
-                                contentDescription = null,
-                                tint = if (phase == StreamPreviewPhase.ENDED) {
-                                    Color(0xFFB1F256)
-                                } else {
-                                    Color(0xFFF87171)
-                                },
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(Modifier.width(7.dp))
-                            Text(
-                                text = if (phase == StreamPreviewPhase.ENDED) {
-                                    "Stream played successfully"
-                                } else {
-                                    "Preview could not start"
-                                },
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White,
-                            )
-                        }
-                    }
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFB1F256)),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "LIVE PREVIEW · muted · ${secondsLeft}s left",
+                        fontFamily = RobotoFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFFB1F256),
+                    )
                 }
             }
+        }
+    } else {
+        // THE END STRIP (round 88, D-622): success or failure collapses to
+        // ONE quiet row — the full-width black surface is GONE the moment
+        // the preview ends (the round-87 report: nothing on this page may
+        // outstay its welcome).
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            shape = RoundedCornerShape(10.dp),
+            modifier = modifier.fillMaxWidth(),
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (phase == StreamPreviewPhase.PLAYING) {
-                                Color(0xFFB1F256)
-                            } else {
-                                Color.White.copy(alpha = 0.4f)
-                            },
-                        ),
+                Icon(
+                    imageVector = if (phase == StreamPreviewPhase.ENDED) {
+                        Icons.Filled.CheckCircle
+                    } else {
+                        Icons.Filled.Cancel
+                    },
+                    contentDescription = null,
+                    tint = if (phase == StreamPreviewPhase.ENDED) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(16.dp),
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    text = when (phase) {
-                        StreamPreviewPhase.PLAYING -> "LIVE PREVIEW · muted · ${secondsLeft}s left"
-                        StreamPreviewPhase.ENDED -> "PREVIEW FINISHED · capped at ${STREAM_PREVIEW_CAP_S}s"
-                        StreamPreviewPhase.FAILED -> "PREVIEW FAILED"
+                    text = if (phase == StreamPreviewPhase.ENDED) {
+                        "Stream played successfully"
+                    } else {
+                        "Preview unavailable — the verdict came from the stream's data"
                     },
                     fontFamily = RobotoFamily,
-                    fontSize = 9.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = if (phase == StreamPreviewPhase.PLAYING) {
-                        Color(0xFFB1F256)
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = if (phase == StreamPreviewPhase.ENDED) {
+                        "capped at ${STREAM_PREVIEW_CAP_S}s"
                     } else {
-                        Color.White.copy(alpha = 0.75f)
+                        "no playback"
                     },
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
