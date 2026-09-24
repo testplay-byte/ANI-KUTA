@@ -8,6 +8,14 @@
          gate it behind VIBRATE. Declared defensively (zero risk). -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- D-577 (round 83): REQUIRED for the system uninstall prompt. Without it
+         the platform UninstallerActivity starts and IMMEDIATELY finishes with
+         no dialog and no error (exactly the device log signature:
+         UninstallerActivity → FINISHING ~70ms later, nothing on screen).
+         REQUEST_INSTALL_PACKAGES covers installs only — uninstalls are gated
+         by this separate permission, and the ExtensionInstaller's
+         ACTION_DELETE ladder silently no-ops without it. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
