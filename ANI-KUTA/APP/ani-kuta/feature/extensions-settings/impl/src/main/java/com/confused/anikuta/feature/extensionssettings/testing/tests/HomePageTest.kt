@@ -4,6 +4,8 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTest
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestContext
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
+import com.confused.anikuta.feature.extensionssettings.testing.TestPayload
+import com.confused.anikuta.feature.extensionssettings.testing.TestPayloadEntry
 
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import kotlinx.coroutines.withContext
@@ -22,6 +24,11 @@ class HomePageTest : ExtensionTest {
     override val kind = ExtensionTestKind.HOME_PAGE
     override val requiresAnyOf = emptySet<ExtensionTestKind>()
 
+    private companion object {
+        /** The payload's entry cap — tiny blob, still browsable. */
+        const val PAYLOAD_ENTRY_CAP = 12
+    }
+
     override suspend fun run(context: ExtensionTestContext): TestOutcome =
         withContext(context.ioDispatcher) {
             val page: AnimesPage = context.source.getPopularAnime(1)
@@ -39,6 +46,12 @@ class HomePageTest : ExtensionTest {
                 TestOutcome.pass(
                     "${entries.size} entr${if (entries.size == 1) "y" else "ies"} on the home page",
                     detail = entries.first().title,
+                    // The ACTUAL popular entries — rendered as thumbnail cards.
+                    payload = TestPayload(
+                        entries = entries.take(PAYLOAD_ENTRY_CAP).map { anime ->
+                            TestPayloadEntry(title = anime.title, thumbnailUrl = anime.thumbnail_url)
+                        },
+                    ),
                 )
             }
         }

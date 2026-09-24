@@ -269,6 +269,13 @@ private fun KindDetailCard(
                     modifier = Modifier.padding(start = 28.dp, top = 2.dp),
                 )
             }
+            // The ACTUAL data — poster strip, dossier, episode chips, servers,
+            // byte-proof (the round-85 "show the real results" ask).
+            result?.payload?.let { payload ->
+                Column(modifier = Modifier.padding(start = 28.dp, top = 6.dp, bottom = 2.dp)) {
+                    KindPayloadView(kind = kind, payload = payload)
+                }
+            }
         }
     }
 }

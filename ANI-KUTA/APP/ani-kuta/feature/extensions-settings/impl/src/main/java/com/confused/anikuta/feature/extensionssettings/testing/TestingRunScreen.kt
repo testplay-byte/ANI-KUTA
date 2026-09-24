@@ -431,7 +431,7 @@ private fun LiveKindRow(
     var expanded by remember(kind) { mutableStateOf(false) }
     val terminal = result != null && result.status != TestStatus.RUNNING &&
         result.status != TestStatus.PENDING
-    val hasDetail = terminal && !result?.detail.isNullOrBlank()
+    val hasDetail = terminal && (!result?.detail.isNullOrBlank() || result?.payload != null)
 
     Column(
         modifier = Modifier
@@ -468,6 +468,7 @@ private fun LiveKindRow(
             exit = fadeOut(tween(120)) + shrinkVertically(tween(150)),
         ) {
             Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 28.dp, top = 4.dp, end = 4.dp),
@@ -489,9 +490,10 @@ private fun LiveKindRow(
                         fontFamily = RobotoFamily,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
+                // The ACTUAL data below the detail line (the round-85 ask).
+                KindPayloadView(kind = kind, payload = result?.payload)
             }
         }
     }

@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,17 +21,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,17 +54,20 @@ import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PAGE 1 of 5 — TESTING HOME (round 84, D-583).
+//  PAGE 1 of 5 — TESTING HOME (round 84, D-583; the round-85 rework).
 //
-//  The old single testing screen carried everything at once (summary + chips
-//  + two target sections + a run overlay) and the round-84 report called it
-//  cluttered. The system is now MULTI-PAGE; the home page is the HUB:
-//    • the hero verdict summary (proportion bar + counts),
-//    • a live-run banner (View / Stop) whenever a run is in flight,
-//    • the two ecosystem cards (the per-system entry the report asked for),
-//    • Run all + Statistics.
-//  Design language: the same section cards, ExtraBold labels and pill shapes
-//  as the Extensions page (the report: "learn from the extensions page").
+//  The round-85 device report: "we should drift away from it a little bit and
+//  get some creativeness… the two buttons at the bottom, Run All Tests and
+//  Statistics and History, feel a little bit off." This page is now the
+//  showpiece:
+//    • a HEALTH-RING hero (animated donut + legend + count-up chips) instead
+//      of the flat proportion bar;
+//    • a recent-run STRIP (the last runs as live chips);
+//    • the two ecosystem cards (unchanged — the user liked them);
+//    • a COMMAND FOOTER: one designed primary pill (Run all · N, morphing to
+//      live progress + Stop while running) + a tonal Stats pill with a
+//      failed-count badge — no more stock buttons dumped at the bottom.
+//  Run All starts IN PLACE (round 85): the banner/footer take over live.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -77,12 +82,17 @@ fun TestingHomeScreen(
     val targets by controller.targets.collectAsState()
     val session by controller.session.collectAsState()
 
-    // The persisted verdicts — reloaded whenever a run advances (a finished
-    // target is persisted immediately, so the hero follows along live).
+    // The persisted verdicts + the run history — reloaded whenever a run
+    // advances (a finished target is persisted immediately, so the hero
+    // follows along live).
     var storedRuns by remember { mutableStateOf(controller.resultStore.loadAll()) }
+    var history by remember { mutableStateOf(controller.resultStore.loadHistory()) }
     val testedTick = session?.testedCount ?: -1
     LaunchedEffect(testedTick) {
-        if (testedTick >= 0) storedRuns = controller.resultStore.loadAll()
+        if (testedTick >= 0) {
+            storedRuns = controller.resultStore.loadAll()
+            history = controller.resultStore.loadHistory()
+        }
     }
 
     fun stateFor(id: Long): TargetRunState? =
@@ -180,11 +190,11 @@ fun TestingHomeScreen(
                     }
                 }
 
-                // ── Hero summary ──
+                // ── Hero: THE HEALTH RING (the round-85 showpiece) ──
                 item(key = "hero") {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(20.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -197,7 +207,7 @@ fun TestingHomeScreen(
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    text = "Suite overview",
+                                    text = "Suite health",
                                     fontFamily = RobotoFamily,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.ExtraBold,
@@ -212,17 +222,85 @@ fun TestingHomeScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            Spacer(Modifier.height(12.dp))
-                            ProportionBar(
-                                passedCount = passed,
-                                failedCount = failed,
-                                untestedCount = untested,
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                StatChip("Passed", passed, MaterialTheme.colorScheme.primary)
-                                StatChip("Failed", failed, MaterialTheme.colorScheme.error)
-                                StatChip("Untested", untested, MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(14.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            ) {
+                                DonutChart(
+                                    segments = listOf(
+                                        DonutSegment(passed, MaterialTheme.colorScheme.primary),
+                                        DonutSegment(failed, MaterialTheme.colorScheme.error),
+                                        DonutSegment(untested, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
+                                    ),
+                                    diameter = 116.dp,
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = if (targets.isEmpty()) "—" else "${passed * 100 / targets.size}%",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 20.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        Text(
+                                            text = "healthy",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 9.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    DonutLegendRow(MaterialTheme.colorScheme.primary, passed, "healthy")
+                                    DonutLegendRow(MaterialTheme.colorScheme.error, failed, "failed")
+                                    DonutLegendRow(
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                        untested,
+                                        "untested",
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Recent runs — the history strip (tap → Stats) ──
+                if (history.isNotEmpty()) {
+                    item(key = "recent-runs") {
+                        Column {
+                            SectionLabel("Recent runs")
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                            ) {
+                                history.take(6).forEach { entry ->
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.clickable(onClick = onOpenStats),
+                                    ) {
+                                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                                            Text(
+                                                text = entry.label.ifEmpty { "Run" },
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Text(
+                                                text = "${entry.passed}✓ ${entry.failed}✗ · ${entry.totalTargets}",
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -253,58 +331,127 @@ fun TestingHomeScreen(
                     )
                 }
 
-                // ── Actions (round 85: Run All starts IN PLACE — the live
-                // banner above takes over; the run page stays reachable via
-                // the banner's "View") ──
+                // ── THE COMMAND FOOTER (the round-85 rework of the two off
+                // stock buttons): a designed primary pill that MORPHS with the
+                // run phase (Run all · N → live n-of-m + Stop) + a tonal Stats
+                // pill with a failed-count badge. Run All starts IN PLACE.
                 item(key = "actions") {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Button(
-                            onClick = {
-                                controller.start(null, "Run all")
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Surface(
+                            color = if (runActive) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                            } else {
+                                MaterialTheme.colorScheme.primary
                             },
-                            enabled = targets.isNotEmpty() && !runActive,
-                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier
+                                .weight(1.7f)
+                                .height(52.dp)
+                                .clip(RoundedCornerShape(50))
+                                .clickable(enabled = targets.isNotEmpty()) {
+                                    if (runActive) onOpenRun() else controller.start(null, "Run all")
+                                },
                         ) {
-                            Text(
-                                text = if (runActive) "Testing in progress…" else "Run all tests",
-                                fontFamily = RobotoFamily,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            ) {
+                                if (runActive) {
+                                    CircularProgressIndicator(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = runProgressLabel(session?.cursor ?: 0, session?.queue?.size ?: 0),
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                        Text(
+                                            text = "tap to view",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 9.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Spacer(Modifier.weight(1f))
+                                    Icon(
+                                        imageVector = Icons.Filled.Stop,
+                                        contentDescription = "Stop run",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .clickable(onClick = controller::stop)
+                                            .padding(7.dp),
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Filled.PlayArrow,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "Run all tests · ${targets.size}",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                }
+                            }
                         }
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(
-                            onClick = onOpenStats,
-                            modifier = Modifier.fillMaxWidth(),
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .clip(RoundedCornerShape(50))
+                                .clickable(onClick = onOpenStats),
                         ) {
-                            Text(
-                                text = "Statistics & history",
-                                fontFamily = RobotoFamily,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.BarChart,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Column {
+                                    Text(
+                                        text = "Stats",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    )
+                                    if (failed > 0) {
+                                        Text(
+                                            text = "$failed failed",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun StatChip(label: String, count: Int, color: androidx.compose.ui.graphics.Color) {
-    Surface(
-        color = color.copy(alpha = 0.13f),
-        shape = RoundedCornerShape(50),
-    ) {
-        Text(
-            text = "$count $label",
-            fontFamily = RobotoFamily,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = color,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-        )
     }
 }
 

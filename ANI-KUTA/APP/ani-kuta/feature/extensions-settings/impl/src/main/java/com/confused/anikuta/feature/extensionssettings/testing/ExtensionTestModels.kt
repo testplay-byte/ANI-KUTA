@@ -72,19 +72,72 @@ enum class TestStatus {
     SKIPPED,
 }
 
+/**
+ * One browsable payload entry — a search/home result (title + poster URL).
+ * The UI renders these as thumbnail cards; the store persists them as JSON.
+ */
+data class TestPayloadEntry(
+    val title: String,
+    val thumbnailUrl: String? = null,
+)
+
+/** One episode chip (the episode-list payload). */
+data class TestPayloadEpisode(
+    val number: Int,
+    val name: String,
+)
+
+/** One resolved video/link (the video-resolve payload). */
+data class TestPayloadVideo(
+    val label: String,
+    val quality: String? = null,
+)
+
+/**
+ * The RICH per-test payload (round 85): the actual data a test touched, not
+ * just a status line — the user's ask: "show me the actual search results on
+ * the details there. Same goes for the homepage and for the details page
+ * too, and for the episode list… the video result too and for the stream
+ * play too." Runtime model; the store persists a JSON projection (all
+ * fields are plain strings/numbers — Drawables/Headers never enter it).
+ * Every list is capped by the capturing test, keeping the blob tiny.
+ */
+data class TestPayload(
+    // Ping
+    val httpCode: Int? = null,
+    val rttMs: Long? = null,
+    // Search / Home page
+    val entries: List<TestPayloadEntry>? = null,
+    // Details page
+    val detailsTitle: String? = null,
+    val detailsGenres: List<String>? = null,
+    val detailsStatus: String? = null,
+    val detailsSynopsis: String? = null,
+    val detailsThumbnailUrl: String? = null,
+    // Episode list
+    val episodeCount: Int? = null,
+    val episodes: List<TestPayloadEpisode>? = null,
+    // Video resolve
+    val videos: List<TestPayloadVideo>? = null,
+    // Stream play
+    val streamBytesLabel: String? = null,
+    val streamHttpCode: Int? = null,
+)
+
 /** What a single test reports back to the engine. */
 data class TestOutcome(
     val passed: Boolean,
     val message: String,
     val detail: String? = null,
     val skippedReason: String? = null,
+    val payload: TestPayload? = null,
 ) {
     companion object {
-        fun pass(message: String, detail: String? = null) =
-            TestOutcome(passed = true, message = message, detail = detail)
+        fun pass(message: String, detail: String? = null, payload: TestPayload? = null) =
+            TestOutcome(passed = true, message = message, detail = detail, payload = payload)
 
-        fun fail(message: String, detail: String? = null) =
-            TestOutcome(passed = false, message = message, detail = detail)
+        fun fail(message: String, detail: String? = null, payload: TestPayload? = null) =
+            TestOutcome(passed = false, message = message, detail = detail, payload = payload)
 
         /** Prerequisite missing — the engine turns this into a SKIPPED result. */
         fun skip(reason: String) =
@@ -99,6 +152,7 @@ data class TestResult(
     val durationMs: Long = 0L,
     val message: String = "",
     val detail: String? = null,
+    val payload: TestPayload? = null,
 )
 
 /**

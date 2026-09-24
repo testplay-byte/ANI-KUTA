@@ -4,6 +4,7 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTest
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestContext
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
+import com.confused.anikuta.feature.extensionssettings.testing.TestPayload
 import com.confused.anikuta.feature.extensionssettings.testing.TestTimeFormat
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -68,6 +69,11 @@ class StreamPlayTest(
                             "Stream answered HTTP ${response.code} and delivered " +
                                 "${formatBytes(bytes)} in ${TestTimeFormat.format(durationMs)}",
                             detail = context.resolvedVideoLabel,
+                            // The byte-proof — the detail page renders it as chips.
+                            payload = TestPayload(
+                                streamBytesLabel = formatBytes(bytes),
+                                streamHttpCode = response.code,
+                            ),
                         )
                     } else {
                         TestOutcome.fail(

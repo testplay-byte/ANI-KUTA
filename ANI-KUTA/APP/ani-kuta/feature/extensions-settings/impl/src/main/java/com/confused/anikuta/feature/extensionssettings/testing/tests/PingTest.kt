@@ -49,6 +49,8 @@ class PingTest(
     private fun ExchangeResult.Ok.toOutcome(base: String): TestOutcome = TestOutcome.pass(
         message = "Responded HTTP $code in $durationMs ms",
         detail = base,
+        // ROUND 85: the live metrics — the detail page renders them as chips.
+        payload = TestPayload(httpCode = code, rttMs = durationMs),
     )
 
     private fun exchange(url: String, method: String): ExchangeResult {

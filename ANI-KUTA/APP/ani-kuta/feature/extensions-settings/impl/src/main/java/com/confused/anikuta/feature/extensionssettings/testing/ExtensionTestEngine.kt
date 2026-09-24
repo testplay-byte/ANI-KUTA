@@ -132,9 +132,9 @@ class ExtensionTestEngine(
             val result = if (outcome.skippedReason != null) {
                 TestResult(kind, TestStatus.SKIPPED, durationMs, outcome.skippedReason ?: "Skipped")
             } else if (outcome.passed) {
-                TestResult(kind, TestStatus.PASSED, durationMs, outcome.message, outcome.detail)
+                TestResult(kind, TestStatus.PASSED, durationMs, outcome.message, outcome.detail, outcome.payload)
             } else {
-                TestResult(kind, TestStatus.FAILED, durationMs, outcome.message, outcome.detail)
+                TestResult(kind, TestStatus.FAILED, durationMs, outcome.message, outcome.detail, outcome.payload)
             }
             results[kind] = result
             onResult(kind, result)

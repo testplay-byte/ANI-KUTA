@@ -4,6 +4,7 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTest
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestContext
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
+import com.confused.anikuta.feature.extensionssettings.testing.TestPayload
 
 import kotlinx.coroutines.withContext
 
@@ -53,6 +54,14 @@ class DetailsTest : ExtensionTest {
                     return@withContext TestOutcome.pass(
                         "Loaded details for \u201C$title\u201D (from the $from)",
                         detail = details.url.ifBlank { candidate.url },
+                        // The ACTUAL parsed details — the dossier on the detail page.
+                        payload = TestPayload(
+                            detailsTitle = title,
+                            detailsGenres = details.getGenres()?.take(GENRE_CAP),
+                            detailsStatus = statusText(details.status),
+                            detailsSynopsis = details.description?.takeIf { it.isNotBlank() }?.take(SYNOPSIS_CAP),
+                            detailsThumbnailUrl = details.thumbnail_url ?: candidate.thumbnail_url,
+                        ),
                     )
                 } catch (ce: kotlinx.coroutines.CancellationException) {
                     throw ce
@@ -65,4 +74,20 @@ class DetailsTest : ExtensionTest {
                 detail = lastError,
             )
         }
+
+    private companion object {
+        /** Payload caps — browse-worthy, still tiny. */
+        const val GENRE_CAP = 8
+        const val SYNOPSIS_CAP = 600
+
+        fun statusText(status: Int): String = when (status) {
+            eu.kanade.tachiyomi.animesource.model.SAnime.ONGOING -> "Ongoing"
+            eu.kanade.tachiyomi.animesource.model.SAnime.COMPLETED -> "Completed"
+            eu.kanade.tachiyomi.animesource.model.SAnime.LICENSED -> "Licensed"
+            eu.kanade.tachiyomi.animesource.model.SAnime.PUBLISHING_FINISHED -> "Finished"
+            eu.kanade.tachiyomi.animesource.model.SAnime.CANCELLED -> "Cancelled"
+            eu.kanade.tachiyomi.animesource.model.SAnime.ON_HIATUS -> "On hiatus"
+            else -> "Unknown"
+        }
+    }
 }

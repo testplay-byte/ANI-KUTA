@@ -41,15 +41,21 @@ import java.util.Date
 import java.util.Locale
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PAGE 5 of 5 — TESTING STATISTICS (round 84, D-583) — the dedicated stats
-//  page the report asked for ("there should be dedicated stats page for it").
+//  PAGE 5 of 5 — TESTING STATISTICS (round 84, D-583; the DASHBOARD rework,
+//  round 85).
 //
-//  Reads ONLY the persisted store (verdicts + run history) — no live state —
-//  so it is a stable post-run review surface:
-//    • totals: targets tested, healthy, failed, run history length;
-//    • per-system pass bars (Aniyomi vs CloudStream);
-//    • per-kind aggregates (average duration + failure rate, from history);
-//    • the recent-runs feed + the current failing list (tap → detail).
+//  The device report: "you were only using a single bar to represent the
+//  details. You did not show any circular donuts. You did not show any
+//  graphs, bars, or anything like that." This page is now a real mini
+//  dashboard — every chart is bespoke Canvas work (TestingCharts.kt):
+//    • the HEALTH RING hero (animated donut: passed / failed / interrupted)
+//      with a count-up center;
+//    • the pass-rate TREND over the run history (sparkline);
+//    • BY SYSTEM — two mini donuts (Aniyomi vs CloudStream);
+//    • STAGE RELIABILITY — a grow-in bar per test kind (fail rate + avg time);
+//    • the failing-right-now list and the run-history feed (tap → detail).
+//  Reads ONLY the persisted store (verdicts + run history) + the live session
+//  tick, so it stays a stable post-run review surface.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -78,8 +84,12 @@ fun TestingStatsScreen(
     fun healthy(runs: List<ExtensionTestResultStore.StoredTargetRun>): Int =
         runs.count { run -> run.finished && !run.abortedByUser && run.results.values.none { it.status == TestStatus.FAILED } && run.results.values.any { it.status == TestStatus.PASSED } }
 
+    fun interrupted(runs: List<ExtensionTestResultStore.StoredTargetRun>): Int =
+        runs.count { it.finished && it.abortedByUser }
+
     val totalTested = storedRuns.size
     val totalHealthy = healthy(storedRuns.values.toList())
+    val totalFailed = totalTested - totalHealthy - interrupted(storedRuns.values.toList())
 
     // Per-kind aggregates across ALL history entries.
     val kindStats = buildMap {
@@ -104,6 +114,12 @@ fun TestingStatsScreen(
         }
     }
 
+    // The pass-rate trend, oldest → newest (only completed all-target runs).
+    val trendValues = history
+        .filter { it.totalTargets > 0 }
+        .sortedBy { it.startedAtMs }
+        .map { entry -> entry.passed.toFloat() / entry.totalTargets }
+
     // The failing targets right now (the "what should I fix next" list).
     val failing = storedRuns.values
         .filter { run -> run.finished && (run.abortedByUser || run.results.values.any { it.status == TestStatus.FAILED }) }
@@ -114,6 +130,11 @@ fun TestingStatsScreen(
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
+
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val errorColor = MaterialTheme.colorScheme.error
+    val restColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+    val tertiaryColor = MaterialTheme.colorScheme.tertiary
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -128,22 +149,57 @@ fun TestingStatsScreen(
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // ── Totals ──
-                item(key = "totals") {
+                // ── THE HEALTH RING HERO ──
+                item(key = "hero-ring") {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                text = "Totals",
-                                fontFamily = RobotoFamily,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Spacer(Modifier.height(10.dp))
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(16.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            ) {
+                                DonutChart(
+                                    segments = listOf(
+                                        DonutSegment(totalHealthy, primaryColor),
+                                        DonutSegment(maxOf(totalFailed, 0), errorColor),
+                                        DonutSegment(interrupted(storedRuns.values.toList()), restColor),
+                                    ),
+                                    diameter = 128.dp,
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = if (totalTested == 0) {
+                                                "—"
+                                            } else {
+                                                "${totalHealthy * 100 / totalTested}%"
+                                            },
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 22.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        Text(
+                                            text = "healthy",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    DonutLegendRow(primaryColor, totalHealthy, "healthy")
+                                    DonutLegendRow(errorColor, maxOf(totalFailed, 0), "failed")
+                                    DonutLegendRow(restColor, interrupted(storedRuns.values.toList()), "interrupted")
+                                    DonutLegendRow(tertiaryColor, history.size, "runs logged")
+                                }
+                            }
+                            Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 StatsBig("$totalTested", "tested", Modifier.weight(1f))
                                 StatsBig("$totalHealthy", "healthy", Modifier.weight(1f))
@@ -153,7 +209,61 @@ fun TestingStatsScreen(
                     }
                 }
 
-                // ── Per-system ──
+                // ── Pass-rate TREND (sparkline over the history) ──
+                if (trendValues.size >= 2) {
+                    item(key = "trend") {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Pass-rate trend",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(
+                                        text = "last ${trendValues.size} runs",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp),
+                                ) {
+                                    Sparkline(values = trendValues)
+                                }
+                                Spacer(Modifier.height(6.dp))
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    Text(
+                                        text = "oldest",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 9.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    )
+                                    Spacer(Modifier.weight(1f))
+                                    Text(
+                                        text = "latest",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 9.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── BY SYSTEM — two mini donuts ──
                 item(key = "systems") {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -169,18 +279,36 @@ fun TestingStatsScreen(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             Spacer(Modifier.height(10.dp))
-                            SystemRateRow("Aniyomi", healthy(aniyomi), aniyomi.size)
-                            Spacer(Modifier.height(8.dp))
-                            SystemRateRow("CloudStream", healthy(cloudstream), cloudstream.size)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                SystemDonutCard(
+                                    label = "Aniyomi",
+                                    healthy = healthy(aniyomi),
+                                    total = aniyomi.size,
+                                    color = primaryColor,
+                                    restColor = restColor,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                SystemDonutCard(
+                                    label = "CloudStream",
+                                    healthy = healthy(cloudstream),
+                                    total = cloudstream.size,
+                                    color = tertiaryColor,
+                                    restColor = restColor,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
                     }
                 }
 
-                // ── Per-kind table ──
+                // ── STAGE RELIABILITY — the per-kind grow-in bars ──
                 if (kindStats.isNotEmpty()) {
                     item(key = "kinds-label") {
                         Text(
-                            text = "Per-test aggregates",
+                            text = "Stage reliability",
                             fontFamily = RobotoFamily,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -188,74 +316,34 @@ fun TestingStatsScreen(
                             modifier = Modifier.padding(start = 4.dp, top = 4.dp),
                         )
                     }
-                    item(key = "kinds-header") {
-                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                            Text(
-                                "TEST",
-                                fontFamily = RobotoFamily,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(2f),
-                            )
-                            Text(
-                                "AVG TIME",
-                                fontFamily = RobotoFamily,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                "FAIL RATE",
-                                fontFamily = RobotoFamily,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                    items(kindStats.size, key = { "kind-stat-${kindStats.keys.elementAt(it)}" }) { i ->
-                        val name = kindStats.keys.elementAt(i)
-                        val stat = kindStats.getValue(name)
-                        val kind = ExtensionTestKind.entries.firstOrNull { it.name == name }
+                    item(key = "kinds-bars") {
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(16.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(9.dp),
+                                modifier = Modifier.padding(14.dp),
                             ) {
-                                Text(
-                                    text = kind?.label ?: name,
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(2f),
-                                )
-                                Text(
-                                    text = TestTimeFormat.format(stat.avgMs),
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text(
-                                    text = if (stat.runCount == 0) "—" else "${(stat.failCount * 100) / stat.runCount}%",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = if (stat.runCount > 0 && stat.failCount * 2 >= stat.runCount) {
-                                        MaterialTheme.colorScheme.error
+                                ExtensionTestKind.entries.forEach { kind ->
+                                    val stat = kindStats[kind.name] ?: return@forEach
+                                    val failFraction = if (stat.runCount == 0) {
+                                        0f
                                     } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                )
+                                        stat.failCount.toFloat() / stat.runCount
+                                    }
+                                    AnimatedStatBarRow(
+                                        label = kind.label,
+                                        fraction = failFraction,
+                                        valueText = if (stat.runCount == 0) {
+                                            "—"
+                                        } else {
+                                            "${(failFraction * 100).toInt()}% · ${TestTimeFormat.format(stat.avgMs)}"
+                                        },
+                                        barColor = if (failFraction >= 0.5f) errorColor else primaryColor,
+                                    )
+                                }
                             }
                         }
                     }
@@ -348,9 +436,10 @@ fun TestingStatsScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
+                                    val wallMs = (entry.finishedAtMs - entry.startedAtMs).coerceAtLeast(0)
                                     Text(
                                         text = RUN_HISTORY_FORMAT.format(Date(entry.finishedAtMs)) +
-                                            " · ${entry.totalTargets} target(s)",
+                                            " · ${entry.totalTargets} target(s) · took ${TestTimeFormat.format(wallMs)}",
                                         fontFamily = RobotoFamily,
                                         fontSize = 10.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -392,6 +481,59 @@ fun TestingStatsScreen(
 
 private val RUN_HISTORY_FORMAT = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
 
+/** One system's mini donut + counts (the BY SYSTEM section). */
+@Composable
+private fun SystemDonutCard(
+    label: String,
+    healthy: Int,
+    total: Int,
+    color: androidx.compose.ui.graphics.Color,
+    restColor: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(10.dp),
+        ) {
+            DonutChart(
+                segments = listOf(
+                    DonutSegment(healthy, color),
+                    DonutSegment((total - healthy).coerceAtLeast(0), restColor),
+                ),
+                diameter = 72.dp,
+                strokeFraction = 0.34f,
+            ) {
+                Text(
+                    text = if (total == 0) "—" else "${healthy * 100 / total}%",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "$healthy / $total healthy",
+                fontFamily = RobotoFamily,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 @Composable
 private fun StatsBig(value: String, label: String, modifier: Modifier = Modifier) {
     Surface(
@@ -403,12 +545,9 @@ private fun StatsBig(value: String, label: String, modifier: Modifier = Modifier
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(vertical = 10.dp),
         ) {
-            Text(
-                text = value,
-                fontFamily = RobotoFamily,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.primary,
+            CountUpText(
+                value = value.filter { it.isDigit() }.toIntOrNull() ?: 0,
+                fontSize = 18,
             )
             Text(
                 text = label,
@@ -417,33 +556,5 @@ private fun StatsBig(value: String, label: String, modifier: Modifier = Modifier
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-@Composable
-private fun SystemRateRow(label: String, healthy: Int, total: Int) {
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = label,
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = "$healthy / $total",
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        ProportionBar(
-            passedCount = healthy,
-            failedCount = total - healthy,
-            untestedCount = 0,
-        )
     }
 }

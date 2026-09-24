@@ -4,6 +4,8 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTest
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestContext
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
+import com.confused.anikuta.feature.extensionssettings.testing.TestPayload
+import com.confused.anikuta.feature.extensionssettings.testing.TestPayloadEpisode
 
 import kotlinx.coroutines.withContext
 
@@ -49,6 +51,13 @@ class EpisodeListTest : ExtensionTest {
                             "${episodes.size} episode${if (episodes.size == 1) "" else "s"}" +
                                 if (deadEnds > 0) " (after $deadEnds empty candidate${if (deadEnds == 1) "" else "s"})" else "",
                             detail = firstName,
+                            // The ACTUAL episode chips (EP 1 … EP n) — capped.
+                            payload = TestPayload(
+                                episodeCount = episodes.size,
+                                episodes = episodes.take(EPISODE_CAP).mapIndexed { i, ep ->
+                                    TestPayloadEpisode(number = i + 1, name = ep.name)
+                                },
+                            ),
                         )
                     }
                     deadEnds++
@@ -66,4 +75,9 @@ class EpisodeListTest : ExtensionTest {
                 detail = context.foundAnime?.url,
             )
         }
+
+    private companion object {
+        /** The payload's episode-chip cap. */
+        const val EPISODE_CAP = 48
+    }
 }

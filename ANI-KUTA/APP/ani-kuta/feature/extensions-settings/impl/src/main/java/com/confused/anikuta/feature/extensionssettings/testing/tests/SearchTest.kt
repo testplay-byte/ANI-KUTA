@@ -6,6 +6,8 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestCont
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.SearchPhrase
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
+import com.confused.anikuta.feature.extensionssettings.testing.TestPayload
+import com.confused.anikuta.feature.extensionssettings.testing.TestPayloadEntry
 import com.confused.anikuta.feature.extensionssettings.testing.TestingSearchPhrases
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import kotlinx.coroutines.CancellationException
@@ -121,6 +123,12 @@ class SearchTest : ExtensionTest {
                     "${results.size} result${if (results.size == 1) "" else "s"} " +
                         "for \u201C${phrase.text}\u201D (${phrase.category})",
                     detail = results.first().title,
+                    // The ACTUAL results — rendered as thumbnail cards.
+                    payload = TestPayload(
+                        entries = results.take(PAYLOAD_ENTRY_CAP).map { anime ->
+                            TestPayloadEntry(title = anime.title, thumbnailUrl = anime.thumbnail_url)
+                        },
+                    ),
                 ),
             )
         } catch (ce: CancellationException) {
@@ -145,5 +153,8 @@ class SearchTest : ExtensionTest {
 
         /** Per-attempt bound — 4-5 attempts × 12s stays inside the 80s budget. */
         const val ATTEMPT_TIMEOUT_MS = 12_000L
+
+        /** The payload's entry cap — tiny blob, still browsable. */
+        const val PAYLOAD_ENTRY_CAP = 12
     }
 }

@@ -7,6 +7,8 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestCont
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestEcosystem
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
+import com.confused.anikuta.feature.extensionssettings.testing.TestPayload
+import com.confused.anikuta.feature.extensionssettings.testing.TestPayloadVideo
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import kotlinx.coroutines.TimeoutCancellationException
@@ -91,6 +93,15 @@ class VideoResolveTest(
                         "${videos.size} video${if (videos.size == 1) "" else "s"} — " +
                             "first: ${context.resolvedVideoLabel}$hosterNote$triedNote",
                         detail = lastDetail,
+                        // The ACTUAL server/quality list — capped.
+                        payload = TestPayload(
+                            videos = videos.take(VIDEO_CAP).map { v ->
+                                TestPayloadVideo(
+                                    label = v.videoTitle.ifBlank { "Video" },
+                                    quality = v.resolution?.let { "${it}p" },
+                                )
+                            },
+                        ),
                     )
                 }
                 lastMessage = "Source returned no videos for \u201C${episode.name}\u201D"
@@ -177,11 +188,20 @@ class VideoResolveTest(
         var firstReferer: String? = null
         var firstHeaders: Map<String, String>? = null
         var failureMessage: String? = null
+        val linksForPayload = mutableListOf<TestPayloadVideo>()
 
         csResolver.resolve(providerName, episode.url).collect { event ->
             when (event) {
                 is CloudstreamLinkResolver.CsResolveEvent.LinksSnapshot -> {
                     linkCount = maxOf(linkCount, event.links.size)
+                    if (linksForPayload.isEmpty()) {
+                        event.links.take(VIDEO_CAP).forEach { link ->
+                            linksForPayload += TestPayloadVideo(
+                                label = link.name.ifBlank { "Link" },
+                                quality = qualityLabel(link.quality),
+                            )
+                        }
+                    }
                     if (firstUrl == null) {
                         val candidate = event.links.firstOrNull { it.url.startsWith("http") }
                         if (candidate != null) {
@@ -217,7 +237,19 @@ class VideoResolveTest(
         Logger.d(TAG) { "CS resolve test: $linkCount links, first = $firstName" }
         return TestOutcome.pass(
             "$linkCount link${if (linkCount == 1) "" else "s"} — first: ${context.resolvedVideoLabel}",
+            payload = TestPayload(videos = linksForPayload),
         )
+    }
+
+    /**
+     * The CS ABI quality int → a human label (the Qualities scale:
+     * 0=Auto, 400=Unknown, 2160=4K).
+     */
+    private fun qualityLabel(quality: Int): String? = when {
+        quality <= 0 -> "Auto"
+        quality == 400 -> null
+        quality >= 2000 -> "4K"
+        else -> "${quality}p"
     }
 
     /** Merges a CS link's referer + headers into one okhttp Headers object. */
@@ -241,5 +273,8 @@ class VideoResolveTest(
 
         /** How many episodes the ladder may walk when the first is empty. */
         const val MAX_EPISODE_ATTEMPTS = 3
+
+        /** The payload's video-row cap. */
+        const val VIDEO_CAP = 12
     }
 }

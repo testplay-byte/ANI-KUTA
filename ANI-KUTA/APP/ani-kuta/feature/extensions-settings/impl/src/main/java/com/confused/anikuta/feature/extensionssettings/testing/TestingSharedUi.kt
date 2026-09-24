@@ -4,15 +4,21 @@ import android.graphics.drawable.Drawable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -319,6 +325,276 @@ internal fun KindCompactRow(
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  THE PAYLOAD RENDERER (round 85) — "show me the ACTUAL search results…
+//  same goes for the homepage… the details page… the episode list… the video
+//  result too and for the stream play too." One composable, kind-aware:
+//  thumbnails for search/home, a dossier header for details, episode chips,
+//  server rows, and metric chips for ping/stream-play.
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+internal fun KindPayloadView(
+    kind: ExtensionTestKind,
+    payload: TestPayload?,
+    modifier: Modifier = Modifier,
+) {
+    if (payload == null) return
+    when (kind) {
+        ExtensionTestKind.PING -> PayloadMetricRow(
+            listOfNotNull(
+                payload.httpCode?.let { "HTTP $it" },
+                payload.rttMs?.let { "$it ms" },
+            ),
+            modifier,
+        )
+
+        ExtensionTestKind.SEARCH, ExtensionTestKind.HOME_PAGE -> PayloadEntriesRow(payload.entries, modifier)
+
+        ExtensionTestKind.DETAILS -> PayloadDetailsDossier(payload, modifier)
+
+        ExtensionTestKind.EPISODE_LIST -> PayloadEpisodeChips(payload, modifier)
+
+        ExtensionTestKind.VIDEO_RESOLVE -> PayloadVideoRows(payload.videos, modifier)
+
+        ExtensionTestKind.STREAM_PLAY -> PayloadMetricRow(
+            listOfNotNull(
+                payload.streamHttpCode?.let { "HTTP $it" },
+                payload.streamBytesLabel?.let { "$it delivered" },
+            ),
+            modifier,
+        )
+    }
+}
+
+/** A row of small metric chips (HTTP code, RTT, bytes…). */
+@Composable
+private fun PayloadMetricRow(values: List<String>, modifier: Modifier = Modifier) {
+    if (values.isEmpty()) return
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier,
+    ) {
+        values.forEach { value ->
+            Surface(
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                shape = RoundedCornerShape(50),
+            ) {
+                Text(
+                    text = value,
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+/** The ACTUAL search/home entries — a horizontal strip of poster cards. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PayloadEntriesRow(
+    entries: List<TestPayloadEntry>?,
+    modifier: Modifier = Modifier,
+) {
+    if (entries.isNullOrEmpty()) return
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+    ) {
+        entries.forEach { entry ->
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.width(76.dp),
+            ) {
+                SubcomposeAsyncImage(
+                    model = entry.thumbnailUrl,
+                    contentDescription = entry.title,
+                    modifier = Modifier
+                        .size(width = 68.dp, height = 88.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    loading = {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            TargetLetterTile(entry.title.take(1).ifBlank { "?" }, 30.dp)
+                        }
+                    },
+                    error = {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            TargetLetterTile(entry.title.take(1).ifBlank { "?" }, 30.dp)
+                        }
+                    },
+                )
+                Text(
+                    text = entry.title,
+                    fontFamily = RobotoFamily,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+/** The details dossier — poster + title + genres + status (+ synopsis). */
+@Composable
+private fun PayloadDetailsDossier(payload: TestPayload, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val thumb = payload.detailsThumbnailUrl
+            if (thumb != null) {
+                AsyncImage(
+                    model = thumb,
+                    contentDescription = payload.detailsTitle,
+                    modifier = Modifier
+                        .size(width = 52.dp, height = 70.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = payload.detailsTitle ?: "",
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val meta = buildList {
+                    payload.detailsStatus?.let { add(it) }
+                    payload.detailsGenres?.take(3)?.let { addAll(it) }
+                }
+                if (meta.isNotEmpty()) {
+                    Text(
+                        text = meta.joinToString(" · "),
+                        fontFamily = RobotoFamily,
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        payload.detailsSynopsis?.let { synopsis ->
+            Text(
+                text = synopsis,
+                fontFamily = RobotoFamily,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+    }
+}
+
+/** The ACTUAL episode chips — EP 1 … EP n (+N more when capped). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PayloadEpisodeChips(payload: TestPayload, modifier: Modifier = Modifier) {
+    val episodes = payload.episodes.orEmpty()
+    if (episodes.isEmpty()) return
+    val shown = episodes.take(24)
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        shown.forEach { episode ->
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(7.dp),
+            ) {
+                Text(
+                    text = "EP ${episode.number}",
+                    fontFamily = RobotoFamily,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                )
+            }
+        }
+        val hidden = (payload.episodeCount ?: episodes.size) - shown.size
+        if (hidden > 0) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(7.dp),
+            ) {
+                Text(
+                    text = "+$hidden more",
+                    fontFamily = RobotoFamily,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+/** The ACTUAL resolved servers/qualities — one row each. */
+@Composable
+private fun PayloadVideoRows(
+    videos: List<TestPayloadVideo>?,
+    modifier: Modifier = Modifier,
+) {
+    if (videos.isNullOrEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = modifier) {
+        videos.forEach { video ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = video.label,
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                video.quality?.let { quality ->
+                    Text(
+                        text = quality,
+                        fontFamily = RobotoFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
     }
 }
 

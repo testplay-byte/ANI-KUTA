@@ -123,6 +123,7 @@ class ExtensionTestResultStore(context: Context) {
                 durationMs = r.optLong("durationMs", 0L),
                 message = r.optString("message", ""),
                 detail = r.optString("detail", "").takeIf { it.isNotEmpty() },
+                payload = r.optJSONObject("payload")?.let { runCatching { payloadFromJson(it) }.getOrNull() },
             )
         }
         if (results.isEmpty()) return null
@@ -155,6 +156,9 @@ class ExtensionTestResultStore(context: Context) {
             r.put("durationMs", result.durationMs)
             r.put("message", result.message)
             r.put("detail", result.detail ?: "")
+            result.payload?.let { payload ->
+                runCatching { r.put("payload", payloadToJson(payload)) }
+            }
             resultsJson.put(kind.name, r)
         }
         root.put("results", resultsJson)
@@ -273,4 +277,88 @@ class ExtensionTestResultStore(context: Context) {
         }
         return JSONObject().put("entries", arr)
     }
+
+    // ── The payload JSON projection (round 85) ──────────────────────────────
+    // Every field is opt-read on the way back — an older blob without a
+    // payload (or a future one with extra fields) round-trips safely.
+
+    private fun payloadToJson(p: TestPayload): JSONObject {
+        val o = JSONObject()
+        p.httpCode?.let { o.put("httpCode", it) }
+        p.rttMs?.let { o.put("rttMs", it) }
+        p.entries?.let { list ->
+            val arr = org.json.JSONArray()
+            list.forEach { e ->
+                arr.put(JSONObject().put("title", e.title).put("thumb", e.thumbnailUrl ?: ""))
+            }
+            o.put("entries", arr)
+        }
+        p.detailsTitle?.let { o.put("detailsTitle", it) }
+        p.detailsGenres?.let { list -> o.put("detailsGenres", org.json.JSONArray(list)) }
+        p.detailsStatus?.let { o.put("detailsStatus", it) }
+        p.detailsSynopsis?.let { o.put("detailsSynopsis", it) }
+        p.detailsThumbnailUrl?.let { o.put("detailsThumbnailUrl", it) }
+        p.episodeCount?.let { o.put("episodeCount", it) }
+        p.episodes?.let { list ->
+            val arr = org.json.JSONArray()
+            list.forEach { e ->
+                arr.put(JSONObject().put("number", e.number).put("name", e.name))
+            }
+            o.put("episodes", arr)
+        }
+        p.videos?.let { list ->
+            val arr = org.json.JSONArray()
+            list.forEach { v ->
+                arr.put(JSONObject().put("label", v.label).put("quality", v.quality ?: ""))
+            }
+            o.put("videos", arr)
+        }
+        p.streamBytesLabel?.let { o.put("streamBytesLabel", it) }
+        p.streamHttpCode?.let { o.put("streamHttpCode", it) }
+        return o
+    }
+
+    private fun payloadFromJson(o: JSONObject): TestPayload = TestPayload(
+        httpCode = if (o.has("httpCode")) o.optInt("httpCode") else null,
+        rttMs = if (o.has("rttMs")) o.optLong("rttMs") else null,
+        entries = o.optJSONArray("entries")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let {
+                    TestPayloadEntry(
+                        title = it.optString("title"),
+                        thumbnailUrl = it.optString("thumb").takeIf { t -> t.isNotEmpty() },
+                    )
+                }
+            }.takeIf { it.isNotEmpty() }
+        },
+        detailsTitle = o.optString("detailsTitle").takeIf { it.isNotEmpty() },
+        detailsGenres = o.optJSONArray("detailsGenres")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optString(i).takeIf { s -> s.isNotEmpty() }
+            }.takeIf { it.isNotEmpty() }
+        },
+        detailsStatus = o.optString("detailsStatus").takeIf { it.isNotEmpty() },
+        detailsSynopsis = o.optString("detailsSynopsis").takeIf { it.isNotEmpty() },
+        detailsThumbnailUrl = o.optString("detailsThumbnailUrl").takeIf { it.isNotEmpty() },
+        episodeCount = if (o.has("episodeCount")) o.optInt("episodeCount") else null,
+        episodes = o.optJSONArray("episodes")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let {
+                    TestPayloadEpisode(number = it.optInt("number"), name = it.optString("name"))
+                }
+            }.takeIf { it.isNotEmpty() }
+        },
+        videos = o.optJSONArray("videos")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let {
+                    TestPayloadVideo(
+                        label = it.optString("label"),
+                        quality = it.optString("quality").takeIf { q -> q.isNotEmpty() },
+                    )
+                }
+            }.takeIf { it.isNotEmpty() }
+        },
+        streamBytesLabel = o.optString("streamBytesLabel").takeIf { it.isNotEmpty() },
+        streamHttpCode = if (o.has("streamHttpCode")) o.optInt("streamHttpCode") else null,
+    )
 }
