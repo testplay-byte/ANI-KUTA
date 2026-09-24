@@ -18,15 +18,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -57,6 +61,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,6 +71,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -140,13 +147,22 @@ fun ManualSearchSheet(
     // Task 50 (round 10): un-mix the flat source list by ecosystem —
     // CloudStream providers bridged through data/cloudstream expose
     // AnimeHttpSource.isCloudStreamBridged (Task 50-b/50-c); everything else
-    // (including non-HTTP catalogue sources) is an aniyomi source. Relative
-    // order inside each bucket is preserved.
-    val aniyomiSources = availableSources.filter { src ->
-        (src as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource)?.isCloudStreamBridged != true
+    // (including non-HTTP catalogue sources) is an aniyomi source.
+    // ROUND 85: BOTH buckets are now (a) remember-keyed on the input (the
+    // whole sheet recomposed per keystroke because the filters re-ran every
+    // time) and (b) ALPHABETICALLY SORTED case-insensitively (the device
+    // report: "the extensions should be sorted by name in alphabetical
+    // order"). The linked-source pre-selection below runs on the sorted
+    // lists, so the centering stays correct automatically.
+    val aniyomiSources = remember(availableSources) {
+        availableSources.filter { src ->
+            (src as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource)?.isCloudStreamBridged != true
+        }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
     }
-    val cloudStreamSources = availableSources.filter { src ->
-        (src as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource)?.isCloudStreamBridged == true
+    val cloudStreamSources = remember(availableSources) {
+        availableSources.filter { src ->
+            (src as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource)?.isCloudStreamBridged == true
+        }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
     }
 
     // ── D-575: per-source icon lookups ────────────────────────────────────
@@ -199,16 +215,17 @@ fun ManualSearchSheet(
         SourceSide.ANIYOMI -> aniyomiSources.getOrNull(selectedAniyomiIdx)
         SourceSide.CLOUDSTREAM -> cloudStreamSources.getOrNull(selectedCsIdx)
     }
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     // Round 84 (D-582): the content name is NO LONGER prewritten — the bar
     // opens EMPTY (placeholder "Search <source>"). The FIRST focus pastes the
     // content name automatically; the user can then clear it and type their
     // own query. (The round-84 device report: opening with the name already
     // typed truncated it and gave no clean start.)
-    var autoPasted by remember { mutableStateOf(false) }
+    var autoPasted by rememberSaveable { mutableStateOf(false) }
     // D-575: local results mode — once a search runs, the wheels swap for the
     // results view; "Change" swaps back WITHOUT clearing anything.
-    var showResults by remember { mutableStateOf(false) }
+    // ROUND 85: rememberSaveable — rotation no longer blanks the sheet.
+    var showResults by rememberSaveable { mutableStateOf(false) }
 
     fun doSearch() {
         val src = activeSource ?: return
@@ -228,7 +245,14 @@ fun ManualSearchSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .navigationBarsPadding(),
+                // ROUND 85 — THE KEYBOARD FIX (the device report: tapping the
+                // search bar opened the keyboard OVER the whole sheet): the
+                // union of the nav-bar and IME insets — the nav bar's padding
+                // when the keyboard is CLOSED, the keyboard's height when it
+                // is OPEN — so the search bar always rides above both.
+                .windowInsetsPadding(
+                    WindowInsets.navigationBars.union(WindowInsets.ime),
+                ),
         ) {
             // ── Header ──
             Row(
@@ -281,7 +305,10 @@ fun ManualSearchSheet(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(screenHeight * 0.42f),
+                                // ROUND 85: a CEILING, not a fixed height —
+                                // short result lists no longer stretch the
+                                // sheet into a half-empty panel.
+                                .heightIn(max = screenHeight * 0.42f),
                         ) {
                             ManualSearchResultsArea(
                                 manualSearchState = manualSearchState,
@@ -291,14 +318,14 @@ fun ManualSearchSheet(
                             )
                         }
                     } else {
-                        // Round 84 (D-582): the wheels sheet carries a real
-                        // minimum height (~60% of the screen) — the round-84
-                        // device report: the wrap-content sheet was "a little
-                        // bit way too smaller".
+                        // ROUND 85: the round-84 60% MINIMUM height is GONE —
+                        // the device report: "the bottom-up menu is way too
+                        // much, and there is a lot of empty space there." The
+                        // 236dp drums + the hint + the search bar fill the
+                        // sheet naturally; no dead slab between them.
                         Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = screenHeight * 0.60f),
+                                .fillMaxWidth(),
                         ) {
                             SourceWheelPair(
                                 aniyomiSources = aniyomiSources,
@@ -341,9 +368,28 @@ fun ManualSearchSheet(
                     }
                 }
 
-                // ── Search bar (D-578 rework) ──
+                // ── Search bar (D-578 rework; round-85 focus contract) ──
                 val keyboard = LocalSoftwareKeyboardController.current
+                val focusManager = LocalFocusManager.current
+                val imeDensity = LocalDensity.current
                 var searchFocused by remember { mutableStateOf(false) }
+                // ROUND 85 — the BLUR CONTRACT (the device report: removing
+                // focus should return the bar to its NORMAL state, "without
+                // the text showing"): when the field loses focus while no
+                // search is showing, the query resets and the first-focus
+                // paste re-arms. Two paths reach that state: an outside tap
+                // (onFocusChanged) and a keyboard-back dismissal (which does
+                // NOT blur the field — so the IME-closed observer below
+                // clears focus explicitly). Results never nuke: the reset is
+                // gated on the state being Idle AND the results view closed.
+                LaunchedEffect(Unit) {
+                    snapshotFlow { WindowInsets.ime.getBottom(imeDensity) }
+                        .collect { imeBottom ->
+                            if (imeBottom == 0 && searchFocused && !showResults) {
+                                focusManager.clearFocus()
+                            }
+                        }
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -401,6 +447,15 @@ fun ManualSearchSheet(
                                         if (it.isFocused && !autoPasted && query.isEmpty() && initialQuery.isNotBlank()) {
                                             query = initialQuery
                                             autoPasted = true
+                                        }
+                                        // ROUND 85: the blur reset (see the
+                                        // contract above).
+                                        if (!it.isFocused &&
+                                            manualSearchState is ManualSearchState.Idle &&
+                                            !showResults
+                                        ) {
+                                            query = ""
+                                            autoPasted = false
                                         }
                                     },
                                 textStyle = TextStyle(

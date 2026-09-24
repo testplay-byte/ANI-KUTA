@@ -1,5 +1,8 @@
 package com.confused.anikuta.feature.extensionssettings
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -19,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -61,12 +65,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,11 +86,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
@@ -291,6 +300,69 @@ fun ExtensionsSettingsScreen(
         }
         .let { sortExtensions(it, sortMode, sortAscending) }
 
+    // ══ ROUND 85: the CONFIRMED-REMOVAL ghost rows ══
+    // The device report: the delete animation must fire when the user clicks
+    // OK and the extension is ACTUALLY gone — not on the trash tap. For an
+    // Aniyomi uninstall the "OK" is the SYSTEM dialog, and the only honest
+    // signal that it landed is the system's ACTION_PACKAGE_REMOVED broadcast.
+    // So: the trash tap fires the uninstaller directly (the row stays fully
+    // visible under the dialog — a cancel costs NOTHING); when the removal
+    // broadcast arrives, the extension is frozen here as a GHOST (keyed by
+    // pkgName at its captured index), the section renders the ghost instead
+    // of the live row, the exit choreography plays ONCE, and the ghost is
+    // dropped — animateItem() glides the rows below closed.
+    var installedGhosts by remember {
+        mutableStateOf(mapOf<String, Pair<Int, AnimeExtension.Installed>>())
+    }
+    var erroredGhosts by remember {
+        mutableStateOf(mapOf<String, Pair<Int, AnimeExtension.Errored>>())
+    }
+    var untrustedGhosts by remember {
+        mutableStateOf(mapOf<String, Pair<Int, AnimeExtension.Untrusted>>())
+    }
+    // The receiver reads the LAST COMPOSED lists (it can fire before OR after
+    // the manager's own refresh lands in the flows — these are pre-refresh).
+    val captureLists by rememberUpdatedState(
+        Triple(filteredInstalled, filteredErrored, filteredUntrusted),
+    )
+    val ghostContext = LocalContext.current
+    DisposableEffect(Unit) {
+        val removalFilter = IntentFilter(Intent.ACTION_PACKAGE_REMOVED).apply {
+            addDataScheme("package")
+        }
+        val removalReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return
+                val pkg = intent.data?.schemeSpecificPart ?: return
+                val (installedNow, erroredNow, untrustedNow) = captureLists
+                installedNow.firstOrNull { it.pkgName == pkg }?.let { ext ->
+                    installedGhosts = installedGhosts + (pkg to (installedNow.indexOf(ext) to ext))
+                }
+                erroredNow.firstOrNull { it.pkgName == pkg }?.let { ext ->
+                    erroredGhosts = erroredGhosts + (pkg to (erroredNow.indexOf(ext) to ext))
+                }
+                untrustedNow.firstOrNull { it.pkgName == pkg }?.let { ext ->
+                    untrustedGhosts = untrustedGhosts + (pkg to (untrustedNow.indexOf(ext) to ext))
+                }
+            }
+        }
+        ContextCompat.registerReceiver(
+            ghostContext,
+            removalReceiver,
+            removalFilter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        onDispose {
+            runCatching { ghostContext.unregisterReceiver(removalReceiver) }
+        }
+    }
+    // The section lists WITH the transient ghosts merged back in at their
+    // original positions (the live lists already dropped the removed pkg —
+    // the ghost bridges the visual gap for the ~350ms exit).
+    val ghostedInstalled = mergeGhosts(filteredInstalled, installedGhosts) { it.pkgName }
+    val ghostedErrored = mergeGhosts(filteredErrored, erroredGhosts) { it.pkgName }
+    val ghostedUntrusted = mergeGhosts(filteredUntrusted, untrustedGhosts) { it.pkgName }
+
     val isCheckingUpdates = updateCheckState == ExtensionManager.UpdateCheckState.Checking
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -312,21 +384,17 @@ fun ExtensionsSettingsScreen(
                             },
                         )
                     } else {
-                        // Round 84 (D-580): the header pills become TRUE pills —
-                        // icon + short label with content-adaptive widths (the
-                        // device round-84 report: icon-only squares read as circles,
-                        // not pills; each pill now takes the width its content
-                        // needs). Science · Filters · Settings remain the row.
+                        // ROUND 85 (the device report: "they should not be
+                        // showing text. There should only be the icons"):
+                        // icon-only stadium pills — Science · Filters · Settings.
                         HeaderPillButton(
                             icon = Icons.Filled.Science,
-                            label = "Tests",
                             contentDescription = "Extension testing",
                             onClick = onOpenExtensionTesting,
                         )
                         Spacer(Modifier.width(8.dp))
                         HeaderPillButton(
                             icon = Icons.Filled.FilterList,
-                            label = "Filters",
                             contentDescription = "Filters",
                             active = showFilters,
                             onClick = { showFilters = !showFilters },
@@ -334,7 +402,6 @@ fun ExtensionsSettingsScreen(
                         Spacer(Modifier.width(8.dp))
                         HeaderPillButton(
                             icon = Icons.Filled.Settings,
-                            label = "Settings",
                             contentDescription = "Settings",
                             onClick = onOpenRepoSettings,
                         )
@@ -418,11 +485,11 @@ fun ExtensionsSettingsScreen(
                         )
                     }
                     items(
-                        filteredInstalled,
+                        ghostedInstalled,
                         key = { "installed-${it.pkgName}" },
                         contentType = { "installedRow" },
                     ) { ext ->
-                        val index = filteredInstalled.indexOf(ext)
+                        val index = ghostedInstalled.indexOf(ext)
                         // D-580 (round 84): animateItem gives every row the
                         // add/remove/placement motion — after a delete's exit
                         // choreography the rows below GLIDE up (Downloads parity).
@@ -431,7 +498,7 @@ fun ExtensionsSettingsScreen(
                                         extension = ext,
                                         isReordering = reorderMode,
                                         canMoveUp = reorderMode && index > 0,
-                                        canMoveDown = reorderMode && index < filteredInstalled.lastIndex,
+                                        canMoveDown = reorderMode && index < ghostedInstalled.lastIndex,
                                         onMoveUp = {
                                             reorderedInstalled = reorderedInstalled.toMutableList().apply {
                                                 val i = indexOf(ext)
@@ -456,6 +523,10 @@ fun ExtensionsSettingsScreen(
                                         },
                             onUntrust = { extensionManager.untrustExtension(ext) },
                             onDelete = { extensionManager.uninstallExtension(ext) },
+                            // ROUND 85: the ghost contract — this row IS a
+                            // confirmed removal; play the exit once, then drop.
+                            forcedExit = ext.pkgName in installedGhosts,
+                            onExitDone = { installedGhosts = installedGhosts - ext.pkgName },
                             // D-301: direct update action when a newer version is
                             // available from the configured repos.
                             onUpdate = if (ext.hasUpdate) {
@@ -473,12 +544,12 @@ fun ExtensionsSettingsScreen(
                     }
 
                     // ── Failed to Load (D-296) ──
-                    if (filteredErrored.isNotEmpty()) {
+                    if (ghostedErrored.isNotEmpty()) {
                         item(key = "header-errored", contentType = "sectionHeader") {
-                            SectionHeader(title = "Failed to Load", count = filteredErrored.size, isEmpty = false)
+                            SectionHeader(title = "Failed to Load", count = ghostedErrored.size, isEmpty = false)
                         }
                         items(
-                            filteredErrored,
+                            ghostedErrored,
                             key = { "errored-${it.pkgName}" },
                             contentType = { "erroredRow" },
                         ) { ext ->
@@ -488,17 +559,19 @@ fun ExtensionsSettingsScreen(
                                 onRetry = { extensionManager.retryExtension(ext) },
                                 onUntrust = { extensionManager.untrustExtension(ext) },
                                 onDelete = { extensionManager.uninstallExtension(ext) },
+                                forcedExit = ext.pkgName in erroredGhosts,
+                                onExitDone = { erroredGhosts = erroredGhosts - ext.pkgName },
                             )
                         }
                     }
 
                     // ── Untrusted ──
-                    if (filteredUntrusted.isNotEmpty()) {
+                    if (ghostedUntrusted.isNotEmpty()) {
                         item(key = "header-untrusted", contentType = "sectionHeader") {
-                            SectionHeader(title = "Untrusted", count = filteredUntrusted.size, isEmpty = false)
+                            SectionHeader(title = "Untrusted", count = ghostedUntrusted.size, isEmpty = false)
                         }
                         items(
-                            filteredUntrusted,
+                            ghostedUntrusted,
                             key = { "untrusted-${it.pkgName}" },
                             contentType = { "untrustedRow" },
                         ) { ext ->
@@ -507,6 +580,8 @@ fun ExtensionsSettingsScreen(
                                 extension = ext,
                                 onTrust = { extensionManager.trustExtension(ext) },
                                 onDelete = { extensionManager.uninstallExtension(ext) },
+                                forcedExit = ext.pkgName in untrustedGhosts,
+                                onExitDone = { untrustedGhosts = untrustedGhosts - ext.pkgName },
                             )
                         }
                     }
@@ -1056,17 +1131,39 @@ private fun MenuOptionButton(
 }
 
 /**
- * Round 84 (D-580): the screen-header pill — a TRUE pill: icon + short label
- * in a rounded-full surface whose width adapts to the content (the round-84
- * device report: the icon-only squares read as circles, not pills — "each one
- * of them will be having the appropriate amount of width as needed").
+ * ROUND 85: merges the confirmed-removal ghosts back into a section list at
+ * their captured indices — the live list already dropped the removed pkg, so
+ * a ghost inserted at (captured index, clamped to the current size) lands
+ * exactly where the row visually was, and the exit choreography plays
+ * in place before the ghost is dropped.
+ */
+private fun <T> mergeGhosts(
+    live: List<T>,
+    ghosts: Map<String, Pair<Int, T>>,
+    keyOf: (T) -> String,
+): List<T> {
+    if (ghosts.isEmpty()) return live
+    val out = live.filter { keyOf(it) !in ghosts }.toMutableList()
+    ghosts.entries
+        .sortedBy { it.value.first }
+        .forEach { (_, pair) -> out.add(pair.first.coerceAtMost(out.size), pair.second) }
+    return out
+}
+
+/**
+ * Round 84 (D-580): the screen-header pill — a TRUE pill in a rounded-full
+ * surface. ROUND 85 (the device report: "they should not be showing text.
+ * There should only be the icons"): the label is GONE — the pill is the
+ * icon in a wide stadium (44dp minimum width keeps it reading as a PILL,
+ * not a circle — the exact round-84 regression this avoids) with a 44dp
+ * minimum touch height; the accessible name moved onto the Surface via
+ * semantics so TalkBack announces one clean node.
  * [active] tints the pill while the filters bar is open. The gaps between
- * the pills are the header Row's explicit 8dp Spacers.
+ * the pills are the header Row's explicit Spacers.
  */
 @Composable
 private fun HeaderPillButton(
     icon: ImageVector,
-    label: String,
     contentDescription: String,
     active: Boolean = false,
     onClick: () -> Unit,
@@ -1079,25 +1176,19 @@ private fun HeaderPillButton(
         },
         shape = RoundedCornerShape(50),
         onClick = onClick,
+        modifier = Modifier
+            .defaultMinSize(minWidth = 44.dp, minHeight = 40.dp)
+            .semantics { this.contentDescription = contentDescription },
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier.padding(horizontal = 15.dp, vertical = 9.dp),
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = icon,
-                contentDescription = contentDescription,
+                contentDescription = null,
                 tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(15.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = label,
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
             )
         }
     }
@@ -1122,21 +1213,30 @@ private fun InstalledExtensionRow(
     // update control can animate the download progress. Previously the row
     // ignored install state entirely — no feedback during an update download.
     installStep: InstallStep? = null,
+    // ROUND 85: the ghost contract — the screen renders this row as a ghost
+    // AFTER the system confirmed the package removal; the choreography plays
+    // once and [onExitDone] drops the ghost (the row then leaves composition).
+    forcedExit: Boolean = false,
+    onExitDone: () -> Unit = {},
 ) {
-    // D-580 (round 84): the delete exit choreography — the row plays the same
-    // settle-dip → slide+fade motion the Downloads page uses, and the actual
-    // system uninstall fires only after the exit finishes. The system dialog
-    // can be DISMISSED though — so if the row is still composed ~3s later the
-    // uninstall was cancelled and the row fades back in.
-    var removing by remember { mutableStateOf(false) }
+    // ROUND 85: the tap plays NO animation — the trash fires the system
+    // uninstaller directly (its dialog is the confirmation) and the row stays
+    // fully visible under it. A CANCELLED uninstall therefore costs nothing
+    // (the old optimistic-choreography + 3s-restore heuristic is gone).
     val deleteExit = rememberDeleteExitState()
-    LaunchedEffect(removing) {
-        if (!removing) return@LaunchedEffect
+    LaunchedEffect(forcedExit) {
+        if (!forcedExit) return@LaunchedEffect
         deleteExit.runExitChoreography()
-        onDelete()
-        delay(3000)
-        deleteExit.restoreFromExit()
-        removing = false
+        onExitDone()
+    }
+    // ROUND 85: UNTRUST gets the same exit choreography, tap-driven — the
+    // data change fires AFTER the exit so the row visibly leaves its section
+    // and re-enters the untrusted one via animateItem.
+    var exitingForUntrust by remember { mutableStateOf(false) }
+    LaunchedEffect(exitingForUntrust) {
+        if (!exitingForUntrust) return@LaunchedEffect
+        deleteExit.runExitChoreography()
+        onUntrust()
     }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -1211,17 +1311,18 @@ private fun InstalledExtensionRow(
                 ActionIconButton(
                     icon = Icons.Filled.VerifiedUser,
                     contentDescription = "Untrust",
-                    onClick = onUntrust,
+                    onClick = { if (!exitingForUntrust) exitingForUntrust = true },
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                // Round 82 (D-571): fires the SYSTEM uninstall prompt directly —
-                // Android's own dialog is the confirmation (no in-app step).
-                // D-580 (round 84): the tap first plays the row's exit
-                // choreography; the prompt fires when the exit finishes.
+                // Round 82 (D-571) + ROUND 85: the tap fires the SYSTEM
+                // uninstall prompt DIRECTLY — no local animation, the prompt
+                // IS the confirmation, and the exit choreography plays only
+                // when the package-removed broadcast confirms the user's OK
+                // (the screen re-renders this row as a ghost then).
                 ActionIconButton(
                     icon = Icons.Filled.Delete,
                     contentDescription = "Uninstall",
-                    onClick = { if (!removing) removing = true },
+                    onClick = onDelete,
                     tint = MaterialTheme.colorScheme.error,
                 )
             }
@@ -1235,17 +1336,25 @@ private fun UntrustedExtensionRow(
     extension: AnimeExtension.Untrusted,
     onTrust: () -> Unit,
     onDelete: () -> Unit,
+    forcedExit: Boolean = false,
+    onExitDone: () -> Unit = {},
 ) {
-    // D-580 (round 84): same exit choreography as the installed row.
-    var removing by remember { mutableStateOf(false) }
+    // ROUND 85: no optimistic animation — the trash fires the system
+    // uninstaller directly; the choreography plays on the confirmed-removal
+    // ghost (see InstalledExtensionRow).
     val deleteExit = rememberDeleteExitState()
-    LaunchedEffect(removing) {
-        if (!removing) return@LaunchedEffect
+    LaunchedEffect(forcedExit) {
+        if (!forcedExit) return@LaunchedEffect
         deleteExit.runExitChoreography()
-        onDelete()
-        delay(3000)
-        deleteExit.restoreFromExit()
-        removing = false
+        onExitDone()
+    }
+    // ROUND 85: TRUST gets the same exit choreography, tap-driven — the row
+    // visibly leaves the untrusted section and re-enters Trusted Sources.
+    var exitingForTrust by remember { mutableStateOf(false) }
+    LaunchedEffect(exitingForTrust) {
+        if (!exitingForTrust) return@LaunchedEffect
+        deleteExit.runExitChoreography()
+        onTrust()
     }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -1281,15 +1390,16 @@ private fun UntrustedExtensionRow(
             ActionIconButton(
                 icon = Icons.Filled.VerifiedUser,
                 contentDescription = "Trust",
-                onClick = onTrust,
+                onClick = { if (!exitingForTrust) exitingForTrust = true },
                 tint = MaterialTheme.colorScheme.primary,
             )
-            // Round 82 (D-571): the system uninstall prompt IS the confirmation.
-            // D-580 (round 84): the tap first plays the exit choreography.
+            // Round 82 (D-571) + ROUND 85: the system uninstall prompt IS the
+            // confirmation and fires directly; the exit animation waits for
+            // the confirmed removal (the ghost).
             ActionIconButton(
                 icon = Icons.Filled.Delete,
                 contentDescription = "Uninstall",
-                onClick = { if (!removing) removing = true },
+                onClick = onDelete,
                 tint = MaterialTheme.colorScheme.error,
             )
         }
@@ -1303,17 +1413,22 @@ private fun ErroredExtensionRow(
     onRetry: () -> Unit,
     onUntrust: () -> Unit,
     onDelete: () -> Unit,
+    forcedExit: Boolean = false,
+    onExitDone: () -> Unit = {},
 ) {
-    // D-580 (round 84): same exit choreography as the installed row.
-    var removing by remember { mutableStateOf(false) }
+    // ROUND 85: no optimistic animation — see InstalledExtensionRow.
     val deleteExit = rememberDeleteExitState()
-    LaunchedEffect(removing) {
-        if (!removing) return@LaunchedEffect
+    LaunchedEffect(forcedExit) {
+        if (!forcedExit) return@LaunchedEffect
         deleteExit.runExitChoreography()
-        onDelete()
-        delay(3000)
-        deleteExit.restoreFromExit()
-        removing = false
+        onExitDone()
+    }
+    // ROUND 85: UNTRUST gets the same exit choreography, tap-driven.
+    var exitingForUntrust by remember { mutableStateOf(false) }
+    LaunchedEffect(exitingForUntrust) {
+        if (!exitingForUntrust) return@LaunchedEffect
+        deleteExit.runExitChoreography()
+        onUntrust()
     }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -1359,15 +1474,15 @@ private fun ErroredExtensionRow(
                 ActionIconButton(
                     icon = Icons.Filled.VerifiedUser,
                     contentDescription = "Untrust",
-                    onClick = onUntrust,
+                    onClick = { if (!exitingForUntrust) exitingForUntrust = true },
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                // Round 82 (D-571): the system uninstall prompt IS the confirmation.
-                // D-580 (round 84): the tap first plays the exit choreography.
+                // ROUND 85: fires the system uninstaller directly; the exit
+                // choreography waits for the confirmed removal (the ghost).
                 ActionIconButton(
                     icon = Icons.Filled.Delete,
                     contentDescription = "Uninstall",
-                    onClick = { if (!removing) removing = true },
+                    onClick = onDelete,
                     tint = MaterialTheme.colorScheme.error,
                 )
             }

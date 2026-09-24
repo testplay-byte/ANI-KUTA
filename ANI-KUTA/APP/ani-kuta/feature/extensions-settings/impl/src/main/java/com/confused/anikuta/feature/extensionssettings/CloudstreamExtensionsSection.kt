@@ -283,7 +283,8 @@ private fun CsInstalledRow(
     // exit choreography runs AFTER it — the row plays the same settle-dip →
     // slide+fade motion as the Downloads page, and the plugin delete fires
     // only when the exit finishes (the data removal then closes the gap via
-    // the row's animateItem placement).
+    // the row's animateItem placement). Already the round-85 contract: the
+    // animation fires on the CONFIRMED deletion (the dialog's OK).
     var removing by remember { mutableStateOf(false) }
     val deleteExit = rememberDeleteExitState()
     LaunchedEffect(removing) {
@@ -293,6 +294,14 @@ private fun CsInstalledRow(
         delay(2500)
         deleteExit.restoreFromExit()
         removing = false
+    }
+    // ROUND 85: UNTRUST gets the same exit choreography, tap-driven — the
+    // row visibly leaves Trusted Sources before the data change fires.
+    var exitingForUntrust by remember { mutableStateOf(false) }
+    LaunchedEffect(exitingForUntrust) {
+        if (!exitingForUntrust) return@LaunchedEffect
+        deleteExit.runExitChoreography()
+        onUntrust()
     }
 
     Surface(
@@ -351,7 +360,7 @@ private fun CsInstalledRow(
             ActionIconButton(
                 icon = Icons.Filled.RemoveModerator,
                 contentDescription = "Untrust plugin (keep file)",
-                onClick = onUntrust,
+                onClick = { if (!exitingForUntrust) exitingForUntrust = true },
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             ActionIconButton(
@@ -513,7 +522,9 @@ private fun CsUntrustedRow(
     onClick: () -> Unit,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    // D-580 (round 84): same exit choreography as the installed CS row.
+    // D-580 (round 84): same exit choreography as the installed CS row —
+    // it fires on the CONFIRMED deletion (the dialog's OK), per the round-85
+    // contract.
     var removing by remember { mutableStateOf(false) }
     val deleteExit = rememberDeleteExitState()
     LaunchedEffect(removing) {
@@ -523,6 +534,14 @@ private fun CsUntrustedRow(
         delay(2500)
         deleteExit.restoreFromExit()
         removing = false
+    }
+    // ROUND 85: TRUST gets the same exit choreography, tap-driven — the row
+    // visibly leaves the untrusted section and re-enters Trusted Sources.
+    var exitingForTrust by remember { mutableStateOf(false) }
+    LaunchedEffect(exitingForTrust) {
+        if (!exitingForTrust) return@LaunchedEffect
+        deleteExit.runExitChoreography()
+        onTrust()
     }
 
     Surface(
@@ -566,10 +585,11 @@ private fun CsUntrustedRow(
             // Task 46 (round-5 report): the trust action uses the SHIELD
             // icon (VerifiedUser) — the old checkmark-badge glyph (Verified)
             // read as "already verified" instead of "trust this plugin".
+            // ROUND 85: the trust tap plays the exit choreography first.
             ActionIconButton(
                 icon = Icons.Filled.VerifiedUser,
                 contentDescription = "Trust plugin",
-                onClick = onTrust,
+                onClick = { if (!exitingForTrust) exitingForTrust = true },
                 tint = MaterialTheme.colorScheme.primary,
             )
             ActionIconButton(

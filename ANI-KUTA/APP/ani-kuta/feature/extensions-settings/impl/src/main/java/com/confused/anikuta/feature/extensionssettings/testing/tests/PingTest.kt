@@ -4,6 +4,7 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTest
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestContext
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
+import com.confused.anikuta.feature.extensionssettings.testing.TestPayload
 import com.confused.anikuta.feature.extensionssettings.testing.TestTimeFormat
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient

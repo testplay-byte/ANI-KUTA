@@ -65,6 +65,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.ANIKUTA">
             <!-- D-562 (round 74 — the REAL launcher-icon switch): the MAIN/
                  LAUNCHER intent-filter moved OFF MainActivity onto the 7
