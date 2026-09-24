@@ -58,6 +58,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import coil3.compose.SubcomposeAsyncImage
@@ -860,13 +861,18 @@ internal fun StreamPreviewPlayer(
             .setConnectTimeoutMs(10_000)
             .setReadTimeoutMs(15_000)
             .setDefaultRequestProperties(requestHeaders)
-        ExoPlayer.Builder(context, dataSourceFactory).build().apply {
-            volume = 0f
-            repeatMode = Player.REPEAT_MODE_ONE
-            playWhenReady = true
-            setMediaItem(MediaItem.fromUri(url))
-            prepare()
-        }
+        // ExoPlayer.Builder takes a MediaSource.Factory (not a raw
+        // DataSource.Factory) — DefaultMediaSourceFactory wraps it so the
+        // stream's own request headers ride every request.
+        ExoPlayer.Builder(context, DefaultMediaSourceFactory(dataSourceFactory))
+            .build()
+            .apply {
+                volume = 0f
+                repeatMode = Player.REPEAT_MODE_ONE
+                playWhenReady = true
+                setMediaItem(MediaItem.fromUri(url))
+                prepare()
+            }
     }
     DisposableEffect(url) {
         onDispose {
