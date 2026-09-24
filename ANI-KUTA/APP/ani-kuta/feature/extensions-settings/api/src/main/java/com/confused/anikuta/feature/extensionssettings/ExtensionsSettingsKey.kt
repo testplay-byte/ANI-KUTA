@@ -66,11 +66,50 @@ data class SourcePreferencesKey(val sourceId: Long) : NavKey
 data class CloudstreamPluginDetailKey(val internalName: String) : NavKey
 
 /**
- * Round 82 (D-576): NavKey for the EXTENSION TESTING screen — the suite that
- * pings, searches, loads details/episodes and resolves streams for every
- * installed source across BOTH ecosystems (aniyomi extensions + CloudStream
- * plugins), with batch runs and per-test results. Stateless — the screen
- * builds its targets from the live managers.
+ * Round 82 (D-576): NavKey for the EXTENSION TESTING screen.
+ *
+ * Round 84 (D-583): this key is the HOME of a FIVE-PAGE testing system —
+ * Home (here) → per-system target list → the live Run page → a target's
+ * result detail → Statistics. The other four pages carry their own keys
+ * below (all follow the same all-default/String-payload serialization
+ * pattern as [ExtensionsSettingsKey]).
  */
 @Serializable
 object ExtensionTestingKey : NavKey
+
+/**
+ * Round 84 (D-583): NavKey for the per-system TARGET LIST — the clean,
+ * checkbox-free list of one ecosystem's testable targets (the round-84
+ * report: "there were no options to select which extension system I wanted
+ * to test out").
+ *
+ * @param ecosystem "aniyomi" or "cloudstream".
+ */
+@Serializable
+data class ExtensionTestingListKey(val ecosystem: String = "aniyomi") : NavKey
+
+/**
+ * Round 84 (D-583): NavKey for the dedicated RUN PAGE — the full-screen live
+ * run experience (progress + per-kind rows + Stop + Skip), replacing the
+ * round-83 in-screen overlay. The payload is only the REQUEST — the page
+ * renders whatever the run controller's live session says.
+ *
+ * @param targetIdsCsv comma-separated target ids; empty = every target.
+ */
+@Serializable
+data class ExtensionTestingRunKey(val targetIdsCsv: String = "") : NavKey
+
+/**
+ * Round 84 (D-583): NavKey for one target's RESULT DETAIL — the full seven
+ * test verdicts with durations, messages and per-target re-runs.
+ */
+@Serializable
+data class ExtensionTestingTargetKey(val targetId: Long = 0L) : NavKey
+
+/**
+ * Round 84 (D-583): NavKey for the TESTING STATISTICS page — totals, per-
+ * system pass rates, per-kind durations/failure rates and the run history
+ * (the report: "there should be dedicated stats page for it").
+ */
+@Serializable
+object ExtensionTestingStatsKey : NavKey

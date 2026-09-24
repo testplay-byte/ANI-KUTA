@@ -36,7 +36,9 @@ enum class ExtensionTestKind(
     // D-578: the timeout bounds the WHOLE multi-phrase ladder (custom query +
     // 4 well-known phrases; SearchTest inner-bounds each attempt at 12s), so
     // the round-82 20s cap could cut a legitimately slow source mid-ladder.
-    SEARCH("Search", "Tries the test query + well-known phrases and counts the results", 60_000L),
+    // D-583: 60s was EXACTLY 5×12s (zero headroom — any inter-attempt latency
+    // fired the engine budget mid-ladder); 80s gives the ladder real slack.
+    SEARCH("Search", "Tries the test query + well-known phrases and counts the results", 80_000L),
 
     /** Loads the source's popular / home page. */
     HOME_PAGE("Home page", "Loads the source's popular / home page", 20_000L),
@@ -110,20 +112,25 @@ data class TestableTarget(
 )
 
 /**
- * The per-target run state the UI renders (immutable snapshots — the screen
- * holds a `mutableStateMapOf<Long, TargetRunState>`).
+ * The per-target run state the UI renders (immutable snapshots — the run
+ * controller holds them in its session map).
+ *
+ * D-583: a target the user SKIPPED (or whose run was stopped mid-way after
+ * a Skip) carries [abortedByUser] — it must NOT count as healthy: a verdict
+ * the user cut short is not a passing verdict.
  */
 data class TargetRunState(
     val results: Map<ExtensionTestKind, TestResult> = emptyMap(),
     val runningKind: ExtensionTestKind? = null,
     val isRunning: Boolean = false,
     val finished: Boolean = false,
+    val abortedByUser: Boolean = false,
 ) {
     val passedCount: Int get() = results.values.count { it.status == TestStatus.PASSED }
     val failedCount: Int get() = results.values.count { it.status == TestStatus.FAILED }
     val skippedCount: Int get() = results.values.count { it.status == TestStatus.SKIPPED }
 
-    /** The overall card verdict: all chain tests passed → healthy. */
+    /** The overall card verdict: all chain tests passed AND not user-aborted. */
     val isHealthy: Boolean
-        get() = finished && failedCount == 0 && passedCount > 0
+        get() = finished && !abortedByUser && failedCount == 0 && passedCount > 0
 }

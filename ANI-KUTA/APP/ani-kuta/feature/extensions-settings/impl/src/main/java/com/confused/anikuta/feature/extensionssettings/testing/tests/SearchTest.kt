@@ -8,8 +8,10 @@ import com.confused.anikuta.feature.extensionssettings.testing.SearchPhrase
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
 import com.confused.anikuta.feature.extensionssettings.testing.TestingSearchPhrases
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
@@ -23,7 +25,7 @@ import kotlinx.coroutines.withTimeout
  * NetworkOnMainThreadException almost instantly (the 19/7 ms failures). The
  * CloudStream bridge dispatches internally, which is why CS sources passed
  * while every anime extension "failed". Production search never hits this —
- * SearchViewModel wraps every call in `withContext(Dispatchers.IO)` — and
+ * SearchViewModel wraps every call in `withContext(context.ioDispatcher)` — and
  * now so does this test.
  *
  * THE SMART QUERY LADDER (the user's spec): one query proving nothing means
@@ -57,7 +59,7 @@ class SearchTest : ExtensionTest {
     }
 
     override suspend fun run(context: ExtensionTestContext): TestOutcome =
-        withContext(Dispatchers.IO) {
+        withContext(context.ioDispatcher) {
             // The ladder: the user's custom query (when set) first, then the
             // well-known phrase set. Blank query = smart phrases only.
             val attempts = buildList {
@@ -118,7 +120,16 @@ class SearchTest : ExtensionTest {
                     detail = results.first().title,
                 ),
             )
+        } catch (ce: CancellationException) {
+            // D-583: NEVER eat cancellation — a Stop (or scope death) must
+            // unwind the ladder, not turn it into "every phrase errored".
+            throw ce
         } catch (te: TimeoutCancellationException) {
+            // D-583: the inner attempt timeout and an OUTER cancellation-timeout
+            // are the same class — disambiguate by the coroutine's own liveness:
+            // if THIS coroutine is dead, the TCE belonged to the engine/run
+            // budget and must propagate; otherwise it is this attempt's 12s.
+            if (!currentCoroutineContext().isActive) throw te
             Attempt.Error("timed out after ${ATTEMPT_TIMEOUT_MS / 1000}s on \u201C${phrase.text}\u201D")
         } catch (t: Throwable) {
             // Plugin bytecode can throw ANYTHING (the bridge guard lesson).
@@ -129,7 +140,7 @@ class SearchTest : ExtensionTest {
     private companion object {
         const val RUN_TAG = "Anikuta:Feature:ExtensionsTesting"
 
-        /** Per-attempt bound — 4-5 attempts × 12s stays inside the 60s budget. */
+        /** Per-attempt bound — 4-5 attempts × 12s stays inside the 80s budget. */
         const val ATTEMPT_TIMEOUT_MS = 12_000L
     }
 }

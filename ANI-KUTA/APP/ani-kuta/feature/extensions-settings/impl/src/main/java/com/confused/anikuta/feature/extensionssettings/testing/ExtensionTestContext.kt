@@ -3,6 +3,8 @@ package com.confused.anikuta.feature.extensionssettings.testing
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import okhttp3.Headers
 
 /**
@@ -26,6 +28,17 @@ class ExtensionTestContext(
     /** The query the Search test runs (user-configurable on the screen). */
     val searchQuery: String,
 ) {
+    /**
+     * D-583: the dispatcher the tests route their BLOCKING work through.
+     * The engine points it at each kind's DEDICATED isolation thread before
+     * running the kind — so an interruptible-blocking call (synchronous
+     * OkHttp) sits on the thread [TestIsolation] can interrupt, and a
+     * timeout/skip/stop actually aborts the socket work instead of
+     * abandoning a zombie on the shared IO pool. Defaults to the shared IO
+     * pool (the round-83 behavior) for anything outside a kind run.
+     */
+    var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+
     /** First anime from SEARCH (preferred) or HOME_PAGE (fallback). */
     var foundAnime: SAnime? = null
 

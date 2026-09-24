@@ -5,7 +5,6 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestCont
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
 import com.confused.anikuta.feature.extensionssettings.testing.TestTimeFormat
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -26,7 +25,7 @@ class StreamPlayTest(
     override val requiresAnyOf = setOf(ExtensionTestKind.VIDEO_RESOLVE)
 
     override suspend fun run(context: ExtensionTestContext): TestOutcome =
-        withContext(Dispatchers.IO) {
+        withContext(context.ioDispatcher) {
             val url = context.resolvedVideoUrl
                 ?: return@withContext TestOutcome.skip("No resolved stream URL to test")
             if (!(url.startsWith("http://") || url.startsWith("https://"))) {

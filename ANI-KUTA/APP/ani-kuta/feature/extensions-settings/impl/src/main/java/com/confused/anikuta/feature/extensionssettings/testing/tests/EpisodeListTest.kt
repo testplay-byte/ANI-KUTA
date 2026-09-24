@@ -5,12 +5,11 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestCont
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * EPISODE LIST (round 82, D-576; IO-fixed round 83, D-578): loads the episode
- * list for the chain's test anime. The source call runs on [Dispatchers.IO] —
+ * list for the chain's test anime. The source call runs on the context's isolation dispatcher (D-583) —
  * the round-82 Main-thread call threw NetworkOnMainThreadException on real
  * aniyomi extensions (see SearchTest's header for the full anatomy). Passes
  * when ≥1 episode comes back — the list lands in the context for
@@ -27,7 +26,7 @@ class EpisodeListTest : ExtensionTest {
     )
 
     override suspend fun run(context: ExtensionTestContext): TestOutcome =
-        withContext(Dispatchers.IO) {
+        withContext(context.ioDispatcher) {
             val anime = context.foundAnime
                 ?: return@withContext TestOutcome.skip("No anime found — search and home page both failed")
             val episodes = context.source.getEpisodeList(anime)

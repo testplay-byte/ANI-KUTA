@@ -102,7 +102,15 @@ import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionTestingKey
-import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestingScreen
+import com.confused.anikuta.feature.extensionssettings.ExtensionTestingListKey
+import com.confused.anikuta.feature.extensionssettings.ExtensionTestingRunKey
+import com.confused.anikuta.feature.extensionssettings.ExtensionTestingTargetKey
+import com.confused.anikuta.feature.extensionssettings.ExtensionTestingStatsKey
+import com.confused.anikuta.feature.extensionssettings.testing.TestingHomeScreen
+import com.confused.anikuta.feature.extensionssettings.testing.TestingTargetListScreen
+import com.confused.anikuta.feature.extensionssettings.testing.TestingRunScreen
+import com.confused.anikuta.feature.extensionssettings.testing.TestingTargetDetailScreen
+import com.confused.anikuta.feature.extensionssettings.testing.TestingStatsScreen
 import com.confused.anikuta.feature.watch.WatchKey
 import com.confused.anikuta.feature.cswatch.api.CsWatchKey
 import com.confused.anikuta.feature.watch.WatchScreen
@@ -795,6 +803,27 @@ fun AppRoot() {
 
     val pop: () -> Unit = {
         if (backstack.size > 1) backstack.removeAt(backstack.lastIndex)
+    }
+
+    // Round 84 (D-583): the TESTING pages' push helper. The nav
+    // SaveableStateProvider keys by class.simpleName — two keys of the same
+    // class anywhere in the backstack simultaneously = the Task-62 "Key …
+    // used multiple times" crash. The testing system has FIVE pages and
+    // several paths that can push the same page class twice (a target
+    // detail's re-run pushing the Run page that already sits below it; rapid
+    // double-taps) — so every testing push routes through here: a NEW key is
+    // added; an EXISTING one is revealed (everything above popped) and, when
+    // the payload differs, re-payloaded in place.
+    val pushTesting: (com.confused.anikuta.core.navigation.NavKey) -> Unit = { key ->
+        val idx = backstack.indexOfFirst { it::class == key::class }
+        when {
+            idx < 0 -> backstack.add(key)
+            backstack[idx] == key -> while (backstack.size > idx + 1) backstack.removeAt(backstack.lastIndex)
+            else -> {
+                while (backstack.size > idx + 1) backstack.removeAt(backstack.lastIndex)
+                backstack[idx] = key
+            }
+        }
     }
 
     // BackHandler: handle device back gesture properly
@@ -1568,9 +1597,35 @@ fun AppRoot() {
             is ExtensionRepoSettingsKey -> ExtensionRepoSettingsScreen(
                 onBack = pop,
             )
-            // Round 82 (D-576): the extension TESTING suite screen.
-            is ExtensionTestingKey -> ExtensionTestingScreen(
+            // Round 84 (D-583): the extension testing system is now FIVE
+            // pages — Home (this key) / per-system list / Run / target
+            // detail / Stats. All testing pushes go through [pushTesting]
+            // (the duplicate-class crash guard).
+            is ExtensionTestingKey -> TestingHomeScreen(
                 onBack = pop,
+                onOpenSystem = { eco -> pushTesting(ExtensionTestingListKey(ecosystem = eco)) },
+                onOpenRun = { pushTesting(ExtensionTestingRunKey()) },
+                onOpenStats = { pushTesting(ExtensionTestingStatsKey) },
+            )
+            is ExtensionTestingListKey -> TestingTargetListScreen(
+                ecosystem = currentKey.ecosystem,
+                onBack = pop,
+                onOpenRun = { csv -> pushTesting(ExtensionTestingRunKey(targetIdsCsv = csv)) },
+                onOpenTarget = { id -> pushTesting(ExtensionTestingTargetKey(targetId = id)) },
+            )
+            is ExtensionTestingRunKey -> TestingRunScreen(
+                targetIdsCsv = currentKey.targetIdsCsv,
+                onBack = pop,
+                onOpenTarget = { id -> pushTesting(ExtensionTestingTargetKey(targetId = id)) },
+            )
+            is ExtensionTestingTargetKey -> TestingTargetDetailScreen(
+                targetId = currentKey.targetId,
+                onBack = pop,
+                onOpenRunForTarget = { csv -> pushTesting(ExtensionTestingRunKey(targetIdsCsv = csv)) },
+            )
+            is ExtensionTestingStatsKey -> TestingStatsScreen(
+                onBack = pop,
+                onOpenTarget = { id -> pushTesting(ExtensionTestingTargetKey(targetId = id)) },
             )
             is AutoLinkSettingsKey -> AutoLinkSettingsScreen(
                 onBack = pop,

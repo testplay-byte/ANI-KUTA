@@ -5,7 +5,6 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestCont
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
 import com.confused.anikuta.feature.extensionssettings.testing.TestTimeFormat
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -25,7 +24,7 @@ class PingTest(
     override val requiresAnyOf = emptySet<ExtensionTestKind>()
 
     override suspend fun run(context: ExtensionTestContext): TestOutcome =
-        withContext(Dispatchers.IO) {
+        withContext(context.ioDispatcher) {
             val base = context.target.baseUrl
             if (base.isNullOrBlank() || !(base.startsWith("http://") || base.startsWith("https://"))) {
                 return@withContext TestOutcome.fail("No site URL to ping")

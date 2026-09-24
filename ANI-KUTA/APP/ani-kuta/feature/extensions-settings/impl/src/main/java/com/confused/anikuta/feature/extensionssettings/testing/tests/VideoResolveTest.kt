@@ -9,7 +9,6 @@ import com.confused.anikuta.feature.extensionssettings.testing.TestEcosystem
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Headers
 
@@ -50,12 +49,12 @@ class VideoResolveTest(
         }
     }
 
-    // ── Aniyomi: source.getVideoList (Dispatchers.IO — D-578) ───────────────
+    // ── Aniyomi: source.getVideoList (the context isolation dispatcher — D-578/D-583) ───────────────
 
     private suspend fun resolveAniyomi(
         context: ExtensionTestContext,
         episode: SEpisode,
-    ): TestOutcome = withContext(Dispatchers.IO) {
+    ): TestOutcome = withContext(context.ioDispatcher) {
         val httpSource = context.source as? AnimeHttpSource
             ?: return@withContext TestOutcome.fail("Source is not an HTTP source — cannot resolve videos")
         val videos = httpSource.getVideoList(episode)

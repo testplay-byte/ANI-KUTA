@@ -6,12 +6,11 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
 
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * HOME PAGE (round 82, D-576; IO-fixed round 83, D-578): loads the source's
- * popular / home page. The source call runs on [Dispatchers.IO] — the round-82
+ * popular / home page. The source call runs on the context's isolation dispatcher (D-583) — the round-82
  * Main-thread call threw NetworkOnMainThreadException on real aniyomi
  * extensions (the 7 ms failure; see SearchTest's header for the full anatomy).
  * Passes when ≥1 entry renders. If SEARCH failed, this test's first entry
@@ -24,7 +23,7 @@ class HomePageTest : ExtensionTest {
     override val requiresAnyOf = emptySet<ExtensionTestKind>()
 
     override suspend fun run(context: ExtensionTestContext): TestOutcome =
-        withContext(Dispatchers.IO) {
+        withContext(context.ioDispatcher) {
             val page: AnimesPage = context.source.getPopularAnime(1)
             val entries = page.animes
             if (entries.isEmpty()) {

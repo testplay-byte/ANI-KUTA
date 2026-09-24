@@ -14,8 +14,15 @@ import org.json.JSONObject
  * STORAGE SHAPE: one JSON document per target under the
  * "extension_test_results" SharedPreferences file —
  *   key   = "run-<targetId>"
- *   value = { targetId, targetName, ecosystem, finished, testedAtMs,
- *             results: { "<KindName>": { status, durationMs, message, detail } } }
+ *   value = { targetId, targetName, ecosystem, finished, abortedByUser,
+ *             testedAtMs, results: { "<KindName>": { status, durationMs,
+ *             message, detail } } }
+ * plus ONE history document under the "history" key (NOT "run-" prefixed —
+ * [loadAll]/[prune] filter by the prefix and stay untouched):
+ *   { entries: [ { startedAtMs, finishedAtMs, scope, label, totalTargets,
+ *                 passed, failed, aborted,
+ *                 kinds: { "<KindName>": { avgMs, failCount, runCount } } } ] }
+ * newest first, capped at [HISTORY_CAP].
  *
  * WHY SharedPreferences + org.json (and NOT SQLDelight/DataStore): the data
  * is tiny (dozens of targets × 7 tests), self-contained to this feature, and
@@ -38,6 +45,8 @@ class ExtensionTestResultStore(context: Context) {
         private const val TAG = "Anikuta:Feature:ExtensionsTesting"
         private const val PREFS_NAME = "extension_test_results"
         private const val KEY_PREFIX = "run-"
+        private const val KEY_HISTORY = "history"
+        private const val HISTORY_CAP = 40
     }
 
     private val prefs: SharedPreferences =
@@ -50,7 +59,28 @@ class ExtensionTestResultStore(context: Context) {
         val ecosystem: String,
         val finished: Boolean,
         val testedAtMs: Long,
-        val results: Map<ExtensionTestKind, TestResult>,
+        val abortedByUser: Boolean = false,
+        val results: Map<ExtensionTestKind, TestResult> = emptyMap(),
+    )
+
+    /** One per-kind aggregate for the run history (computed by the controller). */
+    data class StoredKindStat(
+        val avgMs: Long,
+        val failCount: Int,
+        val runCount: Int,
+    )
+
+    /** One persisted RUN summary (the stats page's history feed). */
+    data class StoredRunSummary(
+        val startedAtMs: Long,
+        val finishedAtMs: Long,
+        val scope: String,
+        val label: String,
+        val totalTargets: Int,
+        val passed: Int,
+        val failed: Int,
+        val aborted: Int,
+        val kinds: Map<String, StoredKindStat>,
     )
 
     // ── Read ─────────────────────────────────────────────────────────────────
@@ -102,6 +132,7 @@ class ExtensionTestResultStore(context: Context) {
             ecosystem = root.optString("ecosystem", ""),
             finished = root.optBoolean("finished", false),
             testedAtMs = root.optLong("testedAtMs", 0L),
+            abortedByUser = root.optBoolean("abortedByUser", false),
             results = results,
         )
     }
@@ -115,6 +146,7 @@ class ExtensionTestResultStore(context: Context) {
         root.put("targetName", target.name)
         root.put("ecosystem", target.ecosystem.name)
         root.put("finished", state.finished)
+        root.put("abortedByUser", state.abortedByUser)
         root.put("testedAtMs", System.currentTimeMillis())
         val resultsJson = JSONObject()
         state.results.forEach { (kind, result) ->
@@ -147,9 +179,98 @@ class ExtensionTestResultStore(context: Context) {
 
     /** Wipes all stored results (the screen's "Clear results" action). */
     fun clear() {
-        val keys = prefs.all.keys.filter { it.startsWith(KEY_PREFIX) }
+        val keys = prefs.all.keys.filter { it.startsWith(KEY_PREFIX) } + KEY_HISTORY
         prefs.edit().apply {
             keys.forEach { remove(it) }
         }.apply()
+    }
+
+    // ── Run history (round 84, D-583 — the stats page's feed) ───────────────
+
+    /**
+     * Appends one run summary (newest first, capped at [HISTORY_CAP]). A
+     * parse failure anywhere never throws to the caller — a broken blob is
+     * replaced by a fresh history rather than blocking the write.
+     */
+    fun appendHistory(entry: StoredRunSummary) {
+        val entries = try {
+            readHistoryJson().toMutableList()
+        } catch (e: Exception) {
+            Logger.w(TAG) { "Result store: history unreadable, starting fresh" }
+            mutableListOf()
+        }
+        entries.add(0, entry)
+        val capped = entries.take(HISTORY_CAP)
+        prefs.edit()
+            .putString(KEY_HISTORY, historyToJson(capped).toString())
+            .apply()
+    }
+
+    /** The persisted run history, newest first (empty on any parse trouble). */
+    fun loadHistory(): List<StoredRunSummary> = try {
+        readHistoryJson()
+    } catch (e: Exception) {
+        Logger.w(TAG) { "Result store: history unreadable, returning empty" }
+        emptyList()
+    }
+
+    private fun readHistoryJson(): List<StoredRunSummary> {
+        val raw = prefs.getString(KEY_HISTORY, null) ?: return emptyList()
+        val root = JSONObject(raw)
+        val arr = root.optJSONArray("entries") ?: return emptyList()
+        val out = mutableListOf<StoredRunSummary>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val kindsJson = o.optJSONObject("kinds") ?: JSONObject()
+            val kinds = mutableMapOf<String, StoredKindStat>()
+            kindsJson.keys().forEach { kindName ->
+                val k = kindsJson.getJSONObject(kindName)
+                kinds[kindName] = StoredKindStat(
+                    avgMs = k.optLong("avgMs", 0L),
+                    failCount = k.optInt("failCount", 0),
+                    runCount = k.optInt("runCount", 0),
+                )
+            }
+            out.add(
+                StoredRunSummary(
+                    startedAtMs = o.optLong("startedAtMs", 0L),
+                    finishedAtMs = o.optLong("finishedAtMs", 0L),
+                    scope = o.optString("scope", "all"),
+                    label = o.optString("label", ""),
+                    totalTargets = o.optInt("totalTargets", 0),
+                    passed = o.optInt("passed", 0),
+                    failed = o.optInt("failed", 0),
+                    aborted = o.optInt("aborted", 0),
+                    kinds = kinds,
+                ),
+            )
+        }
+        return out
+    }
+
+    private fun historyToJson(entries: List<StoredRunSummary>): JSONObject {
+        val arr = org.json.JSONArray()
+        entries.forEach { e ->
+            val o = JSONObject()
+            o.put("startedAtMs", e.startedAtMs)
+            o.put("finishedAtMs", e.finishedAtMs)
+            o.put("scope", e.scope)
+            o.put("label", e.label)
+            o.put("totalTargets", e.totalTargets)
+            o.put("passed", e.passed)
+            o.put("failed", e.failed)
+            o.put("aborted", e.aborted)
+            val kinds = JSONObject()
+            e.kinds.forEach { (name, stat) ->
+                val k = JSONObject()
+                k.put("avgMs", stat.avgMs)
+                k.put("failCount", stat.failCount)
+                k.put("runCount", stat.runCount)
+                kinds.put(name, k)
+            }
+            o.put("kinds", kinds)
+            arr.put(o)
+        }
+        return JSONObject().put("entries", arr)
     }
 }
