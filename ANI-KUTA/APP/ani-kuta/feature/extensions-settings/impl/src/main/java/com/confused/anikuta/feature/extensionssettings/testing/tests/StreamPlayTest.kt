@@ -4,6 +4,7 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTest
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestContext
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
+import com.confused.anikuta.feature.extensionssettings.testing.TestTimeFormat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -66,7 +67,7 @@ class StreamPlayTest(
                     if (bytes > 0) {
                         TestOutcome.pass(
                             "Stream answered HTTP ${response.code} and delivered " +
-                                "${formatBytes(bytes)} in $durationMs ms",
+                                "${formatBytes(bytes)} in ${TestTimeFormat.format(durationMs)}",
                             detail = context.resolvedVideoLabel,
                         )
                     } else {

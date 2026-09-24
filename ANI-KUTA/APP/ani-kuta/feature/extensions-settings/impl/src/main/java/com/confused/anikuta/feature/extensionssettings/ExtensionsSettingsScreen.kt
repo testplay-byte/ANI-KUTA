@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -308,28 +309,34 @@ fun ExtensionsSettingsScreen(
                             },
                         )
                     } else {
-                        // Round 82 (D-572): labeled PILLS with a proper gap
-                        // (was: two bare circular icon buttons jammed together).
+                        // Round 83 (D-578): ICON-ONLY pills per the device report
+                        // ("no need to show the text with the filters and
+                        // settings — just show the icons, pill-shaped") — and the
+                        // Extension Testing entry is now the first pill in the
+                        // row (the user's original spec: top-right of the
+                        // Extensions title, alongside Filters and Settings),
+                        // replacing the round-82 banner that consumed a whole
+                        // list slot.
+                        HeaderPillButton(
+                            icon = Icons.Filled.Science,
+                            contentDescription = "Extension testing",
+                            onClick = onOpenExtensionTesting,
+                        )
+                        Spacer(Modifier.width(8.dp))
                         HeaderPillButton(
                             icon = Icons.Filled.FilterList,
-                            label = "Filters",
+                            contentDescription = "Filters",
                             active = showFilters,
                             onClick = { showFilters = !showFilters },
                         )
                         Spacer(Modifier.width(8.dp))
                         HeaderPillButton(
                             icon = Icons.Filled.Settings,
-                            label = "Settings",
+                            contentDescription = "Settings",
                             onClick = onOpenRepoSettings,
                         )
                     }
                 },
-            )
-
-            // ── Round 82 (D-576): the EXTENSION TESTING entry — the very top
-            // of the Extensions section leads to the testing suite screen. ──
-            ExtensionTestingEntry(
-                onClick = onOpenExtensionTesting,
             )
 
             // ── Task 41: source tabs (only when both systems have content) ──
@@ -684,7 +691,9 @@ private fun ExtensionFiltersBar(
                         onClick = { searchMode = true },
                     )
 
-                    // Language pill — proper capped scrollable menu (D-572).
+                    // Language pill — proper capped scrollable menu (D-572);
+                    // Round 83 (D-578): styled menu — rounded container, a
+                    // header row, and the active language tinted + checked.
                     if (languages.isNotEmpty()) {
                         Box {
                             FilterPill(
@@ -698,22 +707,61 @@ private fun ExtensionFiltersBar(
                                 onDismissRequest = { showLangMenu = false },
                                 // The cap is the whole fix: the menu scrolls
                                 // internally instead of covering the screen.
-                                modifier = Modifier.heightIn(max = 320.dp),
+                                modifier = Modifier.heightIn(max = 360.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                tonalElevation = 3.dp,
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("All languages", fontFamily = RobotoFamily) },
-                                    onClick = { onLangFilterChange(null); showLangMenu = false },
-                                    trailingIcon = if (langFilter == null) {
-                                        { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                                    } else null,
+                                    text = {
+                                        Text(
+                                            "Filter by language",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    onClick = {},
+                                    enabled = false,
                                 )
                                 HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "All languages",
+                                            fontFamily = RobotoFamily,
+                                            fontWeight = if (langFilter == null) FontWeight.ExtraBold else FontWeight.Normal,
+                                            color = if (langFilter == null) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurface
+                                            },
+                                        )
+                                    },
+                                    onClick = { onLangFilterChange(null); showLangMenu = false },
+                                    trailingIcon = if (langFilter == null) {
+                                        { Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)) }
+                                    } else null,
+                                )
                                 languages.forEach { lang ->
+                                    val isActive = langFilter == lang
                                     DropdownMenuItem(
-                                        text = { Text(lang, fontFamily = RobotoFamily) },
+                                        text = {
+                                            Text(
+                                                lang,
+                                                fontFamily = RobotoFamily,
+                                                fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Normal,
+                                                color = if (isActive) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurface
+                                                },
+                                            )
+                                        },
                                         onClick = { onLangFilterChange(lang); showLangMenu = false },
-                                        trailingIcon = if (langFilter == lang) {
-                                            { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                        trailingIcon = if (isActive) {
+                                            { Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)) }
                                         } else null,
                                     )
                                 }
@@ -721,7 +769,9 @@ private fun ExtensionFiltersBar(
                         }
                     }
 
-                    // Sort pill — tapping the ACTIVE mode flips ↑/↓ (D-572).
+                    // Sort pill — tapping the ACTIVE mode flips ↑/↓ (D-572);
+                    // Round 83 (D-578): styled menu with a direction header and
+                    // the active mode tinted + arrowed.
                     Box {
                         FilterPill(
                             icon = Icons.Filled.Sort,
@@ -729,11 +779,42 @@ private fun ExtensionFiltersBar(
                             active = true,
                             onClick = { showSortMenu = true },
                         )
-                        DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false },
+                            shape = RoundedCornerShape(16.dp),
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tonalElevation = 3.dp,
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Sort by — ${if (sortAscending) "ascending \u2191" else "descending \u2193"}",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                onClick = {},
+                                enabled = false,
+                            )
+                            HorizontalDivider()
                             ExtensionSortMode.entries.forEach { mode ->
                                 val isActive = sortMode == mode
                                 DropdownMenuItem(
-                                    text = { Text(mode.label, fontFamily = RobotoFamily) },
+                                    text = {
+                                        Text(
+                                            mode.label,
+                                            fontFamily = RobotoFamily,
+                                            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Normal,
+                                            color = if (isActive) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurface
+                                            },
+                                        )
+                                    },
                                     onClick = {
                                         if (isActive) {
                                             // Already active → flip the direction.
@@ -755,19 +836,6 @@ private fun ExtensionFiltersBar(
                                     } else null,
                                 )
                             }
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "Tap the active sort to flip \u2191/\u2193",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                onClick = {},
-                                enabled = false,
-                            )
                         }
                     }
 
@@ -788,6 +856,11 @@ private fun ExtensionFiltersBar(
  * Round 82 (D-572): the dedicated search view — back pill + auto-focused
  * field + clear. Replaces the resting pills row while open (AnimatedContent
  * in [ExtensionFiltersBar]); the query survives both ways.
+ *
+ * Round 83 (D-578): the field gained a real BORDER (an outline-pill look
+ * instead of the flat fill), a taller touch field and a boxed clear button —
+ * the device report: "the search bar looks good, but the UI of it can be
+ * improved much better".
  */
 @Composable
 private fun DedicatedSearchField(
@@ -798,72 +871,87 @@ private fun DedicatedSearchField(
 ) {
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // Back — returns to the pills row (the query is kept).
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onBack),
+            contentAlignment = Alignment.Center,
         ) {
-            // Back — returns to the pills row (the query is kept).
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onBack),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.ArrowBack,
-                    contentDescription = "Back to filters",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            Spacer(Modifier.width(4.dp))
-            BasicTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f).focusRequester(focusRequester),
-                textStyle = TextStyle(
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onDone() }),
-                singleLine = true,
-                decorationBox = { innerTextField ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (query.isEmpty()) {
-                            Text(
-                                text = "Search extensions\u2026",
-                                fontFamily = RobotoFamily,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        innerTextField()
-                    }
-                },
+            Icon(
+                imageVector = Icons.Filled.ArrowBack,
+                contentDescription = "Back to filters",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(19.dp),
             )
-            if (query.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .clickable { onQueryChange("") },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "Clear search",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp),
-                    )
+        }
+        Spacer(Modifier.width(6.dp))
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(50),
+            modifier = Modifier
+                .weight(1f)
+                .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+                    RoundedCornerShape(50),
+                ),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    modifier = Modifier.weight(1f).focusRequester(focusRequester).padding(vertical = 11.dp),
+                    textStyle = TextStyle(
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onDone() }),
+                    singleLine = true,
+                    decorationBox = { innerTextField ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (query.isEmpty()) {
+                                Text(
+                                    text = "Search extensions\u2026",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+                if (query.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                            .clickable { onQueryChange("") },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Clear search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
                 }
             }
         }
@@ -915,15 +1003,16 @@ private fun FilterPill(
 }
 
 /**
- * Round 82 (D-572): the screen-header pill (icon + label) — replaced the bare
- * circular icon buttons for Filters / Settings. [active] tints the pill while
- * the filters bar is open. The gap between the two pills is the header Row's
- * explicit 8dp Spacer.
+ * Round 82 (D-572) / Round 83 (D-578): the screen-header pill — ICON-ONLY in
+ * a rounded-full surface (the device report: "no need to show the text with
+ * the filters and settings. You can just show the icons for them and make
+ * them pill-shaped"). [active] tints the pill while the filters bar is open.
+ * The gaps between the pills are the header Row's explicit 8dp Spacers.
  */
 @Composable
 private fun HeaderPillButton(
     icon: ImageVector,
-    label: String,
+    contentDescription: String,
     active: Boolean = false,
     onClick: () -> Unit,
 ) {
@@ -936,24 +1025,15 @@ private fun HeaderPillButton(
         shape = RoundedCornerShape(50),
         onClick = onClick,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier.padding(9.dp),
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = icon,
-                contentDescription = label,
+                contentDescription = contentDescription,
                 tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(15.dp),
-            )
-            Spacer(Modifier.width(5.dp))
-            Text(
-                text = label,
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                modifier = Modifier.size(17.dp),
             )
         }
     }
@@ -1276,64 +1356,9 @@ private fun HeaderIconButton(
 }
 
 /**
- * Round 82 (D-576): the EXTENSION TESTING entry banner — the first thing
- * under the Extensions header. Tapping it opens the testing suite screen
- * (ExtensionTestingKey): ping / search / home page / details / episodes /
- * video resolve / stream play, per source, across BOTH ecosystems.
+ * Round 82 (D-576): the EXTENSION TESTING entry banner — REMOVED in round 83
+ * (D-578): the entry now lives in the header as the icon-only Science pill
+ * (the user's original placement spec), freeing the list slot the banner
+ * consumed.
  */
-@Composable
-private fun ExtensionTestingEntry(onClick: () -> Unit) {
-    Surface(
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clickable(onClick = onClick),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Science,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(19.dp),
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Extension testing",
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "Ping, search, playback & more — see which sources work",
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
-            }
-            Icon(
-                imageVector = Icons.Filled.ChevronRight,
-                contentDescription = "Open extension testing",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-    }
-}
 

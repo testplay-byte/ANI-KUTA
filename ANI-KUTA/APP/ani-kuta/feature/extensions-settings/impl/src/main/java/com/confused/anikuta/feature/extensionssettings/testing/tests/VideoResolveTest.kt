@@ -7,7 +7,10 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestCont
 import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestEcosystem
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
+import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.Headers
 
 /**
@@ -23,6 +26,12 @@ import okhttp3.Headers
  *   plays through. The first LinksSnapshot's usable link wins.
  *
  * Passes when ≥1 usable stream URL lands in the context for STREAM_PLAY.
+ *
+ * ROUND 83 (D-578): the ANIYOMI path runs `getVideoList` on [Dispatchers.IO]
+ * — the round-82 Main-thread call threw NetworkOnMainThreadException on real
+ * extensions (the same anatomy as the Search test's 19 ms failures). The
+ * CloudStream path needs no wrapper — the resolver's flow dispatches
+ * internally, which is why CS resolve tests passed from day one.
  */
 class VideoResolveTest(
     private val csResolver: CloudstreamLinkResolver,
@@ -41,17 +50,17 @@ class VideoResolveTest(
         }
     }
 
-    // ── Aniyomi: source.getVideoList ────────────────────────────────────────
+    // ── Aniyomi: source.getVideoList (Dispatchers.IO — D-578) ───────────────
 
     private suspend fun resolveAniyomi(
         context: ExtensionTestContext,
-        episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
-    ): TestOutcome {
+        episode: SEpisode,
+    ): TestOutcome = withContext(Dispatchers.IO) {
         val httpSource = context.source as? AnimeHttpSource
-            ?: return TestOutcome.fail("Source is not an HTTP source — cannot resolve videos")
+            ?: return@withContext TestOutcome.fail("Source is not an HTTP source — cannot resolve videos")
         val videos = httpSource.getVideoList(episode)
         if (videos.isEmpty()) {
-            return TestOutcome.fail("Source returned no videos for \u201C${episode.name}\u201D")
+            return@withContext TestOutcome.fail("Source returned no videos for \u201C${episode.name}\u201D")
         }
         val video = videos.first()
         context.resolvedVideoUrl = video.videoUrl
@@ -59,7 +68,7 @@ class VideoResolveTest(
         context.resolvedVideoLabel = video.videoTitle.ifBlank {
             video.resolution?.let { "${it}p" } ?: "first video"
         }
-        return TestOutcome.pass(
+        TestOutcome.pass(
             "${videos.size} video${if (videos.size == 1) "" else "s"} — first: ${context.resolvedVideoLabel}",
         )
     }

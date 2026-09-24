@@ -1542,6 +1542,11 @@ fun DetailsScreen(
             availableSources = availableSources,
             manualSearchState = manualSearchState,
             initialQuery = (state as? DetailsState.Success)?.anime?.displayName ?: "",
+            // D-578: the currently linked source pre-selects + marks its row
+            // (id match, name fallback) — the sheet used to open on the first
+            // row of each wheel, unrelated to the actual link.
+            linkedSourceId = effectiveLinkedSource?.sourceId,
+            linkedSourceName = effectiveLinkedSource?.sourceName,
             onSearch = { source, query -> viewModel.searchSource(source, query) },
             onLink = { source, sAnime ->
                 viewModel.linkSource(source, sAnime)

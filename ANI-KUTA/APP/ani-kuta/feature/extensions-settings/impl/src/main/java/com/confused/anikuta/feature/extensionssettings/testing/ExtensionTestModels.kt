@@ -33,7 +33,10 @@ enum class ExtensionTestKind(
     PING("Ping", "Reaches the source's site and measures the round trip", 15_000L),
 
     /** Runs the configured query through the source's search. */
-    SEARCH("Search", "Runs a search query and counts the results", 20_000L),
+    // D-578: the timeout bounds the WHOLE multi-phrase ladder (custom query +
+    // 4 well-known phrases; SearchTest inner-bounds each attempt at 12s), so
+    // the round-82 20s cap could cut a legitimately slow source mid-ladder.
+    SEARCH("Search", "Tries the test query + well-known phrases and counts the results", 60_000L),
 
     /** Loads the source's popular / home page. */
     HOME_PAGE("Home page", "Loads the source's popular / home page", 20_000L),
