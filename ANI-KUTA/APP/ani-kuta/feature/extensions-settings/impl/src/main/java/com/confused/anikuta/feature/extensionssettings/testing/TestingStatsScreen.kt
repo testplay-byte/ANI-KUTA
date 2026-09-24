@@ -126,7 +126,9 @@ fun TestingStatsScreen(
     val primaryColor = MaterialTheme.colorScheme.primary
     val errorColor = MaterialTheme.colorScheme.error
     val restColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-    val tertiaryColor = MaterialTheme.colorScheme.tertiary
+    // ROUND 87 (D-594): the second system color is the FIXED sky hue — the
+    // un-themed Material-baseline tertiary (pale pink) collided with error.
+    val tertiaryColor = TestingPalette.SystemB
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {

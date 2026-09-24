@@ -9,6 +9,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,6 +42,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -126,7 +130,9 @@ internal fun TargetStatusChip(
 ) {
     val (label, color, alpha) = when {
         queued && (state == null || (!state.finished && !state.isRunning)) ->
-            Triple("Queued", MaterialTheme.colorScheme.tertiary, 0.85f)
+            // ROUND 87 (D-594): neutral gray — the old Material-baseline
+            // tertiary (pale pink) read as a third system color.
+            Triple("Queued", MaterialTheme.colorScheme.onSurfaceVariant, 0.8f)
         state == null || (!state.finished && !state.isRunning && state.results.isEmpty()) ->
             Triple("Untested", MaterialTheme.colorScheme.onSurfaceVariant, 0.55f)
         state.isRunning -> Triple("Testing…", MaterialTheme.colorScheme.primary, 0.9f)
@@ -157,8 +163,14 @@ internal fun TargetStatusChip(
 }
 
 /**
- * The animated pass/fail/untested proportion bar (moved from the round-83
- * summary card) — three weight segments, spring-animated.
+ * The animated pass/fail/untested proportion bar (the round-83 summary
+ * card's, reworked round 87 D-594):
+ *   • the TRACK is VISIBLE on its own (the round-87 report: an all-untested
+ *     bar "blends into the background" — now a lit track + a hairline ring),
+ *   • the untested segment gets a REAL fill (no more empty gap),
+ *   • the segment colors are PARAMETER so a system card can paint its own
+ *     ecosystem's hues,
+ *   • 2dp gaps let the track show through as hairline dividers.
  */
 @Composable
 internal fun ProportionBar(
@@ -166,6 +178,8 @@ internal fun ProportionBar(
     failedCount: Int,
     untestedCount: Int,
     modifier: Modifier = Modifier,
+    passedColor: Color = MaterialTheme.colorScheme.primary,
+    failedColor: Color = MaterialTheme.colorScheme.error,
 ) {
     val total = (passedCount + failedCount + untestedCount).coerceAtLeast(1)
     val passedWeight by animateFloatAsState(
@@ -180,36 +194,36 @@ internal fun ProportionBar(
     )
     val restWeight = (1f - passedWeight - failedWeight).coerceAtLeast(0f)
     Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
         modifier = modifier
             .fillMaxWidth()
             .height(10.dp)
             .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            .border(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f), RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.20f)),
     ) {
         if (passedCount > 0) {
             Box(
                 modifier = Modifier
                     .weight(passedWeight.coerceAtLeast(0.01f))
-                    .fillMaxWidth()
-                    .height(10.dp)
-                    .background(MaterialTheme.colorScheme.primary),
+                    .fillMaxHeight()
+                    .background(passedColor),
             )
         }
         if (failedCount > 0) {
             Box(
                 modifier = Modifier
                     .weight(failedWeight.coerceAtLeast(0.01f))
-                    .fillMaxWidth()
-                    .height(10.dp)
-                    .background(MaterialTheme.colorScheme.error),
+                    .fillMaxHeight()
+                    .background(failedColor),
             )
         }
         if (untestedCount > 0) {
             Box(
                 modifier = Modifier
                     .weight(restWeight.coerceAtLeast(0.01f))
-                    .fillMaxWidth()
-                    .height(10.dp),
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)),
             )
         }
     }
@@ -262,9 +276,47 @@ internal fun TargetLetterTile(name: String, size: Dp = 40.dp) {
 }
 
 /**
+ * THE LIVE ELAPSED TIMER (round 87, D-597) — one shared ticker for every
+ * place a RUNNING test must show its live elapsed time. The round-87 device
+ * report: the run page and the detail page froze at "0 ms" while a test ran
+ * (the engine's RUNNING emission carries durationMs = 0, and only the list
+ * page had a ticker). The controller ALREADY publishes the kind's wall-clock
+ * start (`runningKindStartedAtMs`) — this composable just ticks against it.
+ */
+@Composable
+internal fun LiveElapsedText(
+    startedAtMs: Long,
+    color: Color,
+    modifier: Modifier = Modifier,
+    fontSize: androidx.compose.ui.unit.TextUnit = 11.sp,
+    fontWeight: FontWeight = FontWeight.ExtraBold,
+) {
+    var elapsedMs by remember(startedAtMs) {
+        mutableLongStateOf(System.currentTimeMillis() - startedAtMs)
+    }
+    LaunchedEffect(startedAtMs) {
+        while (true) {
+            elapsedMs = System.currentTimeMillis() - startedAtMs
+            delay(200)
+        }
+    }
+    Text(
+        text = TestTimeFormat.format(elapsedMs),
+        fontFamily = RobotoFamily,
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        color = color,
+        modifier = modifier,
+    )
+}
+
+/**
  * One test's one-line result row (the kind icon + label + duration +
  * short message) — the same anatomy in the Run page, the list expansion
  * and the detail page.
+ *
+ * ROUND 87 (D-597): pass [runningStartedAtMs] and the RUNNING row's
+ * duration slot ticks LIVE instead of freezing at "0 ms".
  */
 @Composable
 internal fun KindResultRow(
@@ -272,6 +324,7 @@ internal fun KindResultRow(
     result: TestResult?,
     modifier: Modifier = Modifier,
     messageMaxLines: Int = 1,
+    runningStartedAtMs: Long? = null,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -287,13 +340,22 @@ internal fun KindResultRow(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.width(84.dp),
         )
-        Text(
-            text = result?.let { TestTimeFormat.format(it.durationMs) } ?: "—",
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(62.dp),
-        )
+        val running = result?.status == TestStatus.RUNNING && runningStartedAtMs != null
+        if (running) {
+            LiveElapsedText(
+                startedAtMs = runningStartedAtMs!!,  // checked above
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.width(62.dp),
+            )
+        } else {
+            Text(
+                text = result?.let { TestTimeFormat.format(it.durationMs) } ?: "—",
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(62.dp),
+            )
+        }
         val message = when {
             result == null -> "Queued"
             result.status == TestStatus.RUNNING -> "Running…"
@@ -342,27 +404,9 @@ internal fun KindCompactRow(
     val status = result?.status ?: TestStatus.PENDING
     val running = status == TestStatus.RUNNING
 
-    // The LIVE ticker — a 200ms producer while this kind is running.
-    var elapsedMs by remember(runningStartedAtMs) {
-        mutableLongStateOf(
-            if (running && runningStartedAtMs != null) {
-                System.currentTimeMillis() - runningStartedAtMs
-            } else {
-                0L
-            },
-        )
-    }
-    if (running && runningStartedAtMs != null) {
-        LaunchedEffect(runningStartedAtMs) {
-            while (true) {
-                elapsedMs = System.currentTimeMillis() - runningStartedAtMs
-                delay(200)
-            }
-        }
-    }
-
     // The LEADER DOTS — an animated 1→3 dot trail between the name and the
     // timer, running only while the kind runs (the user's animation ask).
+    // (The live timer itself is the shared LiveElapsedText, D-597.)
     val dotsPhase = rememberInfiniteTransition(label = "kindDots").animateFloat(
         initialValue = 0f,
         targetValue = 3f,
@@ -399,21 +443,21 @@ internal fun KindCompactRow(
                     )
                 }
                 Spacer(Modifier.width(4.dp))
-                Text(
-                    text = if (running && runningStartedAtMs != null) {
-                        TestTimeFormat.format(elapsedMs)
-                    } else {
-                        result?.let { TestTimeFormat.format(it.durationMs) } ?: "—"
-                    },
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    fontWeight = if (running) FontWeight.ExtraBold else FontWeight.Normal,
-                    color = if (running) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
+                if (running && runningStartedAtMs != null) {
+                    LiveElapsedText(
+                        startedAtMs = runningStartedAtMs,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 11.sp,
+                    )
+                } else {
+                    Text(
+                        text = result?.let { TestTimeFormat.format(it.durationMs) } ?: "—",
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             // The live per-phrase status — which search phrase is being tried.
             if (running && !runningDetail.isNullOrBlank()) {
@@ -491,7 +535,7 @@ internal fun KindPayloadView(
 
         ExtensionTestKind.STREAM_PLAY -> {
             // The chips are gone (same duplication); what the user wants here
-            // is the REAL THING — a muted looping preview of the resolved
+            // is the REAL THING — a muted 30s-capped preview of the resolved
             // stream, rendered whenever the payload carries its URL.
             payload.streamUrl?.let { url ->
                 StreamPreviewPlayer(
@@ -500,34 +544,6 @@ internal fun KindPayloadView(
                     userAgent = payload.streamUserAgent,
                     headers = payload.streamHeaders,
                     modifier = modifier,
-                )
-            }
-        }
-    }
-}
-
-/** A row of small metric chips (kept for future callers; the ping/stream
- *  payload paths no longer use it — the D-592 report removed the duplicated
- *  bottom tags). */
-@Composable
-private fun PayloadMetricRow(values: List<String>, modifier: Modifier = Modifier) {
-    if (values.isEmpty()) return
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = modifier,
-    ) {
-        values.forEach { value ->
-            Surface(
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                shape = RoundedCornerShape(50),
-            ) {
-                Text(
-                    text = value,
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
         }
@@ -726,11 +742,15 @@ private fun PayloadVideoRows(
     modifier: Modifier = Modifier,
 ) {
     if (videos.isNullOrEmpty()) return
+    // ROUND 87 (D-596): the WHOLE payload list renders — the 24-row cap is
+    // the capture cap (VideoResolveTest), not the UI's. The old take(10)
+    // hid what the user explicitly asked to see ("all the resolved videos
+    // should be shown in a list properly").
     Column(
         verticalArrangement = Arrangement.spacedBy(5.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
-        videos.take(10).forEachIndexed { index, video ->
+        videos.forEachIndexed { index, video ->
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                 shape = RoundedCornerShape(8.dp),
@@ -783,15 +803,6 @@ private fun PayloadVideoRows(
                 }
             }
         }
-        if (videos.size > 10) {
-            Text(
-                text = "+${videos.size - 10} more links",
-                fontFamily = RobotoFamily,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            )
-        }
     }
 }
 
@@ -823,13 +834,29 @@ internal fun storedToRunState(run: ExtensionTestResultStore.StoredTargetRun): Ta
 internal fun runProgressLabel(cursor: Int, total: Int): String = "$cursor of $total"
 
 // ════════════════════════════════════════════════════════════════════════════
-//  D-592 (round 86) — THE STREAM LIVE PREVIEW. The user: "if the actual live
-//  preview could be shown on this page, then I would most definitely prefer
-//  it to be handled like that." A small muted looping ExoPlayer card renders
-//  the resolved stream inline whenever the STREAM_PLAY payload carries its
-//  URL. The player is released on disposal; playback errors degrade silently
-//  to a still black card (a preview must never become a new failure source).
+//  D-592 (round 86) — THE STREAM LIVE PREVIEW; ROUND 87 (D-598) — THE CAP.
+//  A small muted ExoPlayer card renders the resolved stream inline whenever
+//  the STREAM_PLAY payload carries its URL. Round 87's rules (the user's
+//  exact spec): playback is capped at THIRTY SECONDS — after that it stops
+//  ITSELF, says "stream played successfully", and everything (player,
+//  surface, resources) closes cleanly. No looping anymore: REPEAT_MODE_OFF
+//  + a listener, so a stream that ends early ALSO reports success honestly.
 // ════════════════════════════════════════════════════════════════════════════
+
+/** Where the capped preview is in its (short) life. */
+private enum class StreamPreviewPhase {
+    /** Playing — the countdown is running. */
+    PLAYING,
+
+    /** Ended by the 30s cap or by the stream finishing — a SUCCESS. */
+    ENDED,
+
+    /** The player errored before delivering any playback. */
+    FAILED,
+}
+
+/** The preview's hard cap (the user: "30 seconds at max"). */
+private const val STREAM_PREVIEW_CAP_S = 30
 
 @Composable
 internal fun StreamPreviewPlayer(
@@ -840,6 +867,8 @@ internal fun StreamPreviewPlayer(
     modifier: Modifier = Modifier,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    var phase by remember(url) { mutableStateOf(StreamPreviewPhase.PLAYING) }
+    var secondsLeft by remember(url) { mutableIntStateOf(STREAM_PREVIEW_CAP_S) }
     val player = remember(url) {
         // The stream's own request headers (Referer / User-Agent / the flat
         // map the capture kept) ride a dedicated DefaultHttpDataSource — the
@@ -868,11 +897,36 @@ internal fun StreamPreviewPlayer(
             .build()
             .apply {
                 volume = 0f
-                repeatMode = Player.REPEAT_MODE_ONE
+                // D-598: NO looping — a capped preview ends, and a stream
+                // that finishes before the cap reports success honestly.
+                repeatMode = Player.REPEAT_MODE_OFF
                 playWhenReady = true
                 setMediaItem(MediaItem.fromUri(url))
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (playbackState == Player.STATE_ENDED) {
+                            phase = StreamPreviewPhase.ENDED
+                        }
+                    }
+
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        phase = StreamPreviewPhase.FAILED
+                    }
+                })
                 prepare()
             }
+    }
+    // THE 30-SECOND CAP — a one-second countdown, then the player stops
+    // itself and the card reports success. Nothing plays past the cap.
+    LaunchedEffect(url) {
+        while (phase == StreamPreviewPhase.PLAYING && secondsLeft > 0) {
+            delay(1_000)
+            if (phase == StreamPreviewPhase.PLAYING) secondsLeft--
+        }
+        if (phase == StreamPreviewPhase.PLAYING) {
+            player.stop()
+            phase = StreamPreviewPhase.ENDED
+        }
     }
     DisposableEffect(url) {
         onDispose {
@@ -886,17 +940,66 @@ internal fun StreamPreviewPlayer(
         modifier = modifier.fillMaxWidth(),
     ) {
         Column {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        useController = false
-                        this.player = player
+            Box {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            useController = false
+                            this.player = player
+                        }
+                    },
+                    // D-598: the surface detaches BEFORE the player releases
+                    // — no leaked texture buffers, no dangling view reference.
+                    onRelease = { view -> view.player = null },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f),
+                )
+                if (phase != StreamPreviewPhase.PLAYING) {
+                    // The finish state — a quiet overlay on the frozen frame
+                    // (the user: "it should say that the stream played
+                    // successfully and finish, everything will finish").
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.72f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(10.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (phase == StreamPreviewPhase.ENDED) {
+                                    Icons.Filled.CheckCircle
+                                } else {
+                                    Icons.Filled.Cancel
+                                },
+                                contentDescription = null,
+                                tint = if (phase == StreamPreviewPhase.ENDED) {
+                                    Color(0xFFB1F256)
+                                } else {
+                                    Color(0xFFF87171)
+                                },
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                text = if (phase == StreamPreviewPhase.ENDED) {
+                                    "Stream played successfully"
+                                } else {
+                                    "Preview could not start"
+                                },
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                            )
+                        }
                     }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f),
-            )
+                }
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -908,72 +1011,28 @@ internal fun StreamPreviewPlayer(
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFB1F256)),
+                        .background(
+                            if (phase == StreamPreviewPhase.PLAYING) {
+                                Color(0xFFB1F256)
+                            } else {
+                                Color.White.copy(alpha = 0.4f)
+                            },
+                        ),
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    text = "LIVE PREVIEW · muted",
+                    text = when (phase) {
+                        StreamPreviewPhase.PLAYING -> "LIVE PREVIEW · muted · ${secondsLeft}s left"
+                        StreamPreviewPhase.ENDED -> "PREVIEW FINISHED · capped at ${STREAM_PREVIEW_CAP_S}s"
+                        StreamPreviewPhase.FAILED -> "PREVIEW FAILED"
+                    },
                     fontFamily = RobotoFamily,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFFB1F256),
-                )
-            }
-        }
-    }
-}
-
-/**
- * The CODE-WINDOW block (the round-86 "coding kind of window vibe"): the
- * per-test detail lines rendered inside a dark, monospace terminal-style
- * container with the classic three window dots — the test's own words, not a
- * designer's summary.
- */
-@Composable
-internal fun CodeWindowBlock(
-    lines: List<String>,
-    modifier: Modifier = Modifier,
-    accentLines: Set<Int> = emptySet(),
-) {
-    val visible = lines.filter { it.isNotBlank() }
-    if (visible.isEmpty()) return
-    Surface(
-        color = Color(0xFF17161C),
-        shape = RoundedCornerShape(10.dp),
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFFF5F57)),
-                )
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFFEBC2E)),
-                )
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF28C840)),
-                )
-            }
-            Spacer(Modifier.height(7.dp))
-            visible.forEachIndexed { index, line ->
-                Text(
-                    text = line,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                    lineHeight = 15.sp,
-                    color = if (index in accentLines) {
+                    color = if (phase == StreamPreviewPhase.PLAYING) {
                         Color(0xFFB1F256)
                     } else {
-                        Color(0xFFD6D3CD)
+                        Color.White.copy(alpha = 0.75f)
                     },
                 )
             }

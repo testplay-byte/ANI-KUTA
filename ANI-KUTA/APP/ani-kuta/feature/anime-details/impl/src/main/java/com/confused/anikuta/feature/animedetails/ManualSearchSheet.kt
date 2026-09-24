@@ -63,6 +63,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
@@ -70,6 +71,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -139,6 +141,17 @@ fun ManualSearchSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val context = LocalContext.current
+
+    // ROUND 87 (D-612) — THE SQUISH FIX: the search bar used to clip out of
+    // the sheet because the list claimed a FIXED 430dp while the IME inset
+    // padding ate the bottom — the last children (hint, then the search bar
+    // itself) were clipped at the sheet's edge ("the search bar gets
+    // squished… there is no space"). The fix: the list's cap is derived
+    // from the height that is ACTUALLY available right now — screen minus
+    // nav bar, minus the keyboard, minus everything else the sheet shows —
+    // so the search bar + hint ALWAYS have their room and the list flexes
+    // instead. Reading the insets as state means the cap tracks the
+    // keyboard's animation every frame.
 
     // Task 50 (round 10): un-mix the flat source list by ecosystem —
     // CloudStream providers bridged through data/cloudstream expose
@@ -223,6 +236,16 @@ fun ManualSearchSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = null,
     ) {
+        // D-612: the ADAPTIVE cap — everything the sheet shows besides the
+        // list (header ~58dp + search row ~66dp + hint ~30dp + paddings
+        // ~60dp) reserved, the keyboard and nav bar subtracted, and the LIST
+        // takes whatever remains (floored so it never vanishes on tiny
+        // screens). This is what keeps the search bar on the sheet.
+        val density = LocalDensity.current
+        val imeBottom = WindowInsets.ime.getBottom(density)
+        val navBottom = WindowInsets.navigationBars.getBottom(density)
+        val insetsDp = with(density) { (imeBottom + navBottom).toDp() }
+        val listMaxHeight = (screenHeight - 214.dp - insetsDp).coerceAtLeast(140.dp)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -300,12 +323,13 @@ fun ManualSearchSheet(
                             )
                         }
                     } else {
-                        // D-587 (round 86): the NORMAL ALPHABETICAL LIST — the
-                        // two alarm-clock drums are GONE. One bounded scroll:
-                        // the rounded-rect "Aniyomi" heading + its sources,
-                        // then "CloudStream" + its sources, both buckets
-                        // already alphabetized; the selected row carries the
-                        // full highlight treatment.
+                        // D-587 (round 86) the NORMAL list; ROUND 87 (D-613)
+                        // the TWO ECOSYSTEM SECTIONS are separate CARDS again
+                        // — one container per system, clearly parted (the
+                        // user: "keep the two separate columns for the Anyomi
+                        // and the Cloud Stream ones… manage it properly").
+                        // The panel's height is the ime-aware cap above, so
+                        // the search bar below can never be pushed out.
                         SourceListPanel(
                             aniyomiSources = aniyomiSources,
                             cloudStreamSources = cloudStreamSources,
@@ -313,6 +337,7 @@ fun ManualSearchSheet(
                             csIconByName = csIconByName,
                             selectedSource = selectedSource,
                             isLinked = linkedMatches,
+                            listMaxHeight = listMaxHeight,
                             onSelect = { source ->
                                 selectedSource = source
                                 HapticHelper.lightTick(context)
@@ -570,75 +595,109 @@ private fun SourceListPanel(
     csIconByName: Map<String, String?>,
     selectedSource: AnimeCatalogueSource?,
     isLinked: (AnimeCatalogueSource) -> Boolean,
+    listMaxHeight: Dp,
     onSelect: (AnimeCatalogueSource) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 430.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+            .heightIn(max = listMaxHeight),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (aniyomiSources.isNotEmpty()) {
-            item(key = "heading-aniyomi") {
-                SourceSectionHeading(label = "Aniyomi", count = aniyomiSources.size)
-            }
-            items(aniyomiSources, key = { "a-${it.id}" }) { source ->
-                SourceListRow(
-                    source = source,
-                    icon = SourceIcon(aniyomiDrawable = aniyomiIconById[source.id], csIconUrl = null),
-                    selected = selectedSource?.id == source.id,
-                    linked = isLinked(source),
-                    onSelect = { onSelect(source) },
-                )
+            item(key = "section-aniyomi") {
+                SourceSectionCard(
+                    label = "Aniyomi",
+                    count = aniyomiSources.size,
+                    accentDot = Color(0xFF34D399),
+                ) {
+                    aniyomiSources.forEach { source ->
+                        SourceListRow(
+                            source = source,
+                            icon = SourceIcon(aniyomiDrawable = aniyomiIconById[source.id], csIconUrl = null),
+                            selected = selectedSource?.id == source.id,
+                            linked = isLinked(source),
+                            onSelect = { onSelect(source) },
+                        )
+                    }
+                }
             }
         }
         if (cloudStreamSources.isNotEmpty()) {
-            item(key = "heading-cloudstream") {
-                SourceSectionHeading(label = "CloudStream", count = cloudStreamSources.size)
-            }
-            items(cloudStreamSources, key = { "c-${it.id}" }) { source ->
-                SourceListRow(
-                    source = source,
-                    icon = SourceIcon(aniyomiDrawable = null, csIconUrl = csIconByName[source.name]),
-                    selected = selectedSource?.id == source.id,
-                    linked = isLinked(source),
-                    onSelect = { onSelect(source) },
-                )
+            item(key = "section-cloudstream") {
+                SourceSectionCard(
+                    label = "CloudStream",
+                    count = cloudStreamSources.size,
+                    accentDot = Color(0xFF38BDF8),
+                ) {
+                    cloudStreamSources.forEach { source ->
+                        SourceListRow(
+                            source = source,
+                            icon = SourceIcon(aniyomiDrawable = null, csIconUrl = csIconByName[source.name]),
+                            selected = selectedSource?.id == source.id,
+                            linked = isLinked(source),
+                            onSelect = { onSelect(source) },
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 /**
- * The system heading — a ROUNDED RECTANGLE (NOT the old pill/bubble), bold,
- * a size step bigger, with the bucket's count on the right.
+ * One ecosystem's SECTION CARD (round 87, D-613): a rounded container per
+ * system — the bold heading with the system's accent dot, the count on the
+ * right, and the (alphabetical) rows inside. The two cards are parted by
+ * the panel's 10dp spacing, so the two "columns" the user asked to keep are
+ * clearly separate again.
  */
 @Composable
-private fun SourceSectionHeading(label: String, count: Int) {
+private fun SourceSectionCard(
+    label: String,
+    count: Int,
+    accentDot: Color,
+    rows: @Composable () -> Unit,
+) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-        ) {
-            Text(
-                text = label,
-                fontFamily = RobotoFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = "$count",
-                fontFamily = RobotoFamily,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Column(modifier = Modifier.padding(vertical = 6.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(accentDot),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = label,
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "$count",
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Column(
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.padding(horizontal = 5.dp),
+            ) {
+                rows()
+            }
         }
     }
 }

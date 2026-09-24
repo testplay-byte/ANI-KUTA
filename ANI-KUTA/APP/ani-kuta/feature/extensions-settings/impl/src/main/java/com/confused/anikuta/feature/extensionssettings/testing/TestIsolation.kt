@@ -9,6 +9,8 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -104,7 +106,41 @@ object TestIsolation {
         var deferred: Deferred<TestOutcome>? = null
         val started = System.nanoTime()
         try {
-            deferred = bodyScope.async { block() }
+            // ROUND 87 (D-593) — THE RUN-KILLER FIX: the body's failures are
+            // CONVERTED HERE, INSIDE the async, so `await()` can never
+            // rethrow them into the engine's loop. The round-84/86 shape
+            // only guarded non-CE throwables at the awaiter — every
+            // CancellationException the BODY produced (its own inner
+            // withTimeout, a plugin-internal scope/flow cancellation, or
+            // SearchTest's own attempt timeout via its mis-ordered catch)
+            // escaped the async, matched the awaiter's CE rethrow, and
+            // KILLED THE WHOLE RUN (the device report: one test times out
+            // and every test after it dies with it). The rule now:
+            //   • THIS body coroutine is dead (isActive == false) → the
+            //     cancellation came from US (the timeout/skip/stop cleanup
+            //     below) → rethrow, the normal cancelled-completion path;
+            //   • THIS coroutine is still alive → the CE was born inside
+            //     the tested code → it is THAT TEST's error, recorded as an
+            //     honest FAILED verdict. The run moves on.
+            deferred = bodyScope.async {
+                try {
+                    block()
+                } catch (ce: CancellationException) {
+                    if (!currentCoroutineContext().isActive) throw ce
+                    Logger.w(TAG) {
+                        "Isolation[$label]: body-internal cancellation captured — " +
+                            "${ce::class.java.simpleName}: ${ce.message ?: "no message"}"
+                    }
+                    TestOutcome.fail(
+                        "Cancelled inside the test: ${ce::class.java.simpleName}: ${ce.message ?: "no message"}",
+                    )
+                } catch (t: Throwable) {
+                    // Plugin bytecode can throw ANYTHING (the bridge guard
+                    // lesson) — capture it as a failed outcome.
+                    Logger.e(TAG, t) { "Isolation[$label]: body threw" }
+                    TestOutcome.fail("${t::class.java.simpleName}: ${t.message ?: "unknown error"}")
+                }
+            }
             val deadline = started + timeoutMs * 1_000_000L
             while (true) {
                 if (skipSignal.get()) {
@@ -118,6 +154,10 @@ object TestIsolation {
                 }
                 // The poll slice: await() is cancellable — THIS coroutine's
                 // deadline always lands even when the body never suspends.
+                // (The deferred can no longer complete exceptionally, so the
+                // ONLY CE that can reach the catch below is the RUN's own
+                // cancellation — a user Stop or scope death. That must
+                // unwind, and it does.)
                 val outcome = withTimeoutOrNull(SLICE_MS) { deferred.await() }
                 if (outcome != null) return KindResult.Done(outcome)
             }
@@ -125,13 +165,6 @@ object TestIsolation {
             // Stop / scope death — rethrow so the run unwinds (the engine's
             // contract: cancellation is never converted into a verdict).
             throw ce
-        } catch (t: Throwable) {
-            // The BODY threw (async rethrows the failure at await). Plugin
-            // bytecode can throw ANYTHING — capture it as a failed outcome.
-            Logger.e(TAG, t) { "Isolation[$label]: body threw" }
-            return KindResult.Done(
-                TestOutcome.fail("${t::class.java.simpleName}: ${t.message ?: "unknown error"}"),
-            )
         } finally {
             // Every exit path: cancel the body, then kill the dedicated
             // thread. shutdownNow() sends the interrupt that un-wedges

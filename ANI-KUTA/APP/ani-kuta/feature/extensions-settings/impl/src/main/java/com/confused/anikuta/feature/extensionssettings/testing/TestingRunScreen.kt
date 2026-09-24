@@ -80,8 +80,9 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 //    • "the details should be shown below the tests and their details should
 //      be proper, like full proper kind of details" — every completed kind
 //      row is now TAP-EXPANDABLE, revealing its detail line beneath the row.
-//    • the last target joins "Finished" at completion, a "Not tested"
-//      section appears after a Stop, and the view follows the live target.
+//    • the last target joins "Finished" at completion, and a "Not
+//      tested" section appears after a Stop. (Round 87: the view NO
+//      LONGER auto-scrolls anywhere — the user drives the scroll.)
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -198,18 +199,11 @@ fun TestingRunScreen(
         emptyList()
     }
 
-    // Follow the live target: scroll the "current" hero into view when it
-    // changes and the user is not already looking at it.
-    LaunchedEffect(s?.currentTargetId, s?.phase) {
-        if (s?.phase == RunPhase.RUNNING && s.currentTargetId != null) {
-            val info = listState.layoutInfo
-            val visible = info.visibleItemsInfo.any { it.key == "current" }
-            if (!visible) {
-                val currentIndex = 1 // progress
-                runCatching { listState.animateScrollToItem(currentIndex) }
-            }
-        }
-    }
+    // ROUND 87 (D-611): the AUTO-SCROLL IS GONE. The old "follow the live
+    // target" effect yanked the viewport to the progress card on every
+    // target transition — the device report: after a test completes "it
+    // should not automatically move to the very bottom or to the very top".
+    // The user drives the scroll; the run's sections update in place.
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -481,6 +475,11 @@ fun TestingRunScreen(
                                             } else {
                                                 null
                                             },
+                                            // ROUND 87 (D-597): the LIVE
+                                            // elapsed timer — the running
+                                            // row ticks instead of freezing
+                                            // at "0 ms".
+                                            runningStartedAtMs = currentState?.runningKindStartedAtMs,
                                         )
                                     }
                                 }
@@ -637,6 +636,7 @@ private fun LiveKindRow(
     kind: ExtensionTestKind,
     result: TestResult?,
     liveDetail: String? = null,
+    runningStartedAtMs: Long? = null,
 ) {
     var expanded by remember(kind) { mutableStateOf(false) }
     val terminal = result != null && result.status != TestStatus.RUNNING &&
@@ -662,7 +662,12 @@ private fun LiveKindRow(
                     },
                 ),
         ) {
-            KindResultRow(kind = kind, result = result, modifier = Modifier.weight(1f))
+            KindResultRow(
+                kind = kind,
+                result = result,
+                modifier = Modifier.weight(1f),
+                runningStartedAtMs = runningStartedAtMs,
+            )
             if (hasDetail) {
                 Icon(
                     imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,

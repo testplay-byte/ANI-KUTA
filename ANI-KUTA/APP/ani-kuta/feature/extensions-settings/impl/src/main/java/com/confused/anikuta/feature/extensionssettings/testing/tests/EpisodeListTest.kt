@@ -7,6 +7,7 @@ import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
 import com.confused.anikuta.feature.extensionssettings.testing.TestPayload
 import com.confused.anikuta.feature.extensionssettings.testing.TestPayloadEpisode
 
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /**
@@ -66,7 +67,11 @@ class EpisodeListTest : ExtensionTest {
                     deadEnds++
                     lastTitle = candidate.title
                 } catch (ce: kotlinx.coroutines.CancellationException) {
-                    throw ce
+                    // D-593: unwind only a REAL run cancellation; a
+                    // plugin-internal cancellation is just another dead end.
+                    if (!kotlinx.coroutines.currentCoroutineContext().isActive) throw ce
+                    deadEnds++
+                    lastTitle = candidate.title
                 } catch (t: Throwable) {
                     deadEnds++
                     lastTitle = candidate.title

@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.animesource.AnimeSource
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.koin.core.context.GlobalContext
@@ -67,8 +69,16 @@ class ExtensionTestRunController private constructor(appContext: Context) {
     private val csResolver: CloudstreamLinkResolver =
         GlobalContext.get().get()
 
-    /** The app-level scope — survives every navigation. */
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /**
+     * The app-level scope — survives every navigation. The EXCEPTION HANDLER
+     * is the last-resort net (D-593): a throwable nobody caught is LOGGED
+     * instead of crashing the process; the run's own containment below is
+     * the real defense.
+     */
+    private val runGuard = CoroutineExceptionHandler { _, throwable ->
+        Logger.e(TAG, throwable) { "TEST RUN: uncaught throwable escaped to the run scope — contained, logged" }
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + runGuard)
 
     /** The result store (persisted verdicts + run history). */
     val resultStore = ExtensionTestResultStore(appContext)
@@ -219,7 +229,25 @@ class ExtensionTestRunController private constructor(appContext: Context) {
                     )
                 }
                 skipSignal.set(false)
-                runOne(target)
+                // ROUND 87 (D-593) — PER-TARGET BLAST RADIUS: one target's
+                // death can no longer take the queue with it. A USER stop
+                // (or scope death) still unwinds the WHOLE run — that is the
+                // Stop contract. Any other throwable (including the stray
+                // cancellation class the round-87 device report caught:
+                // "a test stops midway due to timeout or some other stuff
+                // and it stops the whole other tests which were supposed to
+                // be done after it too") is CONTAINED: the target settles as
+                // FAILED "Run aborted: …" and the loop moves to the next
+                // target. (The isolation wrapper converts body failures at
+                // the source; this is the belt to those braces.)
+                try {
+                    runOne(target)
+                } catch (ce: CancellationException) {
+                    if (stopRequested.get() || !scope.isActive) throw ce
+                    containTargetFailure(target, ce)
+                } catch (t: Throwable) {
+                    containTargetFailure(target, t)
+                }
             }
             setSession { it?.copy(phase = RunPhase.COMPLETED, currentTargetId = null, finishedAtMs = System.currentTimeMillis()) }
             appendHistoryFromSession()
@@ -395,6 +423,40 @@ class ExtensionTestRunController private constructor(appContext: Context) {
 
     private inline fun setSession(transform: (RunSession?) -> RunSession?) {
         _session.value = transform(_session.value)
+    }
+
+    /**
+     * D-593: settles ONE target whose run died unexpectedly (a throwable —
+     * cancellation or not — escaped [runOne] without a user stop), then lets
+     * the queue continue. Mirrors the run-level abort settle, but scoped to
+     * the single target: dangling RUNNING kinds → FAILED with the real
+     * cause, the target finished + NOT user-aborted (it lands in the failed
+     * bucket, so "Re-run failed" offers it), the verdict persisted, and the
+     * next target's turn arrives.
+     */
+    private fun containTargetFailure(target: TestableTarget, cause: Throwable) {
+        val reason = "Run aborted: ${cause::class.java.simpleName}: ${cause.message ?: "no message"}"
+        Logger.e(TAG, cause) {
+            "TEST TARGET ABORTED — ${target.name}: $reason — the run CONTINUES with the next target"
+        }
+        val settled = (_session.value?.states?.get(target.id) ?: TargetRunState()).copy(
+            isRunning = false,
+            runningKind = null,
+            runningKindStartedAtMs = null,
+            runningDetail = null,
+            finished = true,
+            abortedByUser = false,
+            results = (_session.value?.states?.get(target.id)?.results ?: emptyMap()).mapValues { (_, r) ->
+                if (r.status == TestStatus.RUNNING) r.copy(status = TestStatus.FAILED, message = reason) else r
+            },
+        )
+        setSession { session ->
+            session?.copy(
+                currentTargetId = null,
+                states = session.states + (target.id to settled),
+            )
+        }
+        resultStore.saveTarget(target, settled)
     }
 
     /** One target's full chain run (suspend — the run loop awaits it). */

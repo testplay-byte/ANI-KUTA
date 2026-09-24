@@ -11,7 +11,6 @@ import com.confused.anikuta.feature.extensionssettings.testing.TestPayload
 import com.confused.anikuta.feature.extensionssettings.testing.TestPayloadVideo
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -122,7 +121,11 @@ class VideoResolveTest(
         val hosters = try {
             withTimeoutOrNull(ATTEMPT_TIMEOUT_MS) { source.getHosterList(episode) } ?: emptyList()
         } catch (ce: kotlinx.coroutines.CancellationException) {
-            throw ce
+            // D-593: unwind only a REAL run cancellation; a plugin-internal
+            // cancellation just means this episode has no hoster list.
+            if (!currentCoroutineContext().isActive) throw ce
+            Logger.d(TAG) { "getHosterList cancelled for ${source.name}: ${ce.message}" }
+            emptyList()
         } catch (e: IllegalStateException) {
             emptyList()
         } catch (e: Throwable) {
@@ -148,7 +151,10 @@ class VideoResolveTest(
                             winningHoster = hoster.hosterName
                         }
                     } catch (ce: kotlinx.coroutines.CancellationException) {
-                        throw ce
+                        // D-593: same rule — only a real run cancellation
+                        // unwinds; a plugin-internal one skips this hoster.
+                        if (!currentCoroutineContext().isActive) throw ce
+                        Logger.d(TAG) { "getVideoList(hoster ${hoster.hosterName}) cancelled: ${ce.message}" }
                     } catch (e: Throwable) {
                         Logger.d(TAG) { "getVideoList(hoster ${hoster.hosterName}) failed: ${e.message}" }
                     }
@@ -163,9 +169,11 @@ class VideoResolveTest(
             val videos = withTimeoutOrNull(ATTEMPT_TIMEOUT_MS) { source.getVideoList(episode) } ?: emptyList()
             if (videos.isEmpty()) null else videos to null
         } catch (ce: kotlinx.coroutines.CancellationException) {
-            throw ce
-        } catch (te: TimeoutCancellationException) {
-            if (!currentCoroutineContext().isActive) throw te
+            // D-593: the old shape caught CE BEFORE TCE (dead TCE branch —
+            // TCE is a CE) and rethrew every body-origin cancellation. Now:
+            // unwind only a REAL run cancellation.
+            if (!currentCoroutineContext().isActive) throw ce
+            Logger.d(TAG) { "getVideoList(episode) cancelled for ${source.name}: ${ce.message}" }
             null
         } catch (e: Throwable) {
             Logger.d(TAG) { "getVideoList(episode) failed for ${source.name}: ${e.message}" }
@@ -197,12 +205,20 @@ class VideoResolveTest(
             when (event) {
                 is CloudstreamLinkResolver.CsResolveEvent.LinksSnapshot -> {
                     linkCount = maxOf(linkCount, event.links.size)
-                    if (linksForPayload.isEmpty()) {
-                        event.links.take(VIDEO_CAP).forEach { link ->
-                            linksForPayload += TestPayloadVideo(
+                    // ROUND 87 (D-596): the payload ACCUMULATES across every
+                    // snapshot (deduped) — the user wants ALL the resolved
+                    // videos in the list, not only the first snapshot's.
+                    if (linksForPayload.size < VIDEO_CAP) {
+                        val seen = linksForPayload.map { "${it.label}|${it.quality}" }.toSet()
+                        event.links.forEach { link ->
+                            if (linksForPayload.size >= VIDEO_CAP) return@forEach
+                            val row = TestPayloadVideo(
                                 label = link.name.ifBlank { "Link" },
                                 quality = qualityLabel(link.quality),
                             )
+                            if ("${row.label}|${row.quality}" !in seen) {
+                                linksForPayload += row
+                            }
                         }
                     }
                     if (firstUrl == null) {
@@ -278,6 +294,8 @@ class VideoResolveTest(
         const val MAX_EPISODE_ATTEMPTS = 3
 
         /** The payload's video-row cap. */
-        const val VIDEO_CAP = 12
+        // ROUND 87 (D-596): 12 → 24 — the resolved-links list shows the
+        // resolver's whole yield, not a sixth of it.
+        const val VIDEO_CAP = 24
     }
 }

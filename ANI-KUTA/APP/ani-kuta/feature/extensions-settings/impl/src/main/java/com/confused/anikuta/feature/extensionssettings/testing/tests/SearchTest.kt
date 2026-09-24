@@ -151,17 +151,26 @@ class SearchTest : ExtensionTest {
                     ),
                 ),
             )
-        } catch (ce: CancellationException) {
-            // D-583: NEVER eat cancellation — a Stop (or scope death) must
-            // unwind the ladder, not turn it into "every phrase errored".
-            throw ce
         } catch (te: TimeoutCancellationException) {
-            // D-583: the inner attempt timeout and an OUTER cancellation-timeout
-            // are the same class — disambiguate by the coroutine's own liveness:
-            // if THIS coroutine is dead, the TCE belonged to the engine/run
-            // budget and must propagate; otherwise it is this attempt's 12s.
+            // ROUND 87 (D-593) — THE CATCH-ORDER FIX: a TCE IS-A
+            // CancellationException, and this catch USED to sit AFTER the CE
+            // catch — dead code — so this attempt's OWN 12s timeout matched
+            // the CE branch, was rethrown, escaped the isolation wrapper and
+            // KILLED THE WHOLE RUN (the device report: one slow phrase and
+            // every test after it died). Now the attempt timeout is caught
+            // FIRST and handled as a phrase error; the isActive guard keeps
+            // a genuine outer cancellation unwinding.
             if (!currentCoroutineContext().isActive) throw te
             Attempt.Error("timed out after ${ATTEMPT_TIMEOUT_MS / 1000}s on \u201C${phrase.text}\u201D")
+        } catch (ce: CancellationException) {
+            // D-583 + D-593: unwind ONLY when THIS coroutine is the one being
+            // cancelled (a Stop / run death). A cancellation born INSIDE the
+            // plugin (its own withTimeout, its flow scopes) leaves this
+            // coroutine alive — that is THIS PHRASE's error, not the run's:
+            // the ladder moves on (and the isolation wrapper would convert
+            // any escape into a verdict anyway — this is the polite path).
+            if (!currentCoroutineContext().isActive) throw ce
+            Attempt.Error("cancelled on \u201C${phrase.text}\u201D")
         } catch (t: Throwable) {
             // Plugin bytecode can throw ANYTHING (the bridge guard lesson).
             Attempt.Error("${t::class.java.simpleName}: ${t.message ?: "unknown error"}")

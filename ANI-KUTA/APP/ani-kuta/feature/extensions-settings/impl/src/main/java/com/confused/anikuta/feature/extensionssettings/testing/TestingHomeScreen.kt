@@ -63,7 +63,8 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 //    • a HEALTH-RING hero (animated donut + legend + count-up chips) instead
 //      of the flat proportion bar;
 //    • a recent-run STRIP (the last runs as live chips);
-//    • the two ecosystem cards (unchanged — the user liked them);
+//    • the two ecosystem cards (reworked round 87, D-600 — the count chip
+//      beside the title and the full-width bar);
 //    • a COMMAND FOOTER: one designed primary pill (Run all · N, morphing to
 //      live progress + Stop while running) + a tonal Stats pill with a
 //      failed-count badge — no more stock buttons dumped at the bottom.
@@ -103,7 +104,10 @@ fun TestingHomeScreen(
     val passed = allStates.count { it.isHealthy }
     val failed = allStates.count { it.finished && !it.isHealthy }
 
-    // D-588 (round 86): PER-SYSTEM health counts — the ring's two halves.
+    // D-588 (round 86): PER-SYSTEM health counts. ROUND 87 (D-599): the
+    // ring is ONE COMBINED verdict view — the totals span BOTH systems
+    // (10 Aniyomi passes + 5 CloudStream passes = one passed arc of 15,
+    // SUBDIVIDED by system), exactly the user's example.
     fun systemCounts(list: List<TestableTarget>): Triple<Int, Int, Int> {
         val states = list.mapNotNull { stateFor(it.id) }
         val t = states.count { it.finished }
@@ -264,14 +268,69 @@ fun TestingHomeScreen(
                     }
                 }
 
-                // ── Hero: THE HEALTH RING — split into TWO SYSTEM HALVES
-                // (D-588, round 86): the same ring, six segments — the
-                // Aniyomi half then the CloudStream half, parted by a thin
-                // gap ("the separation will not be that much visible... both
-                // of them will be shown together as one"). The passed color
-                // marks the system (primary vs tertiary); failure + untested
-                // share their universal colors.
+                // ── Hero: THE SUITE-HEALTH RING, COMBINED (round 87, D-599)
+                // — the user's rule: pass/fail/new are each ONE GROUP
+                // spanning BOTH systems, shown as one arc whose total is the
+                // combined count ("there are 10 entries of Anyomi which
+                // passed, and there are 5 entries of Cloud Stream… the total
+                // pass which will be shown will be 15, and in that 15 it will
+                // be split into 10 and 5"). Each verdict group's arc is
+                // SUBDIVIDED by the two system colors (emerald = Aniyomi,
+                // sky = CloudStream — the fixed pair from TestingPalette,
+                // never the accent preset), parted by 2.5° gaps; the three
+                // groups part by 5°. Zero-count segments contribute nothing
+                // AND no gap — the ring still closes exactly.
                 item(key = "hero") {
+                    val groupGap = 5f
+                    val innerGap = 2.5f
+                    val passedSegments = listOf(
+                        if (aPassed > 0) {
+                            DonutSegment(
+                                aPassed,
+                                TestingPalette.PassA,
+                                gapAfterDegrees = if (cPassed > 0) innerGap else 0f,
+                            )
+                        } else null,
+                        if (cPassed > 0) DonutSegment(cPassed, TestingPalette.PassB) else null,
+                    ).filterNotNull()
+                    val failedSegments = listOf(
+                        if (aFailed > 0) {
+                            DonutSegment(
+                                aFailed,
+                                TestingPalette.FailA,
+                                gapAfterDegrees = if (cFailed > 0) innerGap else 0f,
+                            )
+                        } else null,
+                        if (cFailed > 0) DonutSegment(cFailed, TestingPalette.FailB) else null,
+                    ).filterNotNull()
+                    val newSegments = listOf(
+                        if (aUntested > 0) {
+                            DonutSegment(
+                                aUntested,
+                                TestingPalette.NewA,
+                                gapAfterDegrees = if (cUntested > 0) innerGap else 0f,
+                            )
+                        } else null,
+                        if (cUntested > 0) DonutSegment(cUntested, TestingPalette.NewB) else null,
+                    ).filterNotNull()
+                    val segments = buildList {
+                        if (passedSegments.isNotEmpty()) {
+                            addAll(passedSegments)
+                            if (failedSegments.isNotEmpty() || newSegments.isNotEmpty()) {
+                                // REPLACE the group's last inner gap with the
+                                // wider group gap (NOT append — that would
+                                // duplicate the segment and double its arc).
+                                this[lastIndex] = last().copy(gapAfterDegrees = groupGap)
+                            }
+                        }
+                        if (failedSegments.isNotEmpty()) {
+                            addAll(failedSegments)
+                            if (newSegments.isNotEmpty()) {
+                                this[lastIndex] = last().copy(gapAfterDegrees = groupGap)
+                            }
+                        }
+                        addAll(newSegments)
+                    }
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                         shape = RoundedCornerShape(20.dp),
@@ -308,21 +367,7 @@ fun TestingHomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(18.dp),
                             ) {
                                 DonutChart(
-                                    segments = listOf(
-                                        DonutSegment(aPassed, MaterialTheme.colorScheme.primary),
-                                        DonutSegment(aFailed, MaterialTheme.colorScheme.error),
-                                        DonutSegment(
-                                            aUntested,
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                                            gapAfterDegrees = if (csTargets.isNotEmpty()) 4f else 0f,
-                                        ),
-                                        DonutSegment(cPassed, MaterialTheme.colorScheme.tertiary),
-                                        DonutSegment(cFailed, MaterialTheme.colorScheme.error.copy(alpha = 0.8f)),
-                                        DonutSegment(
-                                            cUntested,
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f),
-                                        ),
-                                    ),
+                                    segments = segments,
                                     diameter = 116.dp,
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -341,46 +386,31 @@ fun TestingHomeScreen(
                                         )
                                     }
                                 }
-                                // The two-system legend — a caption row per
-                                // system, the three statuses underneath.
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        text = "Aniyomi",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.primary,
+                                // The COMBINED legend — one caption row per
+                                // VERDICT group, its total, and the two
+                                // systems' split ("15 · 10 + 5").
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    HealthLegendRow(
+                                        swatchA = TestingPalette.PassA,
+                                        swatchB = TestingPalette.PassB,
+                                        countA = aPassed,
+                                        countB = cPassed,
+                                        label = "Passed",
                                     )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        DonutLegendRow(MaterialTheme.colorScheme.primary, aPassed, "pass")
-                                        DonutLegendRow(MaterialTheme.colorScheme.error, aFailed, "fail")
-                                        DonutLegendRow(
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                                            aUntested,
-                                            "new",
-                                        )
-                                    }
-                                    Spacer(Modifier.height(2.dp))
-                                    Text(
-                                        text = "CloudStream",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.tertiary,
+                                    HealthLegendRow(
+                                        swatchA = TestingPalette.FailA,
+                                        swatchB = TestingPalette.FailB,
+                                        countA = aFailed,
+                                        countB = cFailed,
+                                        label = "Failed",
                                     )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        DonutLegendRow(MaterialTheme.colorScheme.tertiary, cPassed, "pass")
-                                        DonutLegendRow(
-                                            MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                                            cFailed,
-                                            "fail",
-                                        )
-                                        DonutLegendRow(
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f),
-                                            cUntested,
-                                            "new",
-                                        )
-                                    }
+                                    HealthLegendRow(
+                                        swatchA = TestingPalette.NewA,
+                                        swatchB = TestingPalette.NewB,
+                                        countA = aUntested,
+                                        countB = cUntested,
+                                        label = "New",
+                                    )
                                 }
                             }
                         }
@@ -451,7 +481,7 @@ fun TestingHomeScreen(
                     SystemCard(
                         title = "Aniyomi extensions",
                         countLabel = "${aniyomiTargets.size} sources",
-                        accent = MaterialTheme.colorScheme.primary,
+                        accent = TestingPalette.SystemA,
                         stateCount = aniyomiTargets.size,
                         passed = aniyomiTargets.count { stateFor(it.id)?.isHealthy == true },
                         failed = aniyomiTargets.count { s -> stateFor(s.id)?.let { it.finished && !it.isHealthy } == true },
@@ -462,7 +492,7 @@ fun TestingHomeScreen(
                     SystemCard(
                         title = "CloudStream plugins",
                         countLabel = "${csTargets.size} providers",
-                        accent = MaterialTheme.colorScheme.tertiary,
+                        accent = TestingPalette.SystemB,
                         stateCount = csTargets.size,
                         passed = csTargets.count { stateFor(it.id)?.isHealthy == true },
                         failed = csTargets.count { s -> stateFor(s.id)?.let { it.finished && !it.isHealthy } == true },
@@ -491,9 +521,13 @@ fun TestingHomeScreen(
                                     if (runActive) openRunOrTarget() else controller.start(null, "Run all")
                                 },
                         ) {
+                            // ROUND 87 (D-601): the idle content is CENTERED
+                            // (it hugged the left edge while the sibling pill
+                            // centered — the "a bit off" asymmetry).
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxSize(),
                             ) {
                                 if (runActive) {
                                     CircularProgressIndicator(
@@ -641,42 +675,100 @@ private fun SystemCard(
                     .background(accent.copy(alpha = 0.75f)),
             )
             Spacer(Modifier.width(11.dp))
+            // ROUND 87 (D-600): the count chip sits RIGHT NEXT TO the title
+            // ("the actual number of extensions should be shown on the right
+            // side of the text itself, not the whole right side"), and the
+            // proportion bar runs the FULL remaining width (the 0.8f cap is
+            // gone) — the bar expands as far as the card allows.
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Text(
+                        text = title,
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Surface(
+                        color = accent.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(50),
+                    ) {
+                        Text(
+                            text = countLabel,
+                            fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = accent,
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        )
+                    }
+                }
                 if (stateCount > 0) {
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(7.dp))
                     ProportionBar(
                         passedCount = passed,
                         failedCount = failed,
                         untestedCount = stateCount - passed - failed,
-                        modifier = Modifier.fillMaxWidth(0.8f),
+                        modifier = Modifier.fillMaxWidth(),
+                        passedColor = accent,
+                        failedColor = TestingPalette.FailA.takeIf { accent == TestingPalette.SystemA }
+                            ?: TestingPalette.FailB,
                     )
                 }
             }
-            Spacer(Modifier.width(10.dp))
-            // The count — a RIGHT-SIDE highlighted chip (the round-86 ask:
-            // "the amount of extensions should be shown on the right side and
-            // in a highlighted view"). The old trailing arrow is GONE.
-            Surface(
-                color = accent.copy(alpha = 0.14f),
-                shape = RoundedCornerShape(50),
-            ) {
-                Text(
-                    text = countLabel,
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = accent,
-                    maxLines = 1,
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                )
-            }
+        }
+    }
+}
+
+/**
+ * The combined suite-health legend row (round 87, D-599): the verdict
+ * group's two system swatches, its label, its COMBINED total, and — when
+ * both systems carry entries — the split ("15 · 10 + 5").
+ */
+@Composable
+private fun HealthLegendRow(
+    swatchA: Color,
+    swatchB: Color,
+    countA: Int,
+    countB: Int,
+    label: String,
+) {
+    val total = countA + countB
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(color = swatchA, shape = RoundedCornerShape(3.dp), modifier = Modifier.size(8.dp)) {}
+        Spacer(Modifier.width(3.dp))
+        Surface(color = swatchB, shape = RoundedCornerShape(3.dp), modifier = Modifier.size(8.dp)) {}
+        Spacer(Modifier.width(7.dp))
+        Text(
+            text = "$total",
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = label.lowercase(),
+            fontFamily = RobotoFamily,
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (countA > 0 && countB > 0) {
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text = "· $countA + $countB",
+                fontFamily = RobotoFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            )
         }
     }
 }

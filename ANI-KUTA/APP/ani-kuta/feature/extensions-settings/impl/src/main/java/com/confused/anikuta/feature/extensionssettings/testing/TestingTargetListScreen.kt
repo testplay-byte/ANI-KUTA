@@ -34,7 +34,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -53,6 +52,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -172,7 +172,6 @@ fun TestingTargetListScreen(
     }
 
     val runActive = session?.phase == RunPhase.RUNNING
-    val allIds = ecoTargets.map { it.id }.toSet()
 
     // The queue-aware "queued" flag: this ecosystem's rows that are waiting
     // in a live run's queue (ahead of the cursor) — drives the Queued chip.
@@ -211,10 +210,18 @@ fun TestingTargetListScreen(
                     )
                 }
 
-                // ── Controls row: count + select-all ──
+                // ── ONE CONTROLS ROW (round 87, D-603): the count and the
+                // THREE run pills share a single row — the pills sit on the
+                // RIGHT SIDE of the count text (the round-87 report: "show
+                // the three buttons on the right side of the actual number of
+                // sources, but you showed it below"). The select-all
+                // double-tick button is GONE (the round-87 report: "I told
+                // you to remove the double-tick button, but you apparently
+                // did not remove it").
                 item(key = "controls") {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                     ) {
                         Text(
@@ -224,36 +231,6 @@ fun TestingTargetListScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
-                        Icon(
-                            imageVector = Icons.Filled.DoneAll,
-                            contentDescription = if (selectedIds.containsAll(allIds) && allIds.isNotEmpty()) "Deselect all" else "Select all",
-                            tint = if (allIds.isNotEmpty() && selectedIds.containsAll(allIds)) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .clickable {
-                                    selectedIds = if (allIds.isNotEmpty() && selectedIds.containsAll(allIds)) {
-                                        selectedIds - allIds
-                                    } else {
-                                        selectedIds + allIds
-                                    }
-                                    if (selectedIds.isNotEmpty()) HapticHelper.lightTick(context)
-                                }
-                                .padding(7.dp),
-                        )
-                    }
-                }
-
-                // ── The THREE RUN SCOPES (D-589): Run all / Run failed / Run passed ──
-                item(key = "run-scopes") {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                    ) {
                         RunScopePill(
                             text = "Run all",
                             enabled = !runActive && filtered.isNotEmpty(),
@@ -265,7 +242,6 @@ fun TestingTargetListScreen(
                                     "${eco.displayName()} targets",
                                 )
                             },
-                            modifier = Modifier.weight(1f),
                         )
                         RunScopePill(
                             text = if (failedIds.isEmpty()) "Run failed" else "Run failed · ${failedIds.size}",
@@ -273,15 +249,13 @@ fun TestingTargetListScreen(
                             container = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
                             content = MaterialTheme.colorScheme.error,
                             onClick = { controller.start(failedIds, "${eco.displayName()} failed") },
-                            modifier = Modifier.weight(1.15f),
                         )
                         RunScopePill(
                             text = if (passedIds.isEmpty()) "Run passed" else "Run passed · ${passedIds.size}",
                             enabled = !runActive && passedIds.isNotEmpty(),
-                            container = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.14f),
-                            content = MaterialTheme.colorScheme.tertiary,
+                            container = TestingPalette.SystemB.copy(alpha = 0.14f),
+                            content = TestingPalette.SystemB,
                             onClick = { controller.start(passedIds, "${eco.displayName()} passed") },
-                            modifier = Modifier.weight(1.15f),
                         )
                     }
                 }
@@ -584,13 +558,15 @@ private fun RunScopePill(
         Text(
             text = text,
             fontFamily = RobotoFamily,
-            fontSize = 12.sp,
+            // ROUND 87 (D-603): compact — the three pills share the count's
+            // row now, so they wrap their content instead of stretching.
+            fontSize = 11.sp,
             fontWeight = FontWeight.ExtraBold,
             color = if (enabled) content else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
         )
     }
 }
@@ -720,9 +696,11 @@ private fun TargetListRow(
                     // separated container ("they should be in the same kind
                     // of block, but they should be separate from each
                     // other").
-                    val startedKinds = ExtensionTestKind.entries.filter { kind ->
-                        state?.results?.get(kind)?.let { it.status != TestStatus.PENDING } == true
-                    }
+                    // ROUND 87 (D-604): ALL SEVEN tests render — the ones
+                    // that have not run yet sit FADED ("the tests which were
+                    // not yet performed were not showing, but I do want them
+                    // to be shown… grayed out and a little bit faded out").
+                    // The old placeholder line is gone.
                     Surface(
                         color = MaterialTheme.colorScheme.background.copy(alpha = 0.55f),
                         shape = RoundedCornerShape(11.dp),
@@ -732,23 +710,17 @@ private fun TargetListRow(
                             modifier = Modifier.fillMaxWidth().padding(8.dp),
                             verticalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
-                            if (startedKinds.isEmpty()) {
-                                Text(
-                                    text = "Run the tests to see each stage's timing here.",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 3.dp),
-                                )
-                            } else {
-                                startedKinds.forEach { kind ->
-                                    // Every row fades/expands in on first
-                                    // appearance (the "one test shows at a
-                                    // time" reveal the user liked).
-                                    AppearingKindRow {
+                            ExtensionTestKind.entries.forEach { kind ->
+                                val kindResult = state?.results?.get(kind)
+                                val pending = kindResult == null || kindResult.status == TestStatus.PENDING
+                                // Every row fades/expands in on first
+                                // appearance (the "one test shows at a
+                                // time" reveal the user liked).
+                                AppearingKindRow {
+                                    Box(modifier = Modifier.alpha(if (pending) 0.42f else 1f)) {
                                         KindCompactRow(
                                             kind = kind,
-                                            result = state?.results?.get(kind),
+                                            result = kindResult,
                                             runningStartedAtMs = state?.runningKindStartedAtMs,
                                             runningDetail = state?.runningDetail,
                                         )

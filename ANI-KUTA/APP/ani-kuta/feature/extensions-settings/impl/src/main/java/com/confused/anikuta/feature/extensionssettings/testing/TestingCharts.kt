@@ -59,8 +59,8 @@ import kotlin.math.min
 /**
  * One donut segment: a count + its color. Zero counts draw nothing.
  * [gapAfterDegrees] (D-588, round 86) carves a small idle-ring gap AFTER the
- * segment — the suite-health ring uses it to part its two system halves
- * ("the separation will not be that much visible... slightly like so").
+ * segment — the round-87 suite-health ring uses it to part the verdict
+ * groups (5°) and the two systems' sub-arcs inside each group (2.5°).
  */
 data class DonutSegment(val count: Int, val color: Color, val gapAfterDegrees: Float = 0f)
 
@@ -83,6 +83,10 @@ internal fun DonutChart(
         sweep.animateTo(1f, tween(Motion.DurationLong, easing = Motion.EasingEmphasized))
     }
     val total = segments.sumOf { it.count }.coerceAtLeast(1)
+    // ROUND 87 (D-602): the idle track color resolves in COMPOSITION (a
+    // Canvas draw lambda is not composable — the color must be captured
+    // here, like the rest of the chart's inputs).
+    val idleTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
 
     Box(
         contentAlignment = Alignment.Center,
@@ -97,8 +101,12 @@ internal fun DonutChart(
                 size.height / 2f - outerRadius,
             )
             // The idle ring behind the segments (the "untested" rest).
+            // ROUND 87 (D-602): White@6% was INVISIBLE on the hero card —
+            // "the bar blends into the background way too much and I cannot
+            // clearly distinguish between it". A lit onSurfaceVariant track
+            // reads as an intentional empty state.
             drawArc(
-                color = Color.White.copy(alpha = 0.06f),
+                color = idleTrackColor,
                 startAngle = 0f,
                 sweepAngle = 360f,
                 useCenter = false,

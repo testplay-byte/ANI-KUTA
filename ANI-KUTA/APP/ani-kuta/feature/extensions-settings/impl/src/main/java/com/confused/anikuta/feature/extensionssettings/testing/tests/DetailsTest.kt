@@ -6,6 +6,7 @@ import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
 import com.confused.anikuta.feature.extensionssettings.testing.TestPayload
 
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /**
@@ -76,7 +77,11 @@ class DetailsTest : ExtensionTest {
                         ),
                     )
                 } catch (ce: kotlinx.coroutines.CancellationException) {
-                    throw ce
+                    // D-593: unwind only a REAL run cancellation — a
+                    // plugin-internal cancellation is THIS candidate's
+                    // error, and the walk moves on.
+                    if (!kotlinx.coroutines.currentCoroutineContext().isActive) throw ce
+                    lastError = "cancelled: ${ce.message ?: "no message"}"
                 } catch (t: Throwable) {
                     lastError = "${t::class.java.simpleName}: ${t.message ?: "unknown error"}"
                 }
