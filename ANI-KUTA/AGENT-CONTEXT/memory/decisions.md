@@ -4,6 +4,39 @@
 
 ## Decisions
 
+## D-624 (round 88): THE LIVE-RUN ACCENT IS THE PALETTE'S SKY, NEVER THE BASELINE TERTIARY
+The final re-verification pass caught the new "View live run" pill reading `MaterialTheme.colorScheme.tertiary` — the theme NEVER defines tertiary (grep: zero assignments repo-wide), so it resolved to the M3 baseline pale pink #EFB8C8, the exact near-twin-of-error the round-87 palette doctrine (D-594) bans. All four reads replaced with `TestingPalette.SystemB` (sky) + a black icon on the light sky bubble. LESSON: any `colorScheme` slot outside primary/secondary/surface/error must be theme-grep'd before use — in this app only the palette objects carry trustworthy fixed hues. Status: implemented.
+
+## D-623 (round 88): THE PAYLOADS SHOW EVERYTHING THE TESTS CAPTURED
+The UI caps were hiding what the tests found: the results grid showed 6 of 12 captured entries, the episode chips 24 of 48, the details dossier 3 of 8 genres — on the page whose purpose is the FULL result. All raised to the capture caps (12/48/8; videos were already uncapped); the results labels now carry counts ("TOP RESULTS · 12"); 9sp text bumped to 10sp across the touched views. Status: implemented.
+
+## D-622 (round 88): THE STREAM PREVIEW ASKS BEFORE IT PLAYS — AND LEAVES NO CORPSE
+Two defects in one component: a STORED page rebuilt the ExoPlayer and streamed the resolved video for 30s on mere OPEN (data, battery, surprise — no consent), and after the cap the full-width black 16:9 PlayerView sat forever. THE FIX: `StreamPreviewPlayer(autoPlay)` — false renders a compact tap-to-play strip (the detail page passes `autoPlayPreview = inLiveRun`, so a live-watched run still plays immediately); the player object moved INSIDE the `if (phase == PLAYING)` branch so the cap/stream-end/error phase flip leaves composition and the DisposableEffect releases player+surface; the end state collapses to a one-row strip ("Stream played successfully" / "Preview unavailable — the verdict came from the stream's data"). Plus `kindPayloadHasContent` gates the results section so PING (empty payload view by design) never renders an empty labeled box. Status: implemented.
+
+## D-621 (round 88): THE RAIL TELLS RUNNING FROM PASSED WITHOUT A WORD
+The timeline rail mapped RUNNING and PASSED to the exact same solid primary circle. RUNNING now PULSES (an infinite-transition ring 0.25→0.9 alpha around a live dot); PASSED sits solid. Pending cards fade ONCE — the old whole-card `.alpha(0.55)` stacked on the faint surface fill double-dimmed the labels into mush; now: faint fill + a hairline border (design-language consistency) at full label alpha. Status: implemented.
+
+## D-620 (round 88): THE STAGE BAR STOPS LYING
+Three honesty defects: pending segments drew ONE gray strip with budget lengths under the caption "its length is the time it took"; the 0.02 clamp STOLE width from the other segments (breaking the proportionality it protected); and each segment's animateFloatAsState reflowed every neighbor per frame (7 ripple waves per run). THE FIX: pending segments wear their KIND's color at 0.16 alpha ("each part a different color" holds pre-run); every fraction is floored at 0.03 and then RENORMALIZED (`floored[i] / flooredTotal`) so widths always sum to one bar with no theft; the animation waves are gone — the running segment's liveMs ticker IS the animation, inherently smooth. Status: implemented.
+
+## D-619 (round 88): THE DETAIL PAGE KNOWS ITS PLACE IN A LIVE RUN
+A queued target's chip read "Untested" here while the list said "Queued"; during ANY live run the pill was a dead disabled "Testing in progress…". THE FIX: `inLiveRun = runActive && queue.contains(targetId) && !finished`; the status chip gets `queued = inLiveRun`; the pill has THREE honest states — "View live run" (navigates via the new `onOpenRun`; MainActivity pushes the empty-csv ExtensionTestingRunKey, which the run screen treats as OBSERVE-ONLY), "A run is in progress…" (disabled, truthful), "Run all tests" (enabled). Status: implemented.
+
+## D-618 (round 88): THE FAILURES GET A SUMMARY AND THEIR FULL REASON
+The user's "quite a lot of failures" verdict on a page that answered with a wall of red and no totals: the hero now carries a VERDICT SUMMARY — "n Passed · n Failed · n Not run" chips (non-zero counts only) computed from the results — and the failure REASON (`result.detail`) renders IN FULL: the "full details" page ellipsizing the why at two lines was backwards (the run page already showed it whole). Status: implemented.
+
+## D-617 (round 88): THE HERO, COMPRESSED — THE FIRST RESULT ONSCREEN
+Seven stacked dossier rows ate half the screen before any test result, and "System" appeared twice (subtitle + meta row). THE FIX: `MetaCell(label, value, wide)` + `buildMetaRows` (narrow cells pair two-per-row; wide Package/Site take full rows and wrap to two lines) + `MetaGrid` with hairline dividers — four rows instead of seven; the duplicated System row deleted. Status: implemented.
+
+## D-616 (round 88): THE VERDICT BANNER FLOATS — NOTHING SHIFTS, EVER
+The banner was a LazyColumn ITEM whose AnimatedVisibility height snapped in and out: every test completion shoved the whole timeline ~34dp down and back (up to 14 jolts per 7-test run) — the page's own "the view never jumps" promise broken by its own furniture. THE FIX: the banner renders in the Box that wraps the list, `align(TopCenter)` under the header — an overlay that floats above the content; its Surface carries no pointer input, so taps pass through even mid-slide. Status: implemented.
+
+## D-615 (round 88): THE BANNER EARNS ITS APPEARANCE (the stale-verdict fix)
+`seenTerminalKinds` started EMPTY at every composition, so a stored page's whole history read as "fresh" and its last verdict bannered on OPEN — every time, on every re-entry (back-nav reset the remember). THE FIX: `bannerSeeded` — the first composition with a results snapshot marks every already-terminal kind seen SILENTLY; only verdicts ARRIVING while the screen watches earn the banner; a kind returning to RUNNING (a re-run) un-sees itself so its completion banner honestly. Rotation re-seeds (the history swallows again — correct). Status: implemented.
+
+## D-614 (round 88): THE SHEET'S TWO TRUE COLUMNS — ANIYOMI LEFT, CLOUDSTREAM RIGHT
+THE USER'S EXACT SPEC (third pass at this sheet): "on the top, on the left side, the Aniyomi extensions will show, and on the right side, the CloudStream extensions will show." The round-87 stacked section cards read as ONE tall column — not the side-by-side arrangement. THE FIX: `SourceListPanel` is a Row of two weighted `SourceColumnCard`s — Aniyomi LEFT, CloudStream RIGHT — each a rounded card with a FIXED heading (8dp palette dot + 13sp ExtraBold label + count) above its OWN independently-scrolling LazyColumn (`heightIn(max = listMaxHeight)`; ragged bottoms; the sheet still wraps when short). `SourceColumnRow` fits the ~160dp budget: 20dp icon, 11sp one-line name, the full selected treatment (tint + border + bold + 16dp check), the linked ✓ kept, an honest empty note per ecosystem. The cap's reserve grew 214→244dp for the two fixed headings — the search bar's room is unchanged. Status: implemented.
+
 ## D-613 (round 87): THE SHEET'S TWO SEPARATE ECOSYSTEM SECTION CARDS
 THE USER'S SPEC: the Link Sources sheet must show Aniyomi and CloudStream as two SEPARATE groups again — "not one merged list." Each ecosystem renders as its own rounded section card (the accent dot + the bold heading + the count chip in the header, the alphabetized rows inside), so the two lists are visibly apart at any sheet height. Status: implemented.
 
