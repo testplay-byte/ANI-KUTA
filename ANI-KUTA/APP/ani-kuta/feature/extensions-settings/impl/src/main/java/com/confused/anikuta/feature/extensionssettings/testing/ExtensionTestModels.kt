@@ -49,8 +49,15 @@ enum class ExtensionTestKind(
     /** Loads the episode list for the found anime. */
     EPISODE_LIST("Episode list", "Loads the episode list for a found anime", 25_000L),
 
-    /** Resolves a playable stream for the first episode. */
-    VIDEO_RESOLVE("Video resolve", "Resolves a playable stream for an episode", 45_000L),
+    /**
+     * Resolves a playable stream for an episode. Round 85: the budget rose
+     * 45s → 90s — the device report caught resolves giving up "after about
+     * five seconds" (the CS resolver's degenerate-timeout clamp + the test
+     * skipping the production hoster ladder, both fixed this round). A
+     * PATIENT resolve is the point: slow hosters deserve the wait, and the
+     * hard isolation still guarantees the run moves on at the deadline.
+     */
+    VIDEO_RESOLVE("Video resolve", "Resolves a playable stream for an episode", 90_000L),
 
     /** Range-fetches real bytes from the resolved stream URL. */
     STREAM_PLAY("Stream play", "Fetches bytes from the resolved stream URL", 20_000L),

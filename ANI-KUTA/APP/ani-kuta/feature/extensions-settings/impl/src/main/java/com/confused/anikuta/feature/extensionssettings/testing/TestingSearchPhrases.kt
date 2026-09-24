@@ -32,12 +32,19 @@ object TestingSearchPhrases {
     /**
      * The well-known fallback phrases, ordered anime-first (this is an anime
      * app — the most relevant hit should come first), then live-action series,
-     * then movies. Four phrases per the user's spec — enough coverage across
-     * categories without turning one test into a marathon.
+     * then movies.
+     *
+     * ROUND 85 (the user's spec): the canonical test anime must be a
+     * ~12–24-episode show — One Piece (1000+ episodes) made the EPISODE_LIST
+     * and VIDEO_RESOLVE stages a marathon on every healthy source. The anime
+     * phrases now lead with globally-indexed SHORT shows, including one
+     * CHINESE donghua ("Link Click") so the ladder spans a wider catalog
+     * spread. One phrase failing (a network error, an empty page) never fails
+     * the test on its own; only ALL attempts failing does.
      */
     val wellKnown: List<SearchPhrase> = listOf(
-        SearchPhrase("One Piece", "Anime"),
-        SearchPhrase("Naruto", "Anime"),
+        SearchPhrase("Jujutsu Kaisen", "Anime"),
+        SearchPhrase("Link Click", "Donghua"),
         SearchPhrase("Breaking Bad", "Series"),
         SearchPhrase("Interstellar", "Movie"),
     )

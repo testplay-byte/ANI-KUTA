@@ -45,6 +45,22 @@ class ExtensionTestContext(
     /** Where [foundAnime] came from — surfaced in the result messages. */
     var animeSourceLabel: String? = null
 
+    /**
+     * ROUND 85 — the SMART CANDIDATE POOLS. The found-anime fallback used to
+     * be one-shot: the single first search/home entry was the chain's only
+     * test subject, so one dead entry (a details page with zero episodes) and
+     * the run had nothing to try next. Now every winning stage drops its FULL
+     * result list here and DETAILS / EPISODE_LIST walk the pool forward when
+     * the current candidate yields nothing — the user's "use any of the
+     * contents from the home page to check the details page" ask, made real.
+     */
+
+    /** Every entry the winning SEARCH attempt returned (search-first pool). */
+    var searchCandidates: List<SAnime> = emptyList()
+
+    /** The home/popular entries (the fallback pool when search found nothing usable). */
+    var homeCandidates: List<SAnime> = emptyList()
+
     /** The episode list loaded by EPISODE_LIST. */
     var episodes: List<SEpisode> = emptyList()
 
@@ -62,6 +78,24 @@ class ExtensionTestContext(
 
     /** The CS resolver's first usable link object (kept for diagnostics). */
     var resolvedLinkSummary: String? = null
+
+    /**
+     * The deduped candidate walk order for DETAILS / EPISODE_LIST: the
+     * current pick first, then the search pool, then the home pool (URL-dedup,
+     * title-dedup as a fallback for url-less entries).
+     */
+    fun candidatePool(): List<SAnime> {
+        val seen = HashSet<String>()
+        return listOfNotNull(foundAnime)
+            .asSequence()
+            .plus(searchCandidates)
+            .plus(homeCandidates)
+            .filter { anime ->
+                val key = anime.url.ifBlank { "t:${anime.title}" }
+                seen.add(key)
+            }
+            .toList()
+    }
 }
 
 /**

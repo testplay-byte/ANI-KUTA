@@ -1,10 +1,13 @@
 package com.confused.anikuta.feature.extensionssettings.testing
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,11 +23,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -41,7 +47,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,23 +57,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PAGE 3 of 5 — THE DEDICATED RUN PAGE (round 84, D-583).
+//  PAGE 3 of 5 — THE DEDICATED RUN PAGE (round 84, D-583; reworked round 85).
 //
-//  The round-84 report on the round-83 batch experience: "the tests which
-//  were being performed were showing on the exact same screen in a pop-up,
-//  which was not a good experience… it got stuck on some areas… the stop
-//  button does not work". This page is the fix:
-//    • a FULL SCREEN run experience (no overlay on the list),
-//    • the live session renders from the app-scoped CONTROLLER — Stop and
-//      Skip are always wired, and a wedged extension cannot stall the loop
-//      (TestIsolation) or the UI (the controller's run scope survives),
-//    • SKIP — the "stuck test" escape hatch the report asked for,
-//    • per-kind live rows (ping → … → stream play) for the current target,
-//    • the queue below, tap-to-detail verdicts, and a completion state with
-//      the precision re-runs.
+//  THE ROUND-85 DEVICE REPORT, and what this page does about it:
+//    • "I clicked stop → it marked that as stopped, but it will STILL show
+//      'now testing'" — the controller's settle now clears the live target
+//      and terminalizes dangling results; this page additionally renders the
+//      "Now testing" hero ONLY while the phase is RUNNING.
+//    • "when I went back and tried clicking run test on it again, the test
+//      did not rerun" — the auto-start arming used to be rememberSaveable,
+//      which the nav shell keys BY CLASS NAME and restores on the next push:
+//      the same csv re-armed = start() never fired again. Arming is now
+//      INSTANCE-LOCAL remember, armed only AFTER a successful start.
+//    • "the details should be shown below the tests and their details should
+//      be proper, like full proper kind of details" — every completed kind
+//      row is now TAP-EXPANDABLE, revealing its detail line beneath the row.
+//    • the last target joins "Finished" at completion, a "Not tested"
+//      section appears after a Stop, and the view follows the live target.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -82,24 +91,28 @@ fun TestingRunScreen(
     val targets by controller.targets.collectAsState()
     val session by controller.session.collectAsState()
 
-    // AUTO-START: this page's csv is the REQUEST. Start it exactly once (per
-    // csv, per page instance) — and never while another run is live (the
-    // Home banner's "View" push carries an empty csv and must only OBSERVE).
-    var armedCsvs by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    // AUTO-START (round 85 rework): this page's csv is the REQUEST. The old
+    // rememberSaveable armed-set was keyed by CLASS NAME in the nav shell's
+    // SaveableStateHolder — pushing this page again with the same csv restored
+    // the armed set and start() never fired (the "won't re-run" bug). Now:
+    // instance-local state, armed only when the start actually went through;
+    // a refusal (another run live) retries when the phase changes. The empty
+    // csv (the Home banner's "View" push) only ever OBSERVES.
+    var armedThisInstance by remember { mutableStateOf(false) }
     LaunchedEffect(targetIdsCsv, session?.phase) {
-        val phase = session?.phase
-        if (targetIdsCsv !in armedCsvs && phase != RunPhase.RUNNING) {
-            armedCsvs = armedCsvs + targetIdsCsv
-            val ids = targetIdsCsv.split(",")
-                .mapNotNull { it.trim().toLongOrNull() }
-                .takeIf { it.isNotEmpty() }
-            val label = when {
-                ids == null -> "Run all"
-                ids.size == targets.size && targets.isNotEmpty() -> "Run all"
-                ids.size == 1 -> targets.firstOrNull { it.id == ids.first() }?.name ?: "1 target"
-                else -> "Selected (${ids.size})"
-            }
-            controller.start(ids, label)
+        if (armedThisInstance || targetIdsCsv.isBlank()) return@LaunchedEffect
+        if (session?.phase == RunPhase.RUNNING) return@LaunchedEffect
+        val ids = targetIdsCsv.split(",")
+            .mapNotNull { it.trim().toLongOrNull() }
+            .takeIf { it.isNotEmpty() }
+        val label = when {
+            ids == null -> "Run all"
+            ids.size == targets.size && targets.isNotEmpty() -> "Run all"
+            ids.size == 1 -> targets.firstOrNull { it.id == ids.first() }?.name ?: "1 target"
+            else -> "Selected (${ids.size})"
+        }
+        if (controller.start(ids, label)) {
+            armedThisInstance = true
         }
     }
 
@@ -120,8 +133,27 @@ fun TestingRunScreen(
         ?.filter { it != s.currentTargetId }
         ?: emptyList()
     val completedIds = s?.queue
-        ?.filter { id -> s.states[id]?.finished == true && id != s.currentTargetId }
+        ?.filter { id -> s.states[id]?.finished == true }
         ?: emptyList()
+    // After a STOP: the queued-but-never-started remainder, honestly named.
+    val notTestedIds = if (s?.phase == RunPhase.STOPPED) {
+        s.queue.filter { id -> s.states[id]?.finished != true }
+    } else {
+        emptyList()
+    }
+
+    // Follow the live target: scroll the "current" hero into view when it
+    // changes and the user is not already looking at it.
+    LaunchedEffect(s?.currentTargetId, s?.phase) {
+        if (s?.phase == RunPhase.RUNNING && s.currentTargetId != null) {
+            val info = listState.layoutInfo
+            val visible = info.visibleItemsInfo.any { it.key == "current" }
+            if (!visible) {
+                val currentIndex = 1 // progress
+                runCatching { listState.animateScrollToItem(currentIndex) }
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -263,8 +295,9 @@ fun TestingRunScreen(
                     }
                 }
 
-                // ── Current target hero ──
-                if (currentTarget != null) {
+                // ── Current target hero — RUNNING ONLY (the round-85 report:
+                // the stale "Now testing" hero after a stop was the bug) ──
+                if (currentTarget != null && s?.phase == RunPhase.RUNNING) {
                     item(key = "current") {
                         Surface(
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
@@ -294,9 +327,12 @@ fun TestingRunScreen(
                                     }
                                 }
                                 Spacer(Modifier.height(10.dp))
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     ExtensionTestKind.entries.forEach { kind ->
-                                        KindResultRow(kind = kind, result = currentState?.results?.get(kind))
+                                        LiveKindRow(
+                                            kind = kind,
+                                            result = currentState?.results?.get(kind),
+                                        )
                                     }
                                 }
                             }
@@ -316,8 +352,7 @@ fun TestingRunScreen(
                             modifier = Modifier.padding(start = 4.dp, top = 4.dp),
                         )
                     }
-                    items(completedIds.size, key = { "done-${completedIds[it]}" }) { i ->
-                        val id = completedIds[i]
+                    items(completedIds, key = { "done-$it" }) { id ->
                         val target = targetsById[id] ?: return@items
                         val state = s?.states?.get(id)
                         RunQueueRow(
@@ -325,6 +360,7 @@ fun TestingRunScreen(
                             target = target,
                             state = state,
                             onClick = { onOpenTarget(id) },
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
@@ -341,16 +377,120 @@ fun TestingRunScreen(
                             modifier = Modifier.padding(start = 4.dp, top = 4.dp),
                         )
                     }
-                    items(upcoming.size, key = { "up-${upcoming[it]}" }) { i ->
-                        val id = upcoming[i]
+                    items(upcoming, key = { "up-$it" }) { id ->
                         val target = targetsById[id] ?: return@items
                         RunQueueRow(
                             name = target.name,
                             target = target,
                             state = s?.states?.get(id),
                             onClick = { onOpenTarget(id) },
+                            modifier = Modifier.animateItem(),
                         )
                     }
+                }
+
+                // ── After a STOP: the never-started remainder, honestly ──
+                if (notTestedIds.isNotEmpty()) {
+                    item(key = "not-tested-label") {
+                        Text(
+                            text = "Not tested (run stopped)",
+                            fontFamily = RobotoFamily,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp, top = 4.dp),
+                        )
+                    }
+                    items(notTestedIds, key = { "nt-$it" }) { id ->
+                        val target = targetsById[id] ?: return@items
+                        RunQueueRow(
+                            name = target.name,
+                            target = target,
+                            state = s?.states?.get(id),
+                            onClick = { onOpenTarget(id) },
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The hero's per-kind row (round 85): the compact line, and — for a
+ * terminal result — a TAP-EXPANDABLE detail panel BELOW the row ("the
+ * details should be shown below the tests and their details should be
+ * proper"). This is where the run page stops looking like the list page.
+ */
+@Composable
+private fun LiveKindRow(
+    kind: ExtensionTestKind,
+    result: TestResult?,
+) {
+    var expanded by remember(kind) { mutableStateOf(false) }
+    val terminal = result != null && result.status != TestStatus.RUNNING &&
+        result.status != TestStatus.PENDING
+    val hasDetail = terminal && !result?.detail.isNullOrBlank()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(
+                animationSpec = tween(Motion.DurationStandard, easing = Motion.EasingEmphasized),
+            ),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (hasDetail) {
+                        Modifier.clickable { expanded = !expanded }
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            KindResultRow(kind = kind, result = result, modifier = Modifier.weight(1f))
+            if (hasDetail) {
+                Icon(
+                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Hide details" else "Show details",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = expanded && hasDetail,
+            enter = fadeIn(tween(150)) + expandVertically(tween(180, easing = Motion.EasingEmphasized)),
+            exit = fadeOut(tween(120)) + shrinkVertically(tween(150)),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 28.dp, top = 4.dp, end = 4.dp),
+            ) {
+                Text(
+                    text = result?.message.orEmpty(),
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = when (result?.status) {
+                        TestStatus.FAILED -> MaterialTheme.colorScheme.error
+                        TestStatus.PASSED -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                if (!result?.detail.isNullOrBlank()) {
+                    Text(
+                        text = result.detail!!,
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
                 }
             }
         }
@@ -380,11 +520,12 @@ private fun RunQueueRow(
     target: TestableTarget,
     state: TargetRunState?,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(14.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {

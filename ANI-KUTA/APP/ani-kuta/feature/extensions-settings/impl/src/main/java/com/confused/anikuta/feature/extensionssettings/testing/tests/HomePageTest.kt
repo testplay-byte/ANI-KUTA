@@ -33,6 +33,9 @@ class HomePageTest : ExtensionTest {
                     context.foundAnime = entries.first()
                     context.animeSourceLabel = "home page"
                 }
+                // ROUND 85: the home pool — the smart fallback when the search
+                // candidates are all dead ends.
+                context.homeCandidates = entries
                 TestOutcome.pass(
                     "${entries.size} entr${if (entries.size == 1) "y" else "ies"} on the home page",
                     detail = entries.first().title,

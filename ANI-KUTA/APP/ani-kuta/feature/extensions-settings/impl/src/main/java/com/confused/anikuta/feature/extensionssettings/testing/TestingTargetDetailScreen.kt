@@ -54,7 +54,6 @@ import java.util.Locale
 fun TestingTargetDetailScreen(
     targetId: Long,
     onBack: () -> Unit,
-    onOpenRunForTarget: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val controller = remember { ExtensionTestRunController.get(context) }
@@ -154,15 +153,19 @@ fun TestingTargetDetailScreen(
                     }
                 }
 
-                // ── Actions ──
+                // ── Actions — IN-PLACE run (round 85): the cards below are
+                // live session views, so the run animates right here — no
+                // navigation, no orphaned session ──
                 item(key = "actions") {
                     Button(
-                        onClick = { onOpenRunForTarget(targetId.toString()) },
+                        onClick = {
+                            controller.start(listOf(targetId), target.name)
+                        },
                         enabled = !runActive,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            text = "Run all tests for this source",
+                            text = if (runActive) "Testing in progress…" else "Run all tests for this source",
                             fontFamily = RobotoFamily,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -263,8 +266,6 @@ private fun KindDetailCard(
                     fontFamily = RobotoFamily,
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 28.dp, top = 2.dp),
                 )
             }

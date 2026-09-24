@@ -87,10 +87,20 @@ internal fun TestStatusIcon(status: TestStatus, size: Dp = 18.dp) {
  * The COMPACT verdict chip — one small badge per target row (the round-84
  * report: the old right edge stacked three different indicators; now there
  * is exactly ONE).
+ *
+ * ROUND 85: `queued` — during a batch run, a target that is in the queue but
+ * not yet live reads "Queued" (the old code showed every queued row as
+ * "Testing…" or "Untested", both lies).
  */
 @Composable
-internal fun TargetStatusChip(state: TargetRunState?, modifier: Modifier = Modifier) {
+internal fun TargetStatusChip(
+    state: TargetRunState?,
+    modifier: Modifier = Modifier,
+    queued: Boolean = false,
+) {
     val (label, color, alpha) = when {
+        queued && (state == null || (!state.finished && !state.isRunning)) ->
+            Triple("Queued", MaterialTheme.colorScheme.tertiary, 0.85f)
         state == null || (!state.finished && !state.isRunning && state.results.isEmpty()) ->
             Triple("Untested", MaterialTheme.colorScheme.onSurfaceVariant, 0.55f)
         state.isRunning -> Triple("Testing…", MaterialTheme.colorScheme.primary, 0.9f)
@@ -272,6 +282,42 @@ internal fun KindResultRow(
             maxLines = messageMaxLines,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * The GLANCEABLE kind row (round 85) — status icon + label + duration, NO
+ * message column. The list screen's expansion shows ONLY this (the device
+ * report: "in this screen only the simple tests and their time duration
+ * should be shown"); the message/detail text belongs to the run + detail
+ * pages.
+ */
+@Composable
+internal fun KindCompactRow(
+    kind: ExtensionTestKind,
+    result: TestResult?,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        TestStatusIcon(result?.status ?: TestStatus.PENDING, size = 16.dp)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = kind.label,
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = result?.let { TestTimeFormat.format(it.durationMs) } ?: "—",
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

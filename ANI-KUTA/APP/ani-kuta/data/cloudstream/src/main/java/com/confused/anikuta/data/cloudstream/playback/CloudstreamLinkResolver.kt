@@ -81,10 +81,22 @@ class CloudstreamLinkResolver(
         internal fun formatHeaders(headers: Map<String, String>): String =
             headers.entries.joinToString(",", "\u007b", "\u007d") { "${it.key}=${it.value.take(32)}" }
 
-        /** The provider's total-budget override (upstream MainAPI.loadLinksTimeoutMs), clamped. */
+        /**
+         * The provider's total-budget override (upstream MainAPI.loadLinksTimeoutMs).
+         *
+         * ROUND 85 FIX (the device report: "video resolve only tried for five
+         * seconds"): the old clamp `coerceIn(5s, 480s)` turned a MISSING
+         * *or degenerate* (0 / sub-5s) declaration into a HARD 5-SECOND WALL —
+         * providers declaring 0 ("no explicit budget") were cut off mid-resolve
+         * while their links needed 10-20s to land. Now: null or < MIN means
+         * "no meaningful declaration" → the DEFAULT budget applies; a real
+         * declaration (≥ MIN) is honored up to MAX. The 30s first-link
+         * watchdog still bounds the UX, so the default costs nothing.
+         */
         internal fun totalTimeoutMs(provider: MainAPI): Long {
-            val raw = runCatching { provider.loadLinksTimeoutMs }.getOrNull() ?: DEFAULT_TOTAL_TIMEOUT_MS
-            return raw.coerceIn(MIN_TOTAL_TIMEOUT_MS, MAX_TOTAL_TIMEOUT_MS)
+            val raw = runCatching { provider.loadLinksTimeoutMs }.getOrNull()
+            if (raw == null || raw < MIN_TOTAL_TIMEOUT_MS) return DEFAULT_TOTAL_TIMEOUT_MS
+            return raw.coerceAtMost(MAX_TOTAL_TIMEOUT_MS)
         }
     }
 
@@ -280,8 +292,10 @@ class CloudstreamLinkResolver(
         val providerJob = launch(Dispatchers.IO) {
             val timeoutMs = totalTimeoutMs(provider)
             val returned = try {
-                // Task 53 / RC-4: upstream APIRepository wraps loadLinks in
-                // withTimeout(api.loadLinksTimeoutMs ?: 120s, clamped 5–480s).
+                // Task 53 / RC-4, round-85 revision: withTimeout over
+                // loadLinks honoring loadLinksTimeoutMs — a missing or
+                // degenerate (sub-5s) declaration now uses the 120s default
+                // instead of being clamped UP into a hard 5s wall.
                 kotlinx.coroutines.withTimeout(timeoutMs) {
                     provider.loadLinks(
                         data,

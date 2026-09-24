@@ -1621,7 +1621,6 @@ fun AppRoot() {
             is ExtensionTestingTargetKey -> TestingTargetDetailScreen(
                 targetId = currentKey.targetId,
                 onBack = pop,
-                onOpenRunForTarget = { csv -> pushTesting(ExtensionTestingRunKey(targetIdsCsv = csv)) },
             )
             is ExtensionTestingStatsKey -> TestingStatsScreen(
                 onBack = pop,

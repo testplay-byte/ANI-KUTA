@@ -126,6 +126,17 @@ class ExtensionTestRunController private constructor(appContext: Context) {
      * Starts a run over the given targets. `null` = every target; an empty
      * resolved queue (or a live run) refuses the start. Returns false when
      * the run did NOT start.
+     *
+     * ROUND 85 (the "still shows now testing" + "won't re-run" device bugs):
+     *   • queued targets start with `isRunning = FALSE` — only the target the
+     *     loop is actually on flips to true (the old code marked the WHOLE
+     *     queue "Testing…", so rows lied about their state);
+     *   • the STOP settle (below) now clears `currentTargetId`, rewrites any
+     *     dangling RUNNING test result to a terminal SKIPPED verdict and marks
+     *     the interrupted target finished+aborted — a stopped run used to
+     *     leave the hero on "Now testing" and a spinner in the rows forever;
+     *   • COMPLETED clears `currentTargetId` too, so the last target joins
+     *     the Finished section instead of posing as "now testing" forever.
      */
     fun start(targetIds: List<Long>?, label: String): Boolean {
         if (_session.value?.phase == RunPhase.RUNNING) return false
@@ -143,29 +154,55 @@ class ExtensionTestRunController private constructor(appContext: Context) {
             startedAtMs = System.currentTimeMillis(),
             queue = queue,
             cursor = 0,
-            states = queue.associateWith { TargetRunState(isRunning = true) },
+            states = queue.associateWith { TargetRunState() },
         )
         runJob = scope.launch {
             queue.forEachIndexed { index, id ->
                 val target = byId[id] ?: return@forEachIndexed
-                setSession { it?.copy(cursor = index + 1, currentTargetId = id) }
+                setSession { session ->
+                    session ?: return@setSession null
+                    val current = session.states[id] ?: TargetRunState()
+                    session.copy(
+                        cursor = index + 1,
+                        currentTargetId = id,
+                        states = session.states + (id to current.copy(isRunning = true)),
+                    )
+                }
                 skipSignal.set(false)
                 runOne(target)
             }
-            setSession { it?.copy(phase = RunPhase.COMPLETED) }
+            setSession { it?.copy(phase = RunPhase.COMPLETED, currentTargetId = null) }
             appendHistoryFromSession()
             Logger.i(TAG) { "Run completed: \"$label\"" }
         }.also { job ->
             job.invokeOnCompletion {
                 if (_session.value?.phase == RunPhase.RUNNING) {
-                    // A cancel (Stop) — settle any mid-run spinner and record
-                    // the session as STOPPED with a partial summary. Partial
-                    // targets stay unfinished (a killed run is not a verdict).
+                    // A cancel (Stop) — settle EVERY spinner the run left
+                    // behind: no "now testing" residue, no dangling RUNNING
+                    // row. The interrupted target is finished+aborted (a
+                    // verdict the user cut short is not healthy — D-583) so
+                    // "Re-run failed" naturally offers it again.
                     setSession { session ->
                         session?.copy(
                             phase = RunPhase.STOPPED,
+                            currentTargetId = null,
                             states = session.states.mapValues { (_, s) ->
-                                if (s.isRunning) s.copy(isRunning = false, runningKind = null) else s
+                                val wasLive = s.isRunning || s.runningKind != null
+                                val cleaned = s.copy(
+                                    isRunning = false,
+                                    runningKind = null,
+                                    results = s.results.mapValues { (_, r) ->
+                                        if (r.status == TestStatus.RUNNING) {
+                                            r.copy(
+                                                status = TestStatus.SKIPPED,
+                                                message = "Stopped by user",
+                                            )
+                                        } else {
+                                            r
+                                        }
+                                    },
+                                )
+                                if (wasLive) cleaned.copy(finished = true, abortedByUser = true) else cleaned
                             },
                         )
                     }

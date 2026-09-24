@@ -113,6 +113,9 @@ class SearchTest : ExtensionTest {
                 context.foundAnime = results.first()
                 context.animeSourceLabel = "search"
             }
+            // ROUND 85: drop the WHOLE winning page into the candidate pool —
+            // DETAILS/EPISODE_LIST walk it forward when the first entry is dead.
+            context.searchCandidates = results
             Attempt.Win(
                 TestOutcome.pass(
                     "${results.size} result${if (results.size == 1) "" else "s"} " +

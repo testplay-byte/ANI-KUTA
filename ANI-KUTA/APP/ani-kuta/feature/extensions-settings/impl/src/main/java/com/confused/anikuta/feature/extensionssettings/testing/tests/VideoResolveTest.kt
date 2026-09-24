@@ -9,28 +9,37 @@ import com.confused.anikuta.feature.extensionssettings.testing.TestEcosystem
 import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Headers
 
 /**
- * VIDEO RESOLVE (round 82, D-576): "does an episode actually produce a
- * playable stream?" — the first episode of the chain's anime is resolved
- * through the ECOSYSTEM'S OWN path:
+ * VIDEO RESOLVE (round 82, D-576; IO-fixed round 83, D-578; the PATIENT
+ * rework round 85): "does an episode actually produce a playable stream?"
  *
- * • Aniyomi: the source's suspend `getVideoList` (the same entry the classic
- *   resolver uses, without the proxy/hoster layer — the test judges THE
- *   SOURCE, not our resolver).
- * • CloudStream: the dedicated CS link resolver (`CloudstreamLinkResolver
- *   .resolve(providerName, episodeUrl)`) — the exact path the CS watch screen
- *   plays through. The first LinksSnapshot's usable link wins.
+ * THE ROUND-85 DEVICE REPORT: "it only tried for five seconds or so, and it
+ * failed there. Like they were working once, but they apparently failed in
+ * the application." Two root causes, both fixed here:
  *
- * Passes when ≥1 usable stream URL lands in the context for STREAM_PLAY.
+ * 1. THE ANIYOMI PATH SKIPPED THE PRODUCTION LADDER — the test called only
+ *    the legacy `getVideoList(episode)`, while the real watch path
+ *    (`core/video-resolver/VideoResolver`) tries `getHosterList` FIRST
+ *    (ext-lib 16+ hoster-based extensions) and only falls back to the legacy
+ *    call. A hoster-based extension whose legacy parse throws failed the test
+ *    in one page-fetch while playback worked. Now the test mirrors the
+ *    production ladder exactly: hosters → lazy per-hoster `getVideoList` →
+ *    legacy fallback, each attempt individually bounded and caught.
+ * 2. NO SECOND CHANCE — the test resolved only the FIRST episode and accepted
+ *    only the first empty verdict. Now up to [MAX_EPISODE_ATTEMPTS] episodes
+ *    are tried (the first one that yields videos wins), and the CS clamp fix
+ *    (CloudstreamLinkResolver.totalTimeoutMs) stops 0/tiny provider budgets
+ *    from being clamped UP into a hard 5-second wall.
  *
- * ROUND 83 (D-578): the ANIYOMI path runs `getVideoList` on [Dispatchers.IO]
- * — the round-82 Main-thread call threw NetworkOnMainThreadException on real
- * extensions (the same anatomy as the Search test's 19 ms failures). The
- * CloudStream path needs no wrapper — the resolver's flow dispatches
- * internally, which is why CS resolve tests passed from day one.
+ * The [ExtensionTestKind.VIDEO_RESOLVE] budget rose to 90s to give the ladder
+ * real slack — patience is the point; the hard isolation still bounds it.
  */
 class VideoResolveTest(
     private val csResolver: CloudstreamLinkResolver,
@@ -40,47 +49,125 @@ class VideoResolveTest(
     override val requiresAnyOf = setOf(ExtensionTestKind.EPISODE_LIST)
 
     override suspend fun run(context: ExtensionTestContext): TestOutcome {
-        val episode = context.episodes.firstOrNull()
-            ?: return TestOutcome.skip("No episode available to resolve")
-
+        if (context.episodes.isEmpty()) {
+            return TestOutcome.skip("No episode available to resolve")
+        }
         return when (context.target.ecosystem) {
-            TestEcosystem.ANIYOMI -> resolveAniyomi(context, episode)
-            TestEcosystem.CLOUDSTREAM -> resolveCloudStream(context, episode)
+            TestEcosystem.ANIYOMI -> resolveAniyomi(context)
+            TestEcosystem.CLOUDSTREAM -> resolveCloudStream(context)
         }
     }
 
-    // ── Aniyomi: source.getVideoList (the context isolation dispatcher — D-578/D-583) ───────────────
+    // ── Aniyomi: the PRODUCTION ladder (hosters → lazy hosters → legacy) ────
 
-    private suspend fun resolveAniyomi(
-        context: ExtensionTestContext,
+    private suspend fun resolveAniyomi(context: ExtensionTestContext): TestOutcome =
+        withContext(context.ioDispatcher) {
+            val httpSource = context.source as? AnimeHttpSource
+                ?: return@withContext TestOutcome.fail("Source is not an HTTP source — cannot resolve videos")
+
+            // A dead FIRST episode must not sink a working extension — try a
+            // small window of episodes (1 = the first, then the next ones).
+            val attempts = context.episodes.take(MAX_EPISODE_ATTEMPTS)
+            var lastMessage = "no episodes to resolve"
+            var lastDetail: String? = null
+
+            for (episode in attempts) {
+                val outcome = resolveAniyomiEpisode(httpSource, episode)
+                if (outcome != null) {
+                    val (videos, hosterName) = outcome
+                    val video = videos.first()
+                    context.resolvedVideoUrl = video.videoUrl
+                    context.resolvedVideoHeaders = video.headers
+                    context.resolvedVideoLabel = video.videoTitle.ifBlank {
+                        video.resolution?.let { "${it}p" } ?: "first video"
+                    }
+                    val hosterNote = hosterName?.let { " · via $it" }.orEmpty()
+                    val triedNote = if (episode !== attempts.first()) {
+                        " (episode ${attempts.indexOf(episode) + 1} after the first was empty)"
+                    } else {
+                        ""
+                    }
+                    return@withContext TestOutcome.pass(
+                        "${videos.size} video${if (videos.size == 1) "" else "s"} — " +
+                            "first: ${context.resolvedVideoLabel}$hosterNote$triedNote",
+                        detail = lastDetail,
+                    )
+                }
+                lastMessage = "Source returned no videos for \u201C${episode.name}\u201D"
+            }
+            TestOutcome.fail(lastMessage, detail = lastDetail)
+        }
+
+    /** One episode's full ladder. `null` = every rung came up empty. */
+    private suspend fun resolveAniyomiEpisode(
+        source: AnimeHttpSource,
         episode: SEpisode,
-    ): TestOutcome = withContext(context.ioDispatcher) {
-        val httpSource = context.source as? AnimeHttpSource
-            ?: return@withContext TestOutcome.fail("Source is not an HTTP source — cannot resolve videos")
-        val videos = httpSource.getVideoList(episode)
-        if (videos.isEmpty()) {
-            return@withContext TestOutcome.fail("Source returned no videos for \u201C${episode.name}\u201D")
+    ): Pair<List<eu.kanade.tachiyomi.animesource.model.Video>, String?>? {
+        // Rung 1 — the ext-lib 16+ hoster list (getHosterList throws
+        // IllegalStateException when the source doesn't support it).
+        val hosters = try {
+            withTimeoutOrNull(ATTEMPT_TIMEOUT_MS) { source.getHosterList(episode) } ?: emptyList()
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
+        } catch (e: IllegalStateException) {
+            emptyList()
+        } catch (e: Throwable) {
+            Logger.d(TAG) { "getHosterList failed for ${source.name}: ${e.message}" }
+            emptyList()
         }
-        val video = videos.first()
-        context.resolvedVideoUrl = video.videoUrl
-        context.resolvedVideoHeaders = video.headers
-        context.resolvedVideoLabel = video.videoTitle.ifBlank {
-            video.resolution?.let { "${it}p" } ?: "first video"
+
+        if (hosters.isNotEmpty()) {
+            val collected = mutableListOf<eu.kanade.tachiyomi.animesource.model.Video>()
+            var winningHoster: String? = null
+            for (hoster in hosters.take(MAX_HOSTER_ATTEMPTS)) {
+                val preLoaded = hoster.videoList
+                if (!preLoaded.isNullOrEmpty()) {
+                    collected += preLoaded
+                    winningHoster = hoster.hosterName
+                } else {
+                    try {
+                        val lazyVideos = withTimeoutOrNull(ATTEMPT_TIMEOUT_MS) {
+                            source.getVideoList(hoster)
+                        } ?: emptyList()
+                        if (lazyVideos.isNotEmpty()) {
+                            collected += lazyVideos
+                            winningHoster = hoster.hosterName
+                        }
+                    } catch (ce: kotlinx.coroutines.CancellationException) {
+                        throw ce
+                    } catch (e: Throwable) {
+                        Logger.d(TAG) { "getVideoList(hoster ${hoster.hosterName}) failed: ${e.message}" }
+                    }
+                }
+                if (collected.isNotEmpty()) break
+            }
+            if (collected.isNotEmpty()) return collected to winningHoster
         }
-        TestOutcome.pass(
-            "${videos.size} video${if (videos.size == 1) "" else "s"} — first: ${context.resolvedVideoLabel}",
-        )
+
+        // Rung 2 — the legacy direct API (ext-lib < 16).
+        return try {
+            val videos = withTimeoutOrNull(ATTEMPT_TIMEOUT_MS) { source.getVideoList(episode) } ?: emptyList()
+            if (videos.isEmpty()) null else videos to null
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
+        } catch (te: TimeoutCancellationException) {
+            if (!currentCoroutineContext().isActive) throw te
+            null
+        } catch (e: Throwable) {
+            Logger.d(TAG) { "getVideoList(episode) failed for ${source.name}: ${e.message}" }
+            null
+        }
     }
 
     // ── CloudStream: the CS link resolver ───────────────────────────────────
 
     private suspend fun resolveCloudStream(
         context: ExtensionTestContext,
-        episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
     ): TestOutcome {
         val providerName = context.target.providerName
             ?: return TestOutcome.fail("Missing provider name for the CS resolver")
 
+        val episode = context.episodes.first()
         var linkCount = 0
         // Captured field-by-field instead of naming CsVideoLink — this module
         // intentionally does NOT depend on :core:cs-player (the resolver's
@@ -145,5 +232,14 @@ class VideoResolveTest(
 
     private companion object {
         const val TAG = "Anikuta:Feature:ExtensionsTesting"
+
+        /** Per-ladder-rung bound — the production resolver's own per-call budget. */
+        const val ATTEMPT_TIMEOUT_MS = 20_000L
+
+        /** How many hosters of the list get a lazy-resolve attempt. */
+        const val MAX_HOSTER_ATTEMPTS = 4
+
+        /** How many episodes the ladder may walk when the first is empty. */
+        const val MAX_EPISODE_ATTEMPTS = 3
     }
 }

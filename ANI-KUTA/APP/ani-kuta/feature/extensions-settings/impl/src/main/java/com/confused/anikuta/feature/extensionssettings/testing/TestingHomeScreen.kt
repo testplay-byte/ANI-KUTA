@@ -253,19 +253,20 @@ fun TestingHomeScreen(
                     )
                 }
 
-                // ── Actions ──
+                // ── Actions (round 85: Run All starts IN PLACE — the live
+                // banner above takes over; the run page stays reachable via
+                // the banner's "View") ──
                 item(key = "actions") {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Button(
                             onClick = {
                                 controller.start(null, "Run all")
-                                onOpenRun()
                             },
                             enabled = targets.isNotEmpty() && !runActive,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
-                                text = "Run all tests",
+                                text = if (runActive) "Testing in progress…" else "Run all tests",
                                 fontFamily = RobotoFamily,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.ExtraBold,

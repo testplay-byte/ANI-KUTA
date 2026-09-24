@@ -1,7 +1,6 @@
 package com.confused.anikuta.feature.extensionssettings.testing
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -33,14 +32,13 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -71,18 +69,24 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.feature.extensionssettings.matchesSearch
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PAGE 2 of 5 — PER-SYSTEM TARGET LIST (round 84, D-583).
+//  PAGE 2 of 5 — PER-SYSTEM TARGET LIST (round 84, D-583; reworked round 85).
 //
-//  The round-84 report on the old card list: the LEFT CHECKBOX was "not
-//  good", the right edge stacked THREE indicators (status + chevron + play),
-//  and expanding felt janky. This list is the fix:
-//    • NO checkbox column — a row is [icon][name+lang][ONE status chip][chevron];
-//    • tap expands/collapses (an emphasized-easing animateContentSize, never
-//      a jolt), long-press toggles selection (haptic tick) — the checkbox
-//      only appears ON the selected rows as a small check badge;
-//    • the search field filters rows only (same clean style as the filters
-//      bar), the select-all control lives in the header row;
-//    • the selection actions live in a pinned bottom bar.
+//  THE ROUND-85 DEVICE REPORT, and what this page does about it:
+//    • "when I clicked on Run Tests, it ran the tests on a completely new
+//      screen, which was not good. It should run the tests on that same
+//      screen" — every run entry now calls the app-scoped CONTROLLER
+//      DIRECTLY (in-place): rows animate queued → testing → verdict right
+//      here. The dedicated run page remains reachable as a deep view.
+//    • "if the user has long-pressed and has opened up the selections, then
+//      single clicking will not open up the details" — while a selection is
+//      open, TAP toggles selection (never expand); with no selection open,
+//      tap expands as before.
+//    • "on the very right side of each one of the extensions, there is no
+//      need to show the arrow" — the trailing chevron is GONE.
+//    • "the options for the test and the full details should be shown at the
+//      top… in this screen only the simple tests and their time duration
+//      should be shown" — the expanded body leads with the actions and shows
+//      ONLY the compact kind/duration rows (no message text).
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -122,6 +126,17 @@ fun TestingTargetListScreen(
     val runActive = session?.phase == RunPhase.RUNNING
     val allIds = ecoTargets.map { it.id }.toSet()
 
+    // The queue-aware "queued" flag: this ecosystem's rows that are waiting
+    // in a live run's queue (ahead of the cursor) — drives the Queued chip.
+    val queuedIds: Set<Long> = session?.let { s ->
+        if (s.phase != RunPhase.RUNNING) {
+            emptySet()
+        } else {
+            val cursor = s.cursor.coerceAtLeast(0)
+            s.queue.drop(cursor).filter { it != s.currentTargetId }.toSet()
+        }
+    } ?: emptySet()
+
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
@@ -148,7 +163,7 @@ fun TestingTargetListScreen(
                     )
                 }
 
-                // ── Controls row: select-all + run-all ──
+                // ── Controls row: select-all + run-all (IN PLACE) ──
                 item(key = "controls") {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -183,7 +198,7 @@ fun TestingTargetListScreen(
                                 .padding(7.dp),
                         )
                         Text(
-                            text = "Run all",
+                            text = if (runActive) "Testing…" else "Run all",
                             fontFamily = RobotoFamily,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -195,7 +210,12 @@ fun TestingTargetListScreen(
                             modifier = Modifier
                                 .clip(CircleShape)
                                 .clickable(enabled = !runActive && filtered.isNotEmpty()) {
-                                    onOpenRun(filtered.joinToString(",") { it.id.toString() })
+                                    // IN-PLACE: start against the controller —
+                                    // no navigation, the rows animate live.
+                                    controller.start(
+                                        filtered.map { it.id },
+                                        "${eco.displayName()} targets",
+                                    )
                                 }
                                 .padding(horizontal = 10.dp, vertical = 7.dp),
                         )
@@ -222,7 +242,9 @@ fun TestingTargetListScreen(
                         TargetListRow(
                             target = target,
                             state = stateFor(target.id),
+                            queued = target.id in queuedIds,
                             selected = target.id in selectedIds,
+                            selectionMode = selectedIds.isNotEmpty(),
                             expanded = target.id in expandedIds,
                             onToggleExpand = {
                                 expandedIds = if (target.id in expandedIds) {
@@ -240,15 +262,19 @@ fun TestingTargetListScreen(
                                 HapticHelper.lightTick(context)
                             },
                             onOpenDetails = { onOpenTarget(target.id) },
-                            onRunOne = { onOpenRun(target.id.toString()) },
+                            onRunOne = {
+                                // IN-PLACE: one target's run, right here.
+                                controller.start(listOf(target.id), target.name)
+                            },
                             runActive = runActive,
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
             }
         }
 
-        // ── Pinned selection bar ──
+        // ── Pinned bars: the selection bar WINS over the run strip ──
         AnimatedVisibility(
             visible = selectedIds.isNotEmpty(),
             enter = fadeIn(tween(180)) + expandVertically(tween(180)),
@@ -285,7 +311,13 @@ fun TestingTargetListScreen(
                     }
                     Button(
                         onClick = {
-                            onOpenRun(selectedIds.joinToString(",") { it.toString() })
+                            // IN-PLACE: the selection runs here — the pinned
+                            // bar hands over to the run strip on selection
+                            // clear.
+                            controller.start(
+                                selectedIds.toList(),
+                                "Selected (${selectedIds.size})",
+                            )
                             selectedIds = emptySet()
                         },
                         enabled = !runActive,
@@ -296,6 +328,74 @@ fun TestingTargetListScreen(
                             fontWeight = FontWeight.ExtraBold,
                         )
                     }
+                }
+            }
+        }
+
+        // ── Pinned RUN STRIP — the in-place run's always-visible controls ──
+        androidx.compose.animation.AnimatedVisibility(
+            visible = selectedIds.isEmpty() && runActive,
+            enter = fadeIn(tween(180)) + expandVertically(tween(180)),
+            exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                shadowElevation = 8.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                ) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = session?.label ?: "Testing",
+                            fontFamily = RobotoFamily,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = "${runProgressLabel(session?.cursor ?: 0, session?.queue?.size ?: 0)}" +
+                                " · ${session?.testedCount ?: 0} done",
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        text = "Details",
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable { onOpenRun("") }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.Stop,
+                        contentDescription = "Stop testing",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .clickable { controller.stop() }
+                            .padding(9.dp),
+                    )
                 }
             }
         }
@@ -387,21 +487,24 @@ private fun TestingListSearchField(
 }
 
 /**
- * One target row — the checkbox-free anatomy. Tap = expand, long-press =
- * select; the selection shows as a small check badge on the icon (never a
- * dedicated column).
+ * One target row. Tap = expand (or TOGGLE SELECTION while a selection is
+ * open), long-press = select. The expanded body leads with the ACTIONS and
+ * shows only the compact kind/duration rows — no message text, no chevron.
  */
 @Composable
 private fun TargetListRow(
     target: TestableTarget,
     state: TargetRunState?,
+    queued: Boolean,
     selected: Boolean,
+    selectionMode: Boolean,
     expanded: Boolean,
     onToggleExpand: () -> Unit,
     onToggleSelect: () -> Unit,
     onOpenDetails: () -> Unit,
     onRunOne: () -> Unit,
     runActive: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
         color = if (selected) {
@@ -410,11 +513,8 @@ private fun TargetListRow(
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
         },
         shape = RoundedCornerShape(14.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = tween(Motion.DurationStandard, easing = Motion.EasingEmphasized),
-            )
             .border(
                 if (selected) 1.5.dp else 1.dp,
                 if (selected) {
@@ -431,7 +531,10 @@ private fun TargetListRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .combinedClickable(
-                        onClick = onToggleExpand,
+                        // ROUND 85 selection contract: while a selection is
+                        // open, a single tap toggles the row's selection —
+                        // it must NOT expand/collapse.
+                        onClick = if (selectionMode) onToggleSelect else onToggleExpand,
                         onLongClick = onToggleSelect,
                     )
                     .padding(horizontal = 10.dp, vertical = 9.dp),
@@ -485,19 +588,12 @@ private fun TargetListRow(
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                TargetStatusChip(state)
-                Spacer(Modifier.width(6.dp))
-                Icon(
-                    imageVector = Icons.Filled.ExpandMore,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .size(22.dp)
-                        .padding(2.dp),
-                )
+                // Exactly ONE trailing indicator — the status chip. The old
+                // chevron is gone (the round-85 report).
+                TargetStatusChip(state, queued = queued)
             }
 
-            // ── Expanded body: the compact seven-kind grid + actions ──
+            // ── Expanded body: ACTIONS FIRST, then the glanceable kind grid ──
             AnimatedVisibility(
                 visible = expanded,
                 enter = fadeIn(tween(180)) + expandVertically(tween(220, easing = Motion.EasingEmphasized)),
@@ -509,13 +605,9 @@ private fun TargetListRow(
                         .padding(start = 16.dp, end = 12.dp, bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    ExtensionTestKind.entries.forEach { kind ->
-                        KindResultRow(kind = kind, result = state?.results?.get(kind))
-                    }
-                    Spacer(Modifier.height(2.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Run tests",
+                            text = if (runActive) "Testing…" else "Run tests",
                             fontFamily = RobotoFamily,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -542,6 +634,25 @@ private fun TargetListRow(
                                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                 .padding(horizontal = 12.dp, vertical = 7.dp),
                         )
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    // ONLY the simple statuses + durations here (the round-85
+                    // report). Kinds that never started stay hidden — a wall
+                    // of "Queued" rows is noise, not information.
+                    val startedKinds = ExtensionTestKind.entries.filter { kind ->
+                        state?.results?.get(kind)?.let { it.status != TestStatus.PENDING } == true
+                    }
+                    if (startedKinds.isEmpty()) {
+                        Text(
+                            text = "Run the tests to see each stage's timing here.",
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        )
+                    } else {
+                        startedKinds.forEach { kind ->
+                            KindCompactRow(kind = kind, result = state?.results?.get(kind))
+                        }
                     }
                 }
             }
