@@ -1,4 +1,4 @@
-package com.confused.anikuta.feature.extensionssettings.testing
+package com.confused.anikuta.feature.extensionssettings.testing.tests
 
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import kotlinx.coroutines.Dispatchers

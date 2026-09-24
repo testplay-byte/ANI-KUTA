@@ -1,4 +1,4 @@
-package com.confused.anikuta.feature.extensionssettings.testing
+package com.confused.anikuta.feature.extensionssettings.testing.tests
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

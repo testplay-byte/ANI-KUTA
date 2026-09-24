@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -258,6 +259,7 @@ private fun ProportionBar(total: Int, passed: Int, failed: Int) {
             .height(10.dp)
             .clip(RoundedCornerShape(50)),
     ) {
+        // RowScope.Segment — weight() only exists inside the row's scope.
         Segment(fraction = passedFraction.coerceIn(0f, 1f), color = passedColor)
         Segment(fraction = failedFraction.coerceIn(0f, 1f), color = failedColor)
         Segment(fraction = untestedFraction, color = untestedColor)
@@ -265,7 +267,7 @@ private fun ProportionBar(total: Int, passed: Int, failed: Int) {
 }
 
 @Composable
-private fun Segment(fraction: Float, color: Color) {
+private fun RowScope.Segment(fraction: Float, color: Color) {
     Box(modifier = Modifier.weight(fraction.coerceAtLeast(0.001f)).height(10.dp).background(color))
 }
 

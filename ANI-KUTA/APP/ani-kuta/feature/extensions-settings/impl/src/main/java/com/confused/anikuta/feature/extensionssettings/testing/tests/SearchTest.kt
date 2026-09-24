@@ -1,6 +1,12 @@
-package com.confused.anikuta.feature.extensionssettings.testing
+package com.confused.anikuta.feature.extensionssettings.testing.tests
 
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTest
+import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestContext
+import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestKind
+import com.confused.anikuta.feature.extensionssettings.testing.SearchPhrase
+import com.confused.anikuta.feature.extensionssettings.testing.TestOutcome
+import com.confused.anikuta.feature.extensionssettings.testing.TestingSearchPhrases
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
