@@ -1,7 +1,7 @@
 # SESSION — Read This At The Start Of Every Session
 
 > A 60-second orientation. Read this FIRST, every time, before any work.
-> Refreshed in **Round 77 (2026-09-23)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
+> Refreshed in **Round 83 (2026-09-24)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
 
 ---
 
@@ -12,12 +12,12 @@ You are the AI agent for **ANI-KUTA** — an Android anime streaming/downloading
 
 ---
 
-## 📍 Current State (refreshed Round 77, 2026-09-23)
+## 📍 Current State (refreshed Round 83, 2026-09-24)
 
 - **Mainline branch:** `feature/round-57-cloudstream-downloads` — this IS the default branch. `main` was DELETED (D-552 — it had 0 unique commits). Other live branches: `release/1.1.3` (the professional release branch), `feature/test-controller-v5` (dormant, kept by user order).
-- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.39 / 10139** (round 82 — D-571..D-576: the uninstall fix, the source-wheel sheet, the filters/search polish, the repo copy, the Extension Testing screen). Latest **professional** release: **v1.1.3 / 10103** (`professional-v1.1.3`, 5 release-signed ABIs + universal — device-verified).
-- **Latest records:** Round 82 implemented (D-571..D-576 — the uninstall fix, the source-wheel sheet, the filters/search polish, the repo copy, the EXTENSION TESTING SCREEN); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **64**.
-- **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases (the next one is v1.1.40/10140 — the 1.1.3N debug series continues). **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
+- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.40 / 10140** (round 83 — D-577..D-579: the REQUEST_DELETE_PACKAGES uninstall fix, the Dispatchers.IO 19ms testing bug + the smart phrase ladder, the testing screen rework, the persisted verdicts memory, the linked-source-aware sheet, the filters polish). Latest **professional** release: **v1.1.3 / 10103** (`professional-v1.1.3`, 5 release-signed ABIs + universal — device-verified).
+- **Latest records:** Round 83 implemented (D-577..D-579 — the uninstall permission fix, the 19ms dispatcher bug + the smart search ladder, the testing screen rework + the persisted verdicts memory, the sheet's linked-source pre-selection, the filters polish); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **66**.
+- **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases (the next one is v1.1.41/10141 — the 1.1.3N debug series continues). **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
 - **The per-round loop is unchanged:** device feedback → implement on the mainline → CI green (≤2 runs/cycle, disclosed ledger, D-472) → `release/1.1.3N` cut from the green head → the bump rides that branch → tag `v1.1.3N` → the debug release publishes → LIVE-mirror docs → ntfy → the user's device round.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` pushes build NOTHING.
 
@@ -83,7 +83,7 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (C
 ---
 
 ## 🚧 Open Items / Blocked (refreshed Round 81)
-- **Round 81 SHIPPED v1.1.38 (the Round-80 blocker is CLOSED):** both tokens are back in `/home/z/.secrets/` (`github-credentials` = the dev PAT, account `testplay-byte`, admin on the dev repo; `official-repo-token` = account `Confused-Creature-180`). The Round-80 rework shipped as debug **v1.1.38/10138** — implementation run 35887267531 + Release APK run 35888008247, both GREEN first-try (EXACTLY 2 runs, within budget). The user's device round on v1.1.38 is the next input; the NEXT debug release is **v1.1.39/10139**.
+- **Round 83 SHIPPED v1.1.40:** the dev PAT is stored repo-external at `/home/z/.secrets/github-credentials` (0600, account `testplay-byte`, admin — re-provided by the user after the sandbox reset; the `official-repo-token` is STILL LOST with the sandbox and needed only for official-repo work). The round-83 implementation cycle consumed 3 runs (2 fast-fail compile runs diagnosed from the logs + 1 green); the Release APK run follows the tag. The user's device round on v1.1.40 is the next input; the NEXT debug release is **v1.1.41/10141**. The `release/1.1.38`/`release/1.1.39`/`release/1.1.40` branches stay on the remote (deletion is user-gated).
 - **release/1.1.38 stays on the remote** (the tag holds the code; branch deletion is user-gated — release/1.1.37 was deleted post-tag, release/1.1.3 kept; mirror the user's next order).
 - **The official repo is LIVE (resolved round 79):** Confused-Creature-180/ANI-KUTA carries professional v1.1.3 (11 assets: 5 APKs + 5 ZIPs + SHA256SUMS.txt) + the Pages download site with the APK|ZIP option selector. The process is documented: `ANI-KUTA-RELEASE-PLAYBOOK.md` (repo-external) + the official repo's `RELEASES.md`. The official-repo token lives at `/home/z/.secrets/official-repo-token`.
 - **Dashboard deep debt (disclosed, D-565):** the dashboard carries REPRESENTATIVE data — decisions D-277..D-562 are not individually listed, and the per-table DB transcription is the D-192-era snapshot (current truth: 25 tables / 17 .sq files). Status-level facts were refreshed Round 77. A full backfill is available on the user's request.
