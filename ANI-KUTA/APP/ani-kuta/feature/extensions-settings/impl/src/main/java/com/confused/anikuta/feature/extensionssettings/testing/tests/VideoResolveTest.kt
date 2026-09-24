@@ -52,7 +52,10 @@ class VideoResolveTest(
 
     override suspend fun run(context: ExtensionTestContext): TestOutcome {
         if (context.episodes.isEmpty()) {
-            return TestOutcome.skip("No episode available to resolve")
+            // D-590 (round 86): FAILED, not SKIPPED — the engine's honest gate
+            // already covers an episode-list failure; this defensive path must
+            // not contradict it.
+            return TestOutcome.fail("Not run — no episode was available to resolve")
         }
         return when (context.target.ecosystem) {
             TestEcosystem.ANIYOMI -> resolveAniyomi(context)

@@ -32,7 +32,10 @@ class EpisodeListTest : ExtensionTest {
     override suspend fun run(context: ExtensionTestContext): TestOutcome =
         withContext(context.ioDispatcher) {
             if (context.foundAnime == null) {
-                return@withContext TestOutcome.skip("No anime found — search and home page both failed")
+                // D-590 (round 86): FAILED, not SKIPPED — matches the engine's
+                // honest gate (this defensive path is near-dead but must not
+                // contradict it).
+                return@withContext TestOutcome.fail("Not run — no anime was found to open")
             }
             val pool = context.candidatePool()
             var deadEnds = 0

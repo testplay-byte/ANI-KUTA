@@ -298,6 +298,9 @@ class ExtensionTestResultStore(context: Context) {
         p.detailsStatus?.let { o.put("detailsStatus", it) }
         p.detailsSynopsis?.let { o.put("detailsSynopsis", it) }
         p.detailsThumbnailUrl?.let { o.put("detailsThumbnailUrl", it) }
+        // D-592 (round 86): the dossier's URL + the stream live-preview
+        // contract + the search ladder's advanced stats round-trip too.
+        p.detailsUrl?.let { o.put("detailsUrl", it) }
         p.episodeCount?.let { o.put("episodeCount", it) }
         p.episodes?.let { list ->
             val arr = org.json.JSONArray()
@@ -315,6 +318,17 @@ class ExtensionTestResultStore(context: Context) {
         }
         p.streamBytesLabel?.let { o.put("streamBytesLabel", it) }
         p.streamHttpCode?.let { o.put("streamHttpCode", it) }
+        p.streamUrl?.let { o.put("streamUrl", it) }
+        p.streamReferer?.let { o.put("streamReferer", it) }
+        p.streamUserAgent?.let { o.put("streamUserAgent", it) }
+        p.streamHeaders?.let { map ->
+            val hArr = org.json.JSONArray()
+            map.forEach { (name, value) -> hArr.put(JSONObject().put("name", name).put("value", value)) }
+            o.put("streamHeaders", hArr)
+        }
+        p.searchAttempts?.let { o.put("searchAttempts", it) }
+        p.searchWinningPhrase?.let { o.put("searchWinningPhrase", it) }
+        p.searchWinningCategory?.let { o.put("searchWinningCategory", it) }
         return o
     }
 
@@ -340,6 +354,7 @@ class ExtensionTestResultStore(context: Context) {
         detailsStatus = o.optString("detailsStatus").takeIf { it.isNotEmpty() },
         detailsSynopsis = o.optString("detailsSynopsis").takeIf { it.isNotEmpty() },
         detailsThumbnailUrl = o.optString("detailsThumbnailUrl").takeIf { it.isNotEmpty() },
+        detailsUrl = o.optString("detailsUrl").takeIf { it.isNotEmpty() },
         episodeCount = if (o.has("episodeCount")) o.optInt("episodeCount") else null,
         episodes = o.optJSONArray("episodes")?.let { arr ->
             (0 until arr.length()).mapNotNull { i ->
@@ -360,5 +375,20 @@ class ExtensionTestResultStore(context: Context) {
         },
         streamBytesLabel = o.optString("streamBytesLabel").takeIf { it.isNotEmpty() },
         streamHttpCode = if (o.has("streamHttpCode")) o.optInt("streamHttpCode") else null,
+        streamUrl = o.optString("streamUrl").takeIf { it.isNotEmpty() },
+        streamReferer = o.optString("streamReferer").takeIf { it.isNotEmpty() },
+        streamUserAgent = o.optString("streamUserAgent").takeIf { it.isNotEmpty() },
+        streamHeaders = o.optJSONArray("streamHeaders")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let { h ->
+                    val name = h.optString("name")
+                    val value = h.optString("value")
+                    if (name.isNotEmpty()) name to value else null
+                }
+            }.toMap().takeIf { it.isNotEmpty() }
+        },
+        searchAttempts = if (o.has("searchAttempts")) o.optInt("searchAttempts") else null,
+        searchWinningPhrase = o.optString("searchWinningPhrase").takeIf { it.isNotEmpty() },
+        searchWinningCategory = o.optString("searchWinningCategory").takeIf { it.isNotEmpty() },
     )
 }

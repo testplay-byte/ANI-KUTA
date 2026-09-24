@@ -23,6 +23,11 @@ enum class TestEcosystem {
 /**
  * The individual tests in the suite. [timeoutMs] bounds each test — a hanging
  * site can never wedge the whole run (the engine enforces it).
+ *
+ * ROUND 86 (D-592): the declaration order IS the suite's display order —
+ * the user's spec put HOME PAGE second and SEARCH third (Ping → Home page →
+ * Search), so the enum entries were swapped to match. Persistence keys by
+ * kind NAME, so the reorder never touches stored verdicts.
  */
 enum class ExtensionTestKind(
     val label: String,
@@ -32,6 +37,9 @@ enum class ExtensionTestKind(
     /** Network reachability of the source's site + round-trip time. */
     PING("Ping", "Reaches the source's site and measures the round trip", 15_000L),
 
+    /** Loads the source's popular / home page. */
+    HOME_PAGE("Home page", "Loads the source's popular / home page", 20_000L),
+
     /** Runs the configured query through the source's search. */
     // D-578: the timeout bounds the WHOLE multi-phrase ladder (custom query +
     // 4 well-known phrases; SearchTest inner-bounds each attempt at 12s), so
@@ -39,9 +47,6 @@ enum class ExtensionTestKind(
     // D-583: 60s was EXACTLY 5×12s (zero headroom — any inter-attempt latency
     // fired the engine budget mid-ladder); 80s gives the ladder real slack.
     SEARCH("Search", "Tries the test query + well-known phrases and counts the results", 80_000L),
-
-    /** Loads the source's popular / home page. */
-    HOME_PAGE("Home page", "Loads the source's popular / home page", 20_000L),
 
     /** Loads full details for the first anime found by SEARCH or HOME_PAGE. */
     DETAILS("Details page", "Loads the full details for a found anime", 25_000L),
@@ -114,6 +119,7 @@ data class TestPayload(
     val detailsStatus: String? = null,
     val detailsSynopsis: String? = null,
     val detailsThumbnailUrl: String? = null,
+    val detailsUrl: String? = null,
     // Episode list
     val episodeCount: Int? = null,
     val episodes: List<TestPayloadEpisode>? = null,
@@ -122,6 +128,18 @@ data class TestPayload(
     // Stream play
     val streamBytesLabel: String? = null,
     val streamHttpCode: Int? = null,
+    // D-592 (round 86): the live-preview contract — the resolved stream's
+    // URL + its request headers (referer / user-agent / raw map). Plain
+    // strings only, so the store's JSON projection round-trips them.
+    val streamUrl: String? = null,
+    val streamReferer: String? = null,
+    val streamUserAgent: String? = null,
+    val streamHeaders: Map<String, String>? = null,
+    // D-592 (round 86): the search ladder's advanced stats — how many
+    // phrases were tried before one won, and which one answered.
+    val searchAttempts: Int? = null,
+    val searchWinningPhrase: String? = null,
+    val searchWinningCategory: String? = null,
 )
 
 /** What a single test reports back to the engine. */
@@ -186,6 +204,21 @@ data class TargetRunState(
     val isRunning: Boolean = false,
     val finished: Boolean = false,
     val abortedByUser: Boolean = false,
+    /**
+     * D-592 (round 86): the wall-clock moment the CURRENT kind started —
+     * recorded by the controller when the engine emits RUNNING. The rows'
+     * LIVE TICKING TIMERS and the detail page's multi-stage bar derive their
+     * elapsed time from this (the engine's own start clock never reaches the
+     * UI until the terminal emission).
+     */
+    val runningKindStartedAtMs: Long? = null,
+    /**
+     * D-592 (round 86): the LIVE per-phrase search status — "Trying
+     * \"Link Click\" (Donghua)…" — piped from the Search test's ladder
+     * through the controller while the SEARCH kind is RUNNING. Cleared on
+     * every terminal emission.
+     */
+    val runningDetail: String? = null,
 ) {
     val passedCount: Int get() = results.values.count { it.status == TestStatus.PASSED }
     val failedCount: Int get() = results.values.count { it.status == TestStatus.FAILED }

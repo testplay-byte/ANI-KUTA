@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -111,18 +112,65 @@ fun TestingTargetListScreen(
         if (testedTick >= 0) storedRuns = controller.resultStore.loadAll()
     }
 
-    fun stateFor(id: Long): TargetRunState? =
-        session?.states?.get(id) ?: storedRuns[id]?.let { storedToRunState(it) }
+    fun stateFor(id: Long): TargetRunState? {
+        val live = session?.states?.get(id)
+        // D-589 (round 86): a FRESH session state (not started yet) must not
+        // mask the PREVIOUS verdict — the run's queue resets every target to
+        // an empty state, so until a target's turn arrives its stored verdict
+        // stays the source of truth for the sorting and the chips.
+        if (live != null && (live.finished || live.isRunning || live.results.isNotEmpty())) {
+            return live
+        }
+        return storedRuns[id]?.let { storedToRunState(it) }
+    }
 
     var query by rememberSaveable { mutableStateOf("") }
     var selectedIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
     var expandedIds by remember { mutableStateOf(emptySet<Long>()) }
 
-    val filtered = if (query.isBlank()) {
+    val matched = if (query.isBlank()) {
         ecoTargets
     } else {
         ecoTargets.filter { matchesSearch(it.name, query.trim()) }
     }
+
+    // D-589 (round 86) — the VERDICT SORT (the user's spec): PASSED first
+    // (alphabetical inside the bucket), then the untested, then the FAILED —
+    // and inside the failed bucket the ones that failed in FEWER things sit
+    // higher, so "if it failed in a lot of things it is much further down,
+    // even though it was up in the alphabetical order". The store refresh
+    // on every tested target makes the order evolve LIVE during a run, and
+    // Modifier.animateItem() glides the rows into their new places.
+    val filtered = matched
+        .map { target ->
+            val state = stateFor(target.id)
+            val bucket = when {
+                state == null || !state.finished -> 1 // untested
+                state.isHealthy -> 0 // passed
+                else -> 2 // failed (incl. user-aborted — not a passing verdict)
+            }
+            Triple(target, bucket, state?.failedCount ?: 0)
+        }
+        .sortedWith { (a, aBucket, aFails), (b, bBucket, bFails) ->
+            when {
+                aBucket != bBucket -> aBucket - bBucket
+                aBucket == 2 && aFails != bFails -> aFails - bFails
+                else -> a.name.lowercase().compareTo(b.name.lowercase())
+            }
+        }
+        .map { it.first }
+
+    // The three run scopes (D-589): eco-scoped id sets derived from the same
+    // stateFor verdicts the sorting reads.
+    val failedIds = matched.mapNotNull { target ->
+        val state = stateFor(target.id)
+        if (state != null && state.finished && !state.isHealthy) target.id else null
+    }
+    val passedIds = matched.mapNotNull { target ->
+        val state = stateFor(target.id)
+        if (state != null && state.isHealthy) target.id else null
+    }
+
     val runActive = session?.phase == RunPhase.RUNNING
     val allIds = ecoTargets.map { it.id }.toSet()
 
@@ -163,7 +211,7 @@ fun TestingTargetListScreen(
                     )
                 }
 
-                // ── Controls row: select-all + run-all (IN PLACE) ──
+                // ── Controls row: count + select-all ──
                 item(key = "controls") {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -197,27 +245,43 @@ fun TestingTargetListScreen(
                                 }
                                 .padding(7.dp),
                         )
-                        Text(
-                            text = if (runActive) "Testing…" else "Run all",
-                            fontFamily = RobotoFamily,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = if (runActive || filtered.isEmpty()) {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            } else {
-                                MaterialTheme.colorScheme.primary
+                    }
+                }
+
+                // ── The THREE RUN SCOPES (D-589): Run all / Run failed / Run passed ──
+                item(key = "run-scopes") {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    ) {
+                        RunScopePill(
+                            text = "Run all",
+                            enabled = !runActive && filtered.isNotEmpty(),
+                            container = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                            content = MaterialTheme.colorScheme.primary,
+                            onClick = {
+                                controller.start(
+                                    filtered.map { it.id },
+                                    "${eco.displayName()} targets",
+                                )
                             },
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .clickable(enabled = !runActive && filtered.isNotEmpty()) {
-                                    // IN-PLACE: start against the controller —
-                                    // no navigation, the rows animate live.
-                                    controller.start(
-                                        filtered.map { it.id },
-                                        "${eco.displayName()} targets",
-                                    )
-                                }
-                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                            modifier = Modifier.weight(1f),
+                        )
+                        RunScopePill(
+                            text = if (failedIds.isEmpty()) "Run failed" else "Run failed · ${failedIds.size}",
+                            enabled = !runActive && failedIds.isNotEmpty(),
+                            container = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
+                            content = MaterialTheme.colorScheme.error,
+                            onClick = { controller.start(failedIds, "${eco.displayName()} failed") },
+                            modifier = Modifier.weight(1.15f),
+                        )
+                        RunScopePill(
+                            text = if (passedIds.isEmpty()) "Run passed" else "Run passed · ${passedIds.size}",
+                            enabled = !runActive && passedIds.isNotEmpty(),
+                            container = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.14f),
+                            content = MaterialTheme.colorScheme.tertiary,
+                            onClick = { controller.start(passedIds, "${eco.displayName()} passed") },
+                            modifier = Modifier.weight(1.15f),
                         )
                     }
                 }
@@ -383,7 +447,17 @@ fun TestingTargetListScreen(
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
-                            .clickable { onOpenRun("") }
+                            .clickable {
+                                // D-591 (round 86): a single-target run's
+                                // "Details" opens THAT target's dedicated
+                                // detail page — not the all-targets run view.
+                                val queue = session?.queue.orEmpty()
+                                if (queue.size == 1) {
+                                    onOpenTarget(queue.first())
+                                } else {
+                                    onOpenRun("")
+                                }
+                            }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                     Icon(
@@ -483,6 +557,41 @@ private fun TestingListSearchField(
                 }
             }
         }
+    }
+}
+
+/**
+ * One of the three run-scope pills (Run all / Run failed / Run passed) — a
+ * stadium tappable with the count baked into the label. Disabled while a run
+ * is live or when the scope's id set is empty (D-589).
+ */
+@Composable
+private fun RunScopePill(
+    text: String,
+    enabled: Boolean,
+    container: Color,
+    content: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = if (enabled) container else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(50),
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Text(
+            text = text,
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = if (enabled) content else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+        )
     }
 }
 
@@ -593,7 +702,10 @@ private fun TargetListRow(
                 TargetStatusChip(state, queued = queued)
             }
 
-            // ── Expanded body: ACTIONS FIRST, then the glanceable kind grid ──
+            // ── Expanded body (D-589, round 86): TWO SEPARATED BLOCKS — the
+            // test results live in their own sub-container, and the actions
+            // (Run tests / Full details) sit at the VERY BOTTOM-RIGHT corner
+            // of the expansion.
             AnimatedVisibility(
                 visible = expanded,
                 enter = fadeIn(tween(180)) + expandVertically(tween(220, easing = Motion.EasingEmphasized)),
@@ -602,10 +714,71 @@ private fun TargetListRow(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 12.dp, bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // BLOCK 1 — the glanceable kind grid, in its own
+                    // separated container ("they should be in the same kind
+                    // of block, but they should be separate from each
+                    // other").
+                    val startedKinds = ExtensionTestKind.entries.filter { kind ->
+                        state?.results?.get(kind)?.let { it.status != TestStatus.PENDING } == true
+                    }
+                    Surface(
+                        color = MaterialTheme.colorScheme.background.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(11.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            if (startedKinds.isEmpty()) {
+                                Text(
+                                    text = "Run the tests to see each stage's timing here.",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 3.dp),
+                                )
+                            } else {
+                                startedKinds.forEach { kind ->
+                                    // Every row fades/expands in on first
+                                    // appearance (the "one test shows at a
+                                    // time" reveal the user liked).
+                                    AppearingKindRow {
+                                        KindCompactRow(
+                                            kind = kind,
+                                            result = state?.results?.get(kind),
+                                            runningStartedAtMs = state?.runningKindStartedAtMs,
+                                            runningDetail = state?.runningDetail,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    // BLOCK 2 — the actions, at the VERY BOTTOM-RIGHT corner.
+                    Row(
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = "Full details",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .clickable(onClick = onOpenDetails)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
                         Text(
                             text = if (runActive) "Testing…" else "Run tests",
                             fontFamily = RobotoFamily,
@@ -619,40 +792,9 @@ private fun TargetListRow(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(50))
                                 .clickable(enabled = !runActive, onClick = onRunOne)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
                                 .padding(horizontal = 12.dp, vertical = 7.dp),
                         )
-                        Text(
-                            text = "Full details",
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .clickable(onClick = onOpenDetails)
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(2.dp))
-                    // ONLY the simple statuses + durations here (the round-85
-                    // report). Kinds that never started stay hidden — a wall
-                    // of "Queued" rows is noise, not information.
-                    val startedKinds = ExtensionTestKind.entries.filter { kind ->
-                        state?.results?.get(kind)?.let { it.status != TestStatus.PENDING } == true
-                    }
-                    if (startedKinds.isEmpty()) {
-                        Text(
-                            text = "Run the tests to see each stage's timing here.",
-                            fontFamily = RobotoFamily,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        )
-                    } else {
-                        startedKinds.forEach { kind ->
-                            KindCompactRow(kind = kind, result = state?.results?.get(kind))
-                        }
                     }
                 }
             }

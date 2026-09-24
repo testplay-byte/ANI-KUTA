@@ -1,10 +1,14 @@
 package com.confused.anikuta.feature.extensionssettings.testing
 
 import android.graphics.drawable.Drawable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,13 +16,13 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -32,19 +36,34 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import coil3.compose.SubcomposeAsyncImage
+import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import kotlinx.coroutines.delay
 
 // ════════════════════════════════════════════════════════════════════════════
 //  D-583 (round 84): the FIVE testing pages' SHARED UI PIECES — status icons,
@@ -293,38 +312,150 @@ internal fun KindResultRow(
 }
 
 /**
- * The GLANCEABLE kind row (round 85) — status icon + label + duration, NO
- * message column. The list screen's expansion shows ONLY this (the device
- * report: "in this screen only the simple tests and their time duration
- * should be shown"); the message/detail text belongs to the run + detail
- * pages.
+ * The GLANCEABLE kind row (round 85; the LIVE rework round 86, D-589/D-592):
+ * status icon + label + duration, NO message column — the list screen's
+ * expansion shows ONLY this. Round 86 adds the device report's quality-of-life
+ * set, now part of the design language:
+ *   • SEPARATION — every row sits in its own soft rounded card (no more one
+ *     merged wall of rows);
+ *   • LIVE TIMER — while the kind runs, the duration ticks up in real time
+ *     ("if an extension takes about 10 seconds to search, the timer moves up
+ *     along with it");
+ *   • LEADER DOTS — an animated dots trail between the test name and the
+ *     live timer, running ONLY while that test is running;
+ *   • HONEST SKIPS — a genuine SKIPPED verdict carries its reason in a small
+ *     dim line (failures read as FAILED since the D-590 engine gate).
+ *
+ * @param runningStartedAtMs the wall-clock moment the RUNNING kind started
+ *   (recorded by the controller on the RUNNING emission) — null on terminals.
+ * @param runningDetail the LIVE per-phrase search status (the D-592 pipe).
  */
 @Composable
 internal fun KindCompactRow(
     kind: ExtensionTestKind,
     result: TestResult?,
     modifier: Modifier = Modifier,
+    runningStartedAtMs: Long? = null,
+    runningDetail: String? = null,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    val status = result?.status ?: TestStatus.PENDING
+    val running = status == TestStatus.RUNNING
+
+    // The LIVE ticker — a 200ms producer while this kind is running.
+    var elapsedMs by remember(runningStartedAtMs) {
+        mutableLongStateOf(
+            if (running && runningStartedAtMs != null) {
+                System.currentTimeMillis() - runningStartedAtMs
+            } else {
+                0L
+            },
+        )
+    }
+    if (running && runningStartedAtMs != null) {
+        LaunchedEffect(runningStartedAtMs) {
+            while (true) {
+                elapsedMs = System.currentTimeMillis() - runningStartedAtMs
+                delay(200)
+            }
+        }
+    }
+
+    // The LEADER DOTS — an animated 1→3 dot trail between the name and the
+    // timer, running only while the kind runs (the user's animation ask).
+    val dotsPhase = rememberInfiniteTransition(label = "kindDots").animateFloat(
+        initialValue = 0f,
+        targetValue = 3f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing)),
+        label = "dotsPhase",
+    )
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+        shape = RoundedCornerShape(9.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
-        TestStatusIcon(result?.status ?: TestStatus.PENDING, size = 16.dp)
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = kind.label,
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = result?.let { TestTimeFormat.format(it.durationMs) } ?: "—",
-            fontFamily = RobotoFamily,
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TestStatusIcon(status, size = 15.dp)
+                Spacer(Modifier.width(9.dp))
+                Text(
+                    text = kind.label,
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                if (running) {
+                    Text(
+                        text = ".".repeat((dotsPhase.value.toInt().coerceIn(0, 2)) + 1),
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.width(18.dp),
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = if (running && runningStartedAtMs != null) {
+                        TestTimeFormat.format(elapsedMs)
+                    } else {
+                        result?.let { TestTimeFormat.format(it.durationMs) } ?: "—"
+                    },
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = if (running) FontWeight.ExtraBold else FontWeight.Normal,
+                    color = if (running) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            // The live per-phrase status — which search phrase is being tried.
+            if (running && !runningDetail.isNullOrBlank()) {
+                Text(
+                    text = runningDetail,
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 24.dp, top = 2.dp),
+                )
+            }
+            // The honest skip — a genuine SKIPPED verdict says WHY (tiny, dim).
+            if (status == TestStatus.SKIPPED && !result?.message.isNullOrBlank()) {
+                Text(
+                    text = result?.message.orEmpty(),
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 24.dp, top = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The per-row ENTRANCE animation wrapper — every newly-appearing kind row
+ * fades + expands in (the device report liked the "one test shows at a time"
+ * reveal; this makes the list page feel the same as the run page).
+ */
+@Composable
+internal fun AppearingKindRow(content: @Composable () -> Unit) {
+    val appear = remember { MutableTransitionState(false) }.apply { targetState = true }
+    androidx.compose.animation.AnimatedVisibility(
+        visibleState = appear,
+        enter = androidx.compose.animation.fadeIn(tween(200)) +
+            androidx.compose.animation.expandVertically(tween(260, easing = Motion.EasingEmphasized)),
+    ) {
+        content()
     }
 }
 
@@ -344,15 +475,12 @@ internal fun KindPayloadView(
 ) {
     if (payload == null) return
     when (kind) {
-        ExtensionTestKind.PING -> PayloadMetricRow(
-            listOfNotNull(
-                payload.httpCode?.let { "HTTP $it" },
-                payload.rttMs?.let { "$it ms" },
-            ),
-            modifier,
-        )
+        // D-592 (round 86): the PING metric chips are GONE — the row's detail
+        // line ("Responded HTTP 200 in 523 ms" + the URL) already says it all;
+        // the tags duplicated it at the bottom of every card.
+        ExtensionTestKind.PING -> Unit
 
-        ExtensionTestKind.SEARCH, ExtensionTestKind.HOME_PAGE -> PayloadEntriesRow(payload.entries, modifier)
+        ExtensionTestKind.SEARCH, ExtensionTestKind.HOME_PAGE -> PayloadEntriesGrid(payload.entries, modifier)
 
         ExtensionTestKind.DETAILS -> PayloadDetailsDossier(payload, modifier)
 
@@ -360,17 +488,26 @@ internal fun KindPayloadView(
 
         ExtensionTestKind.VIDEO_RESOLVE -> PayloadVideoRows(payload.videos, modifier)
 
-        ExtensionTestKind.STREAM_PLAY -> PayloadMetricRow(
-            listOfNotNull(
-                payload.streamHttpCode?.let { "HTTP $it" },
-                payload.streamBytesLabel?.let { "$it delivered" },
-            ),
-            modifier,
-        )
+        ExtensionTestKind.STREAM_PLAY -> {
+            // The chips are gone (same duplication); what the user wants here
+            // is the REAL THING — a muted looping preview of the resolved
+            // stream, rendered whenever the payload carries its URL.
+            payload.streamUrl?.let { url ->
+                StreamPreviewPlayer(
+                    url = url,
+                    referer = payload.streamReferer,
+                    userAgent = payload.streamUserAgent,
+                    headers = payload.streamHeaders,
+                    modifier = modifier,
+                )
+            }
+        }
     }
 }
 
-/** A row of small metric chips (HTTP code, RTT, bytes…). */
+/** A row of small metric chips (kept for future callers; the ping/stream
+ *  payload paths no longer use it — the D-592 report removed the duplicated
+ *  bottom tags). */
 @Composable
 private fun PayloadMetricRow(values: List<String>, modifier: Modifier = Modifier) {
     if (values.isEmpty()) return
@@ -396,59 +533,68 @@ private fun PayloadMetricRow(values: List<String>, modifier: Modifier = Modifier
     }
 }
 
-/** The ACTUAL search/home entries — a horizontal strip of poster cards. */
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * The ACTUAL search/home entries — the round-86 GRID: the top SIX results in
+ * a 3×2 layout ("three results at the top and three results at the bottom"),
+ * every title ONE line.
+ */
 @Composable
-private fun PayloadEntriesRow(
+private fun PayloadEntriesGrid(
     entries: List<TestPayloadEntry>?,
     modifier: Modifier = Modifier,
 ) {
     if (entries.isNullOrEmpty()) return
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+    val grid = entries.take(6).chunked(3)
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier.fillMaxWidth(),
     ) {
-        entries.forEach { entry ->
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.width(76.dp),
+        grid.forEach { rowEntries ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                SubcomposeAsyncImage(
-                    model = entry.thumbnailUrl,
-                    contentDescription = entry.title,
-                    modifier = Modifier
-                        .size(width = 68.dp, height = 88.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                    loading = {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            TargetLetterTile(entry.title.take(1).ifBlank { "?" }, 30.dp)
-                        }
-                    },
-                    error = {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            TargetLetterTile(entry.title.take(1).ifBlank { "?" }, 30.dp)
-                        }
-                    },
-                )
-                Text(
-                    text = entry.title,
-                    fontFamily = RobotoFamily,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
+                rowEntries.forEach { entry ->
+                    Column(modifier = Modifier.weight(1f)) {
+                        SubcomposeAsyncImage(
+                            model = entry.thumbnailUrl,
+                            contentDescription = entry.title,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(0.76f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                            loading = {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.fillMaxSize(),
+                                ) {
+                                    TargetLetterTile(entry.title.take(1).ifBlank { "?" }, 30.dp)
+                                }
+                            },
+                            error = {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.fillMaxSize(),
+                                ) {
+                                    TargetLetterTile(entry.title.take(1).ifBlank { "?" }, 30.dp)
+                                }
+                            },
+                        )
+                        Text(
+                            text = entry.title,
+                            fontFamily = RobotoFamily,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+                // Pad the last row out to a true 3-wide grid.
+                repeat(3 - rowEntries.size) { Spacer(modifier = Modifier.weight(1f)) }
             }
         }
     }
@@ -496,6 +642,19 @@ private fun PayloadDetailsDossier(payload: TestPayload, modifier: Modifier = Mod
                     )
                 }
             }
+        }
+        // D-592 (round 86): the entry's URL as its own formatted line — the
+        // user asked for "the title, the details, the URL properly shown".
+        payload.detailsUrl?.let { url ->
+            Text(
+                text = url,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 9.sp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
         payload.detailsSynopsis?.let { synopsis ->
             Text(
@@ -557,43 +716,80 @@ private fun PayloadEpisodeChips(payload: TestPayload, modifier: Modifier = Modif
     }
 }
 
-/** The ACTUAL resolved servers/qualities — one row each. */
+/** The ACTUAL resolved servers/qualities — one formatted card row each
+ *  (the round-86 "all the resolved screens shown properly in a formatted
+ *  layout"). */
 @Composable
 private fun PayloadVideoRows(
     videos: List<TestPayloadVideo>?,
     modifier: Modifier = Modifier,
 ) {
     if (videos.isNullOrEmpty()) return
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = modifier) {
-        videos.forEach { video ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = video.label,
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                video.quality?.let { quality ->
+    Column(
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        videos.take(10).forEachIndexed { index, video ->
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
+                ) {
                     Text(
-                        text = quality,
+                        text = "${index + 1}",
                         fontFamily = RobotoFamily,
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.width(14.dp),
                     )
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        text = video.label,
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    video.quality?.let { quality ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(50),
+                        ) {
+                            Text(
+                                text = quality,
+                                fontFamily = RobotoFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
                 }
             }
+        }
+        if (videos.size > 10) {
+            Text(
+                text = "+${videos.size - 10} more links",
+                fontFamily = RobotoFamily,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            )
         }
     }
 }
@@ -624,3 +820,157 @@ internal fun storedToRunState(run: ExtensionTestResultStore.StoredTargetRun): Ta
 
 /** A short "n of m" helper shared by the run + home pages. */
 internal fun runProgressLabel(cursor: Int, total: Int): String = "$cursor of $total"
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-592 (round 86) — THE STREAM LIVE PREVIEW. The user: "if the actual live
+//  preview could be shown on this page, then I would most definitely prefer
+//  it to be handled like that." A small muted looping ExoPlayer card renders
+//  the resolved stream inline whenever the STREAM_PLAY payload carries its
+//  URL. The player is released on disposal; playback errors degrade silently
+//  to a still black card (a preview must never become a new failure source).
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+internal fun StreamPreviewPlayer(
+    url: String,
+    referer: String?,
+    userAgent: String?,
+    headers: Map<String, String>?,
+    modifier: Modifier = Modifier,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val player = remember(url) {
+        // The stream's own request headers (Referer / User-Agent / the flat
+        // map the capture kept) ride a dedicated DefaultHttpDataSource — the
+        // same contract the StreamPlayTest used to prove the bytes flow.
+        val requestHeaders = buildMap {
+            userAgent?.let { put("User-Agent", it) }
+            referer?.let { put("Referer", it) }
+            headers?.forEach { (name, value) ->
+                if (!name.equals("Range", ignoreCase = true) &&
+                    !name.equals("User-Agent", ignoreCase = true) &&
+                    !name.equals("Referer", ignoreCase = true)
+                ) {
+                    put(name, value)
+                }
+            }
+        }
+        val dataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(10_000)
+            .setReadTimeoutMs(15_000)
+            .setDefaultRequestProperties(requestHeaders)
+        ExoPlayer.Builder(context, dataSourceFactory).build().apply {
+            volume = 0f
+            repeatMode = Player.REPEAT_MODE_ONE
+            playWhenReady = true
+            setMediaItem(MediaItem.fromUri(url))
+            prepare()
+        }
+    }
+    DisposableEffect(url) {
+        onDispose {
+            player.stop()
+            player.release()
+        }
+    }
+    Surface(
+        color = Color.Black.copy(alpha = 0.85f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        useController = false
+                        this.player = player
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .padding(horizontal = 9.dp, vertical = 5.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFB1F256)),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "LIVE PREVIEW · muted",
+                    fontFamily = RobotoFamily,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFFB1F256),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The CODE-WINDOW block (the round-86 "coding kind of window vibe"): the
+ * per-test detail lines rendered inside a dark, monospace terminal-style
+ * container with the classic three window dots — the test's own words, not a
+ * designer's summary.
+ */
+@Composable
+internal fun CodeWindowBlock(
+    lines: List<String>,
+    modifier: Modifier = Modifier,
+    accentLines: Set<Int> = emptySet(),
+) {
+    val visible = lines.filter { it.isNotBlank() }
+    if (visible.isEmpty()) return
+    Surface(
+        color = Color(0xFF17161C),
+        shape = RoundedCornerShape(10.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFF5F57)),
+                )
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFEBC2E)),
+                )
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF28C840)),
+                )
+            }
+            Spacer(Modifier.height(7.dp))
+            visible.forEachIndexed { index, line ->
+                Text(
+                    text = line,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    lineHeight = 15.sp,
+                    color = if (index in accentLines) {
+                        Color(0xFFB1F256)
+                    } else {
+                        Color(0xFFD6D3CD)
+                    },
+                )
+            }
+        }
+    }
+}

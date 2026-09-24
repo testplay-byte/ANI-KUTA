@@ -80,6 +80,15 @@ class ExtensionTestContext(
     var resolvedLinkSummary: String? = null
 
     /**
+     * D-592 (round 86): the LIVE search-ladder channel — the Search test
+     * invokes it before EVERY phrase attempt ("Trying \"Link Click\"
+     * (Donghua)…") and the controller pipes it into the session state so the
+     * rows and cards can show WHICH phrase is being tried while the search
+     * runs. Null = no live subscriber (the engine never requires one).
+     */
+    var onSearchPhrase: ((String) -> Unit)? = null
+
+    /**
      * The deduped candidate walk order for DETAILS / EPISODE_LIST: the
      * current pick first, then the search pool, then the home pool (URL-dedup,
      * title-dedup as a fallback for url-less entries).
@@ -95,6 +104,35 @@ class ExtensionTestContext(
                 seen.add(key)
             }
             .toList()
+    }
+
+    /**
+     * D-592 (round 86) — the RANDOM WALK ORDER for the DETAILS test (the
+     * user's spec): "it will open up from the search page or from the home
+     * page, but it will prefer the search page's results, and it will
+     * randomly pick from the available results — every single time a
+     * different details page, picked from the top ten or however many
+     * results it provided at first sight."
+     *
+     * The head of the walk is a SHUFFLED window of the first [window]
+     * entries of the preferred pool (search when non-empty, home otherwise);
+     * the rest of the deduped candidate pool follows as the fallback tail —
+     * the walk-on-error behavior is untouched, only the starting point is
+     * randomized per run.
+     */
+    fun detailsWalkOrder(window: Int = RANDOM_WINDOW): List<SAnime> {
+        val preferred = if (searchCandidates.isNotEmpty()) searchCandidates else homeCandidates
+        val head = preferred.take(window).shuffled()
+        if (head.isEmpty()) return candidatePool()
+        val headKeys = head.mapTo(HashSet()) { it.url.ifBlank { "t:${it.title}" } }
+        val rest = candidatePool()
+            .filter { candidate -> candidate.url.ifBlank { "t:${candidate.title}" } !in headKeys }
+        return head + rest
+    }
+
+    private companion object {
+        /** The randomized top-of-pool window (the user's "top ten"). */
+        const val RANDOM_WINDOW = 10
     }
 }
 

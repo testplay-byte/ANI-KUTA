@@ -15,10 +15,11 @@ import okhttp3.OkHttpClient
  * suite's order. Adding a test to the suite = add its kind to
  * [ExtensionTestKind], write its file, append it here. Nothing else changes.
  *
- * Order (the user's spec): Ping → Search → Home page → Details → Episode
- * list → Video resolve → Stream play. The chain is a waterfall — each stage
- * feeds its output into the next through [ExtensionTestContext], and the
- * engine SKIPS stages whose prerequisites failed.
+ * Order (the user's round-86 spec, D-592): Ping → Home page → Search →
+ * Details → Episode list → Video resolve → Stream play. The chain is a
+ * waterfall — each stage feeds its output into the next through
+ * [ExtensionTestContext], and the engine gates stages whose prerequisites
+ * failed (marked FAILED "Not run — …" since round 86, never a bare SKIPPED).
  *
  * FUTURE (documented in doc 64): automated batch schedules and per-extension
  * statistics will reuse this same chain — a persisted runner would call
@@ -35,8 +36,8 @@ object ExtensionTestChain {
         csResolver: CloudstreamLinkResolver,
     ): List<ExtensionTest> = listOf(
         PingTest(httpClient),
-        SearchTest(),
         HomePageTest(),
+        SearchTest(),
         DetailsTest(),
         EpisodeListTest(),
         VideoResolveTest(csResolver),

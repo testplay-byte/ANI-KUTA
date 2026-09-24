@@ -36,9 +36,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE 5 of 5 — TESTING STATISTICS (round 84, D-583; the DASHBOARD rework,
@@ -119,11 +116,6 @@ fun TestingStatsScreen(
         .filter { it.totalTargets > 0 }
         .sortedBy { it.startedAtMs }
         .map { entry -> entry.passed.toFloat() / entry.totalTargets }
-
-    // The failing targets right now (the "what should I fix next" list).
-    val failing = storedRuns.values
-        .filter { run -> run.finished && (run.abortedByUser || run.results.values.any { it.status == TestStatus.FAILED }) }
-        .sortedByDescending { run -> run.results.values.count { it.status == TestStatus.FAILED } }
 
     val targetsById = targets.associateBy { it.id }
 
@@ -349,129 +341,26 @@ fun TestingStatsScreen(
                     }
                 }
 
-                // ── Failing right now ──
-                if (failing.isNotEmpty()) {
-                    item(key = "failing-label") {
+                // ── D-588 (round 86): the "Needs attention" and "Recent runs"
+                // sections are GONE (the user: "there is actually no need to
+                // show any of those at all either there") — the page keeps the
+                // hero ring, the trend, the by-system donuts and the stage
+                // bars, then closes with the Clear affordance.
+                item(key = "clear") {
+                    TextButton(
+                        onClick = {
+                            controller.clearResults()
+                            storedRuns = controller.resultStore.loadAll()
+                            history = controller.resultStore.loadHistory()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
                         Text(
-                            text = "Needs attention (${failing.size})",
+                            "Clear all results",
                             fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                            fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(start = 4.dp, top = 4.dp),
                         )
-                    }
-                    items(failing.size, key = { "failing-${failing[it].targetId}" }) { i ->
-                        val run = failing[i]
-                        val liveTarget = targetsById[run.targetId]
-                        Surface(
-                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.08f),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(enabled = run.targetId != 0L) { onOpenTarget(run.targetId) },
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = liveTarget?.name ?: run.targetName,
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        text = run.results.values
-                                            .filter { it.status == TestStatus.FAILED }
-                                            .joinToString(" · ") { it.kind.label }
-                                            .ifEmpty { "Skipped by user" },
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.error,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                TargetStatusChip(storedToRunState(run))
-                            }
-                        }
-                    }
-                }
-
-                // ── Run history ──
-                if (history.isNotEmpty()) {
-                    item(key = "history-label") {
-                        Text(
-                            text = "Recent runs",
-                            fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(start = 4.dp, top = 4.dp),
-                        )
-                    }
-                    items(history.size, key = { "hist-$it-${history[it].startedAtMs}" }) { i ->
-                        val entry = history[i]
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = entry.label.ifEmpty { "Run" },
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    val wallMs = (entry.finishedAtMs - entry.startedAtMs).coerceAtLeast(0)
-                                    Text(
-                                        text = RUN_HISTORY_FORMAT.format(Date(entry.finishedAtMs)) +
-                                            " · ${entry.totalTargets} target(s) · took ${TestTimeFormat.format(wallMs)}",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                Text(
-                                    text = "${entry.passed}✓ ${entry.failed}✗" +
-                                        if (entry.aborted > 0) " ${entry.aborted}⏭" else "",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                    item(key = "clear") {
-                        TextButton(
-                            onClick = {
-                                controller.clearResults()
-                                storedRuns = controller.resultStore.loadAll()
-                                history = controller.resultStore.loadHistory()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                "Clear all results",
-                                fontFamily = RobotoFamily,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
                     }
                 }
             }
@@ -479,7 +368,6 @@ fun TestingStatsScreen(
     }
 }
 
-private val RUN_HISTORY_FORMAT = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
 
 /** One system's mini donut + counts (the BY SYSTEM section). */
 @Composable

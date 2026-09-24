@@ -21,6 +21,9 @@ dependencies {
     // (the :feature:cs-watch:impl precedent; :data:cloudstream declares it
     // implementation-only, dependents declare it themselves).
     implementation(project(":core:cs-player"))
+    // D-592 (round 86): the STREAM_PLAY payload's live preview — a small
+    // muted looping ExoPlayer card renders the resolved stream inline.
+    implementation(libs.media3.ui)
 
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)

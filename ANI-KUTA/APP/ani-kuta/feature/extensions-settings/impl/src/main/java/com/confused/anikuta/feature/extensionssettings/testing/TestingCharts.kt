@@ -56,8 +56,13 @@ import kotlin.math.min
 //    • [CountUpText] — the numbers move on entry.
 // ════════════════════════════════════════════════════════════════════════════
 
-/** One donut segment: a count + its color. Zero counts draw nothing. */
-data class DonutSegment(val count: Int, val color: Color)
+/**
+ * One donut segment: a count + its color. Zero counts draw nothing.
+ * [gapAfterDegrees] (D-588, round 86) carves a small idle-ring gap AFTER the
+ * segment — the suite-health ring uses it to part its two system halves
+ * ("the separation will not be that much visible... slightly like so").
+ */
+data class DonutSegment(val count: Int, val color: Color, val gapAfterDegrees: Float = 0f)
 
 /**
  * The animated donut. Segments sweep in clockwise from 12 o'clock on first
@@ -102,9 +107,13 @@ internal fun DonutChart(
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Butt),
             )
             var startAngle = -90f
+            // D-588: the usable sweep shrinks by the declared gaps so the
+            // segments + gaps together complete exactly one revolution.
+            val totalGaps = segments.sumOf { it.gapAfterDegrees.toDouble() }.toFloat()
+            val usable = (360f - totalGaps).coerceAtLeast(360f * 0.5f)
             segments.forEach { segment ->
                 if (segment.count > 0) {
-                    val sweepAngle = (segment.count.toFloat() / total) * 360f * sweep.value
+                    val sweepAngle = (segment.count.toFloat() / total) * usable * sweep.value
                     drawArc(
                         color = segment.color,
                         startAngle = startAngle,
@@ -114,7 +123,7 @@ internal fun DonutChart(
                         size = arcSize,
                         style = Stroke(width = strokeWidth, cap = StrokeCap.Butt),
                     )
-                    startAngle += (segment.count.toFloat() / total) * 360f
+                    startAngle += sweepAngle + segment.gapAfterDegrees * sweep.value
                 }
             }
         }

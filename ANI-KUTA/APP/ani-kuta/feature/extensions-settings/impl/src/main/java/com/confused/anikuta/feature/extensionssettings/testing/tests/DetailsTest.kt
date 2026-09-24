@@ -17,11 +17,17 @@ import kotlinx.coroutines.withContext
  * "initialized" state is rendered in the message.
  *
  * ROUND 85 — the SMART CANDIDATE WALK (the user's spec): the test no longer
- * dies on the FIRST entry. It walks the context's candidate pool (the chain's
- * pick, then the search results, then the home-page entries) and the first
- * candidate whose details load wins — a dead first entry (an exception) just
- * moves the walk forward. The successful candidate becomes the chain's
- * [ExtensionTestContext.foundAnime] so EPISODE_LIST exercises the SAME entry.
+ * dies on the FIRST entry. It walks the context's candidate pool and the
+ * first candidate whose details load wins — a dead first entry (an
+ * exception) just moves the walk forward. The successful candidate becomes
+ * the chain's [ExtensionTestContext.foundAnime] so EPISODE_LIST exercises
+ * the SAME entry.
+ *
+ * ROUND 86 (D-592) — the RANDOM SEARCH-FIRST PICK: the walk now STARTS from
+ * a shuffled window of the top [ExtensionTestContext.detailsWalkOrder]
+ * entries — the search pool preferred, a different entry every run (the
+ * user: "it will prefer the search page's results, and it will randomly pick
+ * from the available results… every single time a different details page").
  */
 class DetailsTest : ExtensionTest {
 
@@ -34,9 +40,12 @@ class DetailsTest : ExtensionTest {
     override suspend fun run(context: ExtensionTestContext): TestOutcome =
         withContext(context.ioDispatcher) {
             if (context.foundAnime == null) {
-                return@withContext TestOutcome.skip("No anime found — search and home page both failed")
+                // D-590 (round 86): FAILED, not SKIPPED — the honest gate in
+                // the engine already covers the search+home failure; this
+                // defensive path must not contradict it.
+                return@withContext TestOutcome.fail("Not run — no anime was found to open")
             }
-            val pool = context.candidatePool()
+            val pool = context.detailsWalkOrder()
             var lastError: String? = null
             pool.forEachIndexed { index, candidate ->
                 val from = when {
@@ -61,6 +70,9 @@ class DetailsTest : ExtensionTest {
                             detailsStatus = statusText(details.status),
                             detailsSynopsis = details.description?.takeIf { it.isNotBlank() }?.take(SYNOPSIS_CAP),
                             detailsThumbnailUrl = details.thumbnail_url ?: candidate.thumbnail_url,
+                            // D-592 (round 86): the entry's URL INSIDE the payload
+                            // so the dossier card can format it as its own line.
+                            detailsUrl = details.url.ifBlank { candidate.url }.ifBlank { null },
                         ),
                     )
                 } catch (ce: kotlinx.coroutines.CancellationException) {

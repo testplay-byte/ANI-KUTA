@@ -2,7 +2,12 @@ package com.confused.anikuta.feature.extensionssettings.testing
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -16,6 +21,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,17 +34,15 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -116,6 +120,58 @@ fun TestingRunScreen(
         }
     }
 
+    // D-592 (round 86): the LEAVE GUARD — the system back gesture is
+    // intercepted while a run is live, and the confirm dialog's OK cancels
+    // the run before the navigation happens ("leaving would cancel the
+    // tests, and it would actually cancel all the tests").
+    var showLeaveDialog by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = session?.phase == RunPhase.RUNNING) {
+        showLeaveDialog = true
+    }
+    if (showLeaveDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLeaveDialog = false },
+            title = {
+                Text(
+                    text = "Leave the test run?",
+                    fontFamily = RobotoFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            },
+            text = {
+                Text(
+                    text = "Leaving now will cancel all the tests that are still running.",
+                    fontFamily = RobotoFamily,
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        showLeaveDialog = false
+                        controller.stop()
+                        onBack()
+                    },
+                ) {
+                    Text(
+                        "Leave and cancel",
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showLeaveDialog = false }) {
+                    Text(
+                        "Stay",
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            },
+        )
+    }
+
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
@@ -160,7 +216,15 @@ fun TestingRunScreen(
             CollapsingHeader(
                 title = "Test run",
                 collapsed = collapsed,
-                onBack = onBack,
+                // D-592 (round 86): the LEAVE GUARD — a back press while a
+                // run is live prompts first; leaving cancels the tests.
+                onBack = {
+                    if (session?.phase == RunPhase.RUNNING) {
+                        showLeaveDialog = true
+                    } else {
+                        onBack()
+                    }
+                },
             )
             LazyColumn(
                 state = listState,
@@ -168,62 +232,71 @@ fun TestingRunScreen(
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // ── Progress card ──
+                // ── THE PROGRESS CARD — the bespoke top section (D-592, the
+                // round-86 "way too much generic, bad, ugly" verdict). No
+                // stock Material indicators anywhere: a live pulse dot, a
+                // phase stadium chip, and a hand-drawn rounded progress bar.
                 item(key = "progress") {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(20.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                LivePulseDot(running = s?.phase == RunPhase.RUNNING)
+                                Spacer(Modifier.width(9.dp))
                                 Text(
                                     text = s?.label ?: "No run yet",
                                     fontFamily = RobotoFamily,
-                                    fontSize = 14.sp,
+                                    fontSize = 15.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f),
                                 )
                                 when (s?.phase) {
-                                    RunPhase.RUNNING -> Row(verticalAlignment = Alignment.CenterVertically) {
-                                        CircularProgressIndicator(
-                                            color = MaterialTheme.colorScheme.primary,
-                                            strokeWidth = 2.dp,
-                                            modifier = Modifier.size(14.dp),
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            text = "${runProgressLabel(s.cursor, total)} · $done done",
-                                            fontFamily = RobotoFamily,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                    RunPhase.COMPLETED -> Text(
-                                        text = "Completed",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.ExtraBold,
+                                    RunPhase.RUNNING -> PhaseChip(
+                                        text = runProgressLabel(s.cursor, total),
                                         color = MaterialTheme.colorScheme.primary,
                                     )
-                                    RunPhase.STOPPED -> Text(
+                                    RunPhase.COMPLETED -> PhaseChip(
+                                        text = "Completed",
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    RunPhase.STOPPED -> PhaseChip(
                                         text = "Stopped",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.ExtraBold,
                                         color = MaterialTheme.colorScheme.error,
                                     )
                                     null -> Unit
                                 }
                             }
-                            Spacer(Modifier.height(10.dp))
-                            LinearProgressIndicator(
-                                progress = { animatedFraction },
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.fillMaxWidth(),
+                            Spacer(Modifier.height(12.dp))
+                            // The bespoke progress bar (no stock indicator).
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(10.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.16f)),
+                            ) {
+                                if (animatedFraction > 0f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(animatedFraction.coerceIn(0f, 1f))
+                                            .fillMaxHeight()
+                                            .clip(RoundedCornerShape(50))
+                                            .background(MaterialTheme.colorScheme.primary),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(7.dp))
+                            Text(
+                                text = "$done of $total target${if (total == 1) "" else "s"} done",
+                                fontFamily = RobotoFamily,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Spacer(Modifier.height(10.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -235,61 +308,129 @@ fun TestingRunScreen(
                     }
                 }
 
-                // ── Controls (Stop + Skip) — live while RUNNING ──
+                // ── Controls (Stop + Skip) — bespoke stadium pills, live
+                // while RUNNING (the stock Button/OutlinedButton pair is
+                // gone — the house design language, D-592) ──
                 if (s?.phase == RunPhase.RUNNING) {
                     item(key = "controls") {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = controller::stop,
-                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                                ),
-                                modifier = Modifier.weight(1f),
+                            Surface(
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(50),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable(onClick = controller::stop),
                             ) {
-                                Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Stop", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.fillMaxSize(),
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Stop,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "Stop",
+                                        fontFamily = RobotoFamily,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
                             }
-                            OutlinedButton(
-                                onClick = controller::skipCurrent,
-                                modifier = Modifier.weight(1f),
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(50),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable(onClick = controller::skipCurrent),
                             ) {
-                                Icon(Icons.Filled.SkipNext, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Skip target", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.fillMaxSize(),
+                                ) {
+                                    Icon(
+                                        Icons.Filled.SkipNext,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "Skip target",
+                                        fontFamily = RobotoFamily,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
-                // ── Completion actions ──
+                // ── Completion actions — bespoke pills (D-592) ──
                 if (s?.phase == RunPhase.COMPLETED || s?.phase == RunPhase.STOPPED) {
                     item(key = "aftermath") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if ((s.failedCount + s.abortedCount) > 0) {
-                                Button(
-                                    onClick = { controller.rerunFailed() },
-                                    enabled = s.phase != RunPhase.RUNNING,
-                                    modifier = Modifier.fillMaxWidth(),
+                                Surface(
+                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
+                                    shape = RoundedCornerShape(50),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(46.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .clickable(enabled = s.phase != RunPhase.RUNNING) {
+                                            controller.rerunFailed()
+                                        },
                                 ) {
-                                    Text(
-                                        "Re-run failed (${s.failedCount + s.abortedCount})",
-                                        fontFamily = RobotoFamily,
-                                        fontWeight = FontWeight.ExtraBold,
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center,
+                                        modifier = Modifier.fillMaxSize(),
+                                    ) {
+                                        Text(
+                                            "Re-run failed (${s.failedCount + s.abortedCount})",
+                                            fontFamily = RobotoFamily,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    }
                                 }
                             }
-                            OutlinedButton(
-                                onClick = { controller.rerunPassed() },
-                                enabled = s.phase != RunPhase.RUNNING && s.passedCount > 0,
-                                modifier = Modifier.fillMaxWidth(),
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(50),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable(
+                                        enabled = s.phase != RunPhase.RUNNING && s.passedCount > 0,
+                                    ) {
+                                        controller.rerunPassed()
+                                    },
                             ) {
-                                Text(
-                                    "Re-run passed (${s.passedCount})",
-                                    fontFamily = RobotoFamily,
-                                    fontWeight = FontWeight.ExtraBold,
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.fillMaxSize(),
+                                ) {
+                                    Text(
+                                        "Re-run passed (${s.passedCount})",
+                                        fontFamily = RobotoFamily,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                             }
                         }
                     }
@@ -332,6 +473,14 @@ fun TestingRunScreen(
                                         LiveKindRow(
                                             kind = kind,
                                             result = currentState?.results?.get(kind),
+                                            // D-592 (round 86): the live
+                                            // per-phrase search status rides
+                                            // into the hero row.
+                                            liveDetail = if (kind == ExtensionTestKind.SEARCH) {
+                                                currentState?.runningDetail
+                                            } else {
+                                                null
+                                            },
                                         )
                                     }
                                 }
@@ -412,6 +561,66 @@ fun TestingRunScreen(
                         )
                     }
                 }
+
+                // ── THE FINISH BLOCK (D-592, round 86): the run's closing
+                // card at the VERY BOTTOM — same card language as the rest,
+                // with a proper FAILED variant. Wall time from the session's
+                // own finishedAtMs.
+                if (s?.phase == RunPhase.COMPLETED || s?.phase == RunPhase.STOPPED) {
+                    item(key = "finish-block") {
+                        val success = s.phase == RunPhase.COMPLETED && s.failedCount == 0 && s.abortedCount == 0
+                        val accent = if (s.phase == RunPhase.COMPLETED) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        }
+                        Surface(
+                            color = accent.copy(alpha = 0.10f),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = if (s.phase == RunPhase.COMPLETED) {
+                                            Icons.Filled.CheckCircle
+                                        } else {
+                                            Icons.Filled.Cancel
+                                        },
+                                        contentDescription = null,
+                                        tint = accent,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Spacer(Modifier.width(9.dp))
+                                    Text(
+                                        text = when {
+                                            s.phase == RunPhase.STOPPED -> "Run stopped"
+                                            success -> "Run finished — all healthy"
+                                            else -> "Run finished"
+                                        },
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = accent,
+                                    )
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                val wallMs = s.finishedAtMs?.let { (it - s.startedAtMs).coerceAtLeast(0) }
+                                Text(
+                                    text = buildString {
+                                        append("${s.passedCount} passed · ${s.failedCount} failed")
+                                        if (s.abortedCount > 0) append(" · ${s.abortedCount} skipped")
+                                        append(" · ${s.queue.size} target${if (s.queue.size == 1) "" else "s"}")
+                                        wallMs?.let { append(" · took ") ; append(TestTimeFormat.format(it)) }
+                                    },
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -427,6 +636,7 @@ fun TestingRunScreen(
 private fun LiveKindRow(
     kind: ExtensionTestKind,
     result: TestResult?,
+    liveDetail: String? = null,
 ) {
     var expanded by remember(kind) { mutableStateOf(false) }
     val terminal = result != null && result.status != TestStatus.RUNNING &&
@@ -462,6 +672,19 @@ private fun LiveKindRow(
                 )
             }
         }
+        // The LIVE per-phrase status — which phrase the search ladder is on
+        // right now (the D-592 pipe; shown only while this kind runs).
+        if (result?.status == TestStatus.RUNNING && !liveDetail.isNullOrBlank()) {
+            Text(
+                text = liveDetail,
+                fontFamily = RobotoFamily,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 28.dp, top = 2.dp),
+            )
+        }
         AnimatedVisibility(
             visible = expanded && hasDetail,
             enter = fadeIn(tween(150)) + expandVertically(tween(180, easing = Motion.EasingEmphasized)),
@@ -496,6 +719,53 @@ private fun LiveKindRow(
                 KindPayloadView(kind = kind, payload = result?.payload)
             }
         }
+    }
+}
+
+/**
+ * The live pulse dot — a small status circle that breathes while a run is
+ * live and rests when idle (the bespoke top section's heartbeat, D-592).
+ */
+@Composable
+private fun LivePulseDot(running: Boolean) {
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "pulse")
+    val alpha by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.25f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = tween(650, easing = androidx.compose.animation.core.LinearEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "pulseAlpha",
+    )
+    val color = if (running) {
+        MaterialTheme.colorScheme.primary.copy(alpha = alpha)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+    }
+    Box(
+        modifier = Modifier
+            .size(10.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(color),
+    )
+}
+
+/** The phase stadium chip on the progress card (D-592). */
+@Composable
+private fun PhaseChip(text: String, color: androidx.compose.ui.graphics.Color) {
+    Surface(
+        color = color.copy(alpha = 0.14f),
+        shape = RoundedCornerShape(50),
+    ) {
+        Text(
+            text = text,
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = color,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }
 

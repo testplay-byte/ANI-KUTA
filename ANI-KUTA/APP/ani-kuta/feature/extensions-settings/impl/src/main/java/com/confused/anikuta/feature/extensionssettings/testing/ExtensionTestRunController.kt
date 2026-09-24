@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.koin.core.context.GlobalContext
+import kotlinx.coroutines.CancellationException
 
 /**
  * The app-scoped RUN CONTROLLER (round 84, D-583) — the single owner of the
@@ -107,6 +109,32 @@ class ExtensionTestRunController private constructor(appContext: Context) {
             .filterIsInstance<AnimeCatalogueSource>()
             .firstOrNull { it.id == id }
 
+    /**
+     * D-591 (round 86): the rich per-target metadata for the detail page's
+     * well-formatted header — version / package / NSFW / plugin / site.
+     */
+    fun targetMeta(target: TestableTarget): TargetMeta = when (target.ecosystem) {
+        TestEcosystem.ANIYOMI -> {
+            val ext = extensionManager.installedExtensions.value
+                .firstOrNull { e -> e.sources.any { it.id == target.id } }
+            TargetMeta(
+                version = ext?.versionName,
+                pkgName = ext?.pkgName,
+                isNsfw = ext?.isNsfw,
+                siteUrl = target.baseUrl,
+            )
+        }
+        TestEcosystem.CLOUDSTREAM -> {
+            val provider = csContentRepository.sources.value
+                .firstOrNull { it.providerName == target.providerName }
+            TargetMeta(
+                pluginName = provider?.pluginName,
+                isNsfw = provider?.isNsfw,
+                siteUrl = provider?.mainUrl ?: target.baseUrl,
+            )
+        }
+    }
+
     // ── Session state ────────────────────────────────────────────────────────
 
     private val _session = MutableStateFlow<RunSession?>(null)
@@ -116,6 +144,24 @@ class ExtensionTestRunController private constructor(appContext: Context) {
 
     private val skipSignal = AtomicBoolean(false)
     private var runJob: Job? = null
+
+    /**
+     * D-590 (round 86): set ONLY by [stop] — the completion settle reads it
+     * to tell a USER stop apart from an UNEXPECTED run death. The round-85
+     * settle treated every completion while RUNNING as "Stopped by user",
+     * which stamped honest verdicts with a lie whenever a stray
+     * CancellationException escaped a plugin (the device report: "it said
+     * stopped by user, even though I never stopped it").
+     */
+    private val stopRequested = AtomicBoolean(false)
+
+    /**
+     * D-590 (round 86): the session GENERATION — bumped on every [start].
+     * The completion settle latches on the generation (identity would never
+     * match: the run loop copies the session object on every emission), so
+     * it can never stamp a session it does not own.
+     */
+    private val generationCounter = AtomicLong(0L)
 
     /** The custom search query the Search test tries first (user-editable). */
     val searchQuery = MutableStateFlow("")
@@ -148,14 +194,18 @@ class ExtensionTestRunController private constructor(appContext: Context) {
         }
         if (queue.isEmpty()) return false
         val byId = all.associateBy { it.id }
-        _session.value = RunSession(
+        stopRequested.set(false)
+        val generation = generationCounter.incrementAndGet()
+        val session = RunSession(
             phase = RunPhase.RUNNING,
             label = label,
             startedAtMs = System.currentTimeMillis(),
             queue = queue,
             cursor = 0,
             states = queue.associateWith { TargetRunState() },
+            generation = generation,
         )
+        _session.value = session
         runJob = scope.launch {
             queue.forEachIndexed { index, id ->
                 val target = byId[id] ?: return@forEachIndexed
@@ -171,26 +221,38 @@ class ExtensionTestRunController private constructor(appContext: Context) {
                 skipSignal.set(false)
                 runOne(target)
             }
-            setSession { it?.copy(phase = RunPhase.COMPLETED, currentTargetId = null) }
+            setSession { it?.copy(phase = RunPhase.COMPLETED, currentTargetId = null, finishedAtMs = System.currentTimeMillis()) }
             appendHistoryFromSession()
             Logger.i(TAG) { "Run completed: \"$label\"" }
         }.also { job ->
-            job.invokeOnCompletion {
-                if (_session.value?.phase == RunPhase.RUNNING) {
-                    // A cancel (Stop) — settle EVERY spinner the run left
-                    // behind: no "now testing" residue, no dangling RUNNING
-                    // row. The interrupted target is finished+aborted (a
-                    // verdict the user cut short is not healthy — D-583) so
-                    // "Re-run failed" naturally offers it again.
-                    setSession { session ->
-                        session?.copy(
+            job.invokeOnCompletion { cause ->
+                // The SESSION LATCH (by generation): only settle the session
+                // THIS job created — a session installed after this job died
+                // (a new start, a cleared store) is never touched.
+                val current = _session.value ?: return@invokeOnCompletion
+                if (current.generation != session.generation) return@invokeOnCompletion
+                if (cause == null) return@invokeOnCompletion // the loop already settled COMPLETED
+                if (current.phase != RunPhase.RUNNING) return@invokeOnCompletion
+
+                val userStop = stopRequested.get() && cause is CancellationException
+                if (userStop) {
+                    // A USER stop — settle EVERY spinner the run left behind:
+                    // no "now testing" residue, no dangling RUNNING row. The
+                    // interrupted target is finished+aborted (a verdict the
+                    // user cut short is not healthy — D-583) so "Re-run
+                    // failed" naturally offers it again.
+                    setSession { current ->
+                        current?.copy(
                             phase = RunPhase.STOPPED,
                             currentTargetId = null,
-                            states = session.states.mapValues { (_, s) ->
+                            finishedAtMs = System.currentTimeMillis(),
+                            states = current.states.mapValues { (_, s) ->
                                 val wasLive = s.isRunning || s.runningKind != null
                                 val cleaned = s.copy(
                                     isRunning = false,
                                     runningKind = null,
+                                    runningKindStartedAtMs = null,
+                                    runningDetail = null,
                                     results = s.results.mapValues { (_, r) ->
                                         if (r.status == TestStatus.RUNNING) {
                                             r.copy(
@@ -207,6 +269,46 @@ class ExtensionTestRunController private constructor(appContext: Context) {
                         )
                     }
                     appendHistoryFromSession()
+                    Logger.w(TAG) { "TEST RUN STOPPED by user — \"$label\" settled" }
+                } else {
+                    // D-590 (round 86): an UNEXPECTED death — a stray
+                    // CancellationException (or anything else) escaped the
+                    // plugin and killed the job. The round-85 settle stamped
+                    // this "Stopped by user", which the device read as a lie.
+                    // Now: the dangling RUNNING kinds become FAILED with the
+                    // REAL cause, the target is NOT user-aborted (it lands in
+                    // the failed bucket and "Re-run failed" offers it), and
+                    // the cause is logged at ERROR with the stack.
+                    val abortReason = "Run aborted: ${cause::class.java.simpleName}: ${cause.message ?: "no message"}"
+                    setSession { current ->
+                        current?.copy(
+                            phase = RunPhase.STOPPED,
+                            currentTargetId = null,
+                            finishedAtMs = System.currentTimeMillis(),
+                            states = current.states.mapValues { (_, s) ->
+                                val wasLive = s.isRunning || s.runningKind != null
+                                val cleaned = s.copy(
+                                    isRunning = false,
+                                    runningKind = null,
+                                    runningKindStartedAtMs = null,
+                                    runningDetail = null,
+                                    results = s.results.mapValues { (_, r) ->
+                                        if (r.status == TestStatus.RUNNING) {
+                                            r.copy(
+                                                status = TestStatus.FAILED,
+                                                message = abortReason,
+                                            )
+                                        } else {
+                                            r
+                                        }
+                                    },
+                                )
+                                if (wasLive) cleaned.copy(finished = true) else cleaned
+                            },
+                        )
+                    }
+                    appendHistoryFromSession()
+                    Logger.e(TAG, cause) { "TEST RUN ABORTED unexpectedly — \"$label\" settled: $abortReason" }
                 }
             }
         }
@@ -216,6 +318,9 @@ class ExtensionTestRunController private constructor(appContext: Context) {
 
     /** Stops the live run (safe to call anytime — no-op when idle). */
     fun stop() {
+        // D-590: the flag MUST be set before the cancel — the completion
+        // handler reads it to classify the death.
+        stopRequested.set(true)
         runJob?.cancel()
         runJob = null
     }
@@ -303,13 +408,50 @@ class ExtensionTestRunController private constructor(appContext: Context) {
             // (the custom query is tried first when the user typed one).
             searchQuery = searchQuery.value.trim(),
         )
+        val chainStartedAtMs = System.currentTimeMillis()
+        Logger.i(TAG) {
+            "TEST TARGET START target=${target.name} eco=${target.ecosystem} baseUrl=${target.baseUrl ?: "-"}"
+        }
+        // D-592 (round 86): the LIVE search-ladder pipe — each phrase attempt
+        // lands in the session state so the rows/cards show WHICH phrase the
+        // ladder is on.
+        testContext.onSearchPhrase = { live ->
+            setSession { session ->
+                session ?: return@setSession null
+                val prev = session.states[target.id] ?: TargetRunState()
+                session.copy(states = session.states + (target.id to prev.copy(runningDetail = live)))
+            }
+        }
         val outcome = engine.run(testContext, skipSignal) { kind, result ->
+            val nowMs = System.currentTimeMillis()
+            if (result.status == TestStatus.RUNNING) {
+                Logger.i(TAG) {
+                    "TEST KIND START target=${target.name} kind=${kind.name} timeoutMs=${kind.timeoutMs}"
+                }
+            } else {
+                val url = result.detail?.takeIf { it.startsWith("http") } ?: "-"
+                val http = result.payload?.httpCode ?: result.payload?.streamHttpCode
+                val line = "TEST KIND FINISH target=${target.name} kind=${kind.name} verdict=${result.status} " +
+                    "durationMs=${result.durationMs} http=${http ?: "-"} url=$url " +
+                    "reason=\"${result.message}\" detail=\"${result.detail ?: "-"}\""
+                if (result.status == TestStatus.FAILED) {
+                    Logger.w(TAG) { line }
+                } else {
+                    Logger.i(TAG) { line }
+                }
+            }
             setSession { session ->
                 session ?: return@setSession null
                 val prev = session.states[target.id] ?: TargetRunState()
                 val updated = prev.copy(
                     results = prev.results + (kind to result),
                     runningKind = if (result.status == TestStatus.RUNNING) kind else null,
+                    runningKindStartedAtMs = if (result.status == TestStatus.RUNNING) {
+                        nowMs
+                    } else {
+                        null
+                    },
+                    runningDetail = if (result.status == TestStatus.RUNNING) prev.runningDetail else null,
                 )
                 session.copy(states = session.states + (target.id to updated))
             }
@@ -317,11 +459,23 @@ class ExtensionTestRunController private constructor(appContext: Context) {
         val finalState = (_session.value?.states?.get(target.id) ?: TargetRunState()).copy(
             isRunning = false,
             runningKind = null,
+            runningKindStartedAtMs = null,
+            runningDetail = null,
             finished = true,
             abortedByUser = outcome.abortedByUser,
         )
         setSession { session ->
             session?.copy(states = session.states + (target.id to finalState))
+        }
+        Logger.i(TAG) {
+            val verdict = when {
+                finalState.abortedByUser -> "ABORTED"
+                finalState.isHealthy -> "HEALTHY"
+                else -> "FAILED"
+            }
+            "TEST TARGET FINISH target=${target.name} verdict=$verdict " +
+                "pass=${finalState.passedCount} fail=${finalState.failedCount} " +
+                "skip=${finalState.skippedCount} totalMs=${System.currentTimeMillis() - chainStartedAtMs}"
         }
         // Persist the finished verdict immediately — a crash or a process
         // death mid-run never loses completed targets (the D-579 contract).
@@ -381,6 +535,19 @@ class ExtensionTestRunController private constructor(appContext: Context) {
 enum class RunPhase { RUNNING, COMPLETED, STOPPED }
 
 /**
+ * D-591 (round 86): the per-target metadata the detail page's header shows —
+ * resolved from the live managers (extension package for Aniyomi, the parent
+ * plugin for CloudStream).
+ */
+data class TargetMeta(
+    val version: String? = null,
+    val pkgName: String? = null,
+    val pluginName: String? = null,
+    val isNsfw: Boolean? = null,
+    val siteUrl: String? = null,
+)
+
+/**
  * The live run session — the single source of truth every testing page
  * renders (immutable snapshots on every emission).
  */
@@ -394,6 +561,15 @@ data class RunSession(
     val cursor: Int = 0,
     val currentTargetId: Long? = null,
     val states: Map<Long, TargetRunState> = emptyMap(),
+    /**
+     * D-590 (round 86): the start-generation — the completion settle's
+     * latch key. Preserved through every copy the loop makes; a new start
+     * bumps it, so a dead job can never settle a session it does not own.
+     */
+    val generation: Long = 0L,
+    /** D-592 (round 86): when the run reached its terminal phase — the
+     * finish block's wall-time source. */
+    val finishedAtMs: Long? = null,
 ) {
     val testedCount: Int get() = states.values.count { it.finished }
     val passedCount: Int get() = states.values.count { it.isHealthy }

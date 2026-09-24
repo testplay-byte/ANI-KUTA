@@ -73,9 +73,29 @@ class SearchTest : ExtensionTest {
 
             val outcomes = mutableListOf<Attempt>()
             for (phrase in attempts) {
+                // D-592 (round 86): the LIVE per-phrase status — the UI shows
+                // WHICH phrase is being tried while the ladder walks.
+                context.onSearchPhrase?.invoke(
+                    "Trying \"${phrase.text}\" (${phrase.category})…",
+                )
+                Logger.d(RUN_TAG) {
+                    "Search: ${context.target.name} trying \"${phrase.text}\" (${phrase.category})"
+                }
                 val attempt = tryPhrase(context, phrase)
                 outcomes.add(attempt)
-                if (attempt is Attempt.Win) return@withContext attempt.outcome
+                Logger.d(RUN_TAG) {
+                    val verdict = when (attempt) {
+                        is Attempt.Win -> "WIN (${(attempt.outcome.payload?.entries?.size ?: 0)} entries)"
+                        Attempt.Empty -> "empty"
+                        is Attempt.Error -> "error (${attempt.reason})"
+                    }
+                    "Search: ${context.target.name} \"${phrase.text}\" → $verdict"
+                }
+                if (attempt is Attempt.Win) return@withContext attempt.outcome.withLadderStats(
+                    tried = outcomes.size,
+                    total = attempts.size,
+                    phrase = phrase,
+                )
             }
 
             // Nothing won — build the honest aggregate failure.
@@ -146,6 +166,30 @@ class SearchTest : ExtensionTest {
             // Plugin bytecode can throw ANYTHING (the bridge guard lesson).
             Attempt.Error("${t::class.java.simpleName}: ${t.message ?: "unknown error"}")
         }
+    }
+
+    /**
+     * D-592 (round 86): the LADDER STATS — the search payload now carries how
+     * many phrases were tried before one answered and WHICH one answered, so
+     * the search card can show the advanced stats the user asked for ("what
+     * number of searches it did — did the first search it did give
+     * responses, or the second one, or such").
+     */
+    private fun TestOutcome.withLadderStats(
+        tried: Int,
+        total: Int,
+        phrase: SearchPhrase,
+    ): TestOutcome {
+        val payload = this.payload ?: TestPayload()
+        return copy(
+            payload = payload.copy(
+                searchAttempts = tried,
+                searchWinningPhrase = phrase.text,
+                searchWinningCategory = phrase.category,
+            ),
+            detail = detail?.let { "$it · attempt $tried of $total" }
+                ?: "attempt $tried of $total",
+        )
     }
 
     private companion object {

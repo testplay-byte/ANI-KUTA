@@ -28,7 +28,7 @@ class StreamPlayTest(
     override suspend fun run(context: ExtensionTestContext): TestOutcome =
         withContext(context.ioDispatcher) {
             val url = context.resolvedVideoUrl
-                ?: return@withContext TestOutcome.skip("No resolved stream URL to test")
+                ?: return@withContext TestOutcome.fail("Not run — no resolved stream URL to test")
             if (!(url.startsWith("http://") || url.startsWith("https://"))) {
                 return@withContext TestOutcome.fail(
                     "Stream URL is not fetchable (${url.take(24)}…)",
@@ -65,6 +65,15 @@ class StreamPlayTest(
                     }
                     val durationMs = (System.nanoTime() - startedAt) / 1_000_000L
                     if (bytes > 0) {
+                        // D-592 (round 86): the LIVE-PREVIEW CONTRACT — the
+                        // resolved URL + the request headers ride the payload
+                        // (plain strings only) so the run/detail pages can
+                        // render a real muted ExoPlayer preview of the stream.
+                        val headers = context.resolvedVideoHeaders
+                        val headerMap = headers?.names()
+                            ?.take(HEADER_MAP_CAP)
+                            ?.associateWith { headers[it] ?: "" }
+                            .orEmpty()
                         TestOutcome.pass(
                             "Stream answered HTTP ${response.code} and delivered " +
                                 "${formatBytes(bytes)} in ${TestTimeFormat.format(durationMs)}",
@@ -73,6 +82,10 @@ class StreamPlayTest(
                             payload = TestPayload(
                                 streamBytesLabel = formatBytes(bytes),
                                 streamHttpCode = response.code,
+                                streamUrl = url,
+                                streamReferer = headers?.get("Referer"),
+                                streamUserAgent = headers?.get("User-Agent"),
+                                streamHeaders = headerMap.ifEmpty { null },
                             ),
                         )
                     } else {
@@ -94,5 +107,10 @@ class StreamPlayTest(
         bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
         bytes >= 1024 -> "%.1f KB".format(bytes / 1024.0)
         else -> "$bytes B"
+    }
+
+    private companion object {
+        /** The header-map cap — tiny payload, still enough for a preview. */
+        const val HEADER_MAP_CAP = 8
     }
 }

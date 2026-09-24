@@ -24,6 +24,23 @@ import java.util.concurrent.atomic.AtomicBoolean
  * the verdict cannot count as healthy). No coroutine is cancelled for a
  * skip — the loop stays perfectly healthy.
  *
+ * ROUND 86 (D-590) — the HONEST GATE: a kind whose prerequisites all failed
+ * is no longer SKIPPED (the device report: dead sources cascaded as a quiet
+ * "skipped" wall). The gate now emits FAILED "Not run — <labels> failed" —
+ * the user's rule: "if the search page and the home page fail to load, then
+ * all of those tests will just directly be marked as failed". The ONLY
+ * SKIPPED verdicts left are the user's own skips, the Stop settle, and the
+ * DETAILS FORGIVENESS below.
+ *
+ * THE DETAILS FORGIVENESS (the user's rule, D-590): "if the details page
+ * fails to load but the episode list is loaded, it is considered as a pass;
+ * if the details page loads but the episode list does not, it is a fail.
+ * A DETAILS failure the EPISODE_LIST survives is rewritten to SKIPPED
+ * ("Forgiven — the episode list loaded") at the END of the chain — so
+ * every consumer of the verdicts (isHealthy, the store, the stats, the
+ * re-run scopes) sees the honest chain-level outcome without any of them
+ * knowing the rule.
+ *
  * MODULARITY: the engine knows nothing about the individual tests — it just
  * walks the [ExtensionTest] list it is given. Swapping, reordering, adding or
  * removing a test never touches this file's logic.
@@ -87,14 +104,18 @@ class ExtensionTestEngine(
             }
 
             // ── Prerequisite gate (anyOf semantics) ──
+            // ROUND 86 (D-590): FAILED, not SKIPPED — a kind whose feeders all
+            // failed was never run, and the user reads that as a failure of
+            // the source, not a skip. The message names the labels that
+            // actually failed (not the full anyOf set).
             val missing = test.requiresAnyOf
                 .filter { results[it]?.status != TestStatus.PASSED }
             if (test.requiresAnyOf.isNotEmpty() && missing.isNotEmpty()) {
-                val neededLabels = test.requiresAnyOf.joinToString("/") { it.label }
+                val failedLabels = missing.joinToString("/") { it.label }
                 val result = TestResult(
                     kind = kind,
-                    status = TestStatus.SKIPPED,
-                    message = "Needs a passing $neededLabels test",
+                    status = TestStatus.FAILED,
+                    message = "Not run — $failedLabels failed",
                 )
                 results[kind] = result
                 onResult(kind, result)
@@ -138,6 +159,28 @@ class ExtensionTestEngine(
             }
             results[kind] = result
             onResult(kind, result)
+        }
+
+        // ── THE DETAILS FORGIVENESS (round 86, D-590 — the user's rule) ────
+        // A details page that fails to load is NOT a chain failure when the
+        // episode list loaded — the entry list is the part playback actually
+        // needs. DETAILS success + EPISODE_LIST failure stays a FAIL (the
+        // condition below cannot rescue it).
+        val detailsResult = results[ExtensionTestKind.DETAILS]
+        if (
+            detailsResult?.status == TestStatus.FAILED &&
+            results[ExtensionTestKind.EPISODE_LIST]?.status == TestStatus.PASSED
+        ) {
+            val forgiven = detailsResult.copy(
+                status = TestStatus.SKIPPED,
+                message = "Forgiven — the episode list loaded",
+            )
+            results[ExtensionTestKind.DETAILS] = forgiven
+            onResult(ExtensionTestKind.DETAILS, forgiven)
+            Logger.i(TAG) {
+                "${context.target.name}: DETAILS forgiven — the episode list loaded" +
+                    " (original: ${detailsResult.message})"
+            }
         }
         return ChainOutcome(abortedByUser = abortedByUser)
     }

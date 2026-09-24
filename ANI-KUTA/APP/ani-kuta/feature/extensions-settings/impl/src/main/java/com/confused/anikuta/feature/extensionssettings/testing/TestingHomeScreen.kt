@@ -26,7 +26,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Stop
@@ -45,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,22 +76,20 @@ fun TestingHomeScreen(
     onOpenSystem: (String) -> Unit,
     onOpenRun: () -> Unit,
     onOpenStats: () -> Unit,
+    onOpenTarget: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
     val controller = remember { ExtensionTestRunController.get(context) }
     val targets by controller.targets.collectAsState()
     val session by controller.session.collectAsState()
 
-    // The persisted verdicts + the run history — reloaded whenever a run
-    // advances (a finished target is persisted immediately, so the hero
-    // follows along live).
+    // The persisted verdicts — reloaded whenever a run advances (a finished
+    // target is persisted immediately, so the hero follows along live).
     var storedRuns by remember { mutableStateOf(controller.resultStore.loadAll()) }
-    var history by remember { mutableStateOf(controller.resultStore.loadHistory()) }
     val testedTick = session?.testedCount ?: -1
     LaunchedEffect(testedTick) {
         if (testedTick >= 0) {
             storedRuns = controller.resultStore.loadAll()
-            history = controller.resultStore.loadHistory()
         }
     }
 
@@ -104,7 +102,25 @@ fun TestingHomeScreen(
     val tested = allStates.count { it.finished }
     val passed = allStates.count { it.isHealthy }
     val failed = allStates.count { it.finished && !it.isHealthy }
-    val untested = (targets.size - tested).coerceAtLeast(0)
+
+    // D-588 (round 86): PER-SYSTEM health counts — the ring's two halves.
+    fun systemCounts(list: List<TestableTarget>): Triple<Int, Int, Int> {
+        val states = list.mapNotNull { stateFor(it.id) }
+        val t = states.count { it.finished }
+        val p = states.count { it.isHealthy }
+        val f = states.count { it.finished && !it.isHealthy }
+        return Triple(p, f, (list.size - t).coerceAtLeast(0))
+    }
+    val (aPassed, aFailed, aUntested) = systemCounts(aniyomiTargets)
+    val (cPassed, cFailed, cUntested) = systemCounts(csTargets)
+
+    // D-588 (round 86): the recent-run strip's data — the last tested
+    // TARGETS (not run summaries), so every chip is the extension's own
+    // ICON + NAME and nothing more (the user's exact ask).
+    val targetsById = targets.associateBy { it.id }
+    val recentRuns = storedRuns.values
+        .sortedByDescending { it.testedAtMs }
+        .take(8)
 
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
@@ -112,12 +128,70 @@ fun TestingHomeScreen(
 
     val runActive = session?.phase == RunPhase.RUNNING
 
+    // D-592 (round 86): the LEAVE GUARD on the hub — backing out of the
+    // extension-testing section while a run is live prompts first; the
+    // confirm cancels ALL the tests, exactly as the user specified.
+    var showLeaveDialog by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = runActive) { showLeaveDialog = true }
+    if (showLeaveDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLeaveDialog = false },
+            title = {
+                Text(
+                    text = "Leave extension testing?",
+                    fontFamily = RobotoFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            },
+            text = {
+                Text(
+                    text = "Leaving now will cancel all the tests that are still running.",
+                    fontFamily = RobotoFamily,
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        showLeaveDialog = false
+                        controller.stop()
+                        onBack()
+                    },
+                ) {
+                    Text(
+                        "Leave and cancel",
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showLeaveDialog = false }) {
+                    Text(
+                        "Stay",
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            },
+        )
+    }
+
+    // D-591 (round 86): a single-target session's deep views route to the
+    // DEDICATED target page, not the generic run page.
+    val openRunOrTarget: () -> Unit = {
+        val queue = session?.queue.orEmpty()
+        if (queue.size == 1) onOpenTarget(queue.first()) else onOpenRun()
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(
                 title = "Extension Testing",
                 collapsed = collapsed,
-                onBack = onBack,
+                onBack = {
+                    if (runActive) showLeaveDialog = true else onBack()
+                },
             )
             LazyColumn(
                 state = listState,
@@ -172,7 +246,7 @@ fun TestingHomeScreen(
                                     color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier
                                         .clip(CircleShape)
-                                        .clickable(onClick = onOpenRun)
+                                        .clickable(onClick = openRunOrTarget)
                                         .padding(horizontal = 8.dp, vertical = 6.dp),
                                 )
                                 Icon(
@@ -190,7 +264,13 @@ fun TestingHomeScreen(
                     }
                 }
 
-                // ── Hero: THE HEALTH RING (the round-85 showpiece) ──
+                // ── Hero: THE HEALTH RING — split into TWO SYSTEM HALVES
+                // (D-588, round 86): the same ring, six segments — the
+                // Aniyomi half then the CloudStream half, parted by a thin
+                // gap ("the separation will not be that much visible... both
+                // of them will be shown together as one"). The passed color
+                // marks the system (primary vs tertiary); failure + untested
+                // share their universal colors.
                 item(key = "hero") {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -225,13 +305,23 @@ fun TestingHomeScreen(
                             Spacer(Modifier.height(14.dp))
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                                horizontalArrangement = Arrangement.spacedBy(18.dp),
                             ) {
                                 DonutChart(
                                     segments = listOf(
-                                        DonutSegment(passed, MaterialTheme.colorScheme.primary),
-                                        DonutSegment(failed, MaterialTheme.colorScheme.error),
-                                        DonutSegment(untested, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
+                                        DonutSegment(aPassed, MaterialTheme.colorScheme.primary),
+                                        DonutSegment(aFailed, MaterialTheme.colorScheme.error),
+                                        DonutSegment(
+                                            aUntested,
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                            gapAfterDegrees = if (csTargets.isNotEmpty()) 4f else 0f,
+                                        ),
+                                        DonutSegment(cPassed, MaterialTheme.colorScheme.tertiary),
+                                        DonutSegment(cFailed, MaterialTheme.colorScheme.error.copy(alpha = 0.8f)),
+                                        DonutSegment(
+                                            cUntested,
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f),
+                                        ),
                                     ),
                                     diameter = 116.dp,
                                 ) {
@@ -251,52 +341,96 @@ fun TestingHomeScreen(
                                         )
                                     }
                                 }
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    DonutLegendRow(MaterialTheme.colorScheme.primary, passed, "healthy")
-                                    DonutLegendRow(MaterialTheme.colorScheme.error, failed, "failed")
-                                    DonutLegendRow(
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                                        untested,
-                                        "untested",
+                                // The two-system legend — a caption row per
+                                // system, the three statuses underneath.
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = "Aniyomi",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary,
                                     )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        DonutLegendRow(MaterialTheme.colorScheme.primary, aPassed, "pass")
+                                        DonutLegendRow(MaterialTheme.colorScheme.error, aFailed, "fail")
+                                        DonutLegendRow(
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                            aUntested,
+                                            "new",
+                                        )
+                                    }
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = "CloudStream",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.tertiary,
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        DonutLegendRow(MaterialTheme.colorScheme.tertiary, cPassed, "pass")
+                                        DonutLegendRow(
+                                            MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                                            cFailed,
+                                            "fail",
+                                        )
+                                        DonutLegendRow(
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f),
+                                            cUntested,
+                                            "new",
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                // ── Recent runs — the history strip (tap → Stats) ──
-                if (history.isNotEmpty()) {
+                // ── Recent runs — the ICON + NAME strip (D-588, round 86):
+                // the old label+counts chips were "ugly" — each chip is now
+                // just the extension's icon and its name, nothing more.
+                if (recentRuns.isNotEmpty()) {
                     item(key = "recent-runs") {
                         Column {
-                            SectionLabel("Recent runs")
+                            SectionLabel("Recently tested")
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .horizontalScroll(rememberScrollState()),
                             ) {
-                                history.take(6).forEach { entry ->
+                                recentRuns.forEach { run ->
+                                    val live = targetsById[run.targetId]
+                                    val chipTarget = live ?: TestableTarget(
+                                        id = run.targetId,
+                                        name = run.targetName,
+                                        ecosystem = run.ecosystem.toEcosystem() ?: TestEcosystem.ANIYOMI,
+                                        lang = null,
+                                        iconDrawable = null,
+                                        iconUrl = null,
+                                        providerName = null,
+                                        baseUrl = null,
+                                    )
                                     Surface(
                                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = RoundedCornerShape(50),
                                         modifier = Modifier.clickable(onClick = onOpenStats),
                                     ) {
-                                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(start = 6.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+                                        ) {
+                                            TargetIconView(chipTarget, size = 22.dp)
+                                            Spacer(Modifier.width(7.dp))
                                             Text(
-                                                text = entry.label.ifEmpty { "Run" },
+                                                text = run.targetName,
                                                 fontFamily = RobotoFamily,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.ExtraBold,
                                                 color = MaterialTheme.colorScheme.onSurface,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
-                                            )
-                                            Text(
-                                                text = "${entry.passed}✓ ${entry.failed}✗ · ${entry.totalTargets}",
-                                                fontFamily = RobotoFamily,
-                                                fontSize = 10.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                         }
                                     }
@@ -306,14 +440,18 @@ fun TestingHomeScreen(
                     }
                 }
 
-                // ── The two ecosystem cards ──
+                // ── The two ecosystem cards (D-588, round 86): the count
+                // moved OUT of the subtitle to a RIGHT-SIDE highlighted chip,
+                // the trailing arrow is GONE, and each card carries its
+                // system's accent blend.
                 item(key = "systems-label") {
                     SectionLabel("Test a system")
                 }
                 item(key = "card-aniyomi") {
                     SystemCard(
                         title = "Aniyomi extensions",
-                        subtitle = "${aniyomiTargets.size} testable sources",
+                        countLabel = "${aniyomiTargets.size} sources",
+                        accent = MaterialTheme.colorScheme.primary,
                         stateCount = aniyomiTargets.size,
                         passed = aniyomiTargets.count { stateFor(it.id)?.isHealthy == true },
                         failed = aniyomiTargets.count { s -> stateFor(s.id)?.let { it.finished && !it.isHealthy } == true },
@@ -323,7 +461,8 @@ fun TestingHomeScreen(
                 item(key = "card-cloudstream") {
                     SystemCard(
                         title = "CloudStream plugins",
-                        subtitle = "${csTargets.size} testable providers",
+                        countLabel = "${csTargets.size} providers",
+                        accent = MaterialTheme.colorScheme.tertiary,
                         stateCount = csTargets.size,
                         passed = csTargets.count { stateFor(it.id)?.isHealthy == true },
                         failed = csTargets.count { s -> stateFor(s.id)?.let { it.finished && !it.isHealthy } == true },
@@ -349,7 +488,7 @@ fun TestingHomeScreen(
                                 .height(52.dp)
                                 .clip(RoundedCornerShape(50))
                                 .clickable(enabled = targets.isNotEmpty()) {
-                                    if (runActive) onOpenRun() else controller.start(null, "Run all")
+                                    if (runActive) openRunOrTarget() else controller.start(null, "Run all")
                                 },
                         ) {
                             Row(
@@ -408,7 +547,7 @@ fun TestingHomeScreen(
                             }
                         }
                         Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                             shape = RoundedCornerShape(50),
                             modifier = Modifier
                                 .weight(1f)
@@ -424,25 +563,32 @@ fun TestingHomeScreen(
                                 Icon(
                                     imageVector = Icons.Filled.BarChart,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp),
                                 )
-                                Spacer(Modifier.width(6.dp))
-                                Column {
-                                    Text(
-                                        text = "Stats",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    )
-                                    if (failed > 0) {
+                                Spacer(Modifier.width(7.dp))
+                                Text(
+                                    text = "Stats",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                if (failed > 0) {
+                                    Spacer(Modifier.width(7.dp))
+                                    // The failed-count bubble — the pill's one
+                                    // honest accent (D-588 restyle).
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.18f),
+                                        shape = RoundedCornerShape(50),
+                                    ) {
                                         Text(
-                                            text = "$failed failed",
+                                            text = "$failed",
                                             fontFamily = RobotoFamily,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold,
                                             color = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                                         )
                                     }
                                 }
@@ -470,7 +616,8 @@ private fun SectionLabel(title: String) {
 @Composable
 private fun SystemCard(
     title: String,
-    subtitle: String,
+    countLabel: String,
+    accent: Color,
     stateCount: Int,
     passed: Int,
     failed: Int,
@@ -486,6 +633,14 @@ private fun SystemCard(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
+            // The system's accent edge — the card's color blend (D-588).
+            Box(
+                modifier = Modifier
+                    .size(width = 4.dp, height = 44.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(accent.copy(alpha = 0.75f)),
+            )
+            Spacer(Modifier.width(11.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
@@ -493,13 +648,6 @@ private fun SystemCard(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = subtitle,
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp),
                 )
                 if (stateCount > 0) {
                     Spacer(Modifier.height(6.dp))
@@ -511,13 +659,24 @@ private fun SystemCard(
                     )
                 }
             }
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                imageVector = Icons.Filled.ChevronRight,
-                contentDescription = "Open $title targets",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp),
-            )
+            Spacer(Modifier.width(10.dp))
+            // The count — a RIGHT-SIDE highlighted chip (the round-86 ask:
+            // "the amount of extensions should be shown on the right side and
+            // in a highlighted view"). The old trailing arrow is GONE.
+            Surface(
+                color = accent.copy(alpha = 0.14f),
+                shape = RoundedCornerShape(50),
+            ) {
+                Text(
+                    text = countLabel,
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = accent,
+                    maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                )
+            }
         }
     }
 }

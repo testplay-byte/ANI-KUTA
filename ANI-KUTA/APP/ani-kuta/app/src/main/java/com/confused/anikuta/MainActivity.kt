@@ -1606,6 +1606,9 @@ fun AppRoot() {
                 onOpenSystem = { eco -> pushTesting(ExtensionTestingListKey(ecosystem = eco)) },
                 onOpenRun = { pushTesting(ExtensionTestingRunKey()) },
                 onOpenStats = { pushTesting(ExtensionTestingStatsKey) },
+                // D-591 (round 86): a single-target session's "View" routes
+                // to the dedicated target page instead of the generic run.
+                onOpenTarget = { id -> pushTesting(ExtensionTestingTargetKey(targetId = id)) },
             )
             is ExtensionTestingListKey -> TestingTargetListScreen(
                 ecosystem = currentKey.ecosystem,
