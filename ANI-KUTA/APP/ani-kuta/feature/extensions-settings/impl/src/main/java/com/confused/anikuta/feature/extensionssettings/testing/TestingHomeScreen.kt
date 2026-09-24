@@ -139,7 +139,7 @@ fun TestingHomeScreen(
                                 Spacer(Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Testing ${runProgressLabel(session?.cursor ?: 0, session?.queue.size ?: 0)}",
+                                        text = "Testing ${runProgressLabel(session?.cursor ?: 0, session?.queue?.size ?: 0)}",
                                         fontFamily = RobotoFamily,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.ExtraBold,

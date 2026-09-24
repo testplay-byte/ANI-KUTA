@@ -319,7 +319,7 @@ fun TestingRunScreen(
                     items(completedIds.size, key = { "done-${completedIds[it]}" }) { i ->
                         val id = completedIds[i]
                         val target = targetsById[id] ?: return@items
-                        val state = s.states[id]
+                        val state = s?.states?.get(id)
                         RunQueueRow(
                             name = target.name,
                             target = target,
@@ -347,7 +347,7 @@ fun TestingRunScreen(
                         RunQueueRow(
                             name = target.name,
                             target = target,
-                            state = s.states[id],
+                            state = s?.states?.get(id),
                             onClick = { onOpenTarget(id) },
                         )
                     }

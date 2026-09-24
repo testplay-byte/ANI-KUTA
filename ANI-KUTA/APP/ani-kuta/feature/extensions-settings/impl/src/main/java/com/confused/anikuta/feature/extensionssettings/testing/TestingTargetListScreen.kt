@@ -68,6 +68,7 @@ import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.feature.extensionssettings.matchesSearch
 
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE 2 of 5 — PER-SYSTEM TARGET LIST (round 84, D-583).
@@ -437,8 +438,14 @@ private fun TargetListRow(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     TargetIconView(target)
-                    // The selection badge — only when selected (no checkbox column).
-                    AnimatedVisibility(visible = selected, enter = fadeIn(tween(120)), exit = fadeOut(tween(120))) {
+                    // The selection badge — only when selected (no checkbox
+                    // column). Fully qualified: the RowScope receiver in scope
+                    // would otherwise capture the deprecated overload.
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = selected,
+                        enter = fadeIn(tween(120)),
+                        exit = fadeOut(tween(120)),
+                    ) {
                         Box(
                             modifier = Modifier
                                 .size(40.dp)
