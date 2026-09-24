@@ -4,6 +4,72 @@
 
 ## Decisions
 
+## D-613 (round 87): THE SHEET'S TWO SEPARATE ECOSYSTEM SECTION CARDS
+THE USER'S SPEC: the Link Sources sheet must show Aniyomi and CloudStream as two SEPARATE groups again — "not one merged list." Each ecosystem renders as its own rounded section card (the accent dot + the bold heading + the count chip in the header, the alphabetized rows inside), so the two lists are visibly apart at any sheet height. Status: implemented.
+
+## D-612 (round 87): THE SHEET'S IME-AWARE ADAPTIVE LIST CAP (the squish fix)
+THE USER'S SPEC: "the search bar is squished — there's no room for it." ROOT CAUSE: the round-86 list cap was a FIXED 430dp; once the keyboard opened, sheet content exceeded the available height and the search bar clipped out of view. THE FIX: the cap is ADAPTIVE — screen height − navigation bar − IME insets − 214dp reserved for everything else the sheet shows — recomputed live, so the bar can never be squeezed out again. Status: implemented.
+
+## D-611 (round 87): THE RUN PAGE'S AUTO-SCROLL IS DELETED
+THE USER'S SPEC: "when a test completes, it should not automatically move to the very bottom or to the very top." The round-85/86 "follow the live target" scroll effect yanked the viewport on every target transition — it is GONE; the user owns the viewport and the sections update in place. Status: implemented.
+
+## D-610 (round 87): THE DETAIL PAGE'S CHOREOGRAPHY POLISH
+The capstone of the detail rework: animated fractions on every ring and bar segment, the verdict banner's spring'd slide+fade, the entrance choreography kept, the breathing pulse dot retained — motion everywhere, but nothing that moves the user's reading position. Status: implemented.
+
+## D-609 (round 87): THE TRANSIENT VERDICT BANNER — in, linger, away
+THE USER'S SPEC: after a test completes, the result should stay visible for a while and then leave with a smooth slide — and the page must never jump. A fresh terminal verdict slides a banner in under the actions, LINGERS ~2.6 seconds, then slides away; fresh-terminal kinds are tracked per run (a kind returning to RUNNING on a re-run un-sees it), and NOTHING on the page auto-scrolls. Status: implemented.
+
+## D-608 (round 87): THE DETAIL PAGE'S RUN PILL, REDESIGNED
+THE USER'S SPEC: "the Run All Tests for this Source button needs a redesign." Bordered tinted pill + an icon badge, wrap-content, never full-width, dimmed while a run is live. Status: implemented.
+
+## D-607 (round 87): THE CODE WINDOW IS DEAD — THE RESULTS LIVE INSIDE THE BLOCKS
+THE USER'S SPEC: "remove the code window completely — show the results inside the colored test blocks (e.g. the ping block carries its results; homepage shows its results in the block)." `CodeWindowBlock` is DELETED entirely (not restyled). Each result block is tinted + bordered with its kind color (the search block is pink, everywhere) and carries a labeled RESULTS section INSIDE: the message/detail as clean text rows, the search ladder's stats as stat pills, and the payload — results grid / dossier / episodes / links / preview — rendered within the block. Status: implemented.
+
+## D-606 (round 87): THE TIME-PROPORTIONAL STAGE BAR
+THE USER'S SPEC: "the progress bar: the LENGTH should be by each task's time, each part a different color." Each segment's LENGTH is the time its test took (finished = actual ms, running = a live ticker growing in real time, pending = its budget's share held on the faint track), and every segment wears its TEST KIND's color from the palette — failures dim their hue. The equal-segments bar is gone. Status: implemented.
+
+## D-605 (round 87): THE DETAIL PAGE'S DOSSIER HEADER
+THE USER'S SPEC: "the top details layout is not clean." Small uppercase muted labels in a fixed column, values that WRAP (no truncation), hairline dividers between rows — version / package / plugin / NSFW / site readable at a glance. Un-run tests render as faded blocks (the empty state with its "timing" wording dissolved — every block always exists). Status: implemented.
+
+## D-604 (round 87): THE LIST'S EXPANSION SHOWS ALL SEVEN — PENDING FADED
+THE USER'S SPEC: "tests that haven't run should still show, but greyed/faded." Every one of the seven tests always renders in the expansion — pending rows ride at 0.42 alpha; the placeholder that used to stand in for "not tested yet" is removed. Status: implemented.
+
+## D-603 (round 87): THE LIST'S ONE CONTROLS ROW — THE SELECT-ALL IS DEAD
+THE USER'S SPEC (the round-86 order that did not land): "remove the double-check button" + "the three run buttons go to the RIGHT of the source count — not below it." `DoneAll` is DELETED (import, button, all); the controls row is ONE line — the source count and the three compact run pills (all / failed / passed) share it. Status: implemented.
+
+## D-602 (round 87): THE VISIBLE UNTESTED TRACK + THE CENTERED RUN-ALL PILL
+THE USER'S SPEC: "the untested color blends into the background — a huge problem" + "the Run All Test button on the main screen is not good." The ring's idle track is `onSurfaceVariant@0.25` resolved IN COMPOSITION (a Canvas lambda cannot call composable color resolvers — the round's compile-review catch), the cards' untested got a visible track+fill, and the Run-all pill is centered beneath the hero and redrawn (bordered tint). Status: implemented.
+
+## D-601 (round 87): FULL-WIDTH BARS + THE BADGE BESIDE THE TEXT
+THE USER'S SPEC: the system cards' bar must fill the full width; the count badge belongs right beside the text, not marooned at the far edge. The proportion bar spans the card; the idle content is centered. Status: implemented.
+
+## D-600 (round 87): THE SYSTEM CARDS' COUNT CHIP BESIDE THE TITLE
+THE USER'S SPEC: the count should sit next to the title. The chip moved from the row's far end to directly beside the card's title. Status: implemented.
+
+## D-599 (round 87): THE COMBINED SUITE-HEALTH RING — 10+5 READS AS 15
+THE USER'S SPEC (reversing the round-86 six-segment split): "if Aniyomi has 10 passed and CloudStream 5, show 15 — with the split inside." The ring is PASS / FAIL / UNTESTED groups, each group's sweep subdivided by system, the group gaps REPLACED out of the sweep (never added — no duplicate arcs, the ring stays one revolution); the center/legend shows the total and the legend row prints the "· 10 + 5" per-system split. Status: implemented.
+
+## D-598 (round 87): THE STREAM PREVIEW'S 30-SECOND CAP — PLAYED, THEN CLOSED
+THE USER'S SPEC: "put a 30-second limit on the stream play — then stop, say it played successfully, and close all the streams/logic/resources properly." A countdown state machine caps the preview at 30s (the last seconds tick down), auto-stops at the ceiling, prints "Stream played successfully", sets REPEAT_MODE_OFF (no looping), and detaches the PlayerView in onRelease — player, surface and session close cleanly. Status: implemented.
+
+## D-597 (round 87): THE RUN PAGE'S LIVE ELAPSED TIMERS
+THE USER'S SPEC: "the currently running test doesn't show its live time" on the multi-run page. The live elapsed ticker (round 86's `runningKindStartedAtMs`) finally reaches the run page's rows — `LiveElapsedText` wired through `KindResultRow` → `LiveKindRow` — a running test ticks in real time everywhere it appears. Status: implemented.
+
+## D-596 (round 87): THE CS RESOLVER ACCUMULATES LINKS ACROSS SNAPSHOTS
+The CloudStream video resolver evaluates the page's snapshots as they stream in; a link found in an early snapshot could vanish when a later snapshot re-listed the page. The resolver now ACCUMULATES links across snapshots with dedup — early finds survive, the payload shows every link once. Status: implemented.
+
+## D-595 (round 87): THE VIDEO PAYLOAD SHOWS EVERY RESOLVED LINK
+THE USER'S SPEC: "show ALL the resolved videos as a list." `PayloadVideoRows` renders every resolved link (payload 24) — the top-N cap is gone; the numbered cards keep their quality chips. Status: implemented.
+
+## D-594 (round 87): TESTINGPALETTE — THE HONEST COLORS (the near-twin fix)
+THE USER'S SPEC: "the colors of Aniyomi and CloudStream are way too close together. They look ugly." ROOT CAUSE: the ring fed the theme's `primary` (user-selectable accent) against Material3's BASELINE `tertiary` #EFB8C8 — a pale pink nothing else in the app used, ~20° from error red. THE FIX: `TestingPalette.kt` (NEW) is the single source of truth for every color the testing system uses, with FIXED hues that never follow the accent preset: ANIYOMI = emerald #34D399, CLOUDSTREAM = sky #38BDF8 (~50° apart); failures red/orange per system; untested two DISTINCT grays (the camouflage complaint); seven per-kind accents (ping sky, homepage amber, search pink, details coral, episodes teal, video-resolve lime, stream violet) so a block is the same color everywhere it appears. Status: implemented.
+
+## D-593 (round 87): THE UN-KILLABLE CHAIN — ONE TEST'S DEATH IS ONE VERDICT
+THE USER'S SPEC: "when one test stops midway due to a timeout, the other tests should NOT stop" + "the whole system should be modular with verified logic, verified workflow, and proper error handling." ROOT CAUSES (three, all found): (a) SearchTest caught `CancellationException` BEFORE `TimeoutCancellationException` — TCE IS-A CE — so its own 12s phrase timeout was consumed as a cancellation and RETHROWN, killing the whole run job; (b) TestIsolation's awaiter rethrew every body-origin CE — a plugin cancelling itself escaped to the run scope; (c) the queue loop had no blast-radius containment — one job for the whole run. THE FIX: TCE caught FIRST + `isActive` guards on both catches (SearchTest), the same guards on DetailsTest / EpisodeListTest / VideoResolveTest; the isolation async block converts body-origin CEs into FAILED verdicts (the `currentCoroutineContext().isActive` check discriminates "the body died on its own" from "the user pressed Stop"); the controller wraps each target in try/catch + `containTargetFailure` — one target settles FAILED "Run aborted: <Class: msg>" and the queue CONTINUES — under a `CoroutineExceptionHandler` net; `stop()` remains the only whole-run unwind. Status: implemented.
+
+## D-587..D-592 (round 86, BACKFILLED in round 87): THE HONEST-VERDICTS ROUND — the six entries were recorded here late (the release session had skipped this file; found + fixed during the round-87 ledger pass — the round-86 truth lives in doc 68 and the decisions below mirror it in brief)
+D-587 the sheet's fifth pass: the focus-killer fixed (the IME poll acted only after the IME was observed visible once), the two alarm-clock drums deleted for one normal alphabetical list (rounded-rect bold headings, count right, the selected row tinted+bordered+bold+check), the hint moved to the very bottom and reworded. D-588 the hub+stats: the six-segment suite-health ring (superseded by D-599 in round 87), recent-runs = icon + name, system cards' count chip + chevron gone + accent edge, the Stats pill restyled, the stats page's Needs-attention + Recent-runs removed. D-589 the list: three run-scope pills (eco-scoped), the verdict sort (passed alphabetical → untested → failed by failedCount ASC), the two-block expansion with the actions bottom-right, per-row cards + one-at-a-time reveal, LIVE ticking timers + leader-dot trails + honest skip reasons. D-590 the engine: chain Ping → Home page → Search; the HONEST GATE (missing prerequisites = FAILED "Not run — … failed", never SKIPPED); the DETAILS FORGIVENESS (details fail + episodes pass ⇒ pass); the CAUSE-AWARE SETTLE (stopRequested + the completion cause + a session-generation latch — the false "Stopped by user" root-caused to a stray CancellationException; unexpected deaths wrote FAILED "Run aborted" + an ERROR log); structured TEST TARGET/KIND START/FINISH logging. D-591 the detail page: single-target routing, the dossier header, the 7-stage live bar, the tertiary run pill, the timeline (bubbles + cards), the code-window blocks (deleted in round 87, D-607). D-592 the run page + payloads: the bespoke top section, the finish block (verdict + wall time), the 3×2 result grid, the search advanced stats + live per-phrase status, the numbered video cards, the LIVE STREAM PREVIEW (ExoPlayer + PlayerView, capped in round 87, D-598), the leave guard. Status: implemented (round 86), backfilled (round 87).
+
 ## D-586 (round 85): THE CONFIRMED-REMOVAL CHOREOGRAPHY (the ghost rows) + the sheet's fourth pass + the icon-only header pills
 THE USER'S SPEC: "when the user actually clicks OK and the extension gets deleted, then the animation should play… add this kind of animation for trusting and untrusting too." For an Aniyomi uninstall the "OK" IS the system dialog and the only honest signal it landed is the system's ACTION_PACKAGE_REMOVED broadcast — so the trash tap now fires the uninstaller DIRECTLY (no local animation, the row stays visible under the prompt, a cancelled uninstall costs NOTHING, the blind delay(3000)-restore heuristic is deleted) and a screen-local receiver (ContextCompat NOT_EXPORTED, the ExtensionInstallReceiver pattern) freezes the removed extension as a GHOST keyed by pkgName at its captured index (read via rememberUpdatedState from the last composed lists — the manager's own refresh racing the receiver is harmless); mergeGhosts() re-inserts the ghost at exactly its old position, the row renders with forcedExit, the exit choreography (D-580) plays ONCE, onExitDone drops the ghost, and animateItem() glides the gap closed. Trust/untrust gets the same choreography tap-driven on BOTH ecosystems (the row visibly leaves its section, then the data change fires). CS deletes already animated on the dialog's OK (per-spec, documented). THE SHEET (fourth pass): the round-84 60% min-height DEAD SLAB is gone (wrap-content; results mode = a ceiling), the sheet pads by navigationBars ∪ ime (the keyboard no longer covers the search bar) + adjustResize on the activity, BOTH wheels are alphabetically sorted case-insensitively + remember-keyed (no per-keystroke refilter), and the BLUR CONTRACT: focus loss (outside tap OR keyboard-back via an IME-closed snapshotFlow observer that clears focus) resets the query + re-arms the paste while results are protected (Idle && !showResults); query/showResults/autoPasted are rememberSaveable. THE PILLS: icon-only stadiums (44dp min width — still pills, not circles), the a11y name on the Surface semantics. Status: implemented.
 
