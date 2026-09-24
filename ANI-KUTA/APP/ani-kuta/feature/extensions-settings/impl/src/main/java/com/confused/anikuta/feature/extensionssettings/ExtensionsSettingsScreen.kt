@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -38,6 +40,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -53,8 +56,6 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -72,6 +73,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -91,6 +93,7 @@ import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import com.confused.anikuta.data.extension.repo.ExtensionRepoRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -309,22 +312,21 @@ fun ExtensionsSettingsScreen(
                             },
                         )
                     } else {
-                        // Round 83 (D-578): ICON-ONLY pills per the device report
-                        // ("no need to show the text with the filters and
-                        // settings — just show the icons, pill-shaped") — and the
-                        // Extension Testing entry is now the first pill in the
-                        // row (the user's original spec: top-right of the
-                        // Extensions title, alongside Filters and Settings),
-                        // replacing the round-82 banner that consumed a whole
-                        // list slot.
+                        // Round 84 (D-580): the header pills become TRUE pills —
+                        // icon + short label with content-adaptive widths (the
+                        // device round-84 report: icon-only squares read as circles,
+                        // not pills; each pill now takes the width its content
+                        // needs). Science · Filters · Settings remain the row.
                         HeaderPillButton(
                             icon = Icons.Filled.Science,
+                            label = "Tests",
                             contentDescription = "Extension testing",
                             onClick = onOpenExtensionTesting,
                         )
                         Spacer(Modifier.width(8.dp))
                         HeaderPillButton(
                             icon = Icons.Filled.FilterList,
+                            label = "Filters",
                             contentDescription = "Filters",
                             active = showFilters,
                             onClick = { showFilters = !showFilters },
@@ -332,6 +334,7 @@ fun ExtensionsSettingsScreen(
                         Spacer(Modifier.width(8.dp))
                         HeaderPillButton(
                             icon = Icons.Filled.Settings,
+                            label = "Settings",
                             contentDescription = "Settings",
                             onClick = onOpenRepoSettings,
                         )
@@ -420,7 +423,11 @@ fun ExtensionsSettingsScreen(
                         contentType = { "installedRow" },
                     ) { ext ->
                         val index = filteredInstalled.indexOf(ext)
+                        // D-580 (round 84): animateItem gives every row the
+                        // add/remove/placement motion — after a delete's exit
+                        // choreography the rows below GLIDE up (Downloads parity).
                         InstalledExtensionRow(
+                                        modifier = Modifier.animateItem(),
                                         extension = ext,
                                         isReordering = reorderMode,
                                         canMoveUp = reorderMode && index > 0,
@@ -476,6 +483,7 @@ fun ExtensionsSettingsScreen(
                             contentType = { "erroredRow" },
                         ) { ext ->
                             ErroredExtensionRow(
+                                modifier = Modifier.animateItem(),
                                 extension = ext,
                                 onRetry = { extensionManager.retryExtension(ext) },
                                 onUntrust = { extensionManager.untrustExtension(ext) },
@@ -495,6 +503,7 @@ fun ExtensionsSettingsScreen(
                             contentType = { "untrustedRow" },
                         ) { ext ->
                             UntrustedExtensionRow(
+                                modifier = Modifier.animateItem(),
                                 extension = ext,
                                 onTrust = { extensionManager.trustExtension(ext) },
                                 onDelete = { extensionManager.uninstallExtension(ext) },
@@ -526,6 +535,7 @@ fun ExtensionsSettingsScreen(
                         ) { ext ->
                             val installStep = installStates[ext.pkgName]
                             AvailableExtensionRow(
+                                modifier = Modifier.animateItem(),
                                 extension = ext,
                                 installStep = installStep,
                                 onInstall = {
@@ -692,8 +702,10 @@ private fun ExtensionFiltersBar(
                     )
 
                     // Language pill — proper capped scrollable menu (D-572);
-                    // Round 83 (D-578): styled menu — rounded container, a
-                    // header row, and the active language tinted + checked.
+                    // Round 84 (D-581): BUTTON-FEEL options — every choice is
+                    // its own bordered, rounded, tappable card, separated by
+                    // gaps (the round-84 device report: "separation between
+                    // each individual language options… a button kind of feel").
                     if (languages.isNotEmpty()) {
                         Box {
                             FilterPill(
@@ -707,71 +719,42 @@ private fun ExtensionFiltersBar(
                                 onDismissRequest = { showLangMenu = false },
                                 // The cap is the whole fix: the menu scrolls
                                 // internally instead of covering the screen.
-                                modifier = Modifier.heightIn(max = 360.dp),
+                                modifier = Modifier.heightIn(max = 380.dp),
                                 shape = RoundedCornerShape(16.dp),
                                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 tonalElevation = 3.dp,
                             ) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            "Filter by language",
-                                            fontFamily = RobotoFamily,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    },
-                                    onClick = {},
-                                    enabled = false,
+                                Text(
+                                    text = "Filter by language",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
                                 )
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            "All languages",
-                                            fontFamily = RobotoFamily,
-                                            fontWeight = if (langFilter == null) FontWeight.ExtraBold else FontWeight.Normal,
-                                            color = if (langFilter == null) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurface
-                                            },
-                                        )
-                                    },
-                                    onClick = { onLangFilterChange(null); showLangMenu = false },
-                                    trailingIcon = if (langFilter == null) {
-                                        { Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)) }
-                                    } else null,
-                                )
-                                languages.forEach { lang ->
-                                    val isActive = langFilter == lang
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                lang,
-                                                fontFamily = RobotoFamily,
-                                                fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Normal,
-                                                color = if (isActive) {
-                                                    MaterialTheme.colorScheme.primary
-                                                } else {
-                                                    MaterialTheme.colorScheme.onSurface
-                                                },
-                                            )
-                                        },
-                                        onClick = { onLangFilterChange(lang); showLangMenu = false },
-                                        trailingIcon = if (isActive) {
-                                            { Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)) }
-                                        } else null,
+                                Column(modifier = Modifier.padding(horizontal = 8.dp)) {
+                                    MenuOptionButton(
+                                        label = "All languages",
+                                        active = langFilter == null,
+                                        onClick = { onLangFilterChange(null); showLangMenu = false },
                                     )
+                                    Spacer(Modifier.height(4.dp))
+                                    languages.forEach { lang ->
+                                        MenuOptionButton(
+                                            label = lang,
+                                            active = langFilter == lang,
+                                            onClick = { onLangFilterChange(lang); showLangMenu = false },
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                    }
                                 }
                             }
                         }
                     }
 
                     // Sort pill — tapping the ACTIVE mode flips ↑/↓ (D-572);
-                    // Round 83 (D-578): styled menu with a direction header and
-                    // the active mode tinted + arrowed.
+                    // Round 84 (D-581): button-feel option cards, same language
+                    // as the language menu.
                     Box {
                         FilterPill(
                             icon = Icons.Filled.Sort,
@@ -786,55 +769,42 @@ private fun ExtensionFiltersBar(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             tonalElevation = 3.dp,
                         ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "Sort by — ${if (sortAscending) "ascending \u2191" else "descending \u2193"}",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                onClick = {},
-                                enabled = false,
+                            Text(
+                                text = "Sort by — ${if (sortAscending) "ascending \u2191" else "descending \u2193"}",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
                             )
-                            HorizontalDivider()
-                            ExtensionSortMode.entries.forEach { mode ->
-                                val isActive = sortMode == mode
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            mode.label,
-                                            fontFamily = RobotoFamily,
-                                            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Normal,
-                                            color = if (isActive) {
-                                                MaterialTheme.colorScheme.primary
+                            Column(modifier = Modifier.padding(horizontal = 8.dp)) {
+                                ExtensionSortMode.entries.forEach { mode ->
+                                    val isActive = sortMode == mode
+                                    MenuOptionButton(
+                                        label = mode.label,
+                                        active = isActive,
+                                        trailing = if (isActive) {
+                                            {
+                                                Icon(
+                                                    imageVector = if (sortAscending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                                                    contentDescription = if (sortAscending) "Ascending — tap to flip" else "Descending — tap to flip",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
+                                        } else null,
+                                        onClick = {
+                                            if (isActive) {
+                                                // Already active → flip the direction.
+                                                onSortAscendingChange(!sortAscending)
                                             } else {
-                                                MaterialTheme.colorScheme.onSurface
-                                            },
-                                        )
-                                    },
-                                    onClick = {
-                                        if (isActive) {
-                                            // Already active → flip the direction.
-                                            onSortAscendingChange(!sortAscending)
-                                        } else {
-                                            onSortModeChange(mode)
-                                        }
-                                        showSortMenu = false
-                                    },
-                                    trailingIcon = if (isActive) {
-                                        {
-                                            Icon(
-                                                imageVector = if (sortAscending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
-                                                contentDescription = if (sortAscending) "Ascending — tap to flip" else "Descending — tap to flip",
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(16.dp),
-                                            )
-                                        }
-                                    } else null,
-                                )
+                                                onSortModeChange(mode)
+                                            }
+                                            showSortMenu = false
+                                        },
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                }
                             }
                         }
                     }
@@ -870,6 +840,9 @@ private fun DedicatedSearchField(
     onBack: () -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
+    // Round 84 (D-581): the bar carries a FOCUS RING — the border warms to
+    // the primary color while typing, so the active field reads at a glance.
+    var barFocused by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -894,24 +867,42 @@ private fun DedicatedSearchField(
         }
         Spacer(Modifier.width(6.dp))
         Surface(
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
             shape = RoundedCornerShape(50),
             modifier = Modifier
                 .weight(1f)
                 .border(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+                    if (barFocused) 1.5.dp else 1.dp,
+                    if (barFocused) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                    } else {
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    },
                     RoundedCornerShape(50),
                 ),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 3.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 13.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // Round 84: a steady leading magnifier — the classic search
+                // silhouette (the round-84 report called the old bare field
+                // "bad"/"not clean").
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(8.dp))
                 BasicTextField(
                     value = query,
                     onValueChange = onQueryChange,
-                    modifier = Modifier.weight(1f).focusRequester(focusRequester).padding(vertical = 11.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester)
+                        .onFocusChanged { barFocused = it.isFocused }
+                        .padding(vertical = 11.dp),
                     textStyle = TextStyle(
                         fontFamily = RobotoFamily,
                         fontSize = 14.sp,
@@ -941,14 +932,14 @@ private fun DedicatedSearchField(
                         modifier = Modifier
                             .size(28.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f))
                             .clickable { onQueryChange("") },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Close,
                             contentDescription = "Clear search",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(14.dp),
                         )
                     }
@@ -1003,15 +994,79 @@ private fun FilterPill(
 }
 
 /**
- * Round 82 (D-572) / Round 83 (D-578): the screen-header pill — ICON-ONLY in
- * a rounded-full surface (the device report: "no need to show the text with
- * the filters and settings. You can just show the icons for them and make
- * them pill-shaped"). [active] tints the pill while the filters bar is open.
- * The gaps between the pills are the header Row's explicit 8dp Spacers.
+ * Round 84 (D-581): one BUTTON-FEEL menu option — a full-width, bordered,
+ * rounded tappable card (the round-84 device report asked for "separation
+ * between each individual language options… a button kind of feel"). The
+ * active option carries a primary wash + ring + a check badge; inactive
+ * options are quiet raised cards. 4dp gaps between the cards provide the
+ * separation the report asked for.
+ */
+@Composable
+private fun MenuOptionButton(
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = if (active) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        border = BorderStroke(
+            1.dp,
+            if (active) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+            },
+        ),
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Medium,
+                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (active) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = "Selected",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+            } else if (trailing != null) {
+                trailing()
+            }
+        }
+    }
+}
+
+/**
+ * Round 84 (D-580): the screen-header pill — a TRUE pill: icon + short label
+ * in a rounded-full surface whose width adapts to the content (the round-84
+ * device report: the icon-only squares read as circles, not pills — "each one
+ * of them will be having the appropriate amount of width as needed").
+ * [active] tints the pill while the filters bar is open. The gaps between
+ * the pills are the header Row's explicit 8dp Spacers.
  */
 @Composable
 private fun HeaderPillButton(
     icon: ImageVector,
+    label: String,
     contentDescription: String,
     active: Boolean = false,
     onClick: () -> Unit,
@@ -1025,15 +1080,24 @@ private fun HeaderPillButton(
         shape = RoundedCornerShape(50),
         onClick = onClick,
     ) {
-        Box(
-            modifier = Modifier.padding(9.dp),
-            contentAlignment = Alignment.Center,
+        Row(
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
                 tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(17.dp),
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
             )
         }
     }
@@ -1041,6 +1105,7 @@ private fun HeaderPillButton(
 
 @Composable
 private fun InstalledExtensionRow(
+    modifier: Modifier = Modifier,
     extension: AnimeExtension.Installed,
     isReordering: Boolean,
     canMoveUp: Boolean,
@@ -1058,10 +1123,26 @@ private fun InstalledExtensionRow(
     // ignored install state entirely — no feedback during an update download.
     installStep: InstallStep? = null,
 ) {
+    // D-580 (round 84): the delete exit choreography — the row plays the same
+    // settle-dip → slide+fade motion the Downloads page uses, and the actual
+    // system uninstall fires only after the exit finishes. The system dialog
+    // can be DISMISSED though — so if the row is still composed ~3s later the
+    // uninstall was cancelled and the row fades back in.
+    var removing by remember { mutableStateOf(false) }
+    val deleteExit = rememberDeleteExitState()
+    LaunchedEffect(removing) {
+        if (!removing) return@LaunchedEffect
+        deleteExit.runExitChoreography()
+        onDelete()
+        delay(3000)
+        deleteExit.restoreFromExit()
+        removing = false
+    }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier
+        modifier = modifier
+            .deleteExitLayer(deleteExit)
             .fillMaxWidth()
             .graphicsLayer { alpha = if (extension.isEnabled) 1f else 0.45f }
             .combinedClickable(
@@ -1135,10 +1216,12 @@ private fun InstalledExtensionRow(
                 )
                 // Round 82 (D-571): fires the SYSTEM uninstall prompt directly —
                 // Android's own dialog is the confirmation (no in-app step).
+                // D-580 (round 84): the tap first plays the row's exit
+                // choreography; the prompt fires when the exit finishes.
                 ActionIconButton(
                     icon = Icons.Filled.Delete,
                     contentDescription = "Uninstall",
-                    onClick = onDelete,
+                    onClick = { if (!removing) removing = true },
                     tint = MaterialTheme.colorScheme.error,
                 )
             }
@@ -1148,14 +1231,28 @@ private fun InstalledExtensionRow(
 
 @Composable
 private fun UntrustedExtensionRow(
+    modifier: Modifier = Modifier,
     extension: AnimeExtension.Untrusted,
     onTrust: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    // D-580 (round 84): same exit choreography as the installed row.
+    var removing by remember { mutableStateOf(false) }
+    val deleteExit = rememberDeleteExitState()
+    LaunchedEffect(removing) {
+        if (!removing) return@LaunchedEffect
+        deleteExit.runExitChoreography()
+        onDelete()
+        delay(3000)
+        deleteExit.restoreFromExit()
+        removing = false
+    }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier
+            .deleteExitLayer(deleteExit)
+            .fillMaxWidth(),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1188,10 +1285,11 @@ private fun UntrustedExtensionRow(
                 tint = MaterialTheme.colorScheme.primary,
             )
             // Round 82 (D-571): the system uninstall prompt IS the confirmation.
+            // D-580 (round 84): the tap first plays the exit choreography.
             ActionIconButton(
                 icon = Icons.Filled.Delete,
                 contentDescription = "Uninstall",
-                onClick = onDelete,
+                onClick = { if (!removing) removing = true },
                 tint = MaterialTheme.colorScheme.error,
             )
         }
@@ -1200,15 +1298,29 @@ private fun UntrustedExtensionRow(
 
 @Composable
 private fun ErroredExtensionRow(
+    modifier: Modifier = Modifier,
     extension: AnimeExtension.Errored,
     onRetry: () -> Unit,
     onUntrust: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    // D-580 (round 84): same exit choreography as the installed row.
+    var removing by remember { mutableStateOf(false) }
+    val deleteExit = rememberDeleteExitState()
+    LaunchedEffect(removing) {
+        if (!removing) return@LaunchedEffect
+        deleteExit.runExitChoreography()
+        onDelete()
+        delay(3000)
+        deleteExit.restoreFromExit()
+        removing = false
+    }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier
+            .deleteExitLayer(deleteExit)
+            .fillMaxWidth(),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(
@@ -1251,10 +1363,11 @@ private fun ErroredExtensionRow(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 // Round 82 (D-571): the system uninstall prompt IS the confirmation.
+                // D-580 (round 84): the tap first plays the exit choreography.
                 ActionIconButton(
                     icon = Icons.Filled.Delete,
                     contentDescription = "Uninstall",
-                    onClick = onDelete,
+                    onClick = { if (!removing) removing = true },
                     tint = MaterialTheme.colorScheme.error,
                 )
             }
@@ -1275,6 +1388,7 @@ private fun ErroredExtensionRow(
 
 @Composable
 private fun AvailableExtensionRow(
+    modifier: Modifier = Modifier,
     extension: AnimeExtension.Available,
     installStep: InstallStep?,
     onInstall: () -> Unit,
@@ -1282,7 +1396,7 @@ private fun AvailableExtensionRow(
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),

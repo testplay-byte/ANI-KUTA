@@ -28,6 +28,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +46,7 @@ import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.cloudstream.CloudstreamPluginManager
 import com.confused.anikuta.data.cloudstream.model.CloudstreamExtension
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository
+import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 
 /**
@@ -150,6 +152,7 @@ internal fun CloudstreamExtensionsSection(
                 contentType = { "csInstalledRow" },
             ) { ext ->
                 CsInstalledRow(
+                    modifier = Modifier.animateItem(),
                     extension = ext,
                     installStep = installStates[ext.internalName],
                     onUpdate = ext.availableUpdateVersion?.let {
@@ -185,6 +188,7 @@ internal fun CloudstreamExtensionsSection(
                     contentType = { "csErroredRow" },
                 ) { ext ->
                     CsErroredRow(
+                        modifier = Modifier.animateItem(),
                         extension = ext,
                         retrying = ext.internalName in retryingNames,
                         onRetry = { csManager.retryPlugin(ext) },
@@ -205,6 +209,7 @@ internal fun CloudstreamExtensionsSection(
                     contentType = { "csUntrustedRow" },
                 ) { ext ->
                     CsUntrustedRow(
+                        modifier = Modifier.animateItem(),
                         extension = ext,
                         onTrust = { csManager.trustPlugin(ext) },
                         onUninstall = { csManager.uninstallPlugin(ext) },
@@ -236,6 +241,7 @@ internal fun CloudstreamExtensionsSection(
                     contentType = { "csAvailableRow" },
                 ) { ext ->
                     CsAvailableRow(
+                        modifier = Modifier.animateItem(),
                         extension = ext,
                         installStep = installStates[ext.plugin.internalName],
                         onInstall = { csManager.installPlugin(ext) },
@@ -264,6 +270,7 @@ internal fun CloudstreamExtensionsSection(
 
 @Composable
 private fun CsInstalledRow(
+    modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Installed,
     installStep: InstallStep?,
     onUpdate: (() -> Unit)?,
@@ -272,11 +279,27 @@ private fun CsInstalledRow(
     onClick: () -> Unit,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    // D-580 (round 84): the in-app AlertDialog is the confirmation, so the
+    // exit choreography runs AFTER it — the row plays the same settle-dip →
+    // slide+fade motion as the Downloads page, and the plugin delete fires
+    // only when the exit finishes (the data removal then closes the gap via
+    // the row's animateItem placement).
+    var removing by remember { mutableStateOf(false) }
+    val deleteExit = rememberDeleteExitState()
+    LaunchedEffect(removing) {
+        if (!removing) return@LaunchedEffect
+        deleteExit.runExitChoreography()
+        onUninstall()
+        delay(2500)
+        deleteExit.restoreFromExit()
+        removing = false
+    }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier
+        modifier = modifier
+            .deleteExitLayer(deleteExit)
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
@@ -346,7 +369,7 @@ private fun CsInstalledRow(
             title = { Text("Uninstall plugin?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
             text = { Text("This will remove ${extension.name.removeSuffix("Provider")} from your device.", fontFamily = RobotoFamily) },
             confirmButton = {
-                TextButton(onClick = { showDeleteConfirm = false; onUninstall() }) {
+                TextButton(onClick = { showDeleteConfirm = false; if (!removing) removing = true }) {
                     Text("Uninstall", color = MaterialTheme.colorScheme.error, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
                 }
             },
@@ -361,6 +384,7 @@ private fun CsInstalledRow(
 
 @Composable
 private fun CsErroredRow(
+    modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Errored,
     retrying: Boolean = false,
     onRetry: () -> Unit,
@@ -368,11 +392,23 @@ private fun CsErroredRow(
     onClick: () -> Unit,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    // D-580 (round 84): same exit choreography as the installed CS row.
+    var removing by remember { mutableStateOf(false) }
+    val deleteExit = rememberDeleteExitState()
+    LaunchedEffect(removing) {
+        if (!removing) return@LaunchedEffect
+        deleteExit.runExitChoreography()
+        onUninstall()
+        delay(2500)
+        deleteExit.restoreFromExit()
+        removing = false
+    }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier
+        modifier = modifier
+            .deleteExitLayer(deleteExit)
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
@@ -450,7 +486,7 @@ private fun CsErroredRow(
             title = { Text("Uninstall plugin?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
             text = { Text("This will remove ${extension.name.removeSuffix("Provider")} from your device.", fontFamily = RobotoFamily) },
             confirmButton = {
-                TextButton(onClick = { showDeleteConfirm = false; onUninstall() }) {
+                TextButton(onClick = { showDeleteConfirm = false; if (!removing) removing = true }) {
                     Text("Uninstall", color = MaterialTheme.colorScheme.error, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
                 }
             },
@@ -470,17 +506,30 @@ private fun CsErroredRow(
  */
 @Composable
 private fun CsUntrustedRow(
+    modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Untrusted,
     onTrust: () -> Unit,
     onUninstall: () -> Unit,
     onClick: () -> Unit,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    // D-580 (round 84): same exit choreography as the installed CS row.
+    var removing by remember { mutableStateOf(false) }
+    val deleteExit = rememberDeleteExitState()
+    LaunchedEffect(removing) {
+        if (!removing) return@LaunchedEffect
+        deleteExit.runExitChoreography()
+        onUninstall()
+        delay(2500)
+        deleteExit.restoreFromExit()
+        removing = false
+    }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier
+        modifier = modifier
+            .deleteExitLayer(deleteExit)
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
@@ -538,7 +587,7 @@ private fun CsUntrustedRow(
             title = { Text("Uninstall plugin?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
             text = { Text("This will remove ${extension.name.removeSuffix("Provider")} from your device.", fontFamily = RobotoFamily) },
             confirmButton = {
-                TextButton(onClick = { showDeleteConfirm = false; onUninstall() }) {
+                TextButton(onClick = { showDeleteConfirm = false; if (!removing) removing = true }) {
                     Text("Uninstall", color = MaterialTheme.colorScheme.error, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
                 }
             },
@@ -558,6 +607,7 @@ private fun CsUntrustedRow(
  */
 @Composable
 private fun CsAvailableRow(
+    modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Available,
     installStep: InstallStep?,
     onInstall: () -> Unit,
@@ -567,7 +617,7 @@ private fun CsAvailableRow(
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {

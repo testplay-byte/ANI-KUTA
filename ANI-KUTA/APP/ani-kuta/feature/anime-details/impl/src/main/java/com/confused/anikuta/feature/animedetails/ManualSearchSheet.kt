@@ -3,10 +3,12 @@ package com.confused.anikuta.feature.animedetails
 import android.graphics.drawable.Drawable
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -62,6 +65,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -71,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.compose.SubcomposeAsyncImage
+import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.data.cloudstream.content.CloudstreamContentRepository
 import com.confused.anikuta.data.extension.manager.ExtensionManager
@@ -194,7 +199,13 @@ fun ManualSearchSheet(
         SourceSide.ANIYOMI -> aniyomiSources.getOrNull(selectedAniyomiIdx)
         SourceSide.CLOUDSTREAM -> cloudStreamSources.getOrNull(selectedCsIdx)
     }
-    var query by remember { mutableStateOf(initialQuery) }
+    var query by remember { mutableStateOf("") }
+    // Round 84 (D-582): the content name is NO LONGER prewritten — the bar
+    // opens EMPTY (placeholder "Search <source>"). The FIRST focus pastes the
+    // content name automatically; the user can then clear it and type their
+    // own query. (The round-84 device report: opening with the name already
+    // typed truncated it and gave no clean start.)
+    var autoPasted by remember { mutableStateOf(false) }
     // D-575: local results mode — once a search runs, the wheels swap for the
     // results view; "Change" swaps back WITHOUT clearing anything.
     var showResults by remember { mutableStateOf(false) }
@@ -280,7 +291,15 @@ fun ManualSearchSheet(
                             )
                         }
                     } else {
-                        Column(modifier = Modifier.fillMaxWidth()) {
+                        // Round 84 (D-582): the wheels sheet carries a real
+                        // minimum height (~60% of the screen) — the round-84
+                        // device report: the wrap-content sheet was "a little
+                        // bit way too smaller".
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = screenHeight * 0.60f),
+                        ) {
                             SourceWheelPair(
                                 aniyomiSources = aniyomiSources,
                                 cloudStreamSources = cloudStreamSources,
@@ -290,8 +309,21 @@ fun ManualSearchSheet(
                                 selectedCsIdx = selectedCsIdx,
                                 activeSide = activeSide,
                                 isLinked = linkedMatches,
-                                onAniyomiCenter = { selectedAniyomiIdx = it; activeSide = SourceSide.ANIYOMI },
-                                onCloudStreamCenter = { selectedCsIdx = it; activeSide = SourceSide.CLOUDSTREAM },
+                                // D-582: center emissions only move the SELECTION;
+                                // the ACTIVE side changes only on user-driven
+                                // interaction (tap / drag-settle) — the initial
+                                // emission of the last-composed wheel no longer
+                                // steals the highlight (the round-84 report: the
+                                // sheet highlighted CloudStream while an Aniyomi
+                                // extension was linked).
+                                onAniyomiCenter = { selectedAniyomiIdx = it },
+                                onCloudStreamCenter = { selectedCsIdx = it },
+                                onAniyomiActivated = {
+                                    selectedAniyomiIdx = it; activeSide = SourceSide.ANIYOMI
+                                },
+                                onCloudStreamActivated = {
+                                    selectedCsIdx = it; activeSide = SourceSide.CLOUDSTREAM
+                                },
                             )
                             // Idle hint — the short line only (D-578: the
                             // "The centered source is the one that gets
@@ -318,16 +350,20 @@ fun ManualSearchSheet(
                         .padding(top = 8.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // The bar — bordered pill; takes the full width while the
-                    // circular button is hidden (AnimatedVisibility collapse).
+                    // The bar — bordered pill with a FOCUS RING (D-582); takes
+                    // the full width while the circular button is hidden.
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                         shape = RoundedCornerShape(50),
                         modifier = Modifier
                             .weight(1f)
                             .border(
-                                1.dp,
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                                if (searchFocused) 1.5.dp else 1.dp,
+                                if (searchFocused) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                                } else {
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                                },
                                 RoundedCornerShape(50),
                             ),
                     ) {
@@ -358,7 +394,15 @@ fun ManualSearchSheet(
                                 modifier = Modifier
                                     .weight(1f)
                                     .padding(vertical = 11.dp)
-                                    .onFocusChanged { searchFocused = it.isFocused },
+                                    .onFocusChanged {
+                                        searchFocused = it.isFocused
+                                        // D-582: the FIRST focus pastes the content
+                                        // name — after that the field is the user's.
+                                        if (it.isFocused && !autoPasted && query.isEmpty() && initialQuery.isNotBlank()) {
+                                            query = initialQuery
+                                            autoPasted = true
+                                        }
+                                    },
                                 textStyle = TextStyle(
                                     fontFamily = RobotoFamily,
                                     fontSize = 14.sp,
@@ -417,6 +461,7 @@ fun ManualSearchSheet(
                     }
                     // THE search button — appears only while the bar is in
                     // use (text typed or focused); idle shows only the bar.
+                    // D-582: elevated so it reads as the PRIMARY action.
                     AnimatedVisibility(
                         visible = query.isNotEmpty() || searchFocused,
                         enter = fadeIn(tween(180)),
@@ -427,6 +472,11 @@ fun ManualSearchSheet(
                             Surface(
                                 color = MaterialTheme.colorScheme.primary,
                                 shape = CircleShape,
+                                shadowElevation = 4.dp,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                ),
                                 modifier = Modifier
                                     .size(46.dp)
                                     .clickable {
@@ -479,6 +529,8 @@ private fun SourceWheelPair(
     isLinked: (AnimeCatalogueSource) -> Boolean,
     onAniyomiCenter: (Int) -> Unit,
     onCloudStreamCenter: (Int) -> Unit,
+    onAniyomiActivated: (Int) -> Unit,
+    onCloudStreamActivated: (Int) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -496,6 +548,7 @@ private fun SourceWheelPair(
             active = activeSide == SourceSide.ANIYOMI,
             isLinked = isLinked,
             onCenterChanged = onAniyomiCenter,
+            onSideActivated = onAniyomiActivated,
             modifier = Modifier.weight(1f),
         )
         SourceWheelSection(
@@ -508,6 +561,7 @@ private fun SourceWheelPair(
             active = activeSide == SourceSide.CLOUDSTREAM,
             isLinked = isLinked,
             onCenterChanged = onCloudStreamCenter,
+            onSideActivated = onCloudStreamActivated,
             modifier = Modifier.weight(1f),
         )
     }
@@ -516,6 +570,11 @@ private fun SourceWheelPair(
 /**
  * One ecosystem's panel: the label pill (lit when active), the snap wheel,
  * the center band and the rim fades — all INSIDE the card's own background.
+ *
+ * Round 84 (D-582): the card gains a REAL 3D presence — a soft drop shadow
+ * (lifts when active), a hairline rim (primary-warm when active), and a
+ * top-light/bottom-shade gradient sheen (the round-84 report: the flat tint
+ * backgrounds "were not getting a 3D kind of effect").
  */
 @Composable
 private fun SourceWheelSection(
@@ -528,53 +587,79 @@ private fun SourceWheelSection(
     active: Boolean,
     isLinked: (AnimeCatalogueSource) -> Boolean,
     onCenterChanged: (Int) -> Unit,
+    onSideActivated: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val cardShadow by animateDpAsState(if (active) 10.dp else 4.dp, label = "wheelCardShadow")
     Surface(
         color = cardColor,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
+        shadowElevation = cardShadow,
+        border = BorderStroke(
+            if (active) 1.5.dp else 1.dp,
+            if (active) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+            },
+        ),
         modifier = modifier,
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            // Panel label — the ACTIVE side's pill lights up.
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                Surface(
-                    color = if (active) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                    },
-                    shape = RoundedCornerShape(50),
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Panel label — the ACTIVE side's pill lights up.
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.Center,
                 ) {
-                    Text(
-                        text = "$label \u00b7 ${sources.size}",
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
+                    Surface(
                         color = if (active) {
-                            MaterialTheme.colorScheme.onPrimary
+                            MaterialTheme.colorScheme.primary
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                         },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                    )
+                        shape = RoundedCornerShape(50),
+                    ) {
+                        Text(
+                            text = "$label \u00b7 ${sources.size}",
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (active) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                        )
+                    }
                 }
+                SourceWheelColumn(
+                    sources = sources,
+                    iconOf = iconOf,
+                    emptyLabel = emptyLabel,
+                    active = active,
+                    initialIndex = selectedIndex,
+                    isLinked = isLinked,
+                    onCenterChanged = onCenterChanged,
+                    onSideActivated = onSideActivated,
+                    // Rim fades dissolve into THIS panel's own color.
+                    cardColor = cardColor,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
-            SourceWheelColumn(
-                sources = sources,
-                iconOf = iconOf,
-                emptyLabel = emptyLabel,
-                active = active,
-                initialIndex = selectedIndex,
-                isLinked = isLinked,
-                onCenterChanged = onCenterChanged,
-                // Rim fades dissolve into THIS panel's own color.
-                cardColor = cardColor,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            // The 3D sheen — light from the top, shade at the bottom.
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.White.copy(alpha = 0.06f),
+                            0.45f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.12f),
+                        ),
+                    ),
+            ) {}
         }
     }
 }
@@ -589,7 +674,7 @@ private fun SourceWheelSection(
  * behind it (band + row background + bold), and the currently LINKED source
  * carries a persistent ✓ marker wherever it sits.
  */
-private val WHEEL_HEIGHT = 186.dp
+private val WHEEL_HEIGHT = 236.dp
 private val ITEM_HEIGHT = 48.dp
 
 @Composable
@@ -601,12 +686,14 @@ private fun SourceWheelColumn(
     initialIndex: Int,
     isLinked: (AnimeCatalogueSource) -> Boolean,
     onCenterChanged: (Int) -> Unit,
+    onSideActivated: (Int) -> Unit,
     cardColor: Color,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
     val snapBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // Centered row = the visible item closest to the viewport center.
     val centerIndex by remember(listState) {
@@ -620,10 +707,38 @@ private fun SourceWheelColumn(
     }
     // Push the center up to the parent (selection state lives there — the
     // Search button reads it) — deduped so idle recompositions don't spam it.
+    //
+    // D-582: a center emission only moves the SELECTION. The wheel becomes
+    // the ACTIVE side only when the USER drives it — a row tap (below) or a
+    // drag/fling that settles here. The initial emission (index 0 before the
+    // first scroll) and the programmatic pre-selection snap therefore never
+    // steal the highlight from the linked wheel.
     LaunchedEffect(listState) {
         snapshotFlow { centerIndex }
             .distinctUntilChanged()
-            .collect { onCenterChanged(it) }
+            .collect { idx ->
+                onCenterChanged(idx)
+                if (listState.isScrollInProgress) {
+                    onSideActivated(idx)
+                    HapticHelper.lightTick(context)
+                }
+            }
+    }
+    // The settle edge: a fling's LAST center change can land after
+    // isScrollInProgress flips false — so the true→false transition claims
+    // focus once more (with a tick). Guarded by [wasScrolling] so the
+    // initial composition (already idle) never fires it.
+    var wasScrolling by remember { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (wasScrolling && !scrolling) {
+                    onSideActivated(centerIndex)
+                    HapticHelper.lightTick(context)
+                }
+                wasScrolling = scrolling
+            }
     }
     // Land on the parent's tracked index the first time we compose —
     // D-578: that is the LINKED source when one exists (pre-selection).
@@ -681,19 +796,10 @@ private fun SourceWheelColumn(
                     val source = sources[index]
                     // Distance-driven falloff: the centered row is full-size
                     // and full-alpha; rows fade + shrink toward the rims.
-                    val info = listState.layoutInfo
-                    val viewportCenter =
-                        (info.viewportStartOffset + info.viewportEndOffset) / 2f
-                    val itemInfo = info.visibleItemsInfo.firstOrNull { it.index == index }
-                    val distance = if (itemInfo != null) {
-                        kotlin.math.abs(itemInfo.offset + itemInfo.size / 2f - viewportCenter)
-                    } else {
-                        Float.MAX_VALUE
-                    }
+                    // D-582: the falloff math moved INTO the graphicsLayer
+                    // (draw phase) — scrolling no longer recomposes every
+                    // visible row per frame (smoother fling, fewer drops).
                     val radius = (WHEEL_HEIGHT.value / 2f).coerceAtLeast(1f)
-                    val t = (distance / radius).coerceIn(0f, 1f)
-                    val alpha = if (active) 1f - (0.62f * t) else (1f - (0.62f * t)) * 0.60f
-                    val scale = 1f - (0.16f * t)
                     val isCenter = centerIndex == index
                     val linked = isLinked(source)
 
@@ -706,10 +812,25 @@ private fun SourceWheelColumn(
                                 // Tap-to-center: select immediately AND glide
                                 // the row into the highlight lane (the drum
                                 // feel — the fling settles on the exact row).
+                                // D-582: a tap also CLAIMS the active side.
                                 onCenterChanged(index)
+                                onSideActivated(index)
+                                HapticHelper.lightTick(context)
                                 scope.launch { listState.animateScrollToItem(index) }
                             }
                             .graphicsLayer {
+                                val info = listState.layoutInfo
+                                val viewportCenter =
+                                    (info.viewportStartOffset + info.viewportEndOffset) / 2f
+                                val itemInfo = info.visibleItemsInfo.firstOrNull { it.index == index }
+                                val distance = if (itemInfo != null) {
+                                    kotlin.math.abs(itemInfo.offset + itemInfo.size / 2f - viewportCenter)
+                                } else {
+                                    Float.MAX_VALUE
+                                }
+                                val t = (distance / radius).coerceIn(0f, 1f)
+                                val alpha = if (active) 1f - (0.62f * t) else (1f - (0.62f * t)) * 0.60f
+                                val scale = 1f - (0.16f * t)
                                 scaleX = scale
                                 scaleY = scale
                                 this.alpha = alpha.coerceIn(0f, 1f)

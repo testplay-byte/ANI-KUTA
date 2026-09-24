@@ -2,7 +2,10 @@ package com.confused.anikuta.feature.extensionssettings
 
 import android.graphics.drawable.Drawable
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -36,13 +39,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -53,6 +59,9 @@ import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.extension.model.AnimeExtension
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Shared extension-list chrome (session 2, device round).
@@ -570,3 +579,78 @@ internal fun <T : AnimeExtension> sortExtensions(list: List<T>, mode: ExtensionS
             if (ascending) list.sortedByDescending { it.isNsfw }
             else list.sortedBy { it.isNsfw }
     }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-580 (round 84): the shared DELETE EXIT CHOREOGRAPHY — the exact motion
+//  the Downloads page plays when an episode is deleted (D-384), brought to
+//  BOTH extension ecosystems so an uninstall never makes a row vanish
+//  instantly (DESIGN-LANGUAGE rule: "No instant cuts").
+//
+//  The choreography is two phases, driven from draw-phase-only transforms
+//  (graphicsLayer — zero recomposition per animation frame):
+//    Phase 1 — the settle beat: the row dips to 0.94 scale over 110ms.
+//    Phase 2 — the exit: the row slides horizontally out of view + fades
+//              over 240ms, and only THEN the caller fires the real delete.
+//  The surviving rows' gap-closing is handled by `Modifier.animateItem()` on
+//  each LazyColumn row (same as the Downloads card).
+//
+//  Cancellation paths:
+//   • Aniyomi uninstall → the SYSTEM uninstall dialog is the confirmation and
+//     it can be DISMISSED. The row fires the choreography optimistically, then
+//     the delete; if the row is still composed ~3s later the uninstall was
+//     cancelled → [restoreFromExit] fades it back in.
+//   • CloudStream uninstall → the in-app AlertDialog is the confirmation, so
+//     the choreography runs AFTER it; the plugin delete completes the data
+//     removal almost instantly and the row simply leaves composition.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** The three exit animatables + the measured row width, per row instance. */
+internal class DeleteExitState {
+    val alpha = Animatable(1f)
+    val offsetX = Animatable(0f)
+    val scale = Animatable(1f)
+    var widthPx by mutableFloatStateOf(0f)
+}
+
+@Composable
+internal fun rememberDeleteExitState(): DeleteExitState = remember { DeleteExitState() }
+
+/**
+ * The two-phase exit (settle dip → slide + fade), then guarantees the
+ * terminal invisible state so the row can never flash back before the
+ * data removal lands.
+ */
+internal suspend fun DeleteExitState.runExitChoreography() {
+    // Phase 1 — the settle beat (~110ms scale dip).
+    scale.animateTo(0.94f, tween(110, easing = FastOutSlowInEasing))
+    // Phase 2 — slide towards the END + fade in parallel.
+    coroutineScope {
+        launch { alpha.animateTo(0f, tween(240, easing = LinearEasing)) }
+        offsetX.animateTo(
+            widthPx.takeIf { it > 0f } ?: 1200f,
+            tween(240, easing = LinearOutSlowInEasing),
+        )
+    }
+    alpha.snapTo(0f) // guarantee the terminal state
+}
+
+/** The cancelled-uninstall recovery: fade back in, in place. */
+internal suspend fun DeleteExitState.restoreFromExit() {
+    offsetX.snapTo(0f)
+    scale.snapTo(1f)
+    alpha.animateTo(1f, tween(220, easing = LinearOutSlowInEasing))
+}
+
+/**
+ * The draw-phase transform layer every deleting row applies — pairs with
+ * [runExitChoreography]/[restoreFromExit] and never triggers recomposition.
+ */
+internal fun Modifier.deleteExitLayer(state: DeleteExitState): Modifier =
+    this
+        .onSizeChanged { state.widthPx = it.width.toFloat() }
+        .graphicsLayer {
+            translationX = state.offsetX.value
+            alpha = state.alpha.value
+            scaleX = state.scale.value
+            scaleY = state.scale.value
+        }
