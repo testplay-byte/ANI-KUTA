@@ -71,15 +71,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
 import coil3.compose.AsyncImage
 import coil3.compose.SubcomposeAsyncImage
 import com.confused.anikuta.core.common.HapticHelper
@@ -88,7 +90,10 @@ import com.confused.anikuta.data.cloudstream.content.CloudstreamContentRepositor
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.model.SAnime
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -371,7 +376,7 @@ fun ManualSearchSheet(
                 // ── Search bar (D-578 rework; round-85 focus contract) ──
                 val keyboard = LocalSoftwareKeyboardController.current
                 val focusManager = LocalFocusManager.current
-                val imeDensity = LocalDensity.current
+                val imeView = LocalView.current
                 var searchFocused by remember { mutableStateOf(false) }
                 // ROUND 85 — the BLUR CONTRACT (the device report: removing
                 // focus should return the bar to its NORMAL state, "without
@@ -379,16 +384,24 @@ fun ManualSearchSheet(
                 // search is showing, the query resets and the first-focus
                 // paste re-arms. Two paths reach that state: an outside tap
                 // (onFocusChanged) and a keyboard-back dismissal (which does
-                // NOT blur the field — so the IME-closed observer below
-                // clears focus explicitly). Results never nuke: the reset is
-                // gated on the state being Idle AND the results view closed.
+                // NOT blur the field — the poll below watches the dialog
+                // window's IME visibility and clears focus when it closes;
+                // polling is used instead of overriding the window's inset
+                // listener, which would fight the M3 sheet's own handling).
                 LaunchedEffect(Unit) {
-                    snapshotFlow { WindowInsets.ime.getBottom(imeDensity) }
-                        .collect { imeBottom ->
-                            if (imeBottom == 0 && searchFocused && !showResults) {
+                    snapshotFlow { searchFocused }.collectLatest { focused ->
+                        if (!focused) return@collectLatest
+                        while (isActive) {
+                            val imeVisible = WindowInsetsCompat
+                                .toWindowInsetsCompat(imeView.rootWindowInsets)
+                                .isVisible(WindowInsetsCompat.Type.ime())
+                            if (!imeVisible) {
                                 focusManager.clearFocus()
+                                break
                             }
+                            delay(100)
                         }
+                    }
                 }
                 Row(
                     modifier = Modifier

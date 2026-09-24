@@ -2,6 +2,7 @@ package com.confused.anikuta.feature.extensionssettings
 
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
 import android.content.IntentFilter
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
