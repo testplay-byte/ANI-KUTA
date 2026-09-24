@@ -544,8 +544,41 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── v1.1.40 / 10140 (round 83 — D-577..D-579) — the testing-suite fix +
+    // rework release. The story:
+    // (A) THE UNINSTALL FIX, FOR REAL THIS TIME (D-577) — the round-82 flow
+    // was correct but dead on arrival: the manifest lacked
+    // REQUEST_DELETE_PACKAGES, and the platform UninstallerActivity
+    // starts-and-finishes silently without it (the user's 70ms log
+    // signature). One permission line; the system prompt IS the confirmation.
+    // (B) THE 19MS TESTING BUG (D-578) — the round-82 tests called the source
+    // methods on the MAIN dispatcher → instant NetworkOnMainThreadException
+    // on every REAL aniyomi extension (the CS bridge dispatches internally,
+    // which is why CS passed). All five test files now ride Dispatchers.IO
+    // (the production SearchViewModel pattern), and the Search test runs the
+    // SMART PHRASE LADDER — the custom query first, then One Piece / Naruto /
+    // Breaking Bad / Interstellar (anime/series/movie categories), first
+    // result-set wins, per-attempt 12s bound inside a 60s budget, honest
+    // aggregate failures. Human time everywhere ("1.2 s", "2m 05s").
+    // (C) THE TESTING SCREEN REWORK (D-578) — the Science icon-pill entry
+    // alongside icon-only Filters/Settings (the banner gone); All/Aniyomi/
+    // CloudStream sections with select-all + run-section; tap AND long-press
+    // multi-select (chevron-only expand); the live batch overlay ("Testing 3
+    // of 7" + animated progress + live rows + Stop); the summary's animated
+    // pass/fail/untested proportion bar + "Failed (n)"/"Passed (n)"
+    // precision re-runs + Clear.
+    // (D) THE MEMORY (D-579) — ExtensionTestResultStore persists every
+    // finished target's verdicts, restores them on open, prunes uninstalled
+    // targets; the re-run buttons read the restored state.
+    // (E) THE SHEET (D-578) — the Link Source sheet pre-selects + ✓-marks the
+    // CURRENTLY LINKED source (id match, name fallback); dedicated section
+    // cards with distinct backgrounds; center-only highlight; the short
+    // hint; the wrap-content sheet; the exact-spec search bar (far-right X,
+    // vanishing magnifier, use-only search button, border, bottom padding).
+    // (F) THE FILTERS (D-578) — styled Language/Sort menus (header rows,
+    // active-tinted rows) and the bordered dedicated search field.
+    const val versionCode = 10140
+    const val versionName = "1.1.40"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
