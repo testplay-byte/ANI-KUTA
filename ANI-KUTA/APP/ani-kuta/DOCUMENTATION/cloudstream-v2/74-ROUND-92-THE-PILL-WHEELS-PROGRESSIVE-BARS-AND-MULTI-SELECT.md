@@ -1,7 +1,7 @@
 # ROUND 92 — THE PILL WHEELS + THE PROGRESSIVE STAGE BARS + THE MULTI-SELECT BATCH ACTIONS
 
 **Date:** 2026-09-27 · **Phase:** DEBUG-FIRST (D-565) · **Trigger:** the user's v1.1.48 device report
-**Commits:** 1a8d9957 (implementation) · decisions D-636..D-639 · shipped as **v1.1.49/10149**
+**Commits:** 1a8d9957 (implementation) + e7b0c34a (the CI compile fixes) · decisions D-636..D-639 · shipped as **v1.1.49/10149**
 
 ---
 
@@ -112,7 +112,7 @@ The user: "if I long press on any of the extensions, then it should show me the 
 - Programmatic brace/paren balance on all five files (sheet, run screen, chrome, both extension screens) — clean.
 - Symbol greps: `accentDot`/`WHEEL_ROW_COUNT`/`fiveRowWheel` = zero matches; the new symbols (`searchArmed`, `tapCenteringCount`, `WHEEL_VIEWPORT_HEIGHT`, `WHEEL_BLUR_BY_DISTANCE`, `SelectionCheckBubble`, `SelectionBarAction`, `ExtensionSelectionBar`) defined once, used from both tabs.
 - Import hygiene: no duplicates; the CS file's now-unused `clickable` import removed; the sheet's now-unused `Brush` import removed.
-- CI: Build APK run **36267763500** on 1a8d9957 — **GREEN** (verified via the API).
+- **CI: run 36267763500 FAILED** on three compile errors, all in the new multi-select code — (1) `ExtensionSelectionBar`'s `actions` slot sat BEFORE the defaulted `modifier`, so the call sites' trailing lambda could not bind (Kotlin binds a trailing lambda only to the FINAL parameter) → "No value passed for parameter 'actions'" + "Too many arguments" + a cascade of "@Composable invocations" errors inside the orphaned lambda; (2) `animateColorAsState` imported from `androidx.compose.animation.core` (it lives in `androidx.compose.animation`); (3) a bare `else {}` branch inside the rows' `onClick = if (selectionMode) … else {}` argument infers as `Any`, not `() -> Unit` — hoisted to explicitly-typed `val rowClick` locals. **Run 36268029978 on the fix commit e7b0c34a: GREEN** (second run — within the D-472 ≤2 budget). All three became round-92 lessons.
 
 ---
 
