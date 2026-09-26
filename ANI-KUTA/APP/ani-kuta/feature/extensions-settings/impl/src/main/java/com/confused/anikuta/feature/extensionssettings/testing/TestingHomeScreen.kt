@@ -47,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -268,69 +269,19 @@ fun TestingHomeScreen(
                     }
                 }
 
-                // ── Hero: THE SUITE-HEALTH RING, COMBINED (round 87, D-599)
-                // — the user's rule: pass/fail/new are each ONE GROUP
-                // spanning BOTH systems, shown as one arc whose total is the
-                // combined count ("there are 10 entries of Anyomi which
-                // passed, and there are 5 entries of Cloud Stream… the total
-                // pass which will be shown will be 15, and in that 15 it will
-                // be split into 10 and 5"). Each verdict group's arc is
-                // SUBDIVIDED by the two system colors (emerald = Aniyomi,
-                // sky = CloudStream — the fixed pair from TestingPalette,
-                // never the accent preset), parted by 2.5° gaps; the three
-                // groups part by 5°. Zero-count segments contribute nothing
-                // AND no gap — the ring still closes exactly.
+                // ── Hero: THE SUITE-HEALTH RING, COMBINED (round 87, D-599;
+                // ROUND 90, D-627 — the rounded grouped ring) — the user's
+                // rule: pass/fail/new are each ONE GROUP spanning BOTH
+                // systems ("10 Anyomi passes + 5 CloudStream passes = one
+                // passed arc of 15, split into 10 and 5"). Each verdict
+                // group's arc is SUBDIVIDED by the two system colors
+                // (emerald = Aniyomi, sky = CloudStream — the fixed pair
+                // from TestingPalette, never the accent preset). ROUND 90's
+                // geometry (the user's exact spec): the sub-arcs meet with
+                // NO gap and NO rounding — only the GROUP's outer ends are
+                // rounded, and the three groups part by real gaps, so the
+                // ring reads as three rounded, spaced slices.
                 item(key = "hero") {
-                    val groupGap = 5f
-                    val innerGap = 2.5f
-                    val passedSegments = listOf(
-                        if (aPassed > 0) {
-                            DonutSegment(
-                                aPassed,
-                                TestingPalette.PassA,
-                                gapAfterDegrees = if (cPassed > 0) innerGap else 0f,
-                            )
-                        } else null,
-                        if (cPassed > 0) DonutSegment(cPassed, TestingPalette.PassB) else null,
-                    ).filterNotNull()
-                    val failedSegments = listOf(
-                        if (aFailed > 0) {
-                            DonutSegment(
-                                aFailed,
-                                TestingPalette.FailA,
-                                gapAfterDegrees = if (cFailed > 0) innerGap else 0f,
-                            )
-                        } else null,
-                        if (cFailed > 0) DonutSegment(cFailed, TestingPalette.FailB) else null,
-                    ).filterNotNull()
-                    val newSegments = listOf(
-                        if (aUntested > 0) {
-                            DonutSegment(
-                                aUntested,
-                                TestingPalette.NewA,
-                                gapAfterDegrees = if (cUntested > 0) innerGap else 0f,
-                            )
-                        } else null,
-                        if (cUntested > 0) DonutSegment(cUntested, TestingPalette.NewB) else null,
-                    ).filterNotNull()
-                    val segments = buildList {
-                        if (passedSegments.isNotEmpty()) {
-                            addAll(passedSegments)
-                            if (failedSegments.isNotEmpty() || newSegments.isNotEmpty()) {
-                                // REPLACE the group's last inner gap with the
-                                // wider group gap (NOT append — that would
-                                // duplicate the segment and double its arc).
-                                this[lastIndex] = last().copy(gapAfterDegrees = groupGap)
-                            }
-                        }
-                        if (failedSegments.isNotEmpty()) {
-                            addAll(failedSegments)
-                            if (newSegments.isNotEmpty()) {
-                                this[lastIndex] = last().copy(gapAfterDegrees = groupGap)
-                            }
-                        }
-                        addAll(newSegments)
-                    }
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                         shape = RoundedCornerShape(20.dp),
@@ -364,10 +315,29 @@ fun TestingHomeScreen(
                             Spacer(Modifier.height(14.dp))
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
                             ) {
-                                DonutChart(
-                                    segments = segments,
+                                GroupedDonutChart(
+                                    groups = listOf(
+                                        DonutGroup(
+                                            listOf(
+                                                DonutSegment(aPassed, TestingPalette.PassA),
+                                                DonutSegment(cPassed, TestingPalette.PassB),
+                                            ),
+                                        ),
+                                        DonutGroup(
+                                            listOf(
+                                                DonutSegment(aFailed, TestingPalette.FailA),
+                                                DonutSegment(cFailed, TestingPalette.FailB),
+                                            ),
+                                        ),
+                                        DonutGroup(
+                                            listOf(
+                                                DonutSegment(aUntested, TestingPalette.NewA),
+                                                DonutSegment(cUntested, TestingPalette.NewB),
+                                            ),
+                                        ),
+                                    ),
                                     diameter = 116.dp,
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -386,10 +356,14 @@ fun TestingHomeScreen(
                                         )
                                     }
                                 }
-                                // The COMBINED legend — one caption row per
-                                // VERDICT group, its total, and the two
-                                // systems' split ("15 · 10 + 5").
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                // The COMBINED legend (round 90, D-627 — the
+                                // ALIGNED table): one row per VERDICT group
+                                // with FIXED columns — the swatches, the
+                                // group's total, the centered label, and the
+                                // two systems' split — so every row lines up
+                                // with its siblings (the old left-flowing
+                                // row drifted with every label length).
+                                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                                     HealthLegendRow(
                                         swatchA = TestingPalette.PassA,
                                         swatchB = TestingPalette.PassB,
@@ -728,9 +702,20 @@ private fun SystemCard(
 }
 
 /**
- * The combined suite-health legend row (round 87, D-599): the verdict
- * group's two system swatches, its label, its COMBINED total, and — when
- * both systems carry entries — the split ("15 · 10 + 5").
+ * The combined suite-health legend row (round 87, D-599; ROUND 90, D-627 —
+ * the ALIGNED TABLE): the verdict group's two system swatches, its COMBINED
+ * total, its label, and the two systems' split — each in a FIXED column so
+ * every row lines up with its siblings:
+ *
+ *   [swatches] [total] [ label (centered) ] [ A ] [+] [ B ]
+ *
+ * The user's round-90 spec: "the total numbers will be aligned properly…
+ * the passed text, the failed text, the new text will be center aligned…
+ * the other details, like Anyomi plus CloudStream, those details will be
+ * properly aligned in the same way too with each other." The A/B counts
+ * always render (even 0s) — identical row structures are what make the
+ * columns align — and each count carries its system's color so the split
+ * reads without a header.
  */
 @Composable
 private fun HealthLegendRow(
@@ -745,30 +730,56 @@ private fun HealthLegendRow(
         Surface(color = swatchA, shape = RoundedCornerShape(3.dp), modifier = Modifier.size(8.dp)) {}
         Spacer(Modifier.width(3.dp))
         Surface(color = swatchB, shape = RoundedCornerShape(3.dp), modifier = Modifier.size(8.dp)) {}
-        Spacer(Modifier.width(7.dp))
+        Spacer(Modifier.width(8.dp))
+        // The combined total — fixed-width, centered: a true number column.
         Text(
             text = "$total",
             fontFamily = RobotoFamily,
-            fontSize = 12.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.ExtraBold,
             color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(28.dp),
         )
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(8.dp))
+        // The label — centered in the flexible middle column.
         Text(
             text = label.lowercase(),
             fontFamily = RobotoFamily,
             fontSize = 10.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
-        if (countA > 0 && countB > 0) {
-            Spacer(Modifier.width(5.dp))
-            Text(
-                text = "· $countA + $countB",
-                fontFamily = RobotoFamily,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-            )
-        }
+        // The split — Aniyomi + CloudStream in fixed sub-columns, each
+        // count in its system's color, so the columns line up row to row.
+        Text(
+            text = "$countA",
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = swatchA,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(22.dp),
+        )
+        Text(
+            text = "+",
+            fontFamily = RobotoFamily,
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(9.dp),
+        )
+        Text(
+            text = "$countB",
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = swatchB,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(22.dp),
+        )
     }
 }

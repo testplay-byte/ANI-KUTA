@@ -1547,6 +1547,23 @@ fun DetailsScreen(
             // row of each wheel, unrelated to the actual link.
             linkedSourceId = effectiveLinkedSource?.sourceId,
             linkedSourceName = effectiveLinkedSource?.sourceName,
+            // ROUND 90 (D-626): the content being linked, for the sheet's
+            // linked-content card — cover, name, episodes/status/score/year,
+            // and the source it is currently linked through (the effective
+            // link wins; extension-only entries fall back to their own
+            // sourceName).
+            linkedContent = (state as? DetailsState.Success)?.anime?.let { anime ->
+                LinkedContentInfo(
+                    title = anime.displayName,
+                    coverUrl = anime.coverUrl,
+                    episodes = anime.episodes,
+                    status = anime.status,
+                    score = anime.averageScore,
+                    season = anime.season,
+                    seasonYear = anime.seasonYear,
+                    linkedSourceName = effectiveLinkedSource?.sourceName ?: anime.sourceName,
+                )
+            },
             onSearch = { source, query -> viewModel.searchSource(source, query) },
             onLink = { source, sAnime ->
                 viewModel.linkSource(source, sAnime)
