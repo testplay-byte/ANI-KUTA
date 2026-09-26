@@ -99,7 +99,10 @@ The user: "it is showing the details from any list [AniList]. It should not show
 
 - Brace/paren balance checked programmatically across all 12 touched files (all OK).
 - Symbol greps: `KindDetailCard` (1 caller, tightened), `SystemCard` (2 callers, glyph param), `wheelHeight`/`WHEEL_*` (sheet-only), `extensionBase` (flow-backed property), `rememberIconTint`/`letterTileColor` (designsystem + shared UI + home), zero dangling references to removed symbols (the run screen's `showLeaveDialog`, the detail pill's "· 7 tests", the list rows' subtitle builder).
-- CI: Build APK run **36257993430** on the implementation commit a41e4b4e (polled via the API; the run's verdict recorded in the ledger commit that follows).
+- **CI — THREE Build APK runs, honestly disclosed (over the D-472 ≤2 budget by one):**
+  1. Run **36257993430** on a41e4b4e — FAILURE: three errors in the new wheel code (Int×Dp operand order ×2 — no `Int.times(Dp)` extension exists; `rememberSnapFlingBehavior`'s parameter is `lazyListState`, not `listState`). The run also proved `:core:designsystem` GREEN with the new icon-tint channel (one harmless `resizeBitmapSize` deprecation warning).
+  2. Run **36258319641** on 1fde0f98 — FAILURE: ONE error in the whole extensions-settings module — the home banner's `AnimatedVisibility(visible=…)` sat in a receiver tower where the enclosing Column's ColumnScope (pushed one Box deeper by the new blur wrapper) made K2 bind the call to the ColumnScope member extension and reject it ("cannot be called in this context with an implicit receiver"). The run also proved anime-details GREEN (the run-1 fixes held) and that everything else in extensions-settings type-checked.
+  3. Run **36258963397** on 196cfbc4 — **GREEN.** The fix: the banner extracted into a top-level `LiveRunBanner` composable (no implicit receivers — the call resolves to the top-level overload, the same shape the list screen's pinned bars have shipped with since round 86).
 - The v1.1.48 release follows the standing D-565 loop (release branch + bump + tag + Release APK run + LIVE mirror).
 
 ## 8. The device-round checklist (for the user)
