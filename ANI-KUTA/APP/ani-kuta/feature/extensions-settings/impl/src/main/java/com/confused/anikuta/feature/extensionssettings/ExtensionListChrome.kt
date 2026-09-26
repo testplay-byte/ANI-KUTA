@@ -3,12 +3,12 @@ package com.confused.anikuta.feature.extensionssettings
 import android.graphics.drawable.Drawable
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateColorAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -786,8 +786,12 @@ internal fun ExtensionSelectionBar(
     visible: Boolean,
     label: String,
     onClose: () -> Unit,
-    actions: @Composable RowScope.() -> Unit,
     modifier: Modifier = Modifier,
+    // NOTE (the round-92 CI fix): [actions] must be the LAST parameter — the
+    // call sites pass it as a TRAILING LAMBDA, and Kotlin only binds a
+    // trailing lambda to the final parameter (a defaulted `modifier` in that
+    // slot left `actions` unfilled and the lambda orphaned).
+    actions: @Composable RowScope.() -> Unit,
 ) {
     AnimatedVisibility(
         visible = visible,

@@ -1593,6 +1593,9 @@ private fun UntrustedExtensionRow(
         deleteExit.runExitChoreography()
         onTrust()
     }
+    // ROUND 92 (the CI fix): the explicitly-typed local — a bare `else {}`
+    // inside the argument infers as Any, not () -> Unit.
+    val rowClick: () -> Unit = if (selectionMode) onToggleSelected else ({ })
     Surface(
         color = if (selectionMode && selected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
@@ -1615,7 +1618,7 @@ private fun UntrustedExtensionRow(
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = if (selectionMode) onToggleSelected else {},
+                onClick = rowClick,
                 onLongClick = onLongPress,
             ),
     ) {
@@ -1686,6 +1689,9 @@ private fun ErroredExtensionRow(
     onExitDone: () -> Unit = {},
 ) {
     // ROUND 85: no optimistic animation — see InstalledExtensionRow.
+    // ROUND 92 (the CI fix): the explicitly-typed local — a bare `else {}`
+    // inside the argument infers as Any, not () -> Unit.
+    val rowClick: () -> Unit = if (selectionMode) onToggleSelected else ({ })
     val deleteExit = rememberDeleteExitState()
     LaunchedEffect(forcedExit) {
         if (!forcedExit) return@LaunchedEffect
@@ -1719,7 +1725,7 @@ private fun ErroredExtensionRow(
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = if (selectionMode) onToggleSelected else {},
+                onClick = rowClick,
                 onLongClick = onLongPress,
             ),
     ) {
@@ -1807,6 +1813,9 @@ private fun AvailableExtensionRow(
     onLongPress: () -> Unit = {},
     onInstall: () -> Unit,
 ) {
+    // ROUND 92 (the CI fix): the explicitly-typed local — a bare `else {}`
+    // inside the argument infers as Any, not () -> Unit.
+    val rowClick: () -> Unit = if (selectionMode) onToggleSelected else ({ })
     Surface(
         color = if (selectionMode && selected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
@@ -1824,7 +1833,7 @@ private fun AvailableExtensionRow(
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = if (selectionMode) onToggleSelected else {},
+                onClick = rowClick,
                 onLongClick = onLongPress,
             ),
     ) {
