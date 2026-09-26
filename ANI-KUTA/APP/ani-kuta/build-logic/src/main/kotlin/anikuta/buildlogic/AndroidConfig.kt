@@ -544,8 +544,49 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ROUND 91 (release/1.1.48 — the v1.1.47 device round): the bump rides
+    // the release branch per D-430. What the release carries on top of
+    // v1.1.47 (full detail: AGENT-CONTEXT/memory/decisions.md + doc 73):
+    // D-628 THE LINK SOURCES SHEET'S FIVE-ROW WHEELS + THE EXTENSION-SIDE
+    // CARD — the sheet is capped at 60% of the screen, each column is a
+    // fixed five-row wheel (snap fling + half-viewport padding so the
+    // first/last rows center with empty space above/below; tap-to-center),
+    // non-selected rows grayed with a slight blur, the column holding the
+    // selection lit (accent border + gradient-band heading + count chip),
+    // real spacing before the search bar — and the linked-content card now
+    // renders the EXTENSION's own details (its title/cover/status/score/
+    // year + the episode count from its own episode list; AniList-only
+    // entries say "No source linked yet" instead of borrowing tracker
+    // stats).
+    // D-629 THE SUITE-HEALTH LEGEND — labels "pass"/"fail", each verdict
+    // row in its own hairline-bordered depth section, separated by spacers.
+    // D-630 THE TESTING HOME — rectangular recently-tested chips tinted
+    // with each extension's own icon color; system cards with Tv/Cloud
+    // glyphs; the Run-all button a SOLID muted-accent rounded rectangle
+    // (label "Run all tests") behind a CONFIRMATION dialog; and the SPLIT
+    // LIVE EXPERIENCE — the top banner shows which extension is being
+    // tested + at what stage (finished stages' verdicts linger ≥1s through
+    // a queue), the bottom shows the run's live elapsed time + n-of-m +
+    // Stop.
+    // D-631 THE LIST — headings just "Aniyomi"/"CloudStream"; the
+    // lang·system row subtitle gone; a never-run expansion shows the test
+    // manifest (name + theme color) until results exist.
+    // D-632 THE FULL-DETAILS PAGE — the dossier collapsed by default
+    // (details expand on tap; Language lives in the meta grid); "Stage
+    // timings" its own card with the EQUAL-BY-DEFAULT model (equal
+    // segments at rest; the running one starts smallest and grows live;
+    // finished ones hold their durations; every reflow animates); the run
+    // pill a solid muted-accent "Run Tests" and nothing else; the header
+    // gear opens the extension's own settings; the timeline's bubbles
+    // centered on their sections; never-run kinds as compact bright
+    // name+color rows (no "Not run yet"); smooth section expansion; the
+    // verdict banner a SOLID surface with darkening scrims above/below.
+    // D-633 THE RUN SCREEN'S FREE BACK — leaving the Test Run screen pops
+    // without a prompt (the run continues in the background); the leave
+    // prompt lives on the testing home screen only. Header blur on all
+    // five testing pages.
+    const val versionCode = 10148
+    const val versionName = "1.1.48"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
