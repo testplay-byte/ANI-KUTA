@@ -544,8 +544,38 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ROUND 92 (release/1.1.49 — the v1.1.48 device round): the bump rides
+    // the release branch per D-430. What the release carries on top of
+    // v1.1.48 (full detail: AGENT-CONTEXT/memory/decisions.md + doc 74):
+    // D-636 THE LINK SOURCES SHEET — THE TAP FIX (tapping an extension now
+    // selects THAT extension: the old scroll offset centered the row ABOVE
+    // the tap, every single time), the column headings as stadium PILLS over
+    // all-rounded list containers with the app's own theme color worn ONLY
+    // by the active column (no more hardcoded green/sky; the count is plain
+    // text), the TALLER WHEEL (the center row + one full row above and
+    // below + a slight peek beyond each — at least four visible), the
+    // DISTANCE-DRIVEN BLUR (the selected row never blurs; neighbors
+    // slightly; the rims more), the TWO-STEP SEARCH BAR (the first tap
+    // pastes the content name + shows the search button WITHOUT opening the
+    // keyboard; the second tap opens it), the linked-content card hidden
+    // once a search runs + reworked (ringed cover, the iconed "Linked via"
+    // row), and the hint sits tighter.
+    // D-637 THE LIVE RUN'S PROGRESSIVE STAGE BARS — only the STARTED stages
+    // show (each revealing as its turn arrives), and every stage carries a
+    // time bar whose length is its duration relative to the longest stage
+    // shown; the running bar grows live and earlier bars resize when a long
+    // stage lands.
+    // D-638/D-639 MULTI-SELECT BATCH ACTIONS on BOTH extension tabs —
+    // long-press any extension/plugin to enter selection mode; the bottom
+    // bar shows only the actions the selection supports (Install / Trust /
+    // Untrust / Delete), each applying only to the rows it fits (a mixed
+    // installed+available selection offers both Install and Delete; Delete
+    // touches just the installed ones). The aniyomi Delete chains the
+    // system uninstall prompts one after another (a progress bar counts
+    // n/N and can be stopped); the CloudStream Delete takes a single
+    // confirmation for the whole batch. Reorder moved to a header button.
+    const val versionCode = 10149
+    const val versionName = "1.1.49"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
