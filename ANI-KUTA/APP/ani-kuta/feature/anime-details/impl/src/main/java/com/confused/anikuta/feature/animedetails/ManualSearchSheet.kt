@@ -63,7 +63,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
@@ -71,9 +70,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsCompat
 import coil3.compose.AsyncImage
 import coil3.compose.SubcomposeAsyncImage
@@ -140,17 +139,6 @@ fun ManualSearchSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val context = LocalContext.current
-
-    // ROUND 87 (D-612) — THE SQUISH FIX: the search bar used to clip out of
-    // the sheet because the list claimed a FIXED 430dp while the IME inset
-    // padding ate the bottom — the last children (hint, then the search bar
-    // itself) were clipped at the sheet's edge ("the search bar gets
-    // squished… there is no space"). The fix: the list's cap is derived
-    // from the height that is ACTUALLY available right now — screen minus
-    // nav bar, minus the keyboard, minus everything else the sheet shows —
-    // so the search bar + hint ALWAYS have their room and the list flexes
-    // instead. Reading the insets as state means the cap tracks the
-    // keyboard's animation every frame.
 
     // Task 50 (round 10): un-mix the flat source list by ecosystem —
     // CloudStream providers bridged through data/cloudstream expose
@@ -235,19 +223,6 @@ fun ManualSearchSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = null,
     ) {
-        // D-612: the ADAPTIVE cap — everything the sheet shows besides the
-        // list (header ~58dp + search row ~66dp + hint ~30dp + paddings
-        // ~60dp) reserved, the keyboard and nav bar subtracted, and the LIST
-        // takes whatever remains (floored so it never vanishes on tiny
-        // screens). ROUND 88 (D-614): the two columns' fixed HEADINGS
-        // (~30dp) now sit above their capped lists, so the reserve grows
-        // by the same 30dp — the search bar + hint keep their room exactly
-        // as before. This is what keeps the search bar on the sheet.
-        val density = LocalDensity.current
-        val imeBottom = WindowInsets.ime.getBottom(density)
-        val navBottom = WindowInsets.navigationBars.getBottom(density)
-        val insetsDp = with(density) { (imeBottom + navBottom).toDp() }
-        val listMaxHeight = (screenHeight - 244.dp - insetsDp).coerceAtLeast(140.dp)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -325,13 +300,12 @@ fun ManualSearchSheet(
                             )
                         }
                     } else {
-                        // D-587 (round 86) the NORMAL list; ROUND 87 (D-613)
-                        // the TWO ECOSYSTEM SECTIONS are separate CARDS again
-                        // — one container per system, clearly parted (the
-                        // user: "keep the two separate columns for the Anyomi
-                        // and the Cloud Stream ones… manage it properly").
-                        // The panel's height is the ime-aware cap above, so
-                        // the search bar below can never be pushed out.
+                        // D-587 (round 86): the NORMAL ALPHABETICAL LIST — the
+                        // two alarm-clock drums are GONE. One bounded scroll:
+                        // the rounded-rect "Aniyomi" heading + its sources,
+                        // then "CloudStream" + its sources, both buckets
+                        // already alphabetized; the selected row carries the
+                        // full highlight treatment.
                         SourceListPanel(
                             aniyomiSources = aniyomiSources,
                             cloudStreamSources = cloudStreamSources,
@@ -339,7 +313,6 @@ fun ManualSearchSheet(
                             csIconByName = csIconByName,
                             selectedSource = selectedSource,
                             isLinked = linkedMatches,
-                            listMaxHeight = listMaxHeight,
                             onSelect = { source ->
                                 selectedSource = source
                                 HapticHelper.lightTick(context)
@@ -575,15 +548,23 @@ fun ManualSearchSheet(
 
 // ════════════════════════════════════════════════════════════════════════════
 //  D-587 (round 86): THE SOURCE LIST — the two alarm-clock drums are gone.
-//  ROUND 88 (D-614): the two ecosystems are TWO SIDE-BY-SIDE COLUMNS — the
-//  user's exact layout spec: "on the top, on the left side, the Aniyomi
-//  extensions will show, and on the right side, the CloudStream extensions
-//  will show." Aniyomi = the LEFT column, CloudStream = the RIGHT column,
-//  each its own card with a fixed heading and its own independently
-//  scrolling list (the round-87 stacked cards read as ONE tall column —
-//  not the side-by-side arrangement the user wanted). The per-source icon
-//  resolution (SourceIcon / WheelSourceIcon / WheelIconFallback) is kept
-//  from the round-85 work; the rows shrink to fit the half-width budget.
+//  One bounded LazyColumn: a rounded-RECT heading per system (bold, bigger
+//  text — the user's exact spec), the sources underneath in alphabetical
+//  order (the buckets arrive pre-sorted), and the currently selected row
+//  highlighted with the full treatment (tint + border + bold + a check).
+//  The per-source icon resolution (SourceIcon / WheelSourceIcon /
+//  WheelIconFallback) is kept from the round-85 work.
+//
+//  ROUND 89 (D-625): REVERTED to this round-86 state by the user's explicit
+//  order — the v1.1.44/v1.1.45 link-sources experiments (D-612 the ime-aware
+//  adaptive cap, D-613 the two stacked ecosystem section cards, D-614 the
+//  two side-by-side columns) were judged unsatisfactory as a direction and
+//  the sheet was ordered back to the v1.1.43 single alphabetical list,
+//  byte-identical. NOTHING else from rounds 87-88 was reverted (the extension
+//  testing system, the full-details page, the run page — all kept). If the
+//  two-column layout is ever wanted again, do NOT re-implement from scratch:
+//  the complete D-614 implementation lives in git history (tag v1.1.45,
+//  commit 05a79f80) and can be cherry-picked from this file's history.
 // ════════════════════════════════════════════════════════════════════════════
 
 /** Resolved icon for a source — exactly one of the two is non-null per side. */
@@ -600,145 +581,87 @@ private fun SourceListPanel(
     csIconByName: Map<String, String?>,
     selectedSource: AnimeCatalogueSource?,
     isLinked: (AnimeCatalogueSource) -> Boolean,
-    listMaxHeight: Dp,
     onSelect: (AnimeCatalogueSource) -> Unit,
 ) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth(),
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 430.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        SourceColumnCard(
-            label = "Aniyomi",
-            count = aniyomiSources.size,
-            accentDot = Color(0xFF34D399),
-            sources = aniyomiSources,
-            iconFor = { source -> SourceIcon(aniyomiDrawable = aniyomiIconById[source.id], csIconUrl = null) },
-            selectedSource = selectedSource,
-            isLinked = isLinked,
-            listMaxHeight = listMaxHeight,
-            emptyNote = "No Aniyomi sources installed",
-            onSelect = onSelect,
-            modifier = Modifier.weight(1f),
-        )
-        SourceColumnCard(
-            label = "CloudStream",
-            count = cloudStreamSources.size,
-            accentDot = Color(0xFF38BDF8),
-            sources = cloudStreamSources,
-            iconFor = { source -> SourceIcon(aniyomiDrawable = null, csIconUrl = csIconByName[source.name]) },
-            selectedSource = selectedSource,
-            isLinked = isLinked,
-            listMaxHeight = listMaxHeight,
-            emptyNote = "No CloudStream plugins installed",
-            onSelect = onSelect,
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-/**
- * ONE SIDE of the two-column layout (round 88, D-614): a rounded card whose
- * HEADING stays fixed at the top (accent dot + bold label + count — always
- * visible no matter how far either list is scrolled) while the rows below
- * scroll in their own LazyColumn, capped by the ime-aware [listMaxHeight]
- * so the search bar underneath keeps its room (the D-612 contract). The
- * card wraps its content — a short list does not stretch the sheet (the
- * round-85 "a CEILING, not a fixed height" rule survives in both columns).
- */
-@Composable
-private fun SourceColumnCard(
-    label: String,
-    count: Int,
-    accentDot: Color,
-    sources: List<AnimeCatalogueSource>,
-    iconFor: (AnimeCatalogueSource) -> SourceIcon,
-    selectedSource: AnimeCatalogueSource?,
-    isLinked: (AnimeCatalogueSource) -> Boolean,
-    listMaxHeight: Dp,
-    emptyNote: String,
-    onSelect: (AnimeCatalogueSource) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        shape = RoundedCornerShape(14.dp),
-        modifier = modifier,
-    ) {
-        Column {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 5.dp),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(accentDot),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = label,
-                    fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = "$count",
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        if (aniyomiSources.isNotEmpty()) {
+            item(key = "heading-aniyomi") {
+                SourceSectionHeading(label = "Aniyomi", count = aniyomiSources.size)
+            }
+            items(aniyomiSources, key = { "a-${it.id}" }) { source ->
+                SourceListRow(
+                    source = source,
+                    icon = SourceIcon(aniyomiDrawable = aniyomiIconById[source.id], csIconUrl = null),
+                    selected = selectedSource?.id == source.id,
+                    linked = isLinked(source),
+                    onSelect = { onSelect(source) },
                 )
             }
-            if (sources.isEmpty()) {
-                Text(
-                    text = emptyNote,
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
+        }
+        if (cloudStreamSources.isNotEmpty()) {
+            item(key = "heading-cloudstream") {
+                SourceSectionHeading(label = "CloudStream", count = cloudStreamSources.size)
+            }
+            items(cloudStreamSources, key = { "c-${it.id}" }) { source ->
+                SourceListRow(
+                    source = source,
+                    icon = SourceIcon(aniyomiDrawable = null, csIconUrl = csIconByName[source.name]),
+                    selected = selectedSource?.id == source.id,
+                    linked = isLinked(source),
+                    onSelect = { onSelect(source) },
                 )
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = listMaxHeight)
-                        .padding(horizontal = 4.dp)
-                        .padding(bottom = 5.dp),
-                ) {
-                    items(sources, key = { it.id }) { source ->
-                        SourceColumnRow(
-                            source = source,
-                            icon = iconFor(source),
-                            selected = selectedSource?.id == source.id,
-                            linked = isLinked(source),
-                            onSelect = { onSelect(source) },
-                        )
-                    }
-                }
             }
         }
     }
 }
 
 /**
- * One source row in a HALF-WIDTH column (round 88, D-614) — the plain list
- * row shrunk to the ~160dp budget: a 20dp icon, an 11sp one-line name, and
- * the selected treatment intact (tint + border + bold + the check bubble;
- * the linked ✓ keeps its slot). Everything else behaves exactly like the
- * full-width row it replaced.
+ * The system heading — a ROUNDED RECTANGLE (NOT the old pill/bubble), bold,
+ * a size step bigger, with the bucket's count on the right.
  */
 @Composable
-private fun SourceColumnRow(
+private fun SourceSectionHeading(label: String, count: Int) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+        ) {
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "$count",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * One source row — the plain, proper list row. The SELECTED row gets the
+ * tint + border + bold + a trailing check ("the currently selected one is
+ * properly highlighted and managed better"); the linked source keeps its
+ * persistent ✓ marker (D-578).
+ */
+@Composable
+private fun SourceListRow(
     source: AnimeCatalogueSource,
     icon: SourceIcon,
     selected: Boolean,
@@ -749,7 +672,7 @@ private fun SourceColumnRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(9.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(
                 if (selected) {
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
@@ -764,17 +687,17 @@ private fun SourceColumnRow(
                 } else {
                     Color.Transparent
                 },
-                RoundedCornerShape(9.dp),
+                RoundedCornerShape(10.dp),
             )
             .clickable(onClick = onSelect)
-            .padding(horizontal = 7.dp, vertical = 6.dp),
+            .padding(horizontal = 9.dp, vertical = 6.dp),
     ) {
-        WheelSourceIcon(icon = icon, name = source.name, highlighted = selected, size = 20.dp)
-        Spacer(Modifier.width(7.dp))
+        WheelSourceIcon(icon = icon, name = source.name, highlighted = selected)
+        Spacer(Modifier.width(9.dp))
         Text(
             text = source.name,
             fontFamily = RobotoFamily,
-            fontSize = 11.sp,
+            fontSize = if (selected) 13.sp else 12.sp,
             fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
             color = if (selected) {
                 MaterialTheme.colorScheme.onSurface
@@ -786,19 +709,19 @@ private fun SourceColumnRow(
             modifier = Modifier.weight(1f),
         )
         if (linked && !selected) {
-            Spacer(Modifier.width(5.dp))
+            Spacer(Modifier.width(6.dp))
             Icon(
                 imageVector = Icons.Filled.Check,
                 contentDescription = "Currently linked source",
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(12.dp),
+                modifier = Modifier.size(14.dp),
             )
         }
         if (selected) {
-            Spacer(Modifier.width(5.dp))
+            Spacer(Modifier.width(6.dp))
             Box(
                 modifier = Modifier
-                    .size(16.dp)
+                    .size(18.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary),
                 contentAlignment = Alignment.Center,
@@ -807,7 +730,7 @@ private fun SourceColumnRow(
                     imageVector = Icons.Filled.Check,
                     contentDescription = "Selected",
                     tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(10.dp),
+                    modifier = Modifier.size(12.dp),
                 )
             }
         }
@@ -817,23 +740,20 @@ private fun SourceColumnRow(
 /**
  * A wheel row's source icon: Aniyomi extensions render their Drawable icon,
  * CloudStream plugins their iconUrl (both via Coil) — with the colorful
- * letter tile as the never-blank fallback (the Task-61 lesson). The [size]
- * parameter lets the half-width column rows (round 88, D-614) shrink their
- * icons to the 20dp budget while the rest of the app keeps 28dp.
+ * letter tile as the never-blank fallback (the Task-61 lesson).
  */
 @Composable
 private fun WheelSourceIcon(
     icon: SourceIcon,
     name: String,
     highlighted: Boolean,
-    size: Dp = 28.dp,
 ) {
     when {
         icon.aniyomiDrawable != null -> AsyncImage(
             model = icon.aniyomiDrawable,
             contentDescription = "$name icon",
             modifier = Modifier
-                .size(size)
+                .size(28.dp)
                 .clip(RoundedCornerShape(6.dp)),
         )
         icon.csIconUrl != null -> SubcomposeAsyncImage(
@@ -842,18 +762,18 @@ private fun WheelSourceIcon(
                 .replace("%exact_size%", "64"),
             contentDescription = "$name icon",
             modifier = Modifier
-                .size(size)
+                .size(28.dp)
                 .clip(RoundedCornerShape(6.dp)),
-            loading = { WheelIconFallback(name, highlighted, size) },
-            error = { WheelIconFallback(name, highlighted, size) },
+            loading = { WheelIconFallback(name, highlighted) },
+            error = { WheelIconFallback(name, highlighted) },
         )
-        else -> WheelIconFallback(name, highlighted, size)
+        else -> WheelIconFallback(name, highlighted)
     }
 }
 
 /** The colorful letter tile — the shared "never blank" icon fallback. */
 @Composable
-private fun WheelIconFallback(name: String, highlighted: Boolean, size: Dp = 28.dp) {
+private fun WheelIconFallback(name: String, highlighted: Boolean) {
     val firstLetter = name.firstOrNull()?.uppercase() ?: "?"
     val colors = listOf(
         Color(0xFFB1F256), Color(0xFF7CC8FA), Color(0xFFFF8A65),
@@ -863,7 +783,7 @@ private fun WheelIconFallback(name: String, highlighted: Boolean, size: Dp = 28.
     Surface(
         color = color.copy(alpha = if (highlighted) 1f else 0.72f),
         shape = RoundedCornerShape(6.dp),
-        modifier = Modifier.size(size),
+        modifier = Modifier.size(28.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
