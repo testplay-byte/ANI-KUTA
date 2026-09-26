@@ -294,8 +294,10 @@ fun ManualSearchSheet(
         val navBottom = WindowInsets.navigationBars.getBottom(density)
         val insetsDp = with(density) { (imeBottom + navBottom).toDp() }
         val chromeReserve = 330.dp
-        val fiveRowWheel = WHEEL_ROW_COUNT * WHEEL_ROW_HEIGHT +
-            (WHEEL_ROW_COUNT - 1) * WHEEL_ROW_SPACING
+        // NOTE: Dp must be the LEFT operand — Dp.times(Int) exists; the
+        // Int.times(Dp) extension does not.
+        val fiveRowWheel = WHEEL_ROW_HEIGHT * WHEEL_ROW_COUNT +
+            WHEEL_ROW_SPACING * (WHEEL_ROW_COUNT - 1)
         val sheet60Budget = (screenHeight * 0.60f) - chromeReserve
         val imeBudget = screenHeight - chromeReserve - insetsDp
         val wheelHeight = minOf(fiveRowWheel, sheet60Budget, imeBudget)
@@ -927,7 +929,7 @@ private fun SourceColumnCard(
                     // D-628: the SNAP — every fling settles with a row
                     // centered ("the one which is selected should be
                     // centered at all times").
-                    flingBehavior = rememberSnapFlingBehavior(listState = listState),
+                    flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
                     verticalArrangement = Arrangement.spacedBy(WHEEL_ROW_SPACING),
                     contentPadding = PaddingValues(vertical = centerPadding),
                     modifier = Modifier
