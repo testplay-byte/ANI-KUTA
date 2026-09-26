@@ -1,7 +1,7 @@
 # SESSION — Read This At The Start Of Every Session
 
 > A 60-second orientation. Read this FIRST, every time, before any work.
-> Refreshed in **Round 85 (2026-09-24)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
+> Refreshed in **Round 89 (2026-09-26)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
 
 ---
 
@@ -12,12 +12,12 @@ You are the AI agent for **ANI-KUTA** — an Android anime streaming/downloading
 
 ---
 
-## 📍 Current State (refreshed Round 86, 2026-09-24)
+## 📍 Current State (refreshed Round 89, 2026-09-26)
 
 - **Mainline branch:** `feature/round-57-cloudstream-downloads` — this IS the default branch. `main` was DELETED (D-552 — it had 0 unique commits). Other live branches: `release/1.1.3` (the professional release branch), `feature/test-controller-v5` (dormant, kept by user order).
-- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.43 / 10143** (round 86 — D-587..D-592: the honest verdicts, the live timers, the timeline detail page, the normal source list, the six-status ring, the stream live preview, the leave guard) — **LIVE**: `release/1.1.43` cut from the green head 4835627, Release APK run 36039846671 GREEN FIRST-TRY, the stable latest release carries the arm64-v8a debug APK 68.3 MB + SHA256SUMS.txt, and the v1.1.41/v1.1.42 release notes were backfilled with their proper bullets (their tag bodies had been empty). The NEXT debug release is **v1.1.44 / 10144**. Latest **professional** release: **v1.1.3 / 10103** (`professional-v1.1.3`, 5 release-signed ABIs + universal — device-verified).
-- **Latest records:** Round 86 implemented AND SHIPPED as v1.1.43 (D-587..D-592 — doc **68**); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **69**.
-- **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases (the latest: **v1.1.43/10143** — the 1.1.3N debug series continues; the next is v1.1.44/10144). **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
+- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.46 / 10146** (round 89 — D-625: THE LINK SOURCES REVERT — the sheet restored byte-identical to v1.1.43's single alphabetical list; the D-612/D-613/D-614 changes undone; every round-87/88 extension-testing change KEPT) — **LIVE** (stable latest, arm64-v8a debug APK + SHA256SUMS.txt; the release ledger facts live in progress.md + the release branch mirror). The NEXT debug release is **v1.1.47 / 10147**. Latest **professional** release: **v1.1.3 / 10103** (`professional-v1.1.3`, 5 release-signed ABIs + universal — device-verified).
+- **Latest records:** Round 89 implemented AND SHIPPED as v1.1.46 (D-625 — doc **71**); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **72**.
+- **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases (the latest: **v1.1.46/10146** — the 1.1.3N debug series continues; the next is v1.1.47/10147). **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
 - **The per-round loop is unchanged:** device feedback → implement on the mainline → CI green (≤2 runs/cycle, disclosed ledger, D-472) → `release/1.1.3N` cut from the green head → the bump rides that branch → tag `v1.1.3N` → the debug release publishes → LIVE-mirror docs → ntfy → the user's device round.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` pushes build NOTHING.
 
@@ -27,7 +27,7 @@ You are the AI agent for **ANI-KUTA** — an Android anime streaming/downloading
 1. Clone `https://github.com/testplay-byte/ANI-KUTA.git` (public — read needs no token). **PUSH** uses the credential helper that reads the PAT from `/home/z/.secrets/github-credentials` (repo-external — NEVER commit it, NEVER paste it). If the sandbox lost the file, ask the user.
 2. Checkout the mainline `feature/round-57-cloudstream-downloads` (the default branch).
 3. Read `AGENT-CONTEXT/memory/progress.md` — the TOP **CURRENT STATUS** block first, then the newest `## Round NN` sections at the BOTTOM (the file grows downward; the middle "Historical session" paragraphs are old).
-4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-586** (round 85).
+4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-625** (round 89).
 5. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task type.
 6. Read `AGENT-CONTEXT/knowledge/` files on demand (architecture, module-map, tech-stack, ui-customization, emulator-testing…).
 
@@ -82,13 +82,15 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (C
 
 ---
 
-## 🚧 Open Items / Blocked (refreshed Round 84)
-- **Round 85 SHIPPED v1.1.42:** the v1.1.41 device round implemented in 3 batches + 1 fix commit (CI: batch 1 GREEN first-try; batch 2 FAILED on one import; batch 3 FAILED on two classes; the fix commit GREEN — all diagnosed from logs, disclosed). The doc-66→67 record + D-584..D-586 + lessons filed. The user's device round on v1.1.42 is the next input. Prior round: the dev PAT is stored repo-external at `/home/z/.secrets/github-credentials` (0600, account `testplay-byte`, admin — re-provided after the round-83 sandbox reset; the `official-repo-token` is STILL LOST with that reset and needed only for official-repo work). The round-84 implementation cycle consumed 3 runs (run 1 the UI batch GREEN first-try; run 2 the testing system FAILED on 4 errors diagnosed from the logs; run 3 GREEN 23eab3f); the Release APK run 35993456243 went GREEN first-try and **v1.1.41 is LIVE** (stable latest, arm64-v8a debug APK 68.2 MB + SHA256SUMS.txt). The user's device round on v1.1.41 is the next input; the NEXT debug release is **v1.1.43/10143**. The `release/1.1.38`…`release/1.1.42` branches stay on the remote (deletion is user-gated).
-- **release/1.1.38 stays on the remote** (the tag holds the code; branch deletion is user-gated — release/1.1.37 was deleted post-tag, release/1.1.3 kept; mirror the user's next order).
+## 🚧 Open Items / Blocked (refreshed Round 89)
+- **Round 89 SHIPPED v1.1.46 (the LINK SOURCES REVERT):** the user's session order — the v1.1.45 state was "not satisfactory"; the link-sources changes (D-612/D-613/D-614, all inside ManualSearchSheet.kt) reverted byte-identically to v1.1.43 (+ the round-89 annotation comment); every extension-testing change from rounds 87-88 KEPT. Revert commit d87b8d02, Build APK run 36243004630 GREEN. KNOWN CONSEQUENCE (disclosed): the D-612 squish fix rode the same lines — the search bar can again clip when keyboard + full list exceed the screen (the v1.1.43 behavior); a one-line cap change re-applies it on the old layout if ordered. The D-614 two-column implementation stays recoverable at tag v1.1.45 (commit 05a79f80). The user's device round on v1.1.46 — AND the promised process/workflow instructions ("I'll give you some more instructions on how to work in the codebase properly… the current implementation is most definitely lacking in a lot of areas") — are the next input; the next debug release is **v1.1.47/10147**.
+- **The dev PAT** is stored repo-external at `/home/z/.secrets/github-credentials` (0600, account `testplay-byte`, admin). The `official-repo-token` is NOT needed for current work (the user, round 89: debug versions only — the real release-repo token arrives when an official release is actually ordered).
+- **The user's uploads folder:** `USER-UPLOADS/` contents may be cleared if cleanup is ever wanted, but the FOLDER itself stays (the user, round 89: "don't remove the folder, only the things in it").
+- **release/1.1.38…release/1.1.46 branches stay on the remote** (the tags hold the code; branch deletion is user-gated).
 - **The official repo is LIVE (resolved round 79):** Confused-Creature-180/ANI-KUTA carries professional v1.1.3 (11 assets: 5 APKs + 5 ZIPs + SHA256SUMS.txt) + the Pages download site with the APK|ZIP option selector. The process is documented: `ANI-KUTA-RELEASE-PLAYBOOK.md` (repo-external) + the official repo's `RELEASES.md`. The official-repo token lives at `/home/z/.secrets/official-repo-token`.
-- **Dashboard deep debt (disclosed, D-565):** the dashboard carries REPRESENTATIVE data — decisions D-277..D-562 are not individually listed, and the per-table DB transcription is the D-192-era snapshot (current truth: 25 tables / 17 .sq files). Status-level facts were refreshed Round 77. A full backfill is available on the user's request.
+- **Dashboard deep debt (disclosed, D-565):** the dashboard carries REPRESENTATIVE data — decisions D-277..D-625 are not individually listed, and the per-table DB transcription is the D-192-era snapshot (current truth: 25 tables / 17 .sq files). Status-level facts were refreshed Round 77. A full backfill is available on the user's request. (The user, round 89: leave the dashboard as-is for now — focus comes later.)
 - **`feature/test-controller-v5`** stays dormant (kept by explicit user order — do not delete).
-- **Version bookkeeping quirk (D-430):** the mainline says 1.1.20/10120 while the shipped debug line is at v1.1.38 — this is CORRECT by doctrine (bumps ride release branches). Don't "fix" it.
+- **Version bookkeeping quirk (D-430):** the mainline says 1.1.20/10120 while the shipped debug line is at v1.1.46 — this is CORRECT by doctrine (bumps ride release branches). Don't "fix" it.
 
 ## 🧪 Testing on the Emulator
 The sandbox CAN run the app on an Android emulator (user-authorized §8 exception) — but read
