@@ -286,72 +286,18 @@ fun TestingHomeScreen(
                 // stage-line machine; the elapsed time, the n-of-m count
                 // and the Stop action live on the BOTTOM footer now — the
                 // old duplicate "Testing n of m" at both ends is gone.
+                // (The banner is its own composable on purpose: the call
+                // site's receiver tower carries a ColumnScope from the
+                // enclosing Column, and K2 would bind AnimatedVisibility
+                // to the ColumnScope member extension there and reject it —
+                // extracted, the call resolves to the top-level overload,
+                // exactly like the list screen's pinned bars.)
                 item(key = "banner") {
-                    AnimatedVisibility(
+                    LiveRunBanner(
                         visible = runActive,
-                        enter = fadeIn(tween(200)),
-                        exit = fadeOut(tween(180)),
-                    ) {
-                        val currentName = session?.currentTargetId?.let { targetsById[it]?.name }
-                        Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            ) {
-                                CircularProgressIndicator(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = currentName ?: "Starting…",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    // The stage line — running or lingering
-                                    // verdict, swapped with a soft crossfade
-                                    // (never an instant cut).
-                                    androidx.compose.animation.AnimatedContent(
-                                        targetState = stageLine,
-                                        transitionSpec = {
-                                            fadeIn(tween(180)) togetherWith fadeOut(tween(140))
-                                        },
-                                        label = "stageLine",
-                                    ) { sl ->
-                                        Text(
-                                            text = when (sl) {
-                                                is StageLine.Running ->
-                                                    "Testing ${sl.kind.label}…"
-                                                is StageLine.Verdict ->
-                                                    "${sl.kind.label} ${sl.verdictWord} · ${TestTimeFormat.format(sl.result.durationMs)}"
-                                                null -> "Preparing the chain…"
-                                            },
-                                            fontFamily = RobotoFamily,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = when {
-                                                sl is StageLine.Verdict && sl.result.status == TestStatus.FAILED ->
-                                                    MaterialTheme.colorScheme.error
-                                                else -> MaterialTheme.colorScheme.primary
-                                            },
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                        currentName = session?.currentTargetId?.let { targetsById[it]?.name },
+                        stageLine = stageLine,
+                    )
                 }
 
                 // ── Hero: THE SUITE-HEALTH RING, COMBINED (round 87, D-599;
@@ -985,6 +931,89 @@ internal sealed interface StageLine {
 
 /** A finished verdict owns the banner for at least this long (the "padding"). */
 private const val STAGE_VERDICT_LINGER_MS = 1000L
+
+/**
+ * ROUND 91 (D-630): the live-run banner — the SPLIT live experience's TOP
+ * half. WHICH extension is being tested (its name) + AT WHAT STAGE (the
+ * stage line from [rememberStageLine], swapped with a soft crossfade).
+ * Deliberately a TOP-LEVEL composable: at the LazyColumn call site the
+ * receiver tower includes a ColumnScope, which makes K2 bind
+ * `AnimatedVisibility(visible=…)` to the ColumnScope member extension and
+ * reject the call ("cannot be called in this context with an implicit
+ * receiver"); extracted here — no implicit receivers — it resolves to the
+ * top-level overload, the same call shape the list screen's pinned bars
+ * have shipped with since round 86.
+ */
+@Composable
+private fun LiveRunBanner(
+    visible: Boolean,
+    currentName: String?,
+    stageLine: StageLine?,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(200)),
+        exit = fadeOut(tween(180)),
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = currentName ?: "Starting…",
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    // The stage line — running or lingering verdict, swapped
+                    // with a soft crossfade (never an instant cut).
+                    androidx.compose.animation.AnimatedContent(
+                        targetState = stageLine,
+                        transitionSpec = {
+                            fadeIn(tween(180)) togetherWith fadeOut(tween(140))
+                        },
+                        label = "stageLine",
+                    ) { sl ->
+                        Text(
+                            text = when (sl) {
+                                is StageLine.Running ->
+                                    "Testing ${sl.kind.label}…"
+                                is StageLine.Verdict ->
+                                    "${sl.kind.label} ${sl.verdictWord} · ${TestTimeFormat.format(sl.result.durationMs)}"
+                                null -> "Preparing the chain…"
+                            },
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = when {
+                                sl is StageLine.Verdict && sl.result.status == TestStatus.FAILED ->
+                                    MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.primary
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun rememberStageLine(controller: ExtensionTestRunController): StageLine? {
