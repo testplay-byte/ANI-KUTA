@@ -1,33 +1,33 @@
 # SESSION — Read This At The Start Of Every Session
 
 > A 60-second orientation. Read this FIRST, every time, before any work.
-> Refreshed in **Round 89 (2026-09-26)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
+> Refreshed in **Round 90 (2026-09-27)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
 
 ---
 
 ## ⚡ Who You Are
-You are the AI agent for **ANI-KUTA** — an Android anime streaming/downloading app (Kotlin 2.2 + Jetpack Compose 1.10.4 + MPV + SQLDelight 2.0.2 + Koin 4.2.2 + Injekt + a CloudStream plugin system) — plus its companion web dashboard (Next.js → GitHub Pages).
+You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/downloading app (anime + movies + series today, manga and novels planned; Kotlin 2.2 + Jetpack Compose 1.10.4 + MPV + SQLDelight 2.0.2 + Koin 4.2.2 + Injekt + a CloudStream plugin system) — plus its companion web dashboard (Next.js → GitHub Pages).
 
 **GitHub repo:** `testplay-byte/ANI-KUTA`. Repo root = the single wrapper folder `ANI-KUTA/` (per CORE_RULES §4) + `.github/` at root (a GitHub platform constraint) + the user's own `README.md` / `NEW_AGENT_SETUP.md` / `USER-UPLOADS/` (established).
 
 ---
 
-## 📍 Current State (refreshed Round 89, 2026-09-26)
+## 📍 Current State (refreshed Round 90, 2026-09-27)
 
 - **Mainline branch:** `feature/round-57-cloudstream-downloads` — this IS the default branch. `main` was DELETED (D-552 — it had 0 unique commits). Other live branches: `release/1.1.3` (the professional release branch), `feature/test-controller-v5` (dormant, kept by user order).
-- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.46 / 10146** (round 89 — D-625: THE LINK SOURCES REVERT — the sheet restored byte-identical to v1.1.43's single alphabetical list; the D-612/D-613/D-614 changes undone; every round-87/88 extension-testing change KEPT) — **LIVE**: `release/1.1.46` cut from the green head 4cf6acbe (the round-89 docs ledger, above the revert d87b8d02 whose Build APK run 36243004630 went GREEN), Release APK run 36243440742 GREEN FIRST-TRY (published 2026-09-26T12:58Z), the stable latest release carries the arm64-v8a debug APK 68.3 MB + SHA256SUMS.txt and the honest 4-bullet revert tag body (D-466) — the in-app updater (debug checks this repo, D-440) picks it up. The NEXT debug release is **v1.1.47 / 10147**. Latest **professional** release: **v1.1.3 / 10103** (`professional-v1.1.3`, 5 release-signed ABIs + universal — device-verified).
-- **Latest records:** Round 89 implemented AND SHIPPED as v1.1.46 (D-625 — doc **71**); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **72**.
-- **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases (the latest: **v1.1.46/10146** — the 1.1.3N debug series continues; the next is v1.1.47/10147). **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
+- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.47 / 10147** (round 90 — D-626 the link sources sheet rebuilt as the two true columns WITH scroll-driven selection + the linked-content card, D-627 the suite-health ring's rounded grouped slices + the aligned legend; the testing-systems analysis recorded in doc 72 §3) — **LIVE**: `release/1.1.47` cut from the green round-90 ledger head (implementation commit 3f81856f, Build APK run 36248211351 GREEN FIRST-TRY), Release APK run + artifact facts recorded in the LIVE-mirror commits and the progress Round 90 section. The in-app updater (debug checks this repo, D-440) picks it up. The NEXT debug release is **v1.1.48 / 10148**. Latest **professional** release: **v1.1.3 / 10103** (`professional-v1.1.3`, 5 release-signed ABIs + universal — device-verified).
+- **Latest records:** Round 90 implemented AND SHIPPED as v1.1.47 (D-626 + D-627 — doc **72**); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **73**; the next decision is **D-628**.
+- **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases (the latest: **v1.1.47/10147**; the next is v1.1.48/10148). **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
 - **The per-round loop is unchanged:** device feedback → implement on the mainline → CI green (≤2 runs/cycle, disclosed ledger, D-472) → `release/1.1.3N` cut from the green head → the bump rides that branch → tag `v1.1.3N` → the debug release publishes → LIVE-mirror docs → ntfy → the user's device round.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` pushes build NOTHING.
 
 ---
 
 ## 📂 If The Environment Was Just Cloned
-1. Clone `https://github.com/testplay-byte/ANI-KUTA.git` (public — read needs no token). **PUSH** uses the credential helper that reads the PAT from `/home/z/.secrets/github-credentials` (repo-external — NEVER commit it, NEVER paste it). If the sandbox lost the file, ask the user.
+1. Clone `https://github.com/testplay-byte/ANI-KUTA.git` (public — read needs no token). **PUSH** uses the credential helper that reads the PAT from `/home/z/.secrets/github-credentials` (repo-external, git-credential FORMAT — for raw API calls extract the `password=` line; NEVER commit it, NEVER paste it). If the sandbox lost the file, ask the user.
 2. Checkout the mainline `feature/round-57-cloudstream-downloads` (the default branch).
 3. Read `AGENT-CONTEXT/memory/progress.md` — the TOP **CURRENT STATUS** block first, then the newest `## Round NN` sections at the BOTTOM (the file grows downward; the middle "Historical session" paragraphs are old).
-4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-625** (round 89).
+4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-627** (round 90).
 5. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task type.
 6. Read `AGENT-CONTEXT/knowledge/` files on demand (architecture, module-map, tech-stack, ui-customization, emulator-testing…).
 
@@ -70,7 +70,7 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (C
 - `memory/changelog.md` — append the round's section at the bottom (append-only narrative).
 - `memory/lessons-learned.md` — any new lesson (dedup-check first).
 - `AGENT-CONTEXT/download-research/NN-ROUND-<slug>.md` — the round record; numbering strictly sequential.
-- Dashboard data (`DASHBOARD/webpage/lib/`) — delegate to a full-stack-dev sub-agent (§19) when the project's status facts changed; disclose any debt rather than silently skipping.
+- Dashboard data (`DASHBOARD/webpage/lib/`) — delegate to a full-stack-dev sub-agent (§19) when the project's status facts changed; disclose any debt rather than silently skipping. (Standing round-89 instruction: the dashboard is left as-is until the user calls the focus.)
 
 ## 🚨 Session-End Checklist (NON-NEGOTIABLE)
 - [ ] All work committed (`git add -A && git commit`).
@@ -82,15 +82,15 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (C
 
 ---
 
-## 🚧 Open Items / Blocked (refreshed Round 89)
-- **Round 89 SHIPPED v1.1.46 (the LINK SOURCES REVERT):** the user's session order — the v1.1.45 state was "not satisfactory"; the link-sources changes (D-612/D-613/D-614, all inside ManualSearchSheet.kt) reverted byte-identically to v1.1.43 (+ the round-89 annotation comment); every extension-testing change from rounds 87-88 KEPT. Revert commit d87b8d02, Build APK run 36243004630 GREEN. KNOWN CONSEQUENCE (disclosed): the D-612 squish fix rode the same lines — the search bar can again clip when keyboard + full list exceed the screen (the v1.1.43 behavior); a one-line cap change re-applies it on the old layout if ordered. The D-614 two-column implementation stays recoverable at tag v1.1.45 (commit 05a79f80). The user's device round on v1.1.46 — AND the promised process/workflow instructions ("I'll give you some more instructions on how to work in the codebase properly… the current implementation is most definitely lacking in a lot of areas") — are the next input; the next debug release is **v1.1.47/10147**.
-- **The dev PAT** is stored repo-external at `/home/z/.secrets/github-credentials` (0600, account `testplay-byte`, admin). The `official-repo-token` is NOT needed for current work (the user, round 89: debug versions only — the real release-repo token arrives when an official release is actually ordered).
+## 🚧 Open Items / Blocked (refreshed Round 90)
+- **Round 90 SHIPPED v1.1.47 (the sheet's two true columns + the rounded grouped ring):** the user's v1.1.46 verdict re-ordered the two-column direction FORWARD ("let's improve it and let's move forward and not go backward anymore"). D-626: ManualSearchSheet.kt rebuilt to spec — Aniyomi LEFT / CloudStream RIGHT columns, scroll-driven center selection with the interaction guard, the live "Search <extension>…" placeholder, the TextFieldValue paste (caret at the end), the "search above" hint, the linked-content card (cover/name/details/linked-via) at the bottom, the ime-aware cap restored (the round-89 squish trade-off CLOSED). D-627: GroupedDonutChart (rounded/spaced slices, combined groups with unrounded seams, geometry-derived gaps) + the fixed-column aligned legend. The testing-systems analysis is recorded in doc 72 §3 (the user asked for it as the base for a future testing focus). The user's device round on v1.1.47 is the next input; the next debug release is **v1.1.48/10148**.
+- **The dev PAT** is stored repo-external at `/home/z/.secrets/github-credentials` (0600, account `testplay-byte`, admin, git-credential FORMAT — extract `password=` for API calls). The `official-repo-token` is NOT needed for current work (the user, round 89: debug versions only — the real release-repo token arrives when an official release is actually ordered).
 - **The user's uploads folder:** `USER-UPLOADS/` contents may be cleared if cleanup is ever wanted, but the FOLDER itself stays (the user, round 89: "don't remove the folder, only the things in it").
-- **release/1.1.38…release/1.1.46 branches stay on the remote** (the tags hold the code; branch deletion is user-gated).
+- **release/1.1.38…release/1.1.47 branches stay on the remote** (the tags hold the code; branch deletion is user-gated).
 - **The official repo is LIVE (resolved round 79):** Confused-Creature-180/ANI-KUTA carries professional v1.1.3 (11 assets: 5 APKs + 5 ZIPs + SHA256SUMS.txt) + the Pages download site with the APK|ZIP option selector. The process is documented: `ANI-KUTA-RELEASE-PLAYBOOK.md` (repo-external) + the official repo's `RELEASES.md`. The official-repo token lives at `/home/z/.secrets/official-repo-token`.
-- **Dashboard deep debt (disclosed, D-565):** the dashboard carries REPRESENTATIVE data — decisions D-277..D-625 are not individually listed, and the per-table DB transcription is the D-192-era snapshot (current truth: 25 tables / 17 .sq files). Status-level facts were refreshed Round 77. A full backfill is available on the user's request. (The user, round 89: leave the dashboard as-is for now — focus comes later.)
+- **Dashboard deep debt (disclosed, D-565):** the dashboard carries REPRESENTATIVE data — decisions D-277..D-627 are not individually listed, and the per-table DB transcription is the D-192-era snapshot (current truth: 25 tables / 17 .sq files). Status-level facts were refreshed Round 77. A full backfill is available on the user's request. (The user, round 89: leave the dashboard as-is for now — focus comes later.)
 - **`feature/test-controller-v5`** stays dormant (kept by explicit user order — do not delete).
-- **Version bookkeeping quirk (D-430):** the mainline says 1.1.20/10120 while the shipped debug line is at v1.1.46 — this is CORRECT by doctrine (bumps ride release branches). Don't "fix" it.
+- **Version bookkeeping quirk (D-430):** the mainline says 1.1.20/10120 while the shipped debug line is at v1.1.47 — this is CORRECT by doctrine (bumps ride release branches). Don't "fix" it.
 
 ## 🧪 Testing on the Emulator
 The sandbox CAN run the app on an Android emulator (user-authorized §8 exception) — but read
@@ -107,6 +107,7 @@ repo-root/
 │   │   ├── memory/              # progress / decisions / changelog / lessons-learned
 │   │   └── knowledge/           # quick-reference summaries (read on demand)
 │   ├── APP/ani-kuta/            # Android app — 56 Gradle modules (1 app + 32 core + 2 data + 21 feature)
+│   │   └── DOCUMENTATION/cloudstream-v2/  # the round records (next: 73)
 │   ├── DASHBOARD/webpage/       # Next.js dashboard (→ GitHub Pages; sub-agents build it)
 │   └── REFERENCES/              # old-kuta + animiru (read-only)
 └── .github/workflows/           # CI — build-apk / release-apk / release-build-once / deploy-dashboard
