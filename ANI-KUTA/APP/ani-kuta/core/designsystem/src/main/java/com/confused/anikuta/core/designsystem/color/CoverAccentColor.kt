@@ -99,3 +99,42 @@ fun rememberCoverGradientColors(coverUrl: String?): List<Color>? {
     }
     return state.value
 }
+
+/**
+ * ROUND 91 (D-630): Compose-side accessor for an ICON's dominant accent —
+ * the extension-testing "Recently tested" chips theme their backgrounds with
+ * each extension's OWN icon color (the user's spec: "theme their background
+ * with their icon colors a bit… not way too much vibrant. It should be
+ * slightly applied").
+ *
+ * Handles BOTH icon kinds the testing targets carry:
+ *  - a loaded [Drawable] (aniyomi extension icons) →
+ *    [CoverColorExtractor.extractFromDrawable];
+ *  - an icon [url] (CloudStream plugin icons) → [CoverColorExtractor.extract]
+ *    through the shared Coil loader (memory-cached after the icon itself has
+ *    rendered, so repeat reads are instant).
+ *
+ * Returns `null` on failure — callers fall back to the letter-tile hue so a
+ * chip NEVER renders untinted-by-design (the never-blank-icon contract). The
+ * "slightly applied" half lives with the caller: draw the returned color at a
+ * LOW alpha over the chip surface, never at full strength.
+ */
+@Composable
+fun rememberIconTint(drawable: android.graphics.drawable.Drawable?, iconUrl: String?): Color? {
+    val context = LocalContext.current
+    val extractor = remember { CoverColorExtractor(context, context.imageLoader) }
+    val state = produceState<Color?>(initialValue = null, drawable, iconUrl) {
+        value = when {
+            drawable != null ->
+                runCatching { extractor.extractFromDrawable(drawable) }
+                    .getOrNull()
+                    ?.let { Color(it.toLong() and 0xFFFFFFFFL) }
+            !iconUrl.isNullOrBlank() ->
+                runCatching { extractor.extract(iconUrl) }
+                    .getOrNull()
+                    ?.let { Color(it.toLong() and 0xFFFFFFFFL) }
+            else -> null
+        }
+    }
+    return state.value
+}

@@ -61,6 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
@@ -83,6 +84,11 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 //    • the last target joins "Finished" at completion, and a "Not
 //      tested" section appears after a Stop. (Round 87: the view NO
 //      LONGER auto-scrolls anywhere — the user drives the scroll.)
+//
+//  ROUND 91 (D-633 — the v1.1.47 device round's back-fix): the LEAVE GUARD
+//  is GONE from this page — back pops freely while the run continues in
+//  the app-scoped controller (the prompt belongs to the HOME screen only),
+//  and the header BLUR (§2.2) joins the app-wide language.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -121,57 +127,16 @@ fun TestingRunScreen(
         }
     }
 
-    // D-592 (round 86): the LEAVE GUARD — the system back gesture is
-    // intercepted while a run is live, and the confirm dialog's OK cancels
-    // the run before the navigation happens ("leaving would cancel the
-    // tests, and it would actually cancel all the tests").
-    var showLeaveDialog by remember { mutableStateOf(false) }
-    androidx.activity.compose.BackHandler(enabled = session?.phase == RunPhase.RUNNING) {
-        showLeaveDialog = true
-    }
-    if (showLeaveDialog) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showLeaveDialog = false },
-            title = {
-                Text(
-                    text = "Leave the test run?",
-                    fontFamily = RobotoFamily,
-                    fontWeight = FontWeight.ExtraBold,
-                )
-            },
-            text = {
-                Text(
-                    text = "Leaving now will cancel all the tests that are still running.",
-                    fontFamily = RobotoFamily,
-                )
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        showLeaveDialog = false
-                        controller.stop()
-                        onBack()
-                    },
-                ) {
-                    Text(
-                        "Leave and cancel",
-                        fontFamily = RobotoFamily,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showLeaveDialog = false }) {
-                    Text(
-                        "Stay",
-                        fontFamily = RobotoFamily,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            },
-        )
-    }
+    // ROUND 91 (D-633): THE LEAVE GUARD IS GONE FROM THIS PAGE. The run
+    // lives in the app-scoped controller and keeps going whatever this page
+    // does — the v1.1.47 device report: "when I click the back button, I am
+    // not allowed to go back. It gives me this that Leave the Test Run,
+    // which is not what was supposed to happen. It should allow me to go
+    // back without any problems from that specific screen, without stopping
+    // the test. This functionality of Leave the Test Run should only happen
+    // on the main screen." The HOME screen keeps its guard (D-592); backing
+    // out of the run view (or this screen's "View live run" door) is now a
+    // plain pop — the run continues underneath.
 
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
@@ -210,16 +175,13 @@ fun TestingRunScreen(
             CollapsingHeader(
                 title = "Test run",
                 collapsed = collapsed,
-                // D-592 (round 86): the LEAVE GUARD — a back press while a
-                // run is live prompts first; leaving cancels the tests.
-                onBack = {
-                    if (session?.phase == RunPhase.RUNNING) {
-                        showLeaveDialog = true
-                    } else {
-                        onBack()
-                    }
-                },
+                // ROUND 91 (D-633): back is FREE here — the run continues in
+                // the app-scoped controller; the leave prompt belongs to the
+                // HOME screen only.
+                onBack = onBack,
             )
+            // ROUND 91 (D-633): the header BLUR — the app-wide §2.2 language.
+            Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -620,6 +582,17 @@ fun TestingRunScreen(
                         }
                     }
                 }
+            }
+                // ROUND 91 (D-633): the header BLUR, pinned over the list's
+                // top edge.
+                ScrollBlurOverlay(
+                    scrollOffset = {
+                        if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                        else listState.firstVisibleItemScrollOffset.toFloat()
+                    },
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
             }
         }
     }

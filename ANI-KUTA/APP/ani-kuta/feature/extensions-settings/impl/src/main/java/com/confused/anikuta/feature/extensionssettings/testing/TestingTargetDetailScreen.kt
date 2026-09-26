@@ -1,13 +1,18 @@
 package com.confused.anikuta.feature.extensionssettings.testing
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
@@ -33,8 +38,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,17 +55,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import kotlinx.coroutines.delay
@@ -94,12 +107,34 @@ import java.util.Locale
 //      "Queued" for a queued target, like the list's.
 //    • the rail: a RUNNING test's bubble PULSES — running vs passed is
 //      unmistakable without reading a word (D-621).
+//
+//  ROUND 91 (D-632 — the v1.1.47 device round's full-details pass):
+//    • the DOSSIER is COLLAPSED BY DEFAULT — icon + name + chip + chevron;
+//      the verdict chips + metadata grid (Language included) expand on tap;
+//    • the STAGE BAR moved into its OWN SECTION below the dossier, and its
+//      model is EQUAL-BY-DEFAULT: untested segments all share one length,
+//      the running one starts smallest and grows live, finished ones hold
+//      their actual durations, and every reflow animates;
+//    • the RUN PILL is a SOLID muted-accent rectangle that says "Run Tests"
+//      and nothing else;
+//    • the header carries the EXTENSION'S SETTINGS gear (SourcePreferences
+//      through the host) + the app-wide header BLUR;
+//    • the TIMELINE's bubbles are CENTERED on their sections, never-run
+//      kinds render compact name+color sections (bright, contrasty — no
+//      "Not run yet"), and sections EXPAND SMOOTHLY when results arrive;
+//    • the VERDICT BANNER is a SOLID elevated surface with a darkening
+//      gradient scrim above and below.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
 fun TestingTargetDetailScreen(
     targetId: Long,
     onBack: () -> Unit,
+    // ROUND 91 (D-632): the extension's OWN settings page — the header's
+    // gear opens SourcePreferences for this target's source ("when the user
+    // clicks on that settings option, he will be led to the settings page
+    // of that specific extension").
+    onOpenSettings: () -> Unit,
     onOpenRun: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -180,6 +215,18 @@ fun TestingTargetDetailScreen(
                 title = target?.name ?: "Test results",
                 collapsed = collapsed,
                 onBack = onBack,
+                // ROUND 91 (D-632): the extension's settings — the gear in the
+                // header's actions slot routes to this source's own settings
+                // page (wired by the host to SourcePreferences).
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Extension settings",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
             )
             // D-616: the list lives in its OWN box so the verdict banner can
             // float OVER it, pinned under the header — appearance and exit
@@ -204,14 +251,26 @@ fun TestingTargetDetailScreen(
                         return@LazyColumn
                     }
 
-                    // ── THE DOSSIER HEADER (D-605; compressed round 88, D-617) ──
+                    // ── THE DOSSIER HEADER (D-605; compressed round 88, D-617;
+                    // ROUND 91, D-632 — COLLAPSED BY DEFAULT): the hero opens
+                    // as the SUMMARY — icon, name, status chip — and the full
+                    // details (verdict chips + metadata grid) expand on tap
+                    // ("they should not be shown in the expanded version every
+                    // time. When the user clicks on it, only then will it
+                    // expand and the full details will show").
                     item(key = "hero") {
+                        var heroExpanded by rememberSaveable { mutableStateOf(false) }
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { heroExpanded = !heroExpanded }
+                                    .padding(14.dp),
+                            ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     TargetIconView(target, 48.dp)
                                     Spacer(Modifier.width(12.dp))
@@ -225,79 +284,122 @@ fun TestingTargetDetailScreen(
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
                                         )
-                                        Text(
-                                            text = buildString {
-                                                append(target.ecosystem.displayName())
-                                                target.lang?.let { append(" · $it") }
-                                            },
-                                            fontFamily = RobotoFamily,
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
+                                        // ROUND 91 (D-632): the ecosystem · lang
+                                        // subtitle is GONE from the summary — the
+                                        // language lives in the expanded meta
+                                        // grid now, where details belong.
                                     }
                                     Spacer(Modifier.width(8.dp))
                                     // D-619: a queued target reads "Queued" here,
                                     // exactly like it does on the list page.
                                     TargetStatusChip(state, queued = inLiveRun)
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = if (heroExpanded) {
+                                            Icons.Filled.KeyboardArrowUp
+                                        } else {
+                                            Icons.Filled.KeyboardArrowDown
+                                        },
+                                        contentDescription = if (heroExpanded) {
+                                            "Hide details"
+                                        } else {
+                                            "Show details"
+                                        },
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(20.dp),
+                                    )
                                 }
-                                // ── THE VERDICT SUMMARY (round 88, D-618) — the
-                                // page's answer to "quite a lot of failures": one
-                                // glance says how the chain went before a single
-                                // block is read.
-                                state?.results?.takeIf { it.isNotEmpty() }?.let { results ->
-                                    val passed = results.values.count { it.status == TestStatus.PASSED }
-                                    val failed = results.values.count { it.status == TestStatus.FAILED }
-                                    val decided = results.values.count {
-                                        it.status != TestStatus.PENDING && it.status != TestStatus.RUNNING
-                                    }
-                                    val notRun = ExtensionTestKind.entries.size - decided
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        modifier = Modifier.padding(top = 10.dp),
-                                    ) {
-                                        if (passed > 0) {
-                                            VerdictCountChip("Passed", passed, MaterialTheme.colorScheme.primary)
+                                AnimatedVisibility(
+                                    visible = heroExpanded,
+                                    enter = fadeIn(tween(200)) +
+                                        expandVertically(tween(260, easing = Motion.EasingEmphasized)),
+                                    exit = fadeOut(tween(160)) + shrinkVertically(tween(200)),
+                                ) {
+                                    Column {
+                                        // ── THE VERDICT SUMMARY (round 88, D-618)
+                                        // — one glance says how the chain went
+                                        // before a single block is read.
+                                        state?.results?.takeIf { it.isNotEmpty() }?.let { results ->
+                                            val passed = results.values.count { it.status == TestStatus.PASSED }
+                                            val failed = results.values.count { it.status == TestStatus.FAILED }
+                                            val decided = results.values.count {
+                                                it.status != TestStatus.PENDING && it.status != TestStatus.RUNNING
+                                            }
+                                            val notRun = ExtensionTestKind.entries.size - decided
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                modifier = Modifier.padding(top = 10.dp),
+                                            ) {
+                                                if (passed > 0) {
+                                                    VerdictCountChip("Passed", passed, MaterialTheme.colorScheme.primary)
+                                                }
+                                                if (failed > 0) {
+                                                    VerdictCountChip("Failed", failed, MaterialTheme.colorScheme.error)
+                                                }
+                                                if (notRun > 0) {
+                                                    VerdictCountChip(
+                                                        "Not run",
+                                                        notRun,
+                                                        MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    )
+                                                }
+                                            }
                                         }
-                                        if (failed > 0) {
-                                            VerdictCountChip("Failed", failed, MaterialTheme.colorScheme.error)
+                                        Spacer(Modifier.height(10.dp))
+                                        // The metadata GRID — two fact columns instead of
+                                        // the old seven stacked rows (the hero used to eat
+                                        // half the screen before the first result; D-617).
+                                        // The duplicated "System" row is GONE — the
+                                        // subtitle beside the name already says it.
+                                        // ROUND 91 (D-632): the LANGUAGE lives here
+                                        // now (its one honest home on this page).
+                                        val meta = controller.targetMeta(target)
+                                        val metaCells = buildList {
+                                            meta.version?.let { add(MetaCell("Version", it, wide = false)) }
+                                            meta.pluginName?.let { add(MetaCell("Plugin", it, wide = false)) }
+                                            target.lang?.let { add(MetaCell("Language", it.uppercase(), wide = false)) }
+                                            meta.isNsfw?.let {
+                                                add(MetaCell("NSFW", if (it) "Yes" else "No", wide = false))
+                                            }
+                                            testedAt?.let {
+                                                add(MetaCell("Last tested", TESTED_AT_FORMAT.format(Date(it)), wide = false))
+                                            }
+                                            meta.pkgName?.let { add(MetaCell("Package", it, wide = true)) }
+                                            meta.siteUrl?.let { add(MetaCell("Site", it, wide = true)) }
                                         }
-                                        if (notRun > 0) {
-                                            VerdictCountChip(
-                                                "Not run",
-                                                notRun,
-                                                MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
+                                        MetaGrid(cells = metaCells)
                                     }
                                 }
-                                Spacer(Modifier.height(10.dp))
-                                // The metadata GRID — two fact columns instead of
-                                // the old seven stacked rows (the hero used to eat
-                                // half the screen before the first result; D-617).
-                                // The duplicated "System" row is GONE — the
-                                // subtitle beside the name already says it.
-                                val meta = controller.targetMeta(target)
-                                val metaCells = buildList {
-                                    meta.version?.let { add(MetaCell("Version", it, wide = false)) }
-                                    meta.pluginName?.let { add(MetaCell("Plugin", it, wide = false)) }
-                                    meta.pkgName?.let { add(MetaCell("Package", it, wide = true)) }
-                                    meta.isNsfw?.let {
-                                        add(MetaCell("NSFW", if (it) "Yes" else "No", wide = false))
-                                    }
-                                    testedAt?.let {
-                                        add(MetaCell("Last tested", TESTED_AT_FORMAT.format(Date(it)), wide = false))
-                                    }
-                                    meta.siteUrl?.let { add(MetaCell("Site", it, wide = true)) }
-                                }
-                                MetaGrid(cells = metaCells)
-                                Spacer(Modifier.height(10.dp))
-                                // THE TIME-PROPORTIONAL STAGE BAR — length is
-                                // time, color is the test (D-606; pending
-                                // segments wear their kind colors, D-620).
+                            }
+                        }
+                    }
+
+                    // ── ROUND 91 (D-632): THE STAGE BAR — its OWN SECTION now,
+                    // below the dossier ("the bar segments… should be in a
+                    // separate section below it"), with a small header and the
+                    // honest caption. The bar itself: EQUAL segments by
+                    // default; the running segment starts smallest and grows
+                    // with its live time; finished segments hold their actual
+                    // durations; every reflow animates.
+                    item(key = "stage-bar") {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "Stage timings",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Spacer(Modifier.height(9.dp))
                                 MultiStageProgressBar(state = state)
                                 Spacer(Modifier.height(6.dp))
                                 Text(
-                                    text = "Each segment is one test — its length is the time it took",
+                                    text = "Each segment is one test — equal until tested, then sized by its time",
                                     fontFamily = RobotoFamily,
                                     fontSize = 10.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
@@ -306,14 +408,27 @@ fun TestingTargetDetailScreen(
                         }
                     }
 
-                    // ── THE RUN PILL (D-608; live-run aware round 88, D-619) —
-                    // three honest states: THIS target is queued/running in the
-                    // live session → a "View live run" door; a DIFFERENT run is
-                    // live → disabled with the truth on the label; otherwise it
-                    // starts the run.
+                    // ── THE RUN PILL (D-608; live-run aware round 88, D-619;
+                    // ROUND 91, D-632 — SOLID + PLAIN): three honest states:
+                    // THIS target is queued/running in the live session → a
+                    // "View live run" door; a DIFFERENT run is live → disabled
+                    // with the truth on the label; otherwise a SOLID
+                    // MUTED-ACCENT rectangle ("a solid color to it, but not a
+                    // way too bright color from the accent color" — the
+                    // accent lerped ~20% toward the background) that says
+                    // "Run Tests" and nothing else (the "· 7 tests" trailer
+                    // is gone: "it does not need to show seven tests or other
+                    // things like that. It should only say the text Run
+                    // Tests").
                     item(key = "actions") {
                         val canRunHere = !runActive
                         val watchingThisRun = inLiveRun
+                        // D-632: the solid-but-muted accent — never full neon.
+                        val runFill = lerp(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.background,
+                            0.20f,
+                        )
                         Surface(
                             color = when {
                                 // D-624: the live-run accent is the PALETTE's sky
@@ -321,18 +436,16 @@ fun TestingTargetDetailScreen(
                                 // `tertiary` is the never-themed pale pink the
                                 // round-87 report already rejected once.
                                 watchingThisRun -> TestingPalette.SystemB.copy(alpha = 0.14f)
-                                canRunHere -> MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                canRunHere -> runFill
                                 else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                             },
-                            border = BorderStroke(
-                                1.dp,
-                                when {
-                                    watchingThisRun -> TestingPalette.SystemB.copy(alpha = 0.5f)
-                                    canRunHere -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                    else -> Color.Transparent
-                                },
-                            ),
+                            border = when {
+                                watchingThisRun -> BorderStroke(1.dp, TestingPalette.SystemB.copy(alpha = 0.5f))
+                                canRunHere -> null
+                                else -> BorderStroke(1.dp, Color.Transparent)
+                            },
                             shape = RoundedCornerShape(14.dp),
+                            shadowElevation = if (canRunHere) 2.dp else 0.dp,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(14.dp))
                                 .clickable(enabled = watchingThisRun || canRunHere) {
@@ -344,7 +457,10 @@ fun TestingTargetDetailScreen(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(start = 10.dp, end = 16.dp, top = 9.dp, bottom = 9.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 10.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -373,28 +489,21 @@ fun TestingTargetDetailScreen(
                                         modifier = Modifier.size(16.dp),
                                     )
                                 }
-                                Spacer(Modifier.width(9.dp))
+                                Spacer(Modifier.width(10.dp))
                                 Text(
                                     text = when {
                                         watchingThisRun -> "View live run"
-                                        canRunHere -> "Run all tests"
+                                        canRunHere -> "Run Tests"
                                         else -> "A run is in progress…"
                                     },
                                     fontFamily = RobotoFamily,
-                                    fontSize = 13.sp,
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = when {
                                         watchingThisRun -> TestingPalette.SystemB
-                                        canRunHere -> MaterialTheme.colorScheme.primary
+                                        canRunHere -> MaterialTheme.colorScheme.onPrimary
                                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                                     },
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "· ${ExtensionTestKind.entries.size} tests",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
@@ -425,35 +534,112 @@ fun TestingTargetDetailScreen(
                                         .fillMaxWidth()
                                         .height(IntrinsicSize.Min),
                                 ) {
-                                    // The LEFT RAIL — connector → bubble → connector.
+                                    // The LEFT RAIL (ROUND 91, D-632 — the
+                                    // CENTERED rail): the bubble sits at each
+                                    // section's vertical CENTER, with the
+                                    // connector halves filling above and
+                                    // below — consecutive bubbles connect
+                                    // through their midpoints, the first row
+                                    // draws no line above its dot and the
+                                    // last none below ("the timeline dots
+                                    // need to be centered alongside with it").
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.width(26.dp),
+                                        modifier = Modifier.width(26.dp).fillMaxHeight(),
                                     ) {
                                         Box(
                                             modifier = Modifier
                                                 .width(2.dp)
-                                                .height(if (index == 0) 0.dp else 8.dp)
-                                                .background(railColor),
+                                                .weight(1f)
+                                                .background(
+                                                    if (index == 0) Color.Transparent else railColor,
+                                                ),
                                         )
                                         TimelineBubble(result?.status ?: TestStatus.PENDING)
-                                        if (!isLast) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .width(2.dp)
-                                                    .weight(1f)
-                                                    .background(railColor),
+                                        Box(
+                                            modifier = Modifier
+                                                .width(2.dp)
+                                                .weight(1f)
+                                                .background(
+                                                    if (isLast) Color.Transparent else railColor,
+                                                ),
+                                        )
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    // ROUND 91 (D-632): the section wrapper
+                                    // ANIMATES its size — a compact pending
+                                    // section EXPANDS smoothly into its full
+                                    // result card when the run reaches it
+                                    // ("after the test has been completed,
+                                    // then the section should expand
+                                    // smoothly, but it does not expand
+                                    // smoothly").
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .animateContentSize(
+                                                animationSpec = tween(
+                                                    Motion.DurationStandard,
+                                                    easing = Motion.EasingEmphasized,
+                                                ),
+                                            ),
+                                    ) {
+                                        if (result == null || result.status == TestStatus.PENDING) {
+                                            // ROUND 91 (D-632): the DEFAULT
+                                            // (not-yet-run) section — SMALL:
+                                            // the test's name + its theme
+                                            // color, nothing else ("it should
+                                            // not say the text Not Run Yet or
+                                            // anything like that. It should
+                                            // only show a small section with
+                                            // the name of the test and the
+                                            // theme color… the theme colors
+                                            // need to be somewhat on a
+                                            // brighter side, like contrasty").
+                                            // The dot is FULL-strength kind
+                                            // color — never dulled.
+                                            val accent = TestingPalette.kindColor(kind)
+                                            Surface(
+                                                color = accent.copy(alpha = 0.07f),
+                                                border = BorderStroke(1.dp, accent.copy(alpha = 0.24f)),
+                                                shape = RoundedCornerShape(10.dp),
+                                                modifier = Modifier.fillMaxWidth(),
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.padding(
+                                                        horizontal = 10.dp,
+                                                        vertical = 8.dp,
+                                                    ),
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(9.dp)
+                                                            .clip(CircleShape)
+                                                            .background(accent),
+                                                    )
+                                                    Spacer(Modifier.width(9.dp))
+                                                    Text(
+                                                        text = kind.label,
+                                                        fontFamily = RobotoFamily,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            KindDetailCard(
+                                                kind = kind,
+                                                result = result,
+                                                state = state,
+                                                autoPlayPreview = inLiveRun,
+                                                modifier = Modifier.fillMaxWidth(),
                                             )
                                         }
                                     }
-                                    Spacer(Modifier.width(10.dp))
-                                    KindDetailCard(
-                                        kind = kind,
-                                        result = result,
-                                        state = state,
-                                        autoPlayPreview = inLiveRun,
-                                        modifier = Modifier.weight(1f),
-                                    )
                                 }
                                 if (!isLast) {
                                     Spacer(Modifier.height(8.dp))
@@ -462,6 +648,18 @@ fun TestingTargetDetailScreen(
                         }
                     }
                 }
+
+                // ROUND 91 (D-632): the header BLUR — the app-wide §2.2
+                // language, missing on this screen (the device report
+                // caught it), pinned over the list's top edge.
+                ScrollBlurOverlay(
+                    scrollOffset = {
+                        if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                        else listState.firstVisibleItemScrollOffset.toFloat()
+                    },
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
 
                 // ── THE TRANSIENT VERDICT BANNER — an OVERLAY now (D-616):
                 // pinned under the header, floating ABOVE the list. The old
@@ -592,19 +790,23 @@ private fun VerdictCountChip(label: String, count: Int, color: Color) {
 
 /**
  * THE TIME-PROPORTIONAL STAGE BAR (round 87, D-606; honesty pass round 88,
- * D-620). The user's spec: "the bar's length will determine how much time it
- * took on each one of the tasks, and the bar will be colored differently for
- * each one of them."
- *   • a FINISHED segment's width = its ACTUAL durationMs;
- *   • the RUNNING segment's width grows LIVE (its liveMs ticks every 150ms,
- *     so the growth is inherently smooth — no per-segment animation waves,
- *     which used to reflow every neighbor on each step);
- *   • a PENDING segment holds its budget's share but wears its KIND's color
- *     at a faint alpha (the old all-gray strip made "each part a different
- *     color" a pre-run lie);
- *   • tiny segments get a VISIBILITY FLOOR that is RENORMALIZED across the
- *     row (the old 2% clamp stole width from the others and broke the
- *     proportionality it was protecting).
+ * D-620; ROUND 91, D-632 — the EQUAL-BY-DEFAULT model). The user's spec:
+ * "by default each of the segments should be of same length. And as the
+ * tests start, only then will the appropriate segment be in the smallest
+ * length, and then it will expand based on how much time it is taking. And
+ * also the other segments along the way will be adjusted accordingly to
+ * along with it, like the previous segments will shrink in their size too…
+ * and the animation needs to be handled smoothly."
+ *   • an UNTESTED segment holds the NOMINAL share — every pending segment
+ *     the same length (the old timeoutMs budgets made them differ pre-run);
+ *   • the RUNNING segment's weight = its LIVE elapsed (it starts as the
+ *     smallest and grows, ticking every 150ms);
+ *   • a FINISHED segment's weight = its ACTUAL durationMs;
+ *   • every weight ANIMATES (a short FastOutSlowIn chase), so the pending →
+ *     running shrink, the live growth, and the neighbors' renormalizing
+ *     reflow all read as one smooth motion;
+ *   • tiny segments keep the VISIBILITY FLOOR + RENORMALIZATION from D-620
+ *     (floors never steal width — the row always sums to exactly one bar).
  */
 @Composable
 private fun MultiStageProgressBar(state: TargetRunState?) {
@@ -622,21 +824,31 @@ private fun MultiStageProgressBar(state: TargetRunState?) {
         }
     }
 
-    // The segment model: kind + verdict + its TIME (the width's source).
+    // The segment model: kind + verdict + its raw TIME weight.
     val segments = ExtensionTestKind.entries.map { kind ->
         val result = state?.results?.get(kind)
-        val ms = when {
-            result == null || result.status == TestStatus.PENDING -> kind.timeoutMs
-            result.status == TestStatus.RUNNING -> liveMs.coerceAtLeast(400L)
-            else -> result.durationMs.coerceAtLeast(400L)
-        }
-        Triple(kind, result, ms.toFloat())
+        val targetMs = when {
+            result == null || result.status == TestStatus.PENDING -> STAGE_NOMINAL_MS
+            result.status == TestStatus.RUNNING -> liveMs.coerceAtLeast(STAGE_MIN_MS)
+            else -> result.durationMs.coerceAtLeast(STAGE_MIN_MS)
+        }.toFloat()
+        Triple(kind, result, targetMs)
     }
-    val totalMs = segments.sumOf { it.third.toDouble() }.toFloat().coerceAtLeast(1f)
+    // D-632: every weight chases its target with a short tween — the live
+    // growth and every reflow stay smooth (no state-change pops).
+    val animatedWeights = segments.map { (_, _, ms) ->
+        val animated by animateFloatAsState(
+            targetValue = ms,
+            animationSpec = tween(350, easing = FastOutSlowInEasing),
+            label = "stageWeight",
+        )
+        animated
+    }
+    val totalMs = animatedWeights.sum().coerceAtLeast(1f)
     // D-620: floor every fraction for visibility, then RENORMALIZE so the
     // floors never steal width — the row always sums to exactly one bar.
     val minFraction = 0.03f
-    val floored = segments.map { (it.third / totalMs).coerceAtLeast(minFraction) }
+    val floored = animatedWeights.map { (it / totalMs).coerceAtLeast(minFraction) }
     val flooredTotal = floored.sum().coerceAtLeast(0.01f)
 
     Row(
@@ -647,11 +859,14 @@ private fun MultiStageProgressBar(state: TargetRunState?) {
             .clip(RoundedCornerShape(50))
             .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f)),
     ) {
-        segments.forEachIndexed { index, (kind, result, ms) ->
+        segments.forEachIndexed { index, (kind, result, _) ->
             val pending = result == null || result.status == TestStatus.PENDING
             val baseColor = TestingPalette.kindColor(kind)
             val fillColor = when {
-                pending -> baseColor.copy(alpha = 0.16f)
+                // D-632: a touch brighter than the old 0.16 — the pending
+                // row reads as its kind's color, just resting ("contrasty,
+                // not dulled").
+                pending -> baseColor.copy(alpha = 0.28f)
                 result?.status == TestStatus.SKIPPED -> baseColor.copy(alpha = 0.30f)
                 result?.status == TestStatus.FAILED -> baseColor.copy(alpha = 0.55f)
                 else -> baseColor
@@ -666,6 +881,12 @@ private fun MultiStageProgressBar(state: TargetRunState?) {
         }
     }
 }
+
+/** The equal share every untested segment holds (D-632) — ~a typical test. */
+private const val STAGE_NOMINAL_MS = 10_000L
+
+/** The visibility floor for live/finished weights (D-632). */
+private const val STAGE_MIN_MS = 250L
 
 /** One timeline bubble — the status-colored circle on the left rail. */
 @Composable
@@ -720,14 +941,17 @@ private fun TimelineBubble(status: TestStatus) {
 }
 
 /**
- * THE TRANSIENT VERDICT BANNER (round 87, D-609; round 88, D-616): the
- * just-finished test's verdict slides in, lingers ~2.6 seconds, then slides
- * back out — the view NEVER jumps to the result, the result comes to the
- * user's eye and leaves politely (the round-87 report: "after the test has
- * been performed, it should not automatically move to the very bottom or to
- * the very top… show the results for some time, and then with a smooth
- * animation it should go away"). ROUND 88: the [modifier] lets the caller
- * pin it as an OVERLAY above the list (nothing below it ever shifts).
+ * THE TRANSIENT VERDICT BANNER (round 87, D-609; round 88, D-616; ROUND 91,
+ * D-632 — the SOLID pass): the just-finished test's verdict slides in,
+ * lingers ~2.6 seconds, then slides back out — the view NEVER jumps to the
+ * result, the result comes to the user's eye and leaves politely. The
+ * round-91 report: "its background should not be transparent or anything
+ * like that, because it would be hard to view it. And also it should have
+ * some darkening effect around it so that it is clearly visible" — so the
+ * banner itself is now a SOLID elevated surface (surfaceContainerHigh +
+ * shadow + hairline + the accent as a leading edge), and a soft DARKENING
+ * GRADIENT fades in above and below it, scrimming whatever list content
+ * slides underneath.
  */
 @Composable
 private fun TransientResultBanner(
@@ -761,32 +985,72 @@ private fun TransientResultBanner(
                 TestStatus.FAILED -> "failed"
                 else -> "skipped"
             }
-            Surface(
-                color = accent.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // The DARKENING SCRIM — a soft gradient that fades toward the
+                // banner from above, so the solid card reads over ANY list
+                // content sliding beneath it.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(20.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.30f)),
+                            ),
+                        ),
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(12.dp),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    TestStatusIcon(result.status, size = 16.dp)
-                    Spacer(Modifier.width(9.dp))
-                    Text(
-                        text = "${kind.label} $verdictWord",
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = accent,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        text = TestTimeFormat.format(result.durationMs),
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp, vertical = 9.dp)
+                            .height(IntrinsicSize.Min),
+                    ) {
+                        // The accent leading edge — the verdict's color as a
+                        // solid bar, readable on the solid surface.
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(50))
+                                .background(accent),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        TestStatusIcon(result.status, size = 16.dp)
+                        Spacer(Modifier.width(9.dp))
+                        Text(
+                            text = "${kind.label} $verdictWord",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = accent,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            text = TestTimeFormat.format(result.durationMs),
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
+                // The scrim's lower half.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(20.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Black.copy(alpha = 0.30f), Color.Transparent),
+                            ),
+                        ),
+                )
             }
         }
     }
@@ -794,10 +1058,11 @@ private fun TransientResultBanner(
 
 /**
  * One kind's result card on the timeline — THE COLORED BLOCK (round 87,
- * D-607; failure-presentation pass round 88, D-618). The user's spec: the
- * results render INSIDE the block ("inside the pink block, there will be
- * the results… a section inside the pink block"), and the code-window view
- * is REMOVED COMPLETELY. What the card holds:
+ * D-607; failure-presentation pass round 88, D-618; ROUND 91, D-632 — the
+ * never-run state moved OUT to the timeline's compact section). The user's
+ * spec: the results render INSIDE the block ("inside the pink block, there
+ * will be the results… a section inside the pink block"), and the code-window
+ * view is REMOVED COMPLETELY. What the card holds:
  *   • the kind's color dot + label + LIVE elapsed while running;
  *   • the verdict message + the detail line as clean text rows — the
  *     detail line shows IN FULL now (the "full details" page ellipsizing
@@ -806,34 +1071,23 @@ private fun TransientResultBanner(
  *   • the RESULTS SECTION — an inset inside the block carrying the payload
  *     (result grid / dossier / episode chips / link rows / live preview),
  *     SKIPPED ENTIRELY when the payload view would render nothing (PING).
- * A not-yet-run card sits faded with ONE fade mechanism (the old stacked
- * card-alpha + surface-alpha double-dim made the labels unreadable).
+ * A RUNNING or terminal result only — the not-yet-run kinds render the
+ * timeline's compact name+color section instead (D-632).
  */
 @Composable
 private fun KindDetailCard(
     kind: ExtensionTestKind,
-    result: TestResult?,
+    result: TestResult,
     state: TargetRunState?,
     modifier: Modifier = Modifier,
     autoPlayPreview: Boolean = true,
 ) {
-    val status = result?.status ?: TestStatus.PENDING
-    val pending = status == TestStatus.PENDING
+    val status = result.status
     val running = status == TestStatus.RUNNING
     val accent = TestingPalette.kindColor(kind)
     Surface(
-        color = if (pending) {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.10f)
-        } else {
-            accent.copy(alpha = 0.10f)
-        },
-        border = if (pending) {
-            // D-618: a pending card keeps a HAIRLINE (design-language
-            // consistency) instead of the old double-fade with no border.
-            BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
-        } else {
-            BorderStroke(1.dp, accent.copy(alpha = 0.30f))
-        },
+        color = accent.copy(alpha = 0.10f),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.30f)),
         shape = RoundedCornerShape(13.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
@@ -844,7 +1098,7 @@ private fun KindDetailCard(
                     modifier = Modifier
                         .size(9.dp)
                         .clip(CircleShape)
-                        .background(accent.copy(alpha = if (pending) 0.35f else 0.9f)),
+                        .background(accent.copy(alpha = 0.9f)),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
@@ -863,7 +1117,7 @@ private fun KindDetailCard(
                     )
                 } else {
                     Text(
-                        text = result?.let { TestTimeFormat.format(it.durationMs) } ?: "—",
+                        text = TestTimeFormat.format(result.durationMs),
                         fontFamily = RobotoFamily,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -871,96 +1125,86 @@ private fun KindDetailCard(
                 }
             }
 
-            if (result == null || status == TestStatus.PENDING) {
+            // ── The verdict message + detail as clean text rows ──
+            if (result.message.isNotBlank()) {
                 Text(
-                    text = "Not run yet",
+                    text = result.message,
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = when (status) {
+                        TestStatus.FAILED -> MaterialTheme.colorScheme.error
+                        TestStatus.RUNNING -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier.padding(top = 7.dp),
+                )
+            }
+            result.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+                Text(
+                    text = detail,
                     fontFamily = RobotoFamily,
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(top = 5.dp, start = 17.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
-            } else {
-                // ── The verdict message + detail as clean text rows ──
-                if (result.message.isNotBlank()) {
-                    Text(
-                        text = result.message,
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = when (status) {
-                            TestStatus.FAILED -> MaterialTheme.colorScheme.error
-                            TestStatus.RUNNING -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.onSurface
-                        },
-                        modifier = Modifier.padding(top = 7.dp),
+            }
+            // The LIVE per-phrase search status (the D-592 pipe).
+            if (running && kind == ExtensionTestKind.SEARCH && !state?.runningDetail.isNullOrBlank()) {
+                Text(
+                    text = state!!.runningDetail.orEmpty(),
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            // The search ladder's ADVANCED STATS — stat pills now, not
+            // code lines (the round-87 report).
+            val winner = result.payload?.searchWinningPhrase
+            if (winner != null) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 7.dp),
+                ) {
+                    SearchStatPill(
+                        text = "${result.payload?.searchAttempts ?: 1} " +
+                            if ((result.payload?.searchAttempts ?: 1) > 1) "attempts" else "attempt",
                     )
+                    SearchStatPill(text = "won on \u201C$winner\u201D")
                 }
-                result.detail?.takeIf { it.isNotBlank() }?.let { detail ->
-                    Text(
-                        text = detail,
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
-                // The LIVE per-phrase search status (the D-592 pipe).
-                if (running && kind == ExtensionTestKind.SEARCH && !state?.runningDetail.isNullOrBlank()) {
-                    Text(
-                        text = state!!.runningDetail.orEmpty(),
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-                // The search ladder's ADVANCED STATS — stat pills now, not
-                // code lines (the round-87 report).
-                val winner = result.payload?.searchWinningPhrase
-                if (winner != null) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(top = 7.dp),
-                    ) {
-                        SearchStatPill(
-                            text = "${result.payload?.searchAttempts ?: 1} " +
-                                if ((result.payload?.searchAttempts ?: 1) > 1) "attempts" else "attempt",
+            }
+            // ── THE RESULTS SECTION — inside the colored block; skipped
+            // ENTIRELY when the payload view would render nothing (PING's
+            // chips are gone by design — an empty labeled box only made
+            // the block look broken; D-622).
+            val payload = result.payload
+            if (payload != null && kindPayloadHasContent(kind, payload)) {
+                Surface(
+                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.55f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 9.dp),
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Text(
+                            text = resultsSectionLabel(kind, payload),
+                            fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.6.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
                         )
-                        SearchStatPill(text = "won on \u201C$winner\u201D")
-                    }
-                }
-                // ── THE RESULTS SECTION — inside the colored block; skipped
-                // ENTIRELY when the payload view would render nothing (PING's
-                // chips are gone by design — an empty labeled box only made
-                // the block look broken; D-622).
-                val payload = result.payload
-                if (payload != null && kindPayloadHasContent(kind, payload)) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.background.copy(alpha = 0.55f),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 9.dp),
-                    ) {
-                        Column(modifier = Modifier.padding(8.dp)) {
-                            Text(
-                                text = resultsSectionLabel(kind, payload),
-                                fontFamily = RobotoFamily,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = 0.6.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            KindPayloadView(
-                                kind = kind,
-                                payload = payload,
-                                autoPlayPreview = autoPlayPreview,
-                            )
-                        }
+                        Spacer(Modifier.height(6.dp))
+                        KindPayloadView(
+                            kind = kind,
+                            payload = payload,
+                            autoPlayPreview = autoPlayPreview,
+                        )
                     }
                 }
             }

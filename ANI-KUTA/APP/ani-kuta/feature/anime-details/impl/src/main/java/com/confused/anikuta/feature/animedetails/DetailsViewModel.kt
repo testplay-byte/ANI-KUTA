@@ -1013,8 +1013,25 @@ class DetailsViewModel(
     // fields. The displayed UnifiedAnime is always computed by merging the two
     // bases with the current priority. Switching priority never loses data.
 
-    /** The original extension data (null for AniList-only entries). */
-    private var extensionBase: UnifiedAnime? = null
+    /**
+     * The original extension data (null for AniList-only entries).
+     *
+     * ROUND 91 (D-628): now backed by a [MutableStateFlow] — the sheet's
+     * linked-content card renders the EXTENSION side of the entry (the
+     * user's v1.1.47 verdict: "it is showing the details from AniList. It
+     * should not show the details from AniList, but it should be showing
+     * the details from the extension side"), so the UI needs to OBSERVE
+     * this base as it arrives (the load path fills it asynchronously —
+     * cache, link, refresh). Every existing read/write keeps the plain
+     * property syntax; only the observation is new.
+     */
+    private val _extensionBaseState = MutableStateFlow<UnifiedAnime?>(null)
+    var extensionBase: UnifiedAnime?
+        get() = _extensionBaseState.value
+        set(value) { _extensionBaseState.value = value }
+
+    /** ROUND 91 (D-628): the observable extension-side base (see [extensionBase]). */
+    val extensionBaseState: StateFlow<UnifiedAnime?> = _extensionBaseState.asStateFlow()
 
     /** The original AniList data (null for extension-only entries, set after linking). */
     private var anilistBase: UnifiedAnime? = null

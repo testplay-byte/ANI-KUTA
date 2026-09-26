@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.feature.extensionssettings.matchesSearch
@@ -88,6 +89,13 @@ import com.confused.anikuta.feature.extensionssettings.matchesSearch
 //      top… in this screen only the simple tests and their time duration
 //      should be shown" — the expanded body leads with the actions and shows
 //      ONLY the compact kind/duration rows (no message text).
+//
+//  ROUND 91 (D-631 — the v1.1.47 device round's list pass): the heading is
+//  just the SYSTEM ("Aniyomi" / "CloudStream"), the per-row lang·system
+//  subtitle is GONE (the heading owns the system; the language was parade
+//  noise), a never-run expansion shows the test MANIFEST (name + theme
+//  color — the detail rows appear only once a run produces results), and
+//  the header BLUR (§2.2) joins the app-wide language.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -191,11 +199,17 @@ fun TestingTargetListScreen(
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(
-                title = "${eco.displayName()} targets",
+                // ROUND 91 (D-631): the heading says just the SYSTEM — "Aniyomi"
+                // / "CloudStream" — not "Aniyomi targets" (the device report:
+                // "the heading should not say Anyomi targets or Cloud Stream
+                // targets. It should only say Anyomi or Cloud Stream").
+                title = eco.displayName(),
                 collapsed = collapsed,
                 onBack = onBack,
             )
-
+            // ROUND 91 (D-631): the header BLUR — the app-wide §2.2 language,
+            // missing on this screen (the device report caught it).
+            Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -309,6 +323,17 @@ fun TestingTargetListScreen(
                         )
                     }
                 }
+            }
+                // ROUND 91 (D-631): the header BLUR, pinned over the list's
+                // top edge.
+                ScrollBlurOverlay(
+                    scrollOffset = {
+                        if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                        else listState.firstVisibleItemScrollOffset.toFloat()
+                    },
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
             }
         }
 
@@ -660,17 +685,10 @@ private fun TargetListRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        text = buildString {
-                            target.lang?.let { append(it) }
-                            append(" · ")
-                            append(target.ecosystem.displayName())
-                        },
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
+                    // ROUND 91 (D-631): the lang · system subtitle is GONE —
+                    // the system is the screen's own heading ("the user can
+                    // see the headings at the top"), and the language was
+                    // parade noise on every row.
                 }
                 Spacer(Modifier.width(8.dp))
                 // Exactly ONE trailing indicator — the status chip. The old
@@ -681,7 +699,11 @@ private fun TargetListRow(
             // ── Expanded body (D-589, round 86): TWO SEPARATED BLOCKS — the
             // test results live in their own sub-container, and the actions
             // (Run tests / Full details) sit at the VERY BOTTOM-RIGHT corner
-            // of the expansion.
+            // of the expansion. ROUND 91 (D-631): a target with NO results
+            // yet shows the MANIFEST — each test's name + theme color and
+            // nothing else ("the details of it appear only when the user
+            // clicks the Run All Tests"); once results exist (a run
+            // happened), the live kind grid takes over exactly as before.
             AnimatedVisibility(
                 visible = expanded,
                 enter = fadeIn(tween(180)) + expandVertically(tween(220, easing = Motion.EasingEmphasized)),
@@ -706,24 +728,59 @@ private fun TargetListRow(
                         shape = RoundedCornerShape(11.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
-                            ExtensionTestKind.entries.forEach { kind ->
-                                val kindResult = state?.results?.get(kind)
-                                val pending = kindResult == null || kindResult.status == TestStatus.PENDING
-                                // Every row fades/expands in on first
-                                // appearance (the "one test shows at a
-                                // time" reveal the user liked).
-                                AppearingKindRow {
-                                    Box(modifier = Modifier.alpha(if (pending) 0.42f else 1f)) {
-                                        KindCompactRow(
-                                            kind = kind,
-                                            result = kindResult,
-                                            runningStartedAtMs = state?.runningKindStartedAtMs,
-                                            runningDetail = state?.runningDetail,
+                        if (state == null || state.results.isEmpty()) {
+                            // ROUND 91 (D-631): the NEVER-RUN manifest — name
+                            // + theme color per test, no durations, no
+                            // placeholders. The per-kind detail rows appear
+                            // only once a run has produced results.
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(9.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                ExtensionTestKind.entries.forEach { kind ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 2.dp),
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(TestingPalette.kindColor(kind)),
                                         )
+                                        Spacer(Modifier.width(9.dp))
+                                        Text(
+                                            text = kind.label,
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                ExtensionTestKind.entries.forEach { kind ->
+                                    val kindResult = state.results[kind]
+                                    val pending = kindResult == null || kindResult.status == TestStatus.PENDING
+                                    // Every row fades/expands in on first
+                                    // appearance (the "one test shows at a
+                                    // time" reveal the user liked).
+                                    AppearingKindRow {
+                                        Box(modifier = Modifier.alpha(if (pending) 0.42f else 1f)) {
+                                            KindCompactRow(
+                                                kind = kind,
+                                                result = kindResult,
+                                                runningStartedAtMs = state.runningKindStartedAtMs,
+                                                runningDetail = state.runningDetail,
+                                            )
+                                        }
                                     }
                                 }
                             }

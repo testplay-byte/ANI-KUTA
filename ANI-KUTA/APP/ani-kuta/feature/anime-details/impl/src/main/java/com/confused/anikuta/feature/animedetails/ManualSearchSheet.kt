@@ -7,13 +7,16 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -56,13 +59,16 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -94,61 +100,58 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import kotlin.math.abs
 
 /**
  * Manual search bottom sheet — search installed sources for a matching SAnime.
  *
- * ROUND 90 (D-626) — THE TWO-COLUMN REWORK, FORWARD FROM THE ROUND-89 REVERT.
- * The user's device verdict on v1.1.46 (the reverted v1.1.43 single list):
- * "the Link Sources bottom-up menu is most definitely not good… let's
- * improve it and let's move forward and not go backward anymore." The
- * round-88 two-column DIRECTION was re-ordered — this time executed to the
- * user's exact spec:
+ * ROUND 91 (D-628) — THE WHEEL REWORK (the v1.1.47 device verdict: “the
+ * height should be no more than 60% of the device's whole height… it should
+ * only show at a time five… the currently selected one should be
+ * highlighted, the other ones grayed out with a slightly blur kind of
+ * effect… the one which is selected should be centered at all times, even
+ * at the very bottom or top… the headings need to be highlighted, given
+ * some depth… that section should be highlighted when any of the systems is
+ * selected”). On top of the round-90 two-column base:
  *
- * 1. TWO TRUE COLUMNS — Aniyomi extensions on the LEFT, CloudStream plugins
- *    on the RIGHT, each its own card with a fixed heading (accent dot +
- *    label + count) and its own INDEPENDENTLY SCROLLING list. Both buckets
- *    arrive pre-sorted alphabetically (round 85).
- * 2. SCROLL-DRIVEN SELECTION — as the user scrolls a column, the row
- *    nearest that column's vertical CENTER becomes the selected source
- *    (no snap, no wheel chrome — a normal list that selects what it
- *    centers). The bottom search bar's placeholder follows the selection
- *    LIVE ("Search <extension name>…"). An interaction guard makes sure
- *    only USER scrolls drive selection — the seeded pre-centering scroll
- *    on open can never steal the selection from the other column.
- * 3. THE LINKED-CONTENT CARD — at the very bottom, below the search bar
- *    and its hint: the content's cover on the left, its name at the top
- *    right, and its key details underneath (episodes, status, score,
- *    season/year, and the source it is currently linked through) — the
- *    sheet always shows WHAT is being re-linked.
- * 4. THE HINT, FIXED — "Tap a source to select it, then search above."
- *    (the search bar sits ABOVE the hint; the old copy said "below").
- * 5. THE PASTE, OPTIMIZED — the query is a [TextFieldValue] now, so the
- *    first-focus content-name paste (D-582) lands with the caret at the
- *    END of the pasted text. The String overload could leave the caret at
- *    offset 0, so the first keystroke PREPENDED instead of appending —
- *    one of the "slight issues" from the device report. The round-85 blur
- *    contract (focus lost + idle + no results → the field empties and the
- *    paste re-arms) is unchanged.
- * 6. THE IME-AWARE CAP (the D-612 mechanism, restored with the card in
- *    the reserve) — the columns' lists are capped at what remains after
- *    reserving the header, the search row, the hint and the card, so the
- *    search bar and the card keep their room when the keyboard opens.
+ * 1. THE 60% CAP — the sheet's total height never exceeds 60% of the
+ *    screen: a fixed chrome reserve (header + column headings + search row
+ *    + hint + the linked-content card ≈ 330dp) is subtracted from that
+ *    budget, and the WHEELS take what remains.
+ * 2. THE FIVE-ROW WHEEL — each column's list is a fixed-height viewport of
+ *    exactly five 36dp rows (192dp), NOT a fill-everything list; the rest
+ *    arrives by scrolling.
+ * 3. THE CENTERED SELECTION — snap fling + half-viewport contentPadding
+ *    mean the selected row is ALWAYS the centered row, even at the very top
+ *    or bottom (the padding leaves the empty area). Tapping a row selects
+ *    AND animates it to the center.
+ * 4. THE HIGHLIGHT LANGUAGE — the selected row is tinted + bordered +
+ *    carries the ✓ bubble; every OTHER row is grayed with a SLIGHT blur
+ *    (1.2dp — clearly readable, never a smear). The column whose list holds
+ *    the selection lights its own card (accent border + tint) and its
+ *    heading wears an accent gradient band + accent count chip — “highlighted,
+ *    with some depth”.
+ * 5. THE EXTENSION-SIDE CARD — the linked-content card at the bottom now
+ *    renders the EXTENSION's own details (title, cover, status, score, year,
+ *    and the episode count from the linked source's own episode list), not
+ *    AniList's (the user: “it is showing the details from AniList… it should
+ *    be showing the details from the extension side”). AniList-only entries
+ *    show the sparse honest card + “No source linked yet”.
  *
- * Kept from the earlier rounds: the linked-source pre-selection + the
- * persistent ✓ row marker (D-578), the local results mode with "Change"
- * (D-575), the keyboard/focus contracts (round 85, D-587's focus-killer
- * fix), the results area, and the never-blank icon fallbacks.
+ * ROUND 90 (D-626) keeps: the two true columns, scroll-driven selection +
+ * the interaction guard, the live “Search <extension>…” placeholder, the
+ * TextFieldValue paste (caret at the end), the “search above” hint, and the
+ * ime-aware keyboard contract (the keyboard-open budget still shrinks the
+ * wheels so the search bar and card keep their room).
  *
  * History: the v1.1.44 stacked cards (D-613) and the v1.1.45 side-by-side
- * columns (D-614) were reverted by D-625 (round 89); this file supersedes
- * both — the complete D-614 implementation remains recoverable at tag
- * v1.1.45 (commit 05a79f80) for reference, but THIS layout is the forward
- * direction now.
+ * columns (D-614) were reverted by D-625 (round 89); D-626 rebuilt the
+ * two-column direction forward; THIS round turns the columns into wheels
+ * with the depth language — the forward line continues.
  *
- * CORE_RULES §22: smooth animations. §20: tag "Anikuta:Feature:Details:ManualSearch".
+ * CORE_RULES §22: smooth animations. §20: tag “Anikuta:Feature:Details:ManualSearch”.
  */
 
 /**
@@ -277,20 +280,26 @@ fun ManualSearchSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = null,
     ) {
-        // ── ROUND 90 (D-626): THE IME-AWARE CAP (the D-612 mechanism back,
-        // with the card in the reserve) — everything the sheet shows besides
-        // the lists is reserved (header ~58dp + the two column headings
-        // ~30dp + search row ~66dp + hint ~28dp + the linked-content card
-        // ~104dp + closing paddings ~14dp ≈ 300dp), the keyboard and nav
-        // bar are subtracted, and the LISTS take whatever remains (floored
-        // so they never vanish on tiny screens). This is what keeps the
-        // search bar — and now the card — on the sheet with the keyboard
-        // open.
+        // ── ROUND 91 (D-628): THE 60% CAP + THE FIVE-ROW WHEEL HEIGHT ──
+        // The sheet's TOTAL height is bounded to 60% of the screen: the fixed
+        // chrome (header ~58dp + the two column headings ~40dp + search row
+        // ~66dp + hint ~28dp + the linked-content card ~104dp + the spacing
+        // ~34dp ≈ 330dp) is reserved, and each wheel is a FIXED viewport of
+        // five 36dp rows (192dp). The wheels take the SMALLER of the two —
+        // plus the ime guard from D-612/D-626 (keyboard-open budget), so the
+        // search bar and the card keep their room — floored so they never
+        // vanish on tiny screens.
         val density = LocalDensity.current
         val imeBottom = WindowInsets.ime.getBottom(density)
         val navBottom = WindowInsets.navigationBars.getBottom(density)
         val insetsDp = with(density) { (imeBottom + navBottom).toDp() }
-        val listMaxHeight = (screenHeight - 300.dp - insetsDp).coerceAtLeast(140.dp)
+        val chromeReserve = 330.dp
+        val fiveRowWheel = WHEEL_ROW_COUNT * WHEEL_ROW_HEIGHT +
+            (WHEEL_ROW_COUNT - 1) * WHEEL_ROW_SPACING
+        val sheet60Budget = (screenHeight * 0.60f) - chromeReserve
+        val imeBudget = screenHeight - chromeReserve - insetsDp
+        val wheelHeight = minOf(fiveRowWheel, sheet60Budget, imeBudget)
+            .coerceAtLeast(120.dp)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -343,9 +352,9 @@ fun ManualSearchSheet(
                 )
             } else {
                 // ── Main area: the two columns OR the results (D-575) ──
-                // ROUND 90 (D-626): the columns are capped by the ime-aware
-                // cap above, so the search bar, the hint and the card below
-                // can never be pushed out.
+                // ROUND 91 (D-628): the wheels are capped by the 60%/ime
+                // budgets above, so the search bar, the hint and the card
+                // below can never be pushed out.
                 AnimatedContent(
                     targetState = showResults,
                     transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
@@ -375,7 +384,7 @@ fun ManualSearchSheet(
                             csIconByName = csIconByName,
                             selectedSource = selectedSource,
                             isLinked = linkedMatches,
-                            listMaxHeight = listMaxHeight,
+                            wheelHeight = wheelHeight,
                             onSelect = { source ->
                                 selectedSource = source
                                 HapticHelper.lightTick(context)
@@ -432,7 +441,11 @@ fun ManualSearchSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp, bottom = 12.dp),
+                        // ROUND 91 (D-628): real breathing room between the
+                        // two systems and the bar (the device report: “there
+                        // should be some space between the top two systems
+                        // and the bottom search bar”).
+                        .padding(top = 16.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // The bar — bordered pill with a FOCUS RING (D-582); takes
@@ -638,22 +651,24 @@ fun ManualSearchSheet(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ROUND 90 (D-626): THE TWO TRUE COLUMNS — Aniyomi LEFT, CloudStream RIGHT
-//  (the user's re-affirmed direction, executed to spec this time). Each
-//  ecosystem lives in its own rounded card with a FIXED heading (accent dot
-//  + bold label + count — always visible no matter how far its list is
-//  scrolled) and its own independently scrolling list, capped by the
-//  ime-aware [listMaxHeight]. SCROLLING A COLUMN SELECTS: the row nearest
-//  the column's vertical center becomes the selection (guarded so only
-//  user-driven scrolls move it), and the sheet's search bar follows.
-//
+//  ROUND 91 (D-628): THE TWO WHEELS — Aniyomi LEFT, CloudStream RIGHT (the
+//  round-90 two-column base, rebuilt to the v1.1.47 device spec):
+//    • each column is a FIXED five-row WHEEL — not a fill-the-screen list;
+//    • the SELECTED row is always the CENTERED row (snap fling + half-height
+//      contentPadding, so even the first and last rows center with empty
+//      space above/below);
+//    • non-selected rows are GRAYED with a slight blur — clearly readable;
+//    • the column holding the selection lights up (accent border + tint),
+//      and its heading wears an accent gradient band with a count chip.
 //  History: D-587 (round 86) replaced the alarm-clock drums with a single
-//  list; D-613/D-614 (rounds 87-88) tried stacked cards then side-by-side
-//  columns and were reverted by D-625 (round 89, back to the v1.1.43 single
-//  list); ROUND 90 re-orders the two-column direction forward with the
-//  scroll-selection, the live search bar, the linked-content card and the
-//  fixed hint. The D-614 blob stays recoverable at tag v1.1.45 (05a79f80).
+//  list; D-613/D-614 (rounds 87-88) → reverted by D-625 (round 89); D-626
+//  (round 90) rebuilt the two columns forward; D-628 gives them the wheel.
 // ════════════════════════════════════════════════════════════════════════════
+
+/** The wheel geometry (D-628): five fixed-height rows per viewport. */
+private val WHEEL_ROW_COUNT = 5
+private val WHEEL_ROW_HEIGHT = 36.dp
+private val WHEEL_ROW_SPACING = 3.dp
 
 /** Resolved icon for a source — exactly one of the two is non-null per side. */
 private data class SourceIcon(
@@ -669,7 +684,7 @@ private fun SourceListPanel(
     csIconByName: Map<String, String?>,
     selectedSource: AnimeCatalogueSource?,
     isLinked: (AnimeCatalogueSource) -> Boolean,
-    listMaxHeight: Dp,
+    wheelHeight: Dp,
     onSelect: (AnimeCatalogueSource) -> Unit,
     onCentered: (AnimeCatalogueSource) -> Unit,
 ) {
@@ -698,7 +713,7 @@ private fun SourceListPanel(
             selectedSource = selectedSource,
             isLinked = isLinked,
             initialCenterIndex = aniyomiCenter,
-            listMaxHeight = listMaxHeight,
+            wheelHeight = wheelHeight,
             emptyNote = "No Aniyomi sources installed",
             onSelect = onSelect,
             onCentered = onCentered,
@@ -713,7 +728,7 @@ private fun SourceListPanel(
             selectedSource = selectedSource,
             isLinked = isLinked,
             initialCenterIndex = csCenter,
-            listMaxHeight = listMaxHeight,
+            wheelHeight = wheelHeight,
             emptyNote = "No CloudStream plugins installed",
             onSelect = onSelect,
             onCentered = onCentered,
@@ -723,21 +738,21 @@ private fun SourceListPanel(
 }
 
 /**
- * ONE SIDE of the two-column layout (round 90, D-626): a rounded card whose
- * HEADING stays fixed at the top (accent dot + bold label + count) while the
- * rows below scroll in their own LazyColumn, capped by the ime-aware
- * [listMaxHeight] so the search bar, the hint and the card underneath keep
- * their room (the D-612/D-626 contract).
+ * ONE SIDE of the two-wheel layout (round 91, D-628): a rounded card whose
+ * HEADING is a highlighted accent band (gradient + count chip + hairline —
+ * "highlighted, with some depth") and whose list is a FIXED [wheelHeight]
+ * viewport — five rows at a time, everything else by scrolling.
  *
- * THE SCROLL-SELECTION CONTRACT: the row nearest the list's vertical CENTER
- * is the column's "centered" row. While the user has interacted with THIS
- * column (any scroll observed), every change of the centered row is
- * reported through [onCentered] — the sheet moves its selection there and
- * the search bar's placeholder follows. The [initialCenterIndex] row is
- * scrolled to the exact center on open (D-578's pre-selection, now truly
- * centered); the interaction guard makes that programmatic scroll harmless
- * even if it flips `isScrollInProgress` — it centers the SEED, so the
- * report lands on the already-selected source.
+ * THE WHEEL CONTRACT: half-viewport [PaddingValues] let the FIRST and LAST
+ * rows sit in the center (the area above/below stays empty), snap fling
+ * settles every gesture on a centered row, and a TAP selects its row AND
+ * animates it to the center — the selected row is centered at all times.
+ *
+ * THE HIGHLIGHT CONTRACT: the column whose list holds the current selection
+ * lights its own card (accent border + tint); the other stays quiet. The
+ * scroll-selection contract from D-626 is unchanged — the row nearest the
+ * vertical center is the column's "centered" row, and only USER scrolls
+ * drive the selection (the interaction guard).
  */
 @Composable
 private fun SourceColumnCard(
@@ -749,7 +764,7 @@ private fun SourceColumnCard(
     selectedSource: AnimeCatalogueSource?,
     isLinked: (AnimeCatalogueSource) -> Boolean,
     initialCenterIndex: Int,
-    listMaxHeight: Dp,
+    wheelHeight: Dp,
     emptyNote: String,
     onSelect: (AnimeCatalogueSource) -> Unit,
     onCentered: (AnimeCatalogueSource) -> Unit,
@@ -760,6 +775,8 @@ private fun SourceColumnCard(
         // centering effect below moves it to the exact middle.
         initialFirstVisibleItemIndex = initialCenterIndex.coerceAtLeast(0),
     )
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
 
     // ── The centered row: nearest to the list's vertical midpoint ──
     val centeredIndex by remember {
@@ -795,7 +812,14 @@ private fun SourceColumnCard(
         }
     }
 
-    // ── The seed centering (D-578 + round 90): scroll the seeded row to
+    // ── D-628: the half-viewport padding — the wheel's edge contract ──
+    // The first/last rows can reach the CENTER; the space above/below them
+    // stays empty ("even if it is at the very bottom or at the very top,
+    // then it will be centered and the area above it or below it will be
+    // left empty").
+    val centerPadding = ((wheelHeight - WHEEL_ROW_HEIGHT) / 2).coerceAtLeast(0.dp)
+
+    // ── The seed centering (D-578 + rounds 90/91): scroll the seeded row to
     // the EXACT vertical center — the center-selection reads it on open.
     // Runs once per panel composition (keyed on the stable source list);
     // waits for the first layout pass so the item sizes are known.
@@ -814,18 +838,41 @@ private fun SourceColumnCard(
         }
     }
 
+    // ── D-628: the column highlight — this section lights up when the
+    // selection lives in it ("that section should be highlighted when any
+    // of the systems is selected").
+    val columnSelected = selectedSource?.let { sel ->
+        sources.any { it.id == sel.id }
+    } == true
+
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        shape = RoundedCornerShape(14.dp),
+        color = if (columnSelected) {
+            accentDot.copy(alpha = 0.07f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
+        },
+        border = if (columnSelected) {
+            BorderStroke(1.5.dp, accentDot.copy(alpha = 0.45f))
+        } else {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f))
+        },
+        shape = RoundedCornerShape(16.dp),
         modifier = modifier,
     ) {
         Column {
-            // The FIXED heading — always visible, whatever the scroll.
+            // ── THE HEADING (D-628): highlighted, with depth — an accent
+            // gradient band, the count in an accent chip, and a hairline
+            // underline separating it from the wheel.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 5.dp),
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(accentDot.copy(alpha = 0.18f), accentDot.copy(alpha = 0.04f)),
+                        ),
+                    )
+                    .padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 8.dp),
             ) {
                 Box(
                     modifier = Modifier
@@ -844,14 +891,26 @@ private fun SourceColumnCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = "$count",
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Surface(
+                    color = accentDot.copy(alpha = 0.16f),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(
+                        text = "$count",
+                        fontFamily = RobotoFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = accentDot,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                    )
+                }
             }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(accentDot.copy(alpha = 0.15f)),
+            )
             if (sources.isEmpty()) {
                 Text(
                     text = emptyNote,
@@ -865,12 +924,16 @@ private fun SourceColumnCard(
             } else {
                 LazyColumn(
                     state = listState,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    // D-628: the SNAP — every fling settles with a row
+                    // centered ("the one which is selected should be
+                    // centered at all times").
+                    flingBehavior = rememberSnapFlingBehavior(listState = listState),
+                    verticalArrangement = Arrangement.spacedBy(WHEEL_ROW_SPACING),
+                    contentPadding = PaddingValues(vertical = centerPadding),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = listMaxHeight)
-                        .padding(horizontal = 4.dp)
-                        .padding(bottom = 5.dp),
+                        .height(wheelHeight)
+                        .padding(horizontal = 5.dp),
                 ) {
                     items(sources, key = { it.id }) { source ->
                         SourceColumnRow(
@@ -878,7 +941,19 @@ private fun SourceColumnCard(
                             icon = iconFor(source),
                             selected = selectedSource?.id == source.id,
                             linked = isLinked(source),
-                            onSelect = { onSelect(source) },
+                            onSelect = {
+                                onSelect(source)
+                                // D-628: a tapped row centers itself — the
+                                // wheel's "selected is always centered"
+                                // contract, tap edition.
+                                val idx = sources.indexOfFirst { it.id == source.id }
+                                if (idx >= 0) {
+                                    val offsetPx = with(density) { -centerPadding.toPx() }.toInt()
+                                    scope.launch {
+                                        listState.animateScrollToItem(idx, offsetPx)
+                                    }
+                                }
+                            },
                         )
                     }
                 }
@@ -888,10 +963,13 @@ private fun SourceColumnCard(
 }
 
 /**
- * One source row in a HALF-WIDTH column (rounds 88/90) — the plain list row
- * shrunk to the ~160dp budget: a 20dp icon, an 11sp one-line name, and the
- * selected treatment intact (tint + border + bold + the check bubble; the
- * linked ✓ keeps its slot).
+ * One source row of the WHEEL (round 91, D-628) — a fixed-height 36dp row:
+ * the selected treatment (tint + border + bold + the check bubble) versus
+ * the grayed, SLIGHTLY BLURRED rest ("not fully blurred. It should be
+ * clearly readable"). The blur rides AFTER the background/border in the
+ * chain so it softens the CONTENT (icon + name) while the selected row's
+ * own chrome stays crisp; on pre-Android-12 devices the blur is a no-op and
+ * the gray carries the effect alone.
  */
 @Composable
 private fun SourceColumnRow(
@@ -905,10 +983,11 @@ private fun SourceColumnRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(9.dp))
+            .height(WHEEL_ROW_HEIGHT)
+            .clip(RoundedCornerShape(10.dp))
             .background(
                 if (selected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                 } else {
                     Color.Transparent
                 },
@@ -916,26 +995,31 @@ private fun SourceColumnRow(
             .border(
                 if (selected) 1.5.dp else 1.dp,
                 if (selected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
                 } else {
                     Color.Transparent
                 },
-                RoundedCornerShape(9.dp),
+                RoundedCornerShape(10.dp),
+            )
+            .then(
+                // The SLIGHT BLUR (D-628) — applied only to the rest, never
+                // to the selected row.
+                if (selected) Modifier else Modifier.blur(1.2.dp),
             )
             .clickable(onClick = onSelect)
-            .padding(horizontal = 7.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp),
     ) {
-        WheelSourceIcon(icon = icon, name = source.name, highlighted = selected, size = 20.dp)
-        Spacer(Modifier.width(7.dp))
+        WheelSourceIcon(icon = icon, name = source.name, highlighted = selected, size = 22.dp)
+        Spacer(Modifier.width(8.dp))
         Text(
             text = source.name,
             fontFamily = RobotoFamily,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
             color = if (selected) {
                 MaterialTheme.colorScheme.onSurface
             } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.80f)
             },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1109,18 +1193,31 @@ private fun LinkedContentCard(
                     )
                 }
                 // The currently-linked source — the card's tie back to the
-                // sheet's whole purpose (hidden when nothing is linked).
-                if (content.linkedSourceName != null) {
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        text = "Linked via ${content.linkedSourceName}",
+                // sheet's whole purpose. ROUND 91 (D-628): nothing linked
+                // yet says so honestly, in place of a missing line (the
+                // sparse extension-side card has no stats to lean on).
+                when (content.linkedSourceName) {
+                    null -> Text(
+                        text = "No source linked yet",
                         fontFamily = RobotoFamily,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    else -> {
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = "Linked via ${content.linkedSourceName}",
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }

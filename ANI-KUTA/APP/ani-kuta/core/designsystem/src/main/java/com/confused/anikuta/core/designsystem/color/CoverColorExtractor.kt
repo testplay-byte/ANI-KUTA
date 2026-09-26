@@ -2,6 +2,9 @@ package com.confused.anikuta.core.designsystem.color
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import androidx.core.graphics.ColorUtils
 import androidx.palette.graphics.Palette
 import coil3.ImageLoader
@@ -64,6 +67,10 @@ class CoverColorExtractor(
         private const val RAMP_MAX_SATURATION = 0.85f
         /** RGB euclidean distance below which two ramp stops are merged (0–441 scale). */
         private const val RAMP_MIN_STOP_DISTANCE = 48.0
+        /** ROUND 91 (D-630): the icon sample ceiling — larger icons rasterize into this box. */
+        private const val ICON_SAMPLE_SIZE = 96
+        /** ROUND 91 (D-630): the Palette sampling cap for icon bitmaps. */
+        private const val ICON_PALETTE_SIZE = 48
     }
 
     /**
@@ -230,6 +237,71 @@ class CoverColorExtractor(
         hsl[1] = hsl[1].coerceIn(RAMP_MIN_SATURATION, RAMP_MAX_SATURATION)
         hsl[2] = hsl[2].coerceIn(RAMP_MIN_LIGHTNESS, RAMP_MAX_LIGHTNESS)
         return ColorUtils.HSLToColor(hsl) or 0xFF000000.toInt()
+    }
+
+    // ── ROUND 91 (D-630): the ICON TINT channel ─────────────────────────────
+
+    /**
+     * ROUND 91 (D-630): extracts an accent tint from an arbitrary icon
+     * [Drawable] — the extension-testing "Recently tested" chips theme their
+     * backgrounds with each extension's OWN icon color (the user's spec:
+     * "theme their background with their icon colors a bit… not way too
+     * vibrant. It should be slightly applied").
+     *
+     * Same swatch logic as the cover pipeline ([pickAccentSwatch] +
+     * [normalizeForAccent] — saturation ≥ 0.40, lightness ∈ [0.40, 0.65], so
+     * the tint is never a gray smudge), fed by a small bitmap:
+     *   • a [BitmapDrawable] donates its bitmap directly;
+     *   • anything else (vector, adaptive, layer) is drawn once into a
+     *     ≤[ICON_SAMPLE_SIZE]px ARGB_8888 canvas bitmap;
+     *   • Palette then samples at [Palette.Builder.resizeBitmapSize] 48 —
+     *     bounded work regardless of the source icon's resolution.
+     *
+     * The CALLER owns the "slightly applied" half of the spec — this returns
+     * the full-strength accent; chips draw it at a low alpha over their
+     * surface.
+     */
+    suspend fun extractFromDrawable(drawable: Drawable): Int? = withContext(Dispatchers.Default) {
+        runCatching {
+            val bitmap = drawableToSampleBitmap(drawable) ?: return@withContext null
+            val palette = Palette.from(bitmap).resizeBitmapSize(ICON_PALETTE_SIZE).generate()
+            val swatch = pickAccentSwatch(palette) ?: return@withContext null
+            normalizeForAccent(swatch.rgb)
+        }.getOrElse { e ->
+            Logger.w(TAG) { "Icon tint extraction failed: ${e.message}" }
+            null
+        }
+    }
+
+    /**
+     * Materializes any [Drawable] as a CPU-readable bitmap for [Palette]:
+     * bitmap drawables pass through (they are already readable), everything
+     * else rasterizes once through a canvas at a bounded size.
+     */
+    private fun drawableToSampleBitmap(drawable: Drawable): Bitmap? {
+        (drawable as? BitmapDrawable)?.bitmap?.let { existing ->
+            // A bitmap that is already software-readable is used AS-IS — the
+            // Palette resize below bounds the sampling cost either way.
+            if (existing.config != Bitmap.Config.HARDWARE) return existing
+        }
+        val intrinsicW = drawable.intrinsicWidth.takeIf { it > 0 } ?: ICON_SAMPLE_SIZE
+        val intrinsicH = drawable.intrinsicHeight.takeIf { it > 0 } ?: ICON_SAMPLE_SIZE
+        val scale = minOf(
+            1f,
+            ICON_SAMPLE_SIZE.toFloat() / maxOf(intrinsicW, intrinsicH).toFloat(),
+        )
+        val width = (intrinsicW * scale).toInt().coerceAtLeast(1)
+        val height = (intrinsicH * scale).toInt().coerceAtLeast(1)
+        return try {
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, width, height)
+            drawable.draw(canvas)
+            bitmap
+        } catch (e: Throwable) {
+            Logger.w(TAG) { "Icon rasterization failed: ${e.message}" }
+            null
+        }
     }
 
     /** Euclidean RGB distance (0–441) — used to merge near-identical ramp stops. */

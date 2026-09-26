@@ -218,6 +218,11 @@ fun DetailsScreen(
     val state by viewModel.state.collectAsState()
     val linkedSource by viewModel.linkedSource.collectAsState()
     val episodeState by viewModel.episodeState.collectAsState()
+    // ROUND 91 (D-628): the EXTENSION-side base — the manual-search sheet's
+    // linked-content card renders THIS side's details (title, cover, status,
+    // score, year + the episode count from the linked source's own episode
+    // list), never AniList's merged view.
+    val extensionBase by viewModel.extensionBaseState.collectAsState()
     val episodeMetadata by viewModel.episodeMetadata.collectAsState()
     val resolverState by viewModel.resolverState.collectAsState()
     val resolvedVideosKey by viewModel.resolvedVideosKey.collectAsState()
@@ -1547,22 +1552,43 @@ fun DetailsScreen(
             // row of each wheel, unrelated to the actual link.
             linkedSourceId = effectiveLinkedSource?.sourceId,
             linkedSourceName = effectiveLinkedSource?.sourceName,
-            // ROUND 90 (D-626): the content being linked, for the sheet's
-            // linked-content card — cover, name, episodes/status/score/year,
-            // and the source it is currently linked through (the effective
-            // link wins; extension-only entries fall back to their own
-            // sourceName).
+            // ROUND 91 (D-628): the content being linked, for the sheet's
+            // linked-content card — THE EXTENSION SIDE, per the v1.1.47
+            // verdict: "it is showing the details from AniList. It should
+            // not show the details from AniList, but it should be showing
+            // the details from the extension side."
+            //   • linked to an extension → the EXTENSION's own title/cover/
+            //     status/score/year + the episode count from the linked
+            //     source's own episode list (the one real "total episodes"
+            //     the extension reports);
+            //   • not linked yet (AniList-only) → the sparse honest card —
+            //     the content's identity (title + cover) with NO tracker
+            //     stats and a "No source linked yet" line instead.
             linkedContent = (state as? DetailsState.Success)?.anime?.let { anime ->
-                LinkedContentInfo(
-                    title = anime.displayName,
-                    coverUrl = anime.coverUrl,
-                    episodes = anime.episodes,
-                    status = anime.status,
-                    score = anime.averageScore,
-                    season = anime.season,
-                    seasonYear = anime.seasonYear,
-                    linkedSourceName = effectiveLinkedSource?.sourceName ?: anime.sourceName,
-                )
+                val ext = extensionBase
+                val extEpisodeCount = when (val es = episodeState) {
+                    is EpisodeState.Loaded -> es.episodes.size
+                    is EpisodeState.Empty -> 0
+                    else -> null
+                }
+                if (ext != null) {
+                    LinkedContentInfo(
+                        title = ext.title.ifBlank { anime.displayName },
+                        coverUrl = ext.coverUrl ?: anime.coverUrl,
+                        episodes = extEpisodeCount,
+                        status = ext.status,
+                        score = ext.averageScore,
+                        season = ext.season,
+                        seasonYear = ext.seasonYear,
+                        linkedSourceName = effectiveLinkedSource?.sourceName ?: anime.sourceName,
+                    )
+                } else {
+                    LinkedContentInfo(
+                        title = anime.displayName,
+                        coverUrl = anime.coverUrl,
+                        linkedSourceName = null,
+                    )
+                }
             },
             onSearch = { source, query -> viewModel.searchSource(source, query) },
             onLink = { source, sAnime ->

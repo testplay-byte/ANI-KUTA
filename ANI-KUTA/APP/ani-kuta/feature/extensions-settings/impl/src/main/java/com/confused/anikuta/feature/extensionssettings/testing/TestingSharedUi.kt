@@ -254,13 +254,8 @@ internal fun TargetIconView(target: TestableTarget, size: Dp = 40.dp) {
 @Composable
 internal fun TargetLetterTile(name: String, size: Dp = 40.dp) {
     val firstLetter = name.firstOrNull()?.uppercase() ?: "?"
-    val colors = listOf(
-        Color(0xFFB1F256), Color(0xFF7CC8FA), Color(0xFFFF8A65),
-        Color(0xFFE57C9F), Color(0xFFFFB300),
-    )
-    val color = colors[name.hashCode().and(0x7FFFFFFF) % colors.size]
     Surface(
-        color = color,
+        color = letterTileColor(name),
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.size(size),
     ) {
@@ -274,6 +269,20 @@ internal fun TargetLetterTile(name: String, size: Dp = 40.dp) {
             )
         }
     }
+}
+
+/**
+ * ROUND 91 (D-630): the letter tile's hue, extracted — the "Recently tested"
+ * chips fall back to THIS color when an icon's own tint can't be extracted,
+ * so a chip and its fallback icon always agree (the never-blank contract,
+ * extended to the tint).
+ */
+internal fun letterTileColor(name: String): Color {
+    val colors = listOf(
+        Color(0xFFB1F256), Color(0xFF7CC8FA), Color(0xFFFF8A65),
+        Color(0xFFE57C9F), Color(0xFFFFB300),
+    )
+    return colors[name.hashCode().and(0x7FFFFFFF) % colors.size]
 }
 
 /**

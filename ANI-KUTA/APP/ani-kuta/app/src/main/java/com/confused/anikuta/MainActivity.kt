@@ -1627,6 +1627,11 @@ fun AppRoot() {
                 // Round 88 (D-619): the detail page's "View live run" pill —
                 // a queued/running target can reach its run page from here.
                 onOpenRun = { pushTesting(ExtensionTestingRunKey()) },
+                // ROUND 91 (D-632): the extension's OWN settings — the header
+                // gear opens the source preferences for this target (the
+                // target's id IS the source id; a non-configurable source
+                // gets the honest "This source has no settings." page).
+                onOpenSettings = { backstack.add(SourcePreferencesKey(currentKey.targetId)) },
             )
             is ExtensionTestingStatsKey -> TestingStatsScreen(
                 onBack = pop,

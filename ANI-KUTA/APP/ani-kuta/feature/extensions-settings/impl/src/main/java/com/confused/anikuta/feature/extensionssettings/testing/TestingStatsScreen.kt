@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -137,6 +138,9 @@ fun TestingStatsScreen(
                 collapsed = collapsed,
                 onBack = onBack,
             )
+            // ROUND 91 (D-633): the header BLUR — the app-wide §2.2 language,
+            // so all five testing pages read as one system.
+            Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -365,6 +369,17 @@ fun TestingStatsScreen(
                         )
                     }
                 }
+            }
+                // ROUND 91 (D-633): the header BLUR, pinned over the list's
+                // top edge.
+                ScrollBlurOverlay(
+                    scrollOffset = {
+                        if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                        else listState.firstVisibleItemScrollOffset.toFloat()
+                    },
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
             }
         }
     }

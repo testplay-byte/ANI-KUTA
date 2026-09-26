@@ -3,6 +3,7 @@ package com.confused.anikuta.feature.extensionssettings.testing
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,9 +27,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,31 +48,43 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.designsystem.color.rememberIconTint
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PAGE 1 of 5 — TESTING HOME (round 84, D-583; the round-85 rework).
-//
-//  The round-85 device report: "we should drift away from it a little bit and
-//  get some creativeness… the two buttons at the bottom, Run All Tests and
-//  Statistics and History, feel a little bit off." This page is now the
-//  showpiece:
-//    • a HEALTH-RING hero (animated donut + legend + count-up chips) instead
-//      of the flat proportion bar;
-//    • a recent-run STRIP (the last runs as live chips);
-//    • the two ecosystem cards (reworked round 87, D-600 — the count chip
-//      beside the title and the full-width bar);
-//    • a COMMAND FOOTER: one designed primary pill (Run all · N, morphing to
-//      live progress + Stop while running) + a tonal Stats pill with a
-//      failed-count badge — no more stock buttons dumped at the bottom.
-//  Run All starts IN PLACE (round 85): the banner/footer take over live.
+//  PAGE 1 of 5 — TESTING HOME (round 84, D-583; round-85 rework; ROUND 91
+//  D-630 — the v1.1.47 device round's polish pass):
+//    • the SUITE-HEALTH RING hero keeps its round-90 geometry, and its
+//      legend rows are now DEPTH CARDS — pass/fail/new each in their own
+//      elevated section, separated by spacers, labels "pass"/"fail"/"new";
+//    • the RECENT-RUN STRIP: rectangular rounded chips whose backgrounds
+//      carry each extension's OWN icon tint (extracted via Palette — "theme
+//      their background with their icon colors a bit… slightly applied");
+//    • the two ecosystem cards wear the depth language (border + glyphs);
+//    • the COMMAND FOOTER: rounded-RECTANGLE buttons (no more stadium
+//      pills) — Run-all is a SOLID muted-accent fill that asks for
+//      CONFIRMATION first, and while a run is live it becomes the
+//      elapsed-time + Stop console;
+//    • the LIVE BANNER (top) and the footer (bottom) finally say DIFFERENT
+//      things: the top shows WHICH extension is being tested and AT WHAT
+//      STAGE (a finished stage's verdict lingers ≥1s before yielding —
+//      "even though it was completed way too quickly… some padding there
+//      so the overall experience is dealt with smoothly"); the bottom
+//      shows the run's elapsed time, the n-of-m count and the Stop action;
+//    • the header BLUR (ScrollBlurOverlay) joins the app-wide language.
+//  Run All still starts IN PLACE (round 85) — the banner/footer take over
+//  live. (Future, ordered but NOT yet: a target picker behind Run-all.)
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -132,6 +147,64 @@ fun TestingHomeScreen(
         listState.firstVisibleItemScrollOffset > 20
 
     val runActive = session?.phase == RunPhase.RUNNING
+
+    // ── ROUND 91 (D-630): THE STAGE-LINE MACHINE — the live banner's second
+    // line. It answers "which extension is being tested and at what stage":
+    // while a kind runs, the line says so; when a kind finishes, its VERDICT
+    // takes the line and holds it for a MINIMUM of ~1 second before yielding
+    // to the next stage — a fast chain (several kinds finishing inside one
+    // second) queues its verdicts instead of flashing them away ("even
+    // though it was completed way too quickly and the next one has completed
+    // too. There will be some padding there going on so that the overall
+    // experience is dealt with smoothly").
+    val stageLine = rememberStageLine(controller)
+
+    // ROUND 91 (D-630): Run-all CONFIRMATION — the button asks before it
+    // starts the whole suite ("it should first of all ask the user for the
+    // confirmation whether to start all the tests or not").
+    var showRunAllConfirm by remember { mutableStateOf(false) }
+    if (showRunAllConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showRunAllConfirm = false },
+            title = {
+                Text(
+                    text = "Run all tests?",
+                    fontFamily = RobotoFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            },
+            text = {
+                Text(
+                    text = "All ${targets.size} installed sources will be tested, one after another. You can stop anytime.",
+                    fontFamily = RobotoFamily,
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        showRunAllConfirm = false
+                        controller.start(null, "Run all")
+                    },
+                ) {
+                    Text(
+                        "Start",
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showRunAllConfirm = false }) {
+                    Text(
+                        "Not now",
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            },
+        )
+    }
 
     // D-592 (round 86): the LEAVE GUARD on the hub — backing out of the
     // extension-testing section while a run is live prompts first; the
@@ -198,19 +271,28 @@ fun TestingHomeScreen(
                     if (runActive) showLeaveDialog = true else onBack()
                 },
             )
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                // ── Live-run banner ──
+            // ROUND 91 (D-630): the header BLUR — the app-wide ScrollBlurOverlay
+            // language (DESIGN-LANGUAGE §2.2), on the testing hub at last.
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                // ── Live-run banner (ROUND 91, D-630 — the SPLIT live
+                // experience's TOP half): WHICH extension is being tested
+                // and AT WHAT STAGE. The verdict linger comes from the
+                // stage-line machine; the elapsed time, the n-of-m count
+                // and the Stop action live on the BOTTOM footer now — the
+                // old duplicate "Testing n of m" at both ends is gone.
                 item(key = "banner") {
                     AnimatedVisibility(
                         visible = runActive,
                         enter = fadeIn(tween(200)),
                         exit = fadeOut(tween(180)),
                     ) {
+                        val currentName = session?.currentTargetId?.let { targetsById[it]?.name }
                         Surface(
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                             shape = RoundedCornerShape(14.dp),
@@ -228,42 +310,45 @@ fun TestingHomeScreen(
                                 Spacer(Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Testing ${runProgressLabel(session?.cursor ?: 0, session?.queue?.size ?: 0)}",
+                                        text = currentName ?: "Starting…",
                                         fontFamily = RobotoFamily,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                    Text(
-                                        text = session?.label ?: "",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
+                                    // The stage line — running or lingering
+                                    // verdict, swapped with a soft crossfade
+                                    // (never an instant cut).
+                                    androidx.compose.animation.AnimatedContent(
+                                        targetState = stageLine,
+                                        transitionSpec = {
+                                            fadeIn(tween(180)) togetherWith fadeOut(tween(140))
+                                        },
+                                        label = "stageLine",
+                                    ) { sl ->
+                                        Text(
+                                            text = when (sl) {
+                                                is StageLine.Running ->
+                                                    "Testing ${sl.kind.label}…"
+                                                is StageLine.Verdict ->
+                                                    "${sl.kind.label} ${sl.verdictWord} · ${TestTimeFormat.format(sl.result.durationMs)}"
+                                                null -> "Preparing the chain…"
+                                            },
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = when {
+                                                sl is StageLine.Verdict && sl.result.status == TestStatus.FAILED ->
+                                                    MaterialTheme.colorScheme.error
+                                                else -> MaterialTheme.colorScheme.primary
+                                            },
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
                                 }
-                                Text(
-                                    text = "View",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .clickable(onClick = openRunOrTarget)
-                                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                                )
-                                Icon(
-                                    imageVector = Icons.Filled.Stop,
-                                    contentDescription = "Stop run",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .clip(CircleShape)
-                                        .clickable(onClick = controller::stop)
-                                        .padding(5.dp),
-                                )
                             }
                         }
                     }
@@ -357,26 +442,36 @@ fun TestingHomeScreen(
                                     }
                                 }
                                 // The COMBINED legend (round 90, D-627 — the
-                                // ALIGNED table): one row per VERDICT group
-                                // with FIXED columns — the swatches, the
-                                // group's total, the centered label, and the
-                                // two systems' split — so every row lines up
-                                // with its siblings (the old left-flowing
-                                // row drifted with every label length).
-                                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                // ALIGNED table; ROUND 91, D-629 — the DEPTH
+                                // SECTIONS): one row per VERDICT group with
+                                // FIXED columns — the swatches, the group's
+                                // total, the centered label, and the two
+                                // systems' split — so every row lines up with
+                                // its siblings (the old left-flowing row
+                                // drifted with every label length). Each row
+                                // now sits in its own elevated section,
+                                // separated by spacers, and the labels read
+                                // "pass" / "fail" / "new" (the round-91
+                                // report: "instead of the passed text, you
+                                // should show pass text. Instead of a failed
+                                // text, you should show fail text… separate
+                                // each one of those sections with some
+                                // spacers, and give some depth to these three
+                                // sections").
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     HealthLegendRow(
                                         swatchA = TestingPalette.PassA,
                                         swatchB = TestingPalette.PassB,
                                         countA = aPassed,
                                         countB = cPassed,
-                                        label = "Passed",
+                                        label = "Pass",
                                     )
                                     HealthLegendRow(
                                         swatchA = TestingPalette.FailA,
                                         swatchB = TestingPalette.FailB,
                                         countA = aFailed,
                                         countB = cFailed,
-                                        label = "Failed",
+                                        label = "Fail",
                                     )
                                     HealthLegendRow(
                                         swatchA = TestingPalette.NewA,
@@ -416,14 +511,25 @@ fun TestingHomeScreen(
                                         providerName = null,
                                         baseUrl = null,
                                     )
+                                    // ROUND 91 (D-630): the chip is a RECTANGLE
+                                    // with rounded corners ("instead of pill
+                                    // shape") and its background carries the
+                                    // extension's OWN icon tint, slightly
+                                    // applied (Palette extraction; the letter
+                                    // tile's hue is the fallback so the chip
+                                    // and its never-blank icon always agree).
+                                    val chipTint = rememberIconTint(
+                                        drawable = chipTarget.iconDrawable,
+                                        iconUrl = chipTarget.iconUrl,
+                                    ) ?: letterTileColor(chipTarget.name)
                                     Surface(
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                        shape = RoundedCornerShape(50),
+                                        color = chipTint.copy(alpha = 0.12f),
+                                        shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier.clickable(onClick = onOpenStats),
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(start = 6.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+                                            modifier = Modifier.padding(start = 7.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
                                         ) {
                                             TargetIconView(chipTarget, size = 22.dp)
                                             Spacer(Modifier.width(7.dp))
@@ -444,10 +550,11 @@ fun TestingHomeScreen(
                     }
                 }
 
-                // ── The two ecosystem cards (D-588, round 86): the count
-                // moved OUT of the subtitle to a RIGHT-SIDE highlighted chip,
-                // the trailing arrow is GONE, and each card carries its
-                // system's accent blend.
+                // ── The two ecosystem cards (D-588, round 86; ROUND 91
+                // D-630 — the depth pass: each card carries its system's
+                // GLYPH in a tinted well, a hairline border, and the accent
+                // edge). The count sits beside the title (D-600) and the
+                // proportion bar runs the full remaining width.
                 item(key = "systems-label") {
                     SectionLabel("Test a system")
                 }
@@ -456,6 +563,7 @@ fun TestingHomeScreen(
                         title = "Aniyomi extensions",
                         countLabel = "${aniyomiTargets.size} sources",
                         accent = TestingPalette.SystemA,
+                        glyph = Icons.Filled.Tv,
                         stateCount = aniyomiTargets.size,
                         passed = aniyomiTargets.count { stateFor(it.id)?.isHealthy == true },
                         failed = aniyomiTargets.count { s -> stateFor(s.id)?.let { it.finished && !it.isHealthy } == true },
@@ -467,6 +575,7 @@ fun TestingHomeScreen(
                         title = "CloudStream plugins",
                         countLabel = "${csTargets.size} providers",
                         accent = TestingPalette.SystemB,
+                        glyph = Icons.Filled.Cloud,
                         stateCount = csTargets.size,
                         passed = csTargets.count { stateFor(it.id)?.isHealthy == true },
                         failed = csTargets.count { s -> stateFor(s.id)?.let { it.finished && !it.isHealthy } == true },
@@ -474,25 +583,40 @@ fun TestingHomeScreen(
                     )
                 }
 
-                // ── THE COMMAND FOOTER (the round-85 rework of the two off
-                // stock buttons): a designed primary pill that MORPHS with the
-                // run phase (Run all · N → live n-of-m + Stop) + a tonal Stats
-                // pill with a failed-count badge. Run All starts IN PLACE.
+                // ── THE COMMAND FOOTER (ROUND 91, D-630 — the rounded-
+                // RECTANGLE rework): the two stadium pills are gone. The
+                // primary is a SOLID MUTED-ACCENT rectangle ("based on the
+                // main accent color, but not a way too bright color" — the
+                // accent lerped ~20% toward the background reads as a deep,
+                // confident fill) that asks for CONFIRMATION before starting
+                // the whole suite. While a run is live it becomes the BOTTOM
+                // half of the split live experience: the run's LIVE ELAPSED
+                // TIME + the n-of-m count + the Stop action (the extension
+                // name and the stage live on the TOP banner — no more
+                // duplicate progress at both ends). The whole pill still
+                // opens the run view on tap.
                 item(key = "actions") {
+                    // D-630: the solid-but-muted accent — never full neon.
+                    val runFill = lerp(
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.background,
+                        0.20f,
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Surface(
                             color = if (runActive) {
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
                             } else {
-                                MaterialTheme.colorScheme.primary
+                                runFill
                             },
-                            shape = RoundedCornerShape(50),
+                            shape = RoundedCornerShape(14.dp),
+                            shadowElevation = if (runActive) 0.dp else 2.dp,
                             modifier = Modifier
                                 .weight(1.7f)
                                 .height(52.dp)
-                                .clip(RoundedCornerShape(50))
+                                .clip(RoundedCornerShape(14.dp))
                                 .clickable(enabled = targets.isNotEmpty()) {
-                                    if (runActive) openRunOrTarget() else controller.start(null, "Run all")
+                                    if (runActive) openRunOrTarget() else showRunAllConfirm = true
                                 },
                         ) {
                             // ROUND 87 (D-601): the idle content is CENTERED
@@ -509,17 +633,22 @@ fun TestingHomeScreen(
                                         strokeWidth = 2.dp,
                                         modifier = Modifier.size(18.dp),
                                     )
-                                    Spacer(Modifier.width(8.dp))
+                                    Spacer(Modifier.width(10.dp))
                                     Column {
+                                        // D-630: the run's LIVE clock — the
+                                        // bottom half's own stat ("it could
+                                        // show the current time at the
+                                        // bottom").
+                                        session?.startedAtMs?.let { startedAt ->
+                                            LiveElapsedText(
+                                                startedAtMs = startedAt,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontSize = 14.sp,
+                                            )
+                                        }
                                         Text(
-                                            text = runProgressLabel(session?.cursor ?: 0, session?.queue?.size ?: 0),
-                                            fontFamily = RobotoFamily,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                        )
-                                        Text(
-                                            text = "tap to view",
+                                            text = runProgressLabel(session?.cursor ?: 0, session?.queue?.size ?: 0) +
+                                                " · tap to view",
                                             fontFamily = RobotoFamily,
                                             fontSize = 9.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -545,7 +674,7 @@ fun TestingHomeScreen(
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        text = "Run all tests · ${targets.size}",
+                                        text = "Run all tests",
                                         fontFamily = RobotoFamily,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.ExtraBold,
@@ -556,11 +685,11 @@ fun TestingHomeScreen(
                         }
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(50),
+                            shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(52.dp)
-                                .clip(RoundedCornerShape(50))
+                                .clip(RoundedCornerShape(14.dp))
                                 .clickable(onClick = onOpenStats),
                         ) {
                             Row(
@@ -605,6 +734,17 @@ fun TestingHomeScreen(
                     }
                 }
             }
+                // ROUND 91 (D-630): the header BLUR — pinned over the list's
+                // top edge (the app-wide §2.2 language).
+                ScrollBlurOverlay(
+                    scrollOffset = {
+                        if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                        else listState.firstVisibleItemScrollOffset.toFloat()
+                    },
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            }
         }
     }
 }
@@ -626,6 +766,7 @@ private fun SystemCard(
     title: String,
     countLabel: String,
     accent: Color,
+    glyph: androidx.compose.ui.graphics.vector.ImageVector,
     stateCount: Int,
     passed: Int,
     failed: Int,
@@ -634,6 +775,10 @@ private fun SystemCard(
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+        ),
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -641,14 +786,23 @@ private fun SystemCard(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
-            // The system's accent edge — the card's color blend (D-588).
+            // ROUND 91 (D-630): the system's GLYPH in a tinted well — the
+            // card's identity anchor (depth pass).
             Box(
                 modifier = Modifier
-                    .size(width = 4.dp, height = 44.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(accent.copy(alpha = 0.75f)),
-            )
-            Spacer(Modifier.width(11.dp))
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(accent.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = glyph,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
             // ROUND 87 (D-600): the count chip sits RIGHT NEXT TO the title
             // ("the actual number of extensions should be shown on the right
             // side of the text itself, not the whole right side"), and the
@@ -703,19 +857,19 @@ private fun SystemCard(
 
 /**
  * The combined suite-health legend row (round 87, D-599; ROUND 90, D-627 —
- * the ALIGNED TABLE): the verdict group's two system swatches, its COMBINED
- * total, its label, and the two systems' split — each in a FIXED column so
- * every row lines up with its siblings:
+ * the ALIGNED TABLE; ROUND 91, D-629 — the DEPTH SECTION): the verdict
+ * group's two system swatches, its COMBINED total, its label, and the two
+ * systems' split — each in a FIXED column so every row lines up with its
+ * siblings:
  *
  *   [swatches] [total] [ label (centered) ] [ A ] [+] [ B ]
  *
- * The user's round-90 spec: "the total numbers will be aligned properly…
- * the passed text, the failed text, the new text will be center aligned…
- * the other details, like Anyomi plus CloudStream, those details will be
- * properly aligned in the same way too with each other." The A/B counts
- * always render (even 0s) — identical row structures are what make the
- * columns align — and each count carries its system's color so the split
- * reads without a header.
+ * The whole row now sits in its own ELEVATED SECTION — a hairline-bordered,
+ * subtly filled card, separated from its siblings by spacers (the round-91
+ * report: "separate each one of those sections with some spacers, and give
+ * some depth to these three sections"). The A/B counts always render (even
+ * 0s) — identical row structures are what make the columns align — and each
+ * count carries its system's color so the split reads without a header.
  */
 @Composable
 private fun HealthLegendRow(
@@ -726,60 +880,167 @@ private fun HealthLegendRow(
     label: String,
 ) {
     val total = countA + countB
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Surface(color = swatchA, shape = RoundedCornerShape(3.dp), modifier = Modifier.size(8.dp)) {}
-        Spacer(Modifier.width(3.dp))
-        Surface(color = swatchB, shape = RoundedCornerShape(3.dp), modifier = Modifier.size(8.dp)) {}
-        Spacer(Modifier.width(8.dp))
-        // The combined total — fixed-width, centered: a true number column.
-        Text(
-            text = "$total",
-            fontFamily = RobotoFamily,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.width(28.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        // The label — centered in the flexible middle column.
-        Text(
-            text = label.lowercase(),
-            fontFamily = RobotoFamily,
-            fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        // The split — Aniyomi + CloudStream in fixed sub-columns, each
-        // count in its system's color, so the columns line up row to row.
-        Text(
-            text = "$countA",
-            fontFamily = RobotoFamily,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = swatchA,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.width(22.dp),
-        )
-        Text(
-            text = "+",
-            fontFamily = RobotoFamily,
-            fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            textAlign = TextAlign.Center,
-            modifier = Modifier.width(9.dp),
-        )
-        Text(
-            text = "$countB",
-            fontFamily = RobotoFamily,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = swatchB,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.width(22.dp),
-        )
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(10.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f),
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+        ) {
+            Surface(color = swatchA, shape = RoundedCornerShape(3.dp), modifier = Modifier.size(8.dp)) {}
+            Spacer(Modifier.width(3.dp))
+            Surface(color = swatchB, shape = RoundedCornerShape(3.dp), modifier = Modifier.size(8.dp)) {}
+            Spacer(Modifier.width(8.dp))
+            // The combined total — fixed-width, centered: a true number column.
+            Text(
+                text = "$total",
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(28.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            // The label — centered in the flexible middle column.
+            Text(
+                text = label.lowercase(),
+                fontFamily = RobotoFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            // The split — Aniyomi + CloudStream in fixed sub-columns, each
+            // count in its system's color, so the columns line up row to row.
+            Text(
+                text = "$countA",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = swatchA,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(22.dp),
+            )
+            Text(
+                text = "+",
+                fontFamily = RobotoFamily,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(9.dp),
+            )
+            Text(
+                text = "$countB",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = swatchB,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(22.dp),
+            )
+        }
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 91 (D-630): THE STAGE-LINE MACHINE — the live banner's pulse.
+//  One small poll loop reads the controller's app-scoped session (the source
+//  of truth — screen state copies go stale inside coroutines) and drives a
+//  single "what the banner says" value:
+//    • a NEW terminal verdict is ENQUEUED the moment it lands, then shown
+//      for a MINIMUM of [STAGE_VERDICT_LINGER_MS] — fast chains queue up
+//      instead of flashing ("there will be some padding there going on so
+//      that the overall experience is dealt with smoothly");
+//    • once a verdict's linger expires, the line yields to whatever stage is
+//      live (waiting between stages/targets if it must), and re-arms for the
+//      next run on a generation change;
+//    • the idle path (no run) rests at null and polls gently.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** The live banner's second line: the stage the run is at, or the verdict that just landed. */
+internal sealed interface StageLine {
+
+    /** A kind is executing right now ([detail] = the live search-ladder phrase, if any). */
+    data class Running(val kind: ExtensionTestKind, val detail: String?) : StageLine
+
+    /** A kind just finished — shown for the linger, then handed off. */
+    data class Verdict(val kind: ExtensionTestKind, val result: TestResult) : StageLine {
+        val verdictWord: String get() = when (result.status) {
+            TestStatus.PASSED -> "passed"
+            TestStatus.FAILED -> "failed"
+            else -> "skipped"
+        }
+    }
+}
+
+/** A finished verdict owns the banner for at least this long (the "padding"). */
+private const val STAGE_VERDICT_LINGER_MS = 1000L
+
+@Composable
+private fun rememberStageLine(controller: ExtensionTestRunController): StageLine? {
+    val line = remember { mutableStateOf<StageLine?>(null) }
+    LaunchedEffect(Unit) {
+        val pending = ArrayDeque<StageLine.Verdict>()
+        val seen = mutableSetOf<ExtensionTestKind>()
+        var lastGeneration = -1L
+        var shownAtMs = 0L
+        while (isActive) {
+            val s = controller.session.value
+            if (s != null) {
+                // A new run re-arms the machine — no stale verdicts bleed in.
+                if (s.generation != lastGeneration) {
+                    lastGeneration = s.generation
+                    seen.clear()
+                    pending.clear()
+                    line.value = null
+                    shownAtMs = 0L
+                }
+                val st = s.currentTargetId?.let { s.states[it] }
+                if (st != null) {
+                    // Enqueue every verdict this screen has not yet shown.
+                    st.results.forEach { (kind, result) ->
+                        val terminal = result.status != TestStatus.RUNNING &&
+                            result.status != TestStatus.PENDING
+                        if (terminal && kind !in seen) {
+                            seen += kind
+                            pending.addLast(StageLine.Verdict(kind, result))
+                        }
+                    }
+                }
+            }
+            val now = System.currentTimeMillis()
+            val held = line.value is StageLine.Verdict && now - shownAtMs < STAGE_VERDICT_LINGER_MS
+            when {
+                // A verdict owns its linger; when it expires, the next queued
+                // verdict (or the live stage) takes over.
+                !held && pending.isNotEmpty() -> {
+                    line.value = pending.removeFirst()
+                    shownAtMs = now
+                }
+                !held -> {
+                    val s2 = controller.session.value
+                    val st2 = s2?.currentTargetId?.let { s2.states[it] }
+                    val running = st2?.runningKind
+                    if (s2?.phase == RunPhase.RUNNING && running != null &&
+                        (line.value as? StageLine.Running)?.kind != running
+                    ) {
+                        line.value = StageLine.Running(running, st2.runningDetail)
+                    }
+                }
+            }
+            // Gentle rest when nothing is running and nothing is queued.
+            delay(if (s?.phase == RunPhase.RUNNING || pending.isNotEmpty()) 100L else 500L)
+        }
+    }
+    return line.value
 }
