@@ -544,8 +544,28 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10147
+    const val versionName = "1.1.47"
+    // D-626/D-627 (round 90): release/1.1.47 — cut from the round-90 ledger
+    // head 43f320d7 (the implementation commit 3f81856f went through Build
+    // APK run 36248211351 GREEN FIRST-TRY). What the release carries on top
+    // of v1.1.46 (the round-90 device round — full detail: decisions.md
+    // D-626/D-627 + DOCUMENTATION/cloudstream-v2/72):
+    // D-626 THE LINK SOURCES SHEET, REBUILT TO SPEC — the two true columns
+    // (Aniyomi LEFT, CloudStream RIGHT, each its own card with its own
+    // scrolling alphabetized list), SCROLL-DRIVEN SELECTION (the centered
+    // row becomes the selection as you scroll; the search bar's placeholder
+    // renames itself to it live), the first-focus name paste landing with
+    // the caret at the end, the "then search above" hint, the LINKED-CONTENT
+    // CARD at the bottom (cover, name, episodes/status/score/year, "Linked
+    // via <source>"), and the ime-aware cap back (the search bar and the
+    // card keep their room with the keyboard open — the v1.1.46 squish
+    // trade-off closes).
+    // D-627 THE SUITE-HEALTH RING — rounded, spaced slices; the six sections
+    // combined into three (no gap or rounding where the two systems meet
+    // inside a group; rounding only on each group's outer ends); the legend
+    // as a properly aligned table (totals aligned, passed/failed/new centered,
+    // the Aniyomi + CloudStream split aligned).
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
