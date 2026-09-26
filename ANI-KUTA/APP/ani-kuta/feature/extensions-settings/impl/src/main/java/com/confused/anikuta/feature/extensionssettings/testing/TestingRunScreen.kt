@@ -2,6 +2,7 @@ package com.confused.anikuta.feature.extensionssettings.testing
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -49,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,6 +66,7 @@ import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import kotlinx.coroutines.delay
 
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE 3 of 5 — THE DEDICATED RUN PAGE (round 84, D-583; reworked round 85).
@@ -424,25 +427,123 @@ fun TestingRunScreen(
                                     }
                                 }
                                 Spacer(Modifier.height(10.dp))
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                // ── ROUND 92 (D-637): THE PROGRESSIVE STAGE
+                                // BARS — the device report: "it shows all the
+                                // stages times there… all of them altogether
+                                // in the single go… when a test is being
+                                // performed for a specific part, then only
+                                // that bar will show and the ones before it
+                                // will show. And the length of the bar will
+                                // still represent the total number of time it
+                                // has taken, and it will be adjusted properly
+                                // according to the previous ones, and also
+                                // the size of the previous ones will be
+                                // adjusted appropriately." So: only STARTED
+                                // stages render (each revealing with an
+                                // expand+fade as its turn arrives), and every
+                                // shown stage carries a TIME BAR whose length
+                                // is its duration relative to the LONGEST
+                                // stage shown — the running bar grows live,
+                                // and every earlier bar RENORMALIZES (animated)
+                                // whenever a new maximum lands.
+                                val heroTickerSeed = currentState?.runningKindStartedAtMs
+                                var heroLiveMs by remember(heroTickerSeed) {
+                                    mutableLongStateOf(
+                                        if (heroTickerSeed != null) {
+                                            System.currentTimeMillis() - heroTickerSeed
+                                        } else {
+                                            0L
+                                        },
+                                    )
+                                }
+                                LaunchedEffect(heroTickerSeed) {
+                                    if (heroTickerSeed == null) return@LaunchedEffect
+                                    while (true) {
+                                        heroLiveMs = System.currentTimeMillis() - heroTickerSeed
+                                        delay(150)
+                                    }
+                                }
+                                fun heroStageMs(kind: ExtensionTestKind): Long {
+                                    val r = currentState?.results?.get(kind) ?: return 0L
+                                    return when (r.status) {
+                                        TestStatus.RUNNING -> heroLiveMs.coerceAtLeast(STAGE_MIN_MS)
+                                        TestStatus.PENDING -> 0L
+                                        else -> r.durationMs.coerceAtLeast(STAGE_MIN_MS)
+                                    }
+                                }
+                                val maxStageMs = ExtensionTestKind.entries
+                                    .maxOf { heroStageMs(it) }
+                                    .coerceAtLeast(STAGE_MIN_MS)
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.animateContentSize(
+                                        animationSpec = tween(Motion.DurationStandard, easing = Motion.EasingEmphasized),
+                                    ),
+                                ) {
                                     ExtensionTestKind.entries.forEach { kind ->
-                                        LiveKindRow(
-                                            kind = kind,
-                                            result = currentState?.results?.get(kind),
-                                            // D-592 (round 86): the live
-                                            // per-phrase search status rides
-                                            // into the hero row.
-                                            liveDetail = if (kind == ExtensionTestKind.SEARCH) {
-                                                currentState?.runningDetail
-                                            } else {
-                                                null
-                                            },
-                                            // ROUND 87 (D-597): the LIVE
-                                            // elapsed timer — the running
-                                            // row ticks instead of freezing
-                                            // at "0 ms".
-                                            runningStartedAtMs = currentState?.runningKindStartedAtMs,
-                                        )
+                                        val kindResult = currentState?.results?.get(kind)
+                                        val kindStarted = kindResult != null &&
+                                            kindResult.status != TestStatus.PENDING
+                                        AnimatedVisibility(
+                                            visible = kindStarted,
+                                            enter = fadeIn(tween(180)) +
+                                                expandVertically(tween(220, easing = Motion.EasingEmphasized)),
+                                            exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
+                                        ) {
+                                            LiveKindRow(
+                                                kind = kind,
+                                                result = kindResult,
+                                                // D-592 (round 86): the live
+                                                // per-phrase search status rides
+                                                // into the hero row.
+                                                liveDetail = if (kind == ExtensionTestKind.SEARCH) {
+                                                    currentState?.runningDetail
+                                                } else {
+                                                    null
+                                                },
+                                                // ROUND 87 (D-597): the LIVE
+                                                // elapsed timer — the running
+                                                // row ticks instead of freezing
+                                                // at "0 ms".
+                                                runningStartedAtMs = currentState?.runningKindStartedAtMs,
+                                                // ROUND 92 (D-637): the stage's
+                                                // TIME BAR (see above).
+                                                bar = {
+                                                    val barMs = heroStageMs(kind)
+                                                    val barFraction by animateFloatAsState(
+                                                        targetValue = (barMs.toFloat() / maxStageMs)
+                                                            .coerceIn(0.04f, 1f),
+                                                        animationSpec = tween(350, easing = FastOutSlowInEasing),
+                                                        label = "stageBarWidth",
+                                                    )
+                                                    val baseColor = TestingPalette.kindColor(kind)
+                                                    val fillColor = when (kindResult?.status) {
+                                                        TestStatus.FAILED -> baseColor.copy(alpha = 0.55f)
+                                                        TestStatus.SKIPPED -> baseColor.copy(alpha = 0.30f)
+                                                        else -> baseColor
+                                                    }
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(top = 2.dp)
+                                                            .height(5.dp)
+                                                            .clip(RoundedCornerShape(50))
+                                                            .background(
+                                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                                                    .copy(alpha = 0.10f),
+                                                            ),
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth(barFraction)
+                                                                .fillMaxHeight()
+                                                                .clip(RoundedCornerShape(50))
+                                                                .background(fillColor),
+                                                        )
+                                                    }
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -599,10 +700,21 @@ fun TestingRunScreen(
 }
 
 /**
+ * ROUND 92 (D-637): the visibility floor for the progressive stage bars'
+ * weights — a fast-but-real stage still renders a visible sliver instead of
+ * a hairline, and the max normalization never divides by zero. (Twin of the
+ * detail page's STAGE_MIN_MS from D-632.)
+ */
+private const val STAGE_MIN_MS = 250L
+
+/**
  * The hero's per-kind row (round 85): the compact line, and — for a
  * terminal result — a TAP-EXPANDABLE detail panel BELOW the row ("the
  * details should be shown below the tests and their details should be
  * proper"). This is where the run page stops looking like the list page.
+ * ROUND 92 (D-637): the optional [bar] slot renders directly under the row —
+ * the stage's TIME BAR (length = duration relative to the longest shown
+ * stage; the run screen's progressive stage-bars machine).
  */
 @Composable
 private fun LiveKindRow(
@@ -610,6 +722,7 @@ private fun LiveKindRow(
     result: TestResult?,
     liveDetail: String? = null,
     runningStartedAtMs: Long? = null,
+    bar: (@Composable () -> Unit)? = null,
 ) {
     var expanded by remember(kind) { mutableStateOf(false) }
     val terminal = result != null && result.status != TestStatus.RUNNING &&
@@ -649,6 +762,11 @@ private fun LiveKindRow(
                     modifier = Modifier.size(18.dp),
                 )
             }
+        }
+        // ROUND 92 (D-637): the stage's TIME BAR — directly under the row,
+        // above the live phrase footnote and the expandable details.
+        if (bar != null) {
+            bar()
         }
         // The LIVE per-phrase status — which phrase the search ladder is on
         // right now (the D-592 pipe; shown only while this kind runs).

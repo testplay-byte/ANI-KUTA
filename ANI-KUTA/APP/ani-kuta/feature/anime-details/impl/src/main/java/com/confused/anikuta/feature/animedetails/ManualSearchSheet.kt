@@ -34,15 +34,18 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -68,7 +71,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -106,6 +108,31 @@ import kotlin.math.abs
 
 /**
  * Manual search bottom sheet — search installed sources for a matching SAnime.
+ *
+ * ROUND 92 (D-636) — THE v1.1.48 DEVICE ROUND (the Link Sources half):
+ * 1. THE TAP FIX — the tap-to-center offset is ZERO now (the drum idiom,
+ *    commit 01106f07): with the half-viewport contentPadding, the item state
+ *    (idx, 0) IS the centered position; the old −centerPadding offset shoved
+ *    the tapped row to the BOTTOM edge and centered a row ABOVE it ("the
+ *    extension above it will be selected… every single time"). Tap-centering
+ *    events are also suppressed while their animation runs (the tap already
+ *    set the selection).
+ * 2. THE THEME-COLOR PILLS — the column headings are standalone stadium
+ *    PILLS ("all four sides… rounded, like a pill shape"), the extension
+ *    lists live in their own ALL-ROUNDED containers, and the accent is the
+ *    app's PRIMARY, worn ONLY by the column holding the selection (no more
+ *    hardcoded green/sky; the count is plain text, no bubble).
+ * 3. THE TALLER WHEEL — 168dp: the center row, one full row above and
+ *    below, and one SLIGHT PEEK beyond each (at least four visible, per the
+ *    report); the slimmer chrome keeps the whole sheet inside the 60% cap.
+ * 4. THE DISTANCE BLUR — the selected/centered row is never blurred, the
+ *    nearest rows slightly (0.8dp), further rows more (1.8dp / 3dp).
+ * 5. THE TWO-STEP SEARCH BAR — the first tap ARMS the bar (pastes the
+ *    content name + shows the search button, NO keyboard); the second tap
+ *    opens the keyboard; the blur reset re-arms the cycle.
+ * 6. THE CARD — hidden once a search runs, and its layout reworked (ringed
+ *    cover, cleaner hierarchy, the iconed linked-via row); the hint sits
+ *    tighter.
  *
  * ROUND 91 (D-628) — THE WHEEL REWORK (the v1.1.47 device verdict: “the
  * height should be no more than 60% of the device's whole height… it should
@@ -261,6 +288,26 @@ fun ManualSearchSheet(
     // content name automatically; the user can then clear it and type their
     // own query.
     var autoPasted by rememberSaveable { mutableStateOf(false) }
+    // ROUND 92 (D-636): THE TWO-STEP KEYBOARD CONTRACT — "for the first time
+    // when the user clicks on the search bar, it will not open up the
+    // keyboard. It will only switch its state to the name of the content
+    // typed in and the search button showing." The bar starts UNARMED: a
+    // transparent overlay swallows the first tap, pastes the content name,
+    // and reveals the search button — no focus, no IME. The SECOND tap lands
+    // on the real field (focus + keyboard). The blur-reset contract below
+    // disarms the bar again, so the cycle is repeatable.
+    var searchArmed by rememberSaveable { mutableStateOf(false) }
+    fun armSearchBar() {
+        searchArmed = true
+        HapticHelper.lightTick(context)
+        if (!autoPasted && query.text.isEmpty() && initialQuery.isNotBlank()) {
+            query = TextFieldValue(
+                text = initialQuery,
+                selection = TextRange(initialQuery.length),
+            )
+            autoPasted = true
+        }
+    }
     // D-575: local results mode — once a search runs, the list swaps for the
     // results view; "Change" swaps back WITHOUT clearing anything.
     // ROUND 85: rememberSaveable — rotation no longer blanks the sheet.
@@ -280,27 +327,23 @@ fun ManualSearchSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = null,
     ) {
-        // ── ROUND 91 (D-628): THE 60% CAP + THE FIVE-ROW WHEEL HEIGHT ──
-        // The sheet's TOTAL height is bounded to 60% of the screen: the fixed
-        // chrome (header ~58dp + the two column headings ~40dp + search row
-        // ~66dp + hint ~28dp + the linked-content card ~104dp + the spacing
-        // ~34dp ≈ 330dp) is reserved, and each wheel is a FIXED viewport of
-        // five 36dp rows (192dp). The wheels take the SMALLER of the two —
-        // plus the ime guard from D-612/D-626 (keyboard-open budget), so the
-        // search bar and the card keep their room — floored so they never
-        // vanish on tiny screens.
+        // ── ROUND 92 (D-636): THE 60% CAP + THE TALLER WHEEL ──
+        // The sheet's TOTAL height stays bounded to 60% of the screen, but
+        // the fixed chrome is now SLIMMER (the compact pill headings, the
+        // tighter hint, the leaner linked-content card ≈ 288dp) and the wheel
+        // is TALLER (168dp — the center row + one full row above/below + two
+        // slight peeks, the device report's exact ask), so both fit the 60%
+        // budget together on a normal screen. The ime guard from D-612/D-626
+        // (keyboard-open budget) keeps the search bar's room; floored so the
+        // wheels never vanish on tiny screens.
         val density = LocalDensity.current
         val imeBottom = WindowInsets.ime.getBottom(density)
         val navBottom = WindowInsets.navigationBars.getBottom(density)
         val insetsDp = with(density) { (imeBottom + navBottom).toDp() }
-        val chromeReserve = 330.dp
-        // NOTE: Dp must be the LEFT operand — Dp.times(Int) exists; the
-        // Int.times(Dp) extension does not.
-        val fiveRowWheel = WHEEL_ROW_HEIGHT * WHEEL_ROW_COUNT +
-            WHEEL_ROW_SPACING * (WHEEL_ROW_COUNT - 1)
+        val chromeReserve = 288.dp
         val sheet60Budget = (screenHeight * 0.60f) - chromeReserve
         val imeBudget = screenHeight - chromeReserve - insetsDp
-        val wheelHeight = minOf(fiveRowWheel, sheet60Budget, imeBudget)
+        val wheelHeight = minOf(WHEEL_VIEWPORT_HEIGHT, sheet60Budget, imeBudget)
             .coerceAtLeast(120.dp)
         Column(
             modifier = Modifier
@@ -447,26 +490,32 @@ fun ManualSearchSheet(
                         // two systems and the bar (the device report: “there
                         // should be some space between the top two systems
                         // and the bottom search bar”).
-                        .padding(top = 16.dp, bottom = 12.dp),
+                        .padding(top = 14.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // The bar — bordered pill with a FOCUS RING (D-582); takes
                     // the full width while the circular button is hidden.
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier
-                            .weight(1f)
-                            .border(
-                                if (searchFocused) 1.5.dp else 1.dp,
-                                if (searchFocused) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-                                } else {
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
-                                },
-                                RoundedCornerShape(50),
-                            ),
-                    ) {
+                    // ROUND 92 (D-636): the bar rides inside a Box carrying
+                    // the ARMING OVERLAY — while un-armed, a transparent
+                    // matchParentSize layer swallows the first tap (arm:
+                    // paste + button, NO keyboard); once armed it is gone and
+                    // the real field takes the taps.
+                    Box(modifier = Modifier.weight(1f)) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(
+                                    if (searchFocused) 1.5.dp else 1.dp,
+                                    if (searchFocused) {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                                    } else {
+                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                                    },
+                                    RoundedCornerShape(50),
+                                ),
+                        ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
@@ -511,13 +560,17 @@ fun ManualSearchSheet(
                                             autoPasted = true
                                         }
                                         // ROUND 85: the blur reset (see the
-                                        // contract above).
+                                        // contract above). ROUND 92 (D-636):
+                                        // it also DISARMS the bar — the next
+                                        // tap re-arms (paste + button) before
+                                        // any keyboard.
                                         if (!it.isFocused &&
                                             manualSearchState is ManualSearchState.Idle &&
                                             !showResults
                                         ) {
                                             query = TextFieldValue("")
                                             autoPasted = false
+                                            searchArmed = false
                                         }
                                     },
                                 textStyle = TextStyle(
@@ -579,12 +632,29 @@ fun ManualSearchSheet(
                                 }
                             }
                         }
+                        }
+                        // ROUND 92 (D-636): THE ARMING OVERLAY — while the bar
+                        // is un-armed it swallows the FIRST tap (arm: paste +
+                        // search button, no keyboard, no focus). No ripple —
+                        // the haptic tick in [armSearchBar] is the feedback.
+                        if (!searchArmed) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = { armSearchBar() },
+                                    ),
+                            )
+                        }
                     }
                     // THE search button — appears only while the bar is in
-                    // use (text typed or focused); idle shows only the bar.
-                    // D-582: elevated so it reads as the PRIMARY action.
+                    // use (text typed, focused, or ARMED — D-636); idle shows
+                    // only the bar. D-582: elevated so it reads as the PRIMARY
+                    // action.
                     AnimatedVisibility(
-                        visible = query.text.isNotEmpty() || searchFocused,
+                        visible = query.text.isNotEmpty() || searchFocused || searchArmed,
                         enter = fadeIn(tween(180)),
                         exit = fadeOut(tween(150)),
                     ) {
@@ -621,6 +691,9 @@ fun ManualSearchSheet(
                 // ROUND 90 (D-626): THE HINT, FIXED — the search bar sits
                 // ABOVE this line, so it says "search above" (the round-86
                 // copy said "below", which read wrong from down here).
+                // ROUND 92 (D-636): the vertical distance is TIGHT — "the
+                // distance between the top and the bottom of it should be
+                // reduced".
                 if (!showResults && manualSearchState is ManualSearchState.Idle) {
                     Text(
                         text = "Tap a source to select it, then search above.",
@@ -628,7 +701,7 @@ fun ManualSearchSheet(
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
-                            .padding(top = 2.dp, bottom = 10.dp)
+                            .padding(top = 0.dp, bottom = 6.dp)
                             .fillMaxWidth(),
                         textAlign = TextAlign.Center,
                     )
@@ -640,12 +713,15 @@ fun ManualSearchSheet(
             // the content's name at the top right, its key details
             // underneath (episodes, status, score, season/year) and the
             // source it is currently linked through — the user always sees
-            // WHAT they are picking a source for. Rendered in BOTH modes
-            // (columns and results): the context is just as true while
-            // picking the match.
-            linkedContent?.let { content ->
-                LinkedContentCard(content = content)
-                Spacer(Modifier.height(8.dp))
+            // WHAT they are picking a source for. ROUND 92 (D-636): it
+            // DISAPPEARS once a search actually runs ("when the user
+            // actually searches for any content… the very bottom section
+            // should disappear") — the results view owns the whole sheet.
+            if (!showResults) {
+                linkedContent?.let { content ->
+                    LinkedContentCard(content = content)
+                    Spacer(Modifier.height(8.dp))
+                }
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -653,24 +729,46 @@ fun ManualSearchSheet(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ROUND 91 (D-628): THE TWO WHEELS — Aniyomi LEFT, CloudStream RIGHT (the
-//  round-90 two-column base, rebuilt to the v1.1.47 device spec):
-//    • each column is a FIXED five-row WHEEL — not a fill-the-screen list;
-//    • the SELECTED row is always the CENTERED row (snap fling + half-height
-//      contentPadding, so even the first and last rows center with empty
-//      space above/below);
-//    • non-selected rows are GRAYED with a slight blur — clearly readable;
-//    • the column holding the selection lights up (accent border + tint),
-//      and its heading wears an accent gradient band with a count chip.
-//  History: D-587 (round 86) replaced the alarm-clock drums with a single
-//  list; D-613/D-614 (rounds 87-88) → reverted by D-625 (round 89); D-626
-//  (round 90) rebuilt the two columns forward; D-628 gives them the wheel.
+//  THE TWO WHEELS — Aniyomi LEFT, CloudStream RIGHT.
+//  ROUND 92 (D-636) restyles them to the v1.1.48 device spec:
+//    • THE PILL HEADING — “the top section, where the name is shown, should
+//      be in a rounded way, all four sides… like a pill shape”: each column
+//      now opens with its own stadium pill, and the extensions live in their
+//      own ALL-ROUNDED container below it;
+//    • THE THEME COLORS — no more hardcoded green/sky accents: the accent is
+//      the app's own primary, and it is worn ONLY by the column that holds
+//      the current selection (“the actual theme color, and only the one
+//      which is currently selected and in active”); the other stays neutral;
+//    • THE PLAIN COUNT — “the total number of extensions does not need to be
+//      shown in a proper bubble”: quiet text inside the pill, no chip;
+//    • THE TALLER WHEEL — 168dp (the center row + one full row above/below
+//      + two slight peeks);
+//    • THE DISTANCE BLUR — the selected/centered row is never blurred, the
+//      nearest rows slightly, the rims more;
+//    • THE TAP FIX — animateScrollToItem(idx) with NO offset (the drum
+//      idiom): the old −centerPadding offset shoved the tapped row to the
+//      bottom edge and centered a row ABOVE it.
+//  Kept from the lineage: the always-centered selection (snap fling +
+//  half-height contentPadding), the scroll-driven selection + interaction
+//  guard, the live placeholder, the TextFieldValue paste.
+//  History: D-587 (round 86) single list; D-613/D-614 → reverted by D-625;
+//  D-626 (round 90) two columns; D-628 (round 91) the wheel; D-636 the rest.
 // ════════════════════════════════════════════════════════════════════════════
 
-/** The wheel geometry (D-628): five fixed-height rows per viewport. */
-private val WHEEL_ROW_COUNT = 5
+/** The wheel geometry (D-628; ROUND 92, D-636 — the taller wheel): the
+ *  viewport shows the CENTER row fully, ONE full row above and below it, and
+ *  ONE SLIGHT PEEK beyond each of those — the device spec: “what I wanted
+ *  was for at least four extensions to be shown, like one center… one top…
+ *  one bottom… and the other two top and bottom… shown slightly”. Geometry:
+ *  3×36dp rows + 4×3dp gaps + 2×24dp peeks = 168dp of wheel. */
 private val WHEEL_ROW_HEIGHT = 36.dp
 private val WHEEL_ROW_SPACING = 3.dp
+private val WHEEL_VIEWPORT_HEIGHT = 168.dp
+
+/** The per-level blur radii for the distance falloff (D-636), by row distance
+ *  from the centered row: 0 = never blurred, 1 = slight, 2 = more, 3+ = the
+ *  rims. The selected/centered row is NEVER blurred. */
+private val WHEEL_BLUR_BY_DISTANCE = listOf(0.dp, 0.8.dp, 1.8.dp, 3.dp)
 
 /** Resolved icon for a source — exactly one of the two is non-null per side. */
 private data class SourceIcon(
@@ -703,13 +801,12 @@ private fun SourceListPanel(
         ?.let { sel -> cloudStreamSources.indexOfFirst { it.id == sel.id } }
         ?.takeIf { it > 0 } ?: 0
     Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         SourceColumnCard(
             label = "Aniyomi",
             count = aniyomiSources.size,
-            accentDot = Color(0xFF34D399),
             sources = aniyomiSources,
             iconFor = { source -> SourceIcon(aniyomiDrawable = aniyomiIconById[source.id], csIconUrl = null) },
             selectedSource = selectedSource,
@@ -724,7 +821,6 @@ private fun SourceListPanel(
         SourceColumnCard(
             label = "CloudStream",
             count = cloudStreamSources.size,
-            accentDot = Color(0xFF38BDF8),
             sources = cloudStreamSources,
             iconFor = { source -> SourceIcon(aniyomiDrawable = null, csIconUrl = csIconByName[source.name]) },
             selectedSource = selectedSource,
@@ -740,10 +836,9 @@ private fun SourceListPanel(
 }
 
 /**
- * ONE SIDE of the two-wheel layout (round 91, D-628): a rounded card whose
- * HEADING is a highlighted accent band (gradient + count chip + hairline —
- * "highlighted, with some depth") and whose list is a FIXED [wheelHeight]
- * viewport — five rows at a time, everything else by scrolling.
+ * ONE SIDE of the two-wheel layout (round 91, D-628; ROUND 92, D-636 restyle):
+ * a stadium PILL heading (the system's name + the plain count) above an
+ * ALL-ROUNDED container holding a fixed [wheelHeight] viewport — the wheel.
  *
  * THE WHEEL CONTRACT: half-viewport [PaddingValues] let the FIRST and LAST
  * rows sit in the center (the area above/below stays empty), snap fling
@@ -751,16 +846,17 @@ private fun SourceListPanel(
  * animates it to the center — the selected row is centered at all times.
  *
  * THE HIGHLIGHT CONTRACT: the column whose list holds the current selection
- * lights its own card (accent border + tint); the other stays quiet. The
- * scroll-selection contract from D-626 is unchanged — the row nearest the
- * vertical center is the column's "centered" row, and only USER scrolls
- * drive the selection (the interaction guard).
+ * wears the app's PRIMARY accent (tinted pill, tinted container, ringed
+ * border); the other column stays completely neutral. The scroll-selection
+ * contract from D-626 is unchanged — the row nearest the vertical center is
+ * the column's "centered" row, and only USER scrolls drive the selection
+ * (the interaction guard; tap-centering animations are suppressed while
+ * they run — the tap already set the selection).
  */
 @Composable
 private fun SourceColumnCard(
     label: String,
     count: Int,
-    accentDot: Color,
     sources: List<AnimeCatalogueSource>,
     iconFor: (AnimeCatalogueSource) -> SourceIcon,
     selectedSource: AnimeCatalogueSource?,
@@ -777,7 +873,6 @@ private fun SourceColumnCard(
         // centering effect below moves it to the exact middle.
         initialFirstVisibleItemIndex = initialCenterIndex.coerceAtLeast(0),
     )
-    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
 
     // ── The centered row: nearest to the list's vertical midpoint ──
@@ -808,9 +903,15 @@ private fun SourceColumnCard(
             if (scrolling) hasScrolled = true
         }
     }
+    // ROUND 92 (D-636): while a TAP's centering animation runs, the
+    // centered-index events are the animation's OWN passing traffic — the
+    // tap already set the selection, so they are suppressed until the last
+    // animation lands (a counter, not a flag: overlapping taps each release
+    // only their own hold).
+    var tapCenteringCount by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         snapshotFlow { centeredIndex }.collect { idx ->
-            if (idx != null && hasScrolled) onCentered(sources[idx])
+            if (idx != null && hasScrolled && tapCenteringCount == 0) onCentered(sources[idx])
         }
     }
 
@@ -840,79 +941,75 @@ private fun SourceColumnCard(
         }
     }
 
-    // ── D-628: the column highlight — this section lights up when the
-    // selection lives in it ("that section should be highlighted when any
-    // of the systems is selected").
+    // ── ROUND 92 (D-636): the column highlight — the app's OWN theme color,
+    // worn ONLY by the column that holds the selection.
     val columnSelected = selectedSource?.let { sel ->
         sources.any { it.id == sel.id }
     } == true
+    val accent = MaterialTheme.colorScheme.primary
 
-    Surface(
-        color = if (columnSelected) {
-            accentDot.copy(alpha = 0.07f)
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
-        },
-        border = if (columnSelected) {
-            BorderStroke(1.5.dp, accentDot.copy(alpha = 0.45f))
-        } else {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f))
-        },
-        shape = RoundedCornerShape(16.dp),
-        modifier = modifier,
-    ) {
-        Column {
-            // ── THE HEADING (D-628): highlighted, with depth — an accent
-            // gradient band, the count in an accent chip, and a hairline
-            // underline separating it from the wheel.
+    Column(modifier = modifier) {
+        // ── THE PILL HEADING (D-636) — "the top section of it, where the name
+        // is shown, should be in a rounded way, like all four sides of it
+        // should be rounded, like in a pill shape." Active: the primary
+        // accent. Inactive: neutral. The count is PLAIN TEXT — "does not need
+        // to be shown in a proper bubble or anything like that".
+        Surface(
+            color = if (columnSelected) {
+                accent.copy(alpha = 0.13f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            },
+            border = if (columnSelected) {
+                BorderStroke(1.25.dp, accent.copy(alpha = 0.45f))
+            } else {
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+            },
+            shape = RoundedCornerShape(50),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(accentDot.copy(alpha = 0.18f), accentDot.copy(alpha = 0.04f)),
-                        ),
-                    )
-                    .padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 8.dp),
+                modifier = Modifier.padding(start = 13.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(accentDot),
-                )
-                Spacer(Modifier.width(6.dp))
                 Text(
                     text = label,
                     fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
+                    color = if (columnSelected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-                Surface(
-                    color = accentDot.copy(alpha = 0.16f),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text(
-                        text = "$count",
-                        fontFamily = RobotoFamily,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = accentDot,
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                    )
-                }
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "$count",
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f),
+                )
             }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(accentDot.copy(alpha = 0.15f)),
-            )
+        }
+        Spacer(Modifier.height(7.dp))
+        // ── THE LIST CONTAINER (D-636) — "the bottom section which has all
+        // the extensions showing, it should be in an all-rounded view too":
+        // its own rounded card, tinted + ringed only while active.
+        Surface(
+            color = if (columnSelected) {
+                accent.copy(alpha = 0.055f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
+            },
+            border = if (columnSelected) {
+                BorderStroke(1.5.dp, accent.copy(alpha = 0.40f))
+            } else {
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f))
+            },
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             if (sources.isEmpty()) {
                 Text(
                     text = emptyNote,
@@ -921,7 +1018,7 @@ private fun SourceColumnCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp, vertical = 14.dp),
                 )
             } else {
                 LazyColumn(
@@ -937,22 +1034,36 @@ private fun SourceColumnCard(
                         .height(wheelHeight)
                         .padding(horizontal = 5.dp),
                 ) {
-                    items(sources, key = { it.id }) { source ->
+                    itemsIndexed(sources, key = { _, src -> src.id }) { index, source ->
+                        // ROUND 92 (D-636): the row's DISTANCE from the
+                        // centered row drives the blur falloff. Before the
+                        // first layout (centeredIndex null) everything reads
+                        // as distance 0 — no blur flash on composition.
+                        val distance = centeredIndex?.let { abs(it - index) } ?: 0
                         SourceColumnRow(
                             source = source,
                             icon = iconFor(source),
                             selected = selectedSource?.id == source.id,
                             linked = isLinked(source),
+                            distance = distance,
                             onSelect = {
                                 onSelect(source)
-                                // D-628: a tapped row centers itself — the
-                                // wheel's "selected is always centered"
-                                // contract, tap edition.
-                                val idx = sources.indexOfFirst { it.id == source.id }
-                                if (idx >= 0) {
-                                    val offsetPx = with(density) { -centerPadding.toPx() }.toInt()
-                                    scope.launch {
-                                        listState.animateScrollToItem(idx, offsetPx)
+                                // D-628/D-636: a tapped row centers itself —
+                                // the wheel's "selected is always centered"
+                                // contract, tap edition. THE OFFSET FIX
+                                // (D-636): ZERO. With the half-viewport
+                                // contentPadding, the item state (idx, 0) IS
+                                // the centered position — the old
+                                // −centerPadding offset landed the tapped row
+                                // at the BOTTOM edge and centered a row
+                                // ABOVE it ("the extension above it will be
+                                // selected… every single time").
+                                tapCenteringCount++
+                                scope.launch {
+                                    try {
+                                        listState.animateScrollToItem(index)
+                                    } finally {
+                                        tapCenteringCount--
                                     }
                                 }
                             },
@@ -965,13 +1076,16 @@ private fun SourceColumnCard(
 }
 
 /**
- * One source row of the WHEEL (round 91, D-628) — a fixed-height 36dp row:
- * the selected treatment (tint + border + bold + the check bubble) versus
- * the grayed, SLIGHTLY BLURRED rest ("not fully blurred. It should be
- * clearly readable"). The blur rides AFTER the background/border in the
- * chain so it softens the CONTENT (icon + name) while the selected row's
- * own chrome stays crisp; on pre-Android-12 devices the blur is a no-op and
- * the gray carries the effect alone.
+ * One source row of the WHEEL (round 91, D-628; ROUND 92, D-636 falloff) — a
+ * fixed-height 36dp row: the selected treatment (tint + border + bold + the
+ * check bubble) versus the grayed rest. ROUND 92 (D-636): the blur is
+ * DISTANCE-DRIVEN — "the currently selected one will never be blurred out
+ * that much, but the ones which are further away, like the closest to it,
+ * will be slightly blurred, but the ones which are further away will be
+ * more blurred": distance 0 (the centered/selected row) = no blur; distance
+ * 1 = 0.8dp; distance 2 = 1.8dp; the rims = 3dp — each still clearly
+ * readable, never a smear. On pre-Android-12 devices the blur is a no-op and
+ * the gray + alpha falloff carries the effect alone.
  */
 @Composable
 private fun SourceColumnRow(
@@ -979,8 +1093,16 @@ private fun SourceColumnRow(
     icon: SourceIcon,
     selected: Boolean,
     linked: Boolean,
+    distance: Int,
     onSelect: () -> Unit,
 ) {
+    val blurRadius = WHEEL_BLUR_BY_DISTANCE[distance.coerceIn(0, WHEEL_BLUR_BY_DISTANCE.lastIndex)]
+    val textAlpha = when {
+        selected -> 1f
+        distance <= 1 -> 0.78f
+        distance == 2 -> 0.64f
+        else -> 0.52f
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -1004,9 +1126,9 @@ private fun SourceColumnRow(
                 RoundedCornerShape(10.dp),
             )
             .then(
-                // The SLIGHT BLUR (D-628) — applied only to the rest, never
-                // to the selected row.
-                if (selected) Modifier else Modifier.blur(1.2.dp),
+                // The DISTANCE BLUR (D-636) — never on the centered/selected
+                // row; deeper rows blur more.
+                if (blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier,
             )
             .clickable(onClick = onSelect)
             .padding(horizontal = 8.dp),
@@ -1021,7 +1143,7 @@ private fun SourceColumnRow(
             color = if (selected) {
                 MaterialTheme.colorScheme.onSurface
             } else {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.80f)
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = textAlpha)
             },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1126,6 +1248,11 @@ private fun WheelIconFallback(name: String, highlighted: Boolean, size: Dp = 28.
 //  currently linked content on the right side at the top, and below it it
 //  will show any details or any info, like total episodes, total stats of
 //  it, and some other key details like this."
+//  ROUND 92 (D-636): THE LAYOUT REWORK ("improve the UI of the bottom card
+//  which shows the currently connected details… manage it better and
+//  improve its UI layout and overall look and feel") — a bordered hairline
+//  surface, a ringed poster-cropped cover, a cleaner title → details →
+//  link hierarchy, and the linked-via line promoted to its own iconed row.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -1134,31 +1261,43 @@ private fun LinkedContentCard(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)),
+        shape = RoundedCornerShape(16.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(9.dp),
+            modifier = Modifier.padding(10.dp),
         ) {
-            // ── Left: the cover (poster-cropped; letter tile fallback) ──
-            if (content.coverUrl != null) {
-                SubcomposeAsyncImage(
-                    model = content.coverUrl,
-                    contentDescription = "${content.title} cover",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(width = 54.dp, height = 74.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                    loading = { LinkedCoverFallback(content.title) },
-                    error = { LinkedCoverFallback(content.title) },
-                )
-            } else {
-                LinkedCoverFallback(content.title)
+            // ── Left: the cover — poster-cropped inside its own ringed,
+            //  rounded frame (letter tile fallback, never a blank box) ──
+            Box(
+                modifier = Modifier
+                    .size(width = 52.dp, height = 72.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f),
+                        RoundedCornerShape(10.dp),
+                    ),
+            ) {
+                if (content.coverUrl != null) {
+                    SubcomposeAsyncImage(
+                        model = content.coverUrl,
+                        contentDescription = "${content.title} cover",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                        loading = { LinkedCoverFallback(content.title) },
+                        error = { LinkedCoverFallback(content.title) },
+                    )
+                } else {
+                    LinkedCoverFallback(content.title)
+                }
             }
             Spacer(Modifier.width(11.dp))
-            // ── Right: the name at the top, the details underneath ──
+            // ── Right: the name at the top, the details underneath, the
+            //  linked source as its own iconed row at the bottom ──
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = content.title,
@@ -1169,7 +1308,6 @@ private fun LinkedContentCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(5.dp))
                 // The details line — episodes, status, score, season/year,
                 // in the details page's own formatting language.
                 val detailBits = buildList {
@@ -1185,6 +1323,7 @@ private fun LinkedContentCard(
                     if (seasonYear.isNotBlank()) add(seasonYear)
                 }
                 if (detailBits.isNotEmpty()) {
+                    Spacer(Modifier.height(3.dp))
                     Text(
                         text = detailBits.joinToString("  ·  "),
                         fontFamily = RobotoFamily,
@@ -1195,44 +1334,53 @@ private fun LinkedContentCard(
                     )
                 }
                 // The currently-linked source — the card's tie back to the
-                // sheet's whole purpose. ROUND 91 (D-628): nothing linked
-                // yet says so honestly, in place of a missing line (the
-                // sparse extension-side card has no stats to lean on).
-                when (content.linkedSourceName) {
-                    null -> Text(
-                        text = "No source linked yet",
+                // sheet's whole purpose, now its OWN iconed row (D-636).
+                // ROUND 91 (D-628): nothing linked yet says so honestly, in
+                // place of a missing line (the sparse extension-side card
+                // has no stats to lean on).
+                Spacer(Modifier.height(5.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Link,
+                        contentDescription = null,
+                        tint = if (content.linkedSourceName != null) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        },
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = if (content.linkedSourceName != null) {
+                            "Linked via ${content.linkedSourceName}"
+                        } else {
+                            "No source linked yet"
+                        },
                         fontFamily = RobotoFamily,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        color = if (content.linkedSourceName != null) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    else -> {
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            text = "Linked via ${content.linkedSourceName}",
-                            fontFamily = RobotoFamily,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
                 }
             }
         }
     }
 }
 
-/** The card's cover fallback — a quiet letter tile, never a blank box. */
+/** The card's cover fallback — a quiet letter tile filling the frame, never
+ *  a blank box (D-636: fills the ringed 52×72 frame). */
 @Composable
 private fun LinkedCoverFallback(title: String) {
     Box(
         modifier = Modifier
-            .size(width = 54.dp, height = 74.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .fillMaxSize()
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)),
         contentAlignment = Alignment.Center,
     ) {

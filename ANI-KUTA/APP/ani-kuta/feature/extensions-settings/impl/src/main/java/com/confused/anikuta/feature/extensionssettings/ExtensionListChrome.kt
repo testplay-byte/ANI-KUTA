@@ -2,11 +2,13 @@ package com.confused.anikuta.feature.extensionssettings
 
 import android.graphics.drawable.Drawable
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateColorAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -14,13 +16,19 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -29,7 +37,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -654,3 +664,186 @@ internal fun Modifier.deleteExitLayer(state: DeleteExitState): Modifier =
             scaleX = state.scale.value
             scaleY = state.scale.value
         }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 92 (D-638/D-639): THE MULTI-SELECT CHROME — shared by BOTH extension
+//  tabs (Aniyomi + CloudStream). Long-press any row → selection mode; the
+//  rows trade their action icons for a leading check bubble; the BOTTOM
+//  ACTION BAR collects the actions AVAILABLE for the current selection
+//  (each action applies only to the rows it fits — a mixed selection of
+//  installed + available shows BOTH Install and Delete, and Delete only
+//  touches the installed ones: "depending on which the user presses, only
+//  that action will be performed"). Both tabs render identical pieces so
+//  the language stays pixel-consistent.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The leading check bubble a row wears while selection mode is active — an
+ * empty ring when unselected, the filled primary disc + check when selected.
+ */
+@Composable
+internal fun SelectionCheckBubble(
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val ringColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+        },
+        animationSpec = tween(150),
+        label = "selBubbleRing",
+    )
+    Box(
+        modifier = modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    Color.Transparent
+                },
+            )
+            .border(1.5.dp, ringColor, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        AnimatedVisibility(
+            visible = selected,
+            enter = fadeIn(tween(120)),
+            exit = fadeOut(tween(100)),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}
+
+/**
+ * One action pill inside the selection bar — icon + label, primary-tinted by
+ * default, error-tinted when [destructive] (Delete).
+ */
+@Composable
+internal fun SelectionBarAction(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+) {
+    val color = if (destructive) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+    Surface(
+        color = color.copy(alpha = 0.13f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.40f)),
+        shape = RoundedCornerShape(50),
+        modifier = Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = onClick,
+        ),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = color,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/**
+ * THE BOTTOM ACTION BAR — the selection-mode chrome, bottom-aligned over the
+ * tab's list ("the options for these will be shown at the very bottom").
+ * The leading X exits selection mode ([onClose] also cancels any pending
+ * batch on the Aniyomi side — the caller decides what "close" means), the
+ * [label] line carries the count (or the batch progress), and the [actions]
+ * slot carries ONLY the actions available for the current selection.
+ */
+@Composable
+internal fun ExtensionSelectionBar(
+    visible: Boolean,
+    label: String,
+    onClose: () -> Unit,
+    actions: @Composable RowScope.() -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = slideInVertically(tween(220, easing = FastOutSlowInEasing)) { it } +
+            fadeIn(tween(180)),
+        exit = slideOutVertically(tween(200, easing = FastOutSlowInEasing)) { it } +
+            fadeOut(tween(160)),
+        modifier = modifier,
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 3.dp,
+            shadowElevation = 8.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 7.dp, end = 10.dp, top = 7.dp, bottom = 7.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onClose),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Exit selection",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = label,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(10.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                ) {
+                    actions()
+                }
+            }
+        }
+    }
+}

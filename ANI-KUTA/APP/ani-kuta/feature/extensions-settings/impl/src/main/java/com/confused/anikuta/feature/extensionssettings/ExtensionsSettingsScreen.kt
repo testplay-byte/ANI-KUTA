@@ -17,6 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,13 +50,16 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RemoveModerator
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -96,6 +100,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil3.compose.AsyncImage
+import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -125,7 +130,11 @@ import org.koin.compose.koinInject
  *   between rows.
  * - Available extensions filtered to exclude installed/untrusted.
  * - Download button shows a circular spinner during install.
- * - Trusted sources: long-press enters reorder mode (up/down arrows).
+ * - Trusted sources: reorder via the header's SwapVert pill (ROUND 92, D-638 —
+ *   long-press now enters MULTI-SELECT instead: select rows, then act on the
+ *   whole batch from the bottom bar — Install / Trust / Untrust / Delete,
+ *   each applied one after the other; the aniyomi Delete chains the SYSTEM
+ *   uninstall prompts, one confirm per extension).
  * - Round 82 (D-571): the ANIYOMI uninstall flow has NO in-app confirmation
  *   dialog anymore — the trash icon fires the SYSTEM uninstaller directly
  *   (ACTION_DELETE), and Android's own "Do you want to uninstall this app?"
@@ -210,6 +219,80 @@ fun ExtensionsSettingsScreen(
     var langFilter by remember { mutableStateOf<String?>(null) }
     var reorderMode by remember { mutableStateOf(false) }
     var reorderedInstalled by remember { mutableStateOf<List<AnimeExtension.Installed>>(emptyList()) }
+    // ROUND 92 (D-638): hoisted above the selection block (it ticks on
+    // long-press) — the old declaration lived further down with the CS toast.
+    val context = LocalContext.current
+
+    // ── ROUND 92 (D-638): THE MULTI-SELECT MODE — "if I long press on any of
+    // the extensions, then it should show me the selection menu where I can
+    // select the extensions and click the delete button or select the other
+    // options which might be available, like untrust or trust, or maybe the
+    // install action, depending on what I have selected." Long-press enters
+    // the mode and pre-selects the pressed row; taps toggle rows; the bottom
+    // bar (rendered below the list) shows ONLY the actions the current
+    // selection supports, and each action applies only to the rows it fits
+    // (a mixed installed+available selection offers BOTH Install and Delete;
+    // Delete touches just the installed ones). Selection is tab-local and
+    // resets when the last row deselects. ──
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedPkgs by remember { mutableStateOf(setOf<String>()) }
+    fun toggleSelected(pkg: String) {
+        selectedPkgs = if (pkg in selectedPkgs) selectedPkgs - pkg else selectedPkgs + pkg
+        if (selectedPkgs.isEmpty()) selectionMode = false
+    }
+    fun enterSelection(pkg: String) {
+        reorderMode = false
+        selectedPkgs = setOf(pkg)
+        selectionMode = true
+        HapticHelper.lightTick(context)
+    }
+    fun exitSelection() {
+        selectionMode = false
+        selectedPkgs = emptySet()
+    }
+
+    // ROUND 92 (D-638): THE CHAINED SYSTEM-UNINSTALL BATCH — "it will show me
+    // the pop-up, I will click delete or OK, and it will delete, and
+    // afterwards it will give me the second pop-up immediately after that
+    // getting deleted, and I will click OK, and then it will get deleted too,
+    // and so on." Android uninstalls APKs ONE SYSTEM PROMPT at a time, so the
+    // batch is a QUEUE: the head's uninstaller fires; the moment the package
+    // is gone from the manager's flows (the system OK — the same signal the
+    // ghost machinery rides), the next head fires immediately. A CANCELLED
+    // prompt stalls the queue (nothing was deleted); the bar's X stops the
+    // batch outright.
+    var uninstallQueue by remember { mutableStateOf<List<String>>(emptyList()) }
+    var uninstallBatchTotal by remember { mutableStateOf(0) }
+    fun fireUninstallerFor(pkg: String) {
+        val ext = (installedExtensions + untrustedExtensions + erroredExtensions)
+            .firstOrNull { it.pkgName == pkg }
+        if (ext != null) {
+            extensionManager.uninstallExtension(ext)
+        } else {
+            // Already gone (removed outside the batch) — skip straight to the
+            // next head so the chain never stalls on a ghost.
+            uninstallQueue = uninstallQueue.drop(1)
+            uninstallQueue.firstOrNull()?.let { fireUninstallerFor(it) }
+        }
+    }
+    fun startUninstallBatch(pkgs: List<String>) {
+        if (pkgs.isEmpty()) return
+        uninstallBatchTotal = pkgs.size
+        uninstallQueue = pkgs
+        fireUninstallerFor(pkgs.first())
+    }
+    // The advance watcher: a head that left the flows = a confirmed removal
+    // → pop it and fire the next head.
+    LaunchedEffect(uninstallQueue, installedExtensions, untrustedExtensions, erroredExtensions) {
+        val head = uninstallQueue.firstOrNull() ?: return@LaunchedEffect
+        val gone = installedExtensions.none { it.pkgName == head } &&
+            untrustedExtensions.none { it.pkgName == head } &&
+            erroredExtensions.none { it.pkgName == head }
+        if (gone) {
+            uninstallQueue = uninstallQueue.drop(1)
+            uninstallQueue.firstOrNull()?.let { fireUninstallerFor(it) }
+        }
+    }
 
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
@@ -241,11 +324,17 @@ fun ExtensionsSettingsScreen(
         if (!reorderMode) reorderedInstalled = installedExtensions
     }
 
+    // ROUND 92 (D-638): switching tabs drops the selection — each tab's batch
+    // actions belong to that tab's rows (the CS tab carries its own state).
+    LaunchedEffect(activeTab) {
+        exitSelection()
+    }
+
     // Round 82 (D-571): CloudStream uninstall failures used to die silently
     // inside the manager's mutex (an unguarded loader.unloadPlugin throw).
     // The manager now publishes the failure reason — surface it as a toast and
     // consume it immediately so it fires exactly once.
-    val context = LocalContext.current
+    // (ROUND 92, D-638: `context` moved UP, above the selection block.)
     val csUninstallError by csManager.uninstallError.collectAsState()
     LaunchedEffect(csUninstallError) {
         csUninstallError?.let { message ->
@@ -385,6 +474,19 @@ fun ExtensionsSettingsScreen(
                             },
                         )
                     } else {
+                        // ROUND 92 (D-638): THE REORDER PILL — long-press now
+                        // enters MULTI-SELECT (the v1.1.48 device spec), so
+                        // reorder mode gets its own header door (aniyomi tab
+                        // only — the trusted-sources list is the reorderable
+                        // one).
+                        if (!showCloudstreamTab) {
+                            HeaderPillButton(
+                                icon = Icons.Filled.SwapVert,
+                                contentDescription = "Reorder trusted sources",
+                                onClick = { reorderMode = true },
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
                         // ROUND 85 (the device report: "they should not be
                         // showing text. There should only be the icons"):
                         // icon-only stadium pills — Science · Filters · Settings.
@@ -468,7 +570,13 @@ fun ExtensionsSettingsScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 110.dp),
+                    // ROUND 92 (D-638): extra bottom clearance while the
+                    // selection bar (or a running uninstall batch) rides over
+                    // the list's foot.
+                    contentPadding = PaddingValues(
+                        start = 12.dp, end = 12.dp, top = 4.dp,
+                        bottom = if (selectionMode || uninstallQueue.isNotEmpty()) 190.dp else 110.dp,
+                    ),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     // D-299: every section header is its own item and every row is its
@@ -516,7 +624,13 @@ fun ExtensionsSettingsScreen(
                                                 }
                                             }
                                         },
-                                        onLongPress = { reorderMode = true },
+                                        // ROUND 92 (D-638): long-press enters
+                                        // MULTI-SELECT now (reorder moved to the
+                                        // header's SwapVert pill).
+                                        onLongPress = { enterSelection(ext.pkgName) },
+                                        selectionMode = selectionMode,
+                                        selected = ext.pkgName in selectedPkgs,
+                                        onToggleSelected = { toggleSelected(ext.pkgName) },
                                         onClickExtension = { onOpenExtensionDetail(ext.pkgName) },
                                         onToggleEnabled = {
                                             if (ext.isEnabled) extensionManager.disableExtension(ext.pkgName)
@@ -557,6 +671,10 @@ fun ExtensionsSettingsScreen(
                             ErroredExtensionRow(
                                 modifier = Modifier.animateItem(),
                                 extension = ext,
+                                selectionMode = selectionMode,
+                                selected = ext.pkgName in selectedPkgs,
+                                onToggleSelected = { toggleSelected(ext.pkgName) },
+                                onLongPress = { enterSelection(ext.pkgName) },
                                 onRetry = { extensionManager.retryExtension(ext) },
                                 onUntrust = { extensionManager.untrustExtension(ext) },
                                 onDelete = { extensionManager.uninstallExtension(ext) },
@@ -579,6 +697,10 @@ fun ExtensionsSettingsScreen(
                             UntrustedExtensionRow(
                                 modifier = Modifier.animateItem(),
                                 extension = ext,
+                                selectionMode = selectionMode,
+                                selected = ext.pkgName in selectedPkgs,
+                                onToggleSelected = { toggleSelected(ext.pkgName) },
+                                onLongPress = { enterSelection(ext.pkgName) },
                                 onTrust = { extensionManager.trustExtension(ext) },
                                 onDelete = { extensionManager.uninstallExtension(ext) },
                                 forcedExit = ext.pkgName in untrustedGhosts,
@@ -614,6 +736,10 @@ fun ExtensionsSettingsScreen(
                                 modifier = Modifier.animateItem(),
                                 extension = ext,
                                 installStep = installStep,
+                                selectionMode = selectionMode,
+                                selected = ext.pkgName in selectedPkgs,
+                                onToggleSelected = { toggleSelected(ext.pkgName) },
+                                onLongPress = { enterSelection(ext.pkgName) },
                                 onInstall = {
                                     scope.launch {
                                         extensionManager.installExtension(ext).collectLatest { }
@@ -633,6 +759,91 @@ fun ExtensionsSettingsScreen(
                     backgroundColor = MaterialTheme.colorScheme.background,
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
+
+                // ── ROUND 92 (D-638): THE BOTTOM ACTION BAR — visible while
+                // selecting OR while a chained uninstall batch runs (its label
+                // then carries the progress and its X stops the batch). The
+                // actions are computed from the SELECTION's per-section
+                // subsets: Install for the selected AVAILABLE rows, Trust for
+                // the selected UNTRUSTED ones, Untrust for the selected
+                // INSTALLED/ERRORED ones, Delete for every selected row that
+                // is actually on the device — "the options will be only shown
+                // depending on the available actions for them", and each
+                // action applies only to its own subset. ──
+                val selInstalled = ghostedInstalled.filter { it.pkgName in selectedPkgs }
+                val selErrored = ghostedErrored.filter { it.pkgName in selectedPkgs }
+                val selUntrusted = ghostedUntrusted.filter { it.pkgName in selectedPkgs }
+                val selAvailable = filteredAvailable.filter { it.pkgName in selectedPkgs }
+                val batchRunning = uninstallQueue.isNotEmpty()
+                ExtensionSelectionBar(
+                    visible = selectionMode || batchRunning,
+                    label = when {
+                        batchRunning -> "Uninstalling ${uninstallBatchTotal - uninstallQueue.size}/$uninstallBatchTotal…"
+                        else -> "${selectedPkgs.size} selected"
+                    },
+                    onClose = {
+                        // X = leave selection AND stop any pending batch.
+                        exitSelection()
+                        uninstallQueue = emptyList()
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) {
+                    if (!batchRunning && selectionMode) {
+                        if (selAvailable.isNotEmpty()) {
+                            SelectionBarAction(
+                                icon = Icons.Filled.Download,
+                                label = "Install",
+                                onClick = {
+                                    val targets = selAvailable.toList()
+                                    exitSelection()
+                                    // "Performed one after the other, but
+                                    // with proper care" — each install AWAYS
+                                    // completion before the next starts.
+                                    scope.launch {
+                                        for (ext in targets) {
+                                            extensionManager.installExtension(ext).collectLatest { }
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                        if (selUntrusted.isNotEmpty()) {
+                            SelectionBarAction(
+                                icon = Icons.Filled.VerifiedUser,
+                                label = "Trust",
+                                onClick = {
+                                    val targets = selUntrusted.toList()
+                                    exitSelection()
+                                    targets.forEach { extensionManager.trustExtension(it) }
+                                },
+                            )
+                        }
+                        if (selInstalled.isNotEmpty() || selErrored.isNotEmpty()) {
+                            SelectionBarAction(
+                                icon = Icons.Filled.RemoveModerator,
+                                label = "Untrust",
+                                onClick = {
+                                    val targets = selInstalled.toList() + selErrored.toList()
+                                    exitSelection()
+                                    targets.forEach { extensionManager.untrustExtension(it) }
+                                },
+                            )
+                        }
+                        if (selInstalled.isNotEmpty() || selErrored.isNotEmpty() || selUntrusted.isNotEmpty()) {
+                            SelectionBarAction(
+                                icon = Icons.Filled.Delete,
+                                label = "Delete",
+                                destructive = true,
+                                onClick = {
+                                    val pkgs = (selInstalled + selErrored + selUntrusted)
+                                        .map { it.pkgName }
+                                    exitSelection()
+                                    startUninstallBatch(pkgs)
+                                },
+                            )
+                        }
+                    }
+                }
             }
             }
         }
@@ -1205,6 +1416,13 @@ private fun InstalledExtensionRow(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onLongPress: () -> Unit,
+    // ROUND 92 (D-638): the multi-select contract — in selection mode the
+    // row's tap toggles its selection (long-press entered the mode), the
+    // leading check bubble appears before the icon, the action icons hide,
+    // and the surface wears the selected tint + ring.
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelected: () -> Unit = {},
     onClickExtension: () -> Unit,
     onToggleEnabled: () -> Unit,
     onUntrust: () -> Unit,
@@ -1240,14 +1458,23 @@ private fun InstalledExtensionRow(
         onUntrust()
     }
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = if (selectionMode && selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        },
+        border = if (selectionMode && selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+        } else {
+            null
+        },
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .deleteExitLayer(deleteExit)
             .fillMaxWidth()
             .graphicsLayer { alpha = if (extension.isEnabled) 1f else 0.45f }
             .combinedClickable(
-                onClick = onClickExtension,
+                onClick = if (selectionMode) onToggleSelected else onClickExtension,
                 onLongClick = onLongPress,
             ),
     ) {
@@ -1274,6 +1501,10 @@ private fun InstalledExtensionRow(
                 }
                 Spacer(Modifier.width(8.dp))
             } else {
+                if (selectionMode) {
+                    SelectionCheckBubble(selected = selected)
+                    Spacer(Modifier.width(9.dp))
+                }
                 ExtensionIcon(extension.icon, extension.name)
                 Spacer(Modifier.width(12.dp))
             }
@@ -1300,7 +1531,7 @@ private fun InstalledExtensionRow(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            if (!isReordering) {
+            if (!isReordering && !selectionMode) {
                 // Phase 2c: enable/disable toggle removed from list — moved to detail page.
                 // D-301/D-309: update control — a filled "Update" pill (was a bare
                 // Refresh icon indistinguishable from Retry) that transforms into a
@@ -1335,6 +1566,11 @@ private fun InstalledExtensionRow(
 private fun UntrustedExtensionRow(
     modifier: Modifier = Modifier,
     extension: AnimeExtension.Untrusted,
+    // ROUND 92 (D-638): the multi-select contract (see InstalledExtensionRow).
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelected: () -> Unit = {},
+    onLongPress: () -> Unit = {},
     onTrust: () -> Unit,
     onDelete: () -> Unit,
     forcedExit: Boolean = false,
@@ -1358,16 +1594,39 @@ private fun UntrustedExtensionRow(
         onTrust()
     }
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = if (selectionMode && selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        },
+        border = if (selectionMode && selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+        } else {
+            null
+        },
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .deleteExitLayer(deleteExit)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            // ROUND 92 (D-638): combinedClickable for the long-press →
+            // selection entry; no ripple (the check bubble + tint is the
+            // selection feedback; outside selection the row stays a no-op
+            // tap, its original behavior).
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = if (selectionMode) onToggleSelected else {},
+                onLongClick = onLongPress,
+            ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (selectionMode) {
+                SelectionCheckBubble(selected = selected)
+                Spacer(Modifier.width(9.dp))
+            }
             ExtensionIcon(extension.icon, extension.name)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -1388,21 +1647,25 @@ private fun UntrustedExtensionRow(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            ActionIconButton(
-                icon = Icons.Filled.VerifiedUser,
-                contentDescription = "Trust",
-                onClick = { if (!exitingForTrust) exitingForTrust = true },
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            // Round 82 (D-571) + ROUND 85: the system uninstall prompt IS the
-            // confirmation and fires directly; the exit animation waits for
-            // the confirmed removal (the ghost).
-            ActionIconButton(
-                icon = Icons.Filled.Delete,
-                contentDescription = "Uninstall",
-                onClick = onDelete,
-                tint = MaterialTheme.colorScheme.error,
-            )
+            // ROUND 92 (D-638): the trust/delete actions hide while
+            // selecting (the bottom bar owns them in batch form).
+            if (!selectionMode) {
+                ActionIconButton(
+                    icon = Icons.Filled.VerifiedUser,
+                    contentDescription = "Trust",
+                    onClick = { if (!exitingForTrust) exitingForTrust = true },
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                // Round 82 (D-571) + ROUND 85: the system uninstall prompt IS the
+                // confirmation and fires directly; the exit animation waits for
+                // the confirmed removal (the ghost).
+                ActionIconButton(
+                    icon = Icons.Filled.Delete,
+                    contentDescription = "Uninstall",
+                    onClick = onDelete,
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 }
@@ -1411,6 +1674,11 @@ private fun UntrustedExtensionRow(
 private fun ErroredExtensionRow(
     modifier: Modifier = Modifier,
     extension: AnimeExtension.Errored,
+    // ROUND 92 (D-638): the multi-select contract (see InstalledExtensionRow).
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelected: () -> Unit = {},
+    onLongPress: () -> Unit = {},
     onRetry: () -> Unit,
     onUntrust: () -> Unit,
     onDelete: () -> Unit,
@@ -1432,17 +1700,38 @@ private fun ErroredExtensionRow(
         onUntrust()
     }
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = if (selectionMode && selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        },
+        border = if (selectionMode && selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+        } else {
+            null
+        },
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .deleteExitLayer(deleteExit)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            // ROUND 92 (D-638): long-press → selection entry (no ripple; see
+            // UntrustedExtensionRow).
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = if (selectionMode) onToggleSelected else {},
+                onLongClick = onLongPress,
+            ),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (selectionMode) {
+                    SelectionCheckBubble(selected = selected)
+                    Spacer(Modifier.width(9.dp))
+                }
                 ExtensionIcon(extension.icon, extension.name)
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -1465,27 +1754,29 @@ private fun ErroredExtensionRow(
                 }
                 // D-296: Retry (re-attempt the load — e.g. after an app update
                 // shipped the missing APIs), Untrust (back to the untrusted list),
-                // Delete (uninstall).
-                ActionIconButton(
-                    icon = Icons.Filled.Refresh,
-                    contentDescription = "Retry",
-                    onClick = onRetry,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                ActionIconButton(
-                    icon = Icons.Filled.VerifiedUser,
-                    contentDescription = "Untrust",
-                    onClick = { if (!exitingForUntrust) exitingForUntrust = true },
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                // ROUND 85: fires the system uninstaller directly; the exit
-                // choreography waits for the confirmed removal (the ghost).
-                ActionIconButton(
-                    icon = Icons.Filled.Delete,
-                    contentDescription = "Uninstall",
-                    onClick = onDelete,
-                    tint = MaterialTheme.colorScheme.error,
-                )
+                // Delete (uninstall). ROUND 92 (D-638): hidden while selecting.
+                if (!selectionMode) {
+                    ActionIconButton(
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "Retry",
+                        onClick = onRetry,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    ActionIconButton(
+                        icon = Icons.Filled.VerifiedUser,
+                        contentDescription = "Untrust",
+                        onClick = { if (!exitingForUntrust) exitingForUntrust = true },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // ROUND 85: fires the system uninstaller directly; the exit
+                    // choreography waits for the confirmed removal (the ghost).
+                    ActionIconButton(
+                        icon = Icons.Filled.Delete,
+                        contentDescription = "Uninstall",
+                        onClick = onDelete,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
             // The actual failure reason straight from the loader (exception class
             // + message per source class) — no more silent vanishing.
@@ -1507,17 +1798,44 @@ private fun AvailableExtensionRow(
     modifier: Modifier = Modifier,
     extension: AnimeExtension.Available,
     installStep: InstallStep?,
+    // ROUND 92 (D-638): the multi-select contract (see InstalledExtensionRow)
+    // — long-press → selection; taps toggle while selecting; the install
+    // control hides and the bottom bar's Install action takes over in batch.
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelected: () -> Unit = {},
+    onLongPress: () -> Unit = {},
     onInstall: () -> Unit,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = if (selectionMode && selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        },
+        border = if (selectionMode && selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+        } else {
+            null
+        },
         shape = RoundedCornerShape(12.dp),
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = if (selectionMode) onToggleSelected else {},
+                onLongClick = onLongPress,
+            ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (selectionMode) {
+                SelectionCheckBubble(selected = selected)
+                Spacer(Modifier.width(9.dp))
+            }
             AsyncImage(
                 model = extension.iconUrl,
                 contentDescription = extension.name,
@@ -1549,11 +1867,14 @@ private fun AvailableExtensionRow(
             // Session 2: the shared install control (ExtensionListChrome.kt) —
             // identical state machine for the aniyomi AND CloudStream available
             // rows: Download button → animated ring + % → pulsing "Installing"
-            // → check + "Done" beat (D-309/D-311 lineage).
-            AvailableInstallControl(
-                installStep = installStep,
-                onInstall = onInstall,
-            )
+            // → check + "Done" beat (D-309/D-311 lineage). ROUND 92 (D-638):
+            // hidden while selecting.
+            if (!selectionMode) {
+                AvailableInstallControl(
+                    installStep = installStep,
+                    onInstall = onInstall,
+                )
+            }
         }
     }
 }

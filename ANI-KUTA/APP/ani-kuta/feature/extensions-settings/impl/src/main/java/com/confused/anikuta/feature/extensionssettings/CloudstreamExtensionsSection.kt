@@ -1,6 +1,8 @@
 package com.confused.anikuta.feature.extensionssettings
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.RemoveModerator
@@ -33,13 +36,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.providerapi.InstallStep
@@ -47,6 +53,7 @@ import com.confused.anikuta.data.cloudstream.CloudstreamPluginManager
 import com.confused.anikuta.data.cloudstream.model.CloudstreamExtension
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 /**
@@ -71,6 +78,15 @@ import org.koin.compose.koinInject
  *
  * Search / sort / language / NSFW all flow in from the ONE filters bar shared
  * with the aniyomi tab (G4: NSFW here is the persisted gate, default OFF).
+ *
+ * ROUND 92 (D-639): THE MULTI-SELECT — the same contract as the aniyomi tab
+ * (long-press enters selection; the bottom action bar carries ONLY the
+ * actions the selection supports; each action applies to its own subset;
+ * batches run one after the other). The ONE divergence, per the user's spec:
+ * the CloudStream DELETE takes a SINGLE in-app confirmation for the whole
+ * batch — "it will just do a single confirmation to delete it all because it
+ * does not need the system prompt to delete them" (plugins are files, not
+ * APKs — no per-package system dialogs).
  */
 @Composable
 internal fun CloudstreamExtensionsSection(
@@ -94,6 +110,28 @@ internal fun CloudstreamExtensionsSection(
     val retryingNames by csManager.retrying.collectAsState()
     val updateCheckState by csManager.updateCheckState.collectAsState()
     val csRepos by csRepoRepository.repos.collectAsState()
+
+    // ── ROUND 92 (D-639): the multi-select state (the aniyomi tab's twin,
+    // keyed by internalName). ──
+    val csScope = rememberCoroutineScope()
+    val csContext = LocalContext.current
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedNames by remember { mutableStateOf(setOf<String>()) }
+    // The ONE delete confirmation for the whole batch (D-639).
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+    fun toggleSelected(name: String) {
+        selectedNames = if (name in selectedNames) selectedNames - name else selectedNames + name
+        if (selectedNames.isEmpty()) selectionMode = false
+    }
+    fun enterSelection(name: String) {
+        selectedNames = setOf(name)
+        selectionMode = true
+        HapticHelper.lightTick(csContext)
+    }
+    fun exitSelection() {
+        selectionMode = false
+        selectedNames = emptySet()
+    }
 
     val listState = rememberLazyListState()
     val isChecking = updateCheckState is CloudstreamPluginManager.UpdateCheckState.Checking
@@ -132,7 +170,12 @@ internal fun CloudstreamExtensionsSection(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 110.dp),
+            // ROUND 92 (D-639): extra bottom clearance while the selection bar
+            // rides over the list's foot.
+            contentPadding = PaddingValues(
+                start = 12.dp, end = 12.dp, top = 4.dp,
+                bottom = if (selectionMode) 190.dp else 110.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             // D-299 pattern: every section header + row is its own virtualized item.
@@ -155,6 +198,11 @@ internal fun CloudstreamExtensionsSection(
                     modifier = Modifier.animateItem(),
                     extension = ext,
                     installStep = installStates[ext.internalName],
+                    // ROUND 92 (D-639): the multi-select contract.
+                    selectionMode = selectionMode,
+                    selected = ext.internalName in selectedNames,
+                    onToggleSelected = { toggleSelected(ext.internalName) },
+                    onLongPress = { enterSelection(ext.internalName) },
                     onUpdate = ext.availableUpdateVersion?.let {
                         {
                             // Task 62 (round 22): the online catalog target is
@@ -191,6 +239,10 @@ internal fun CloudstreamExtensionsSection(
                         modifier = Modifier.animateItem(),
                         extension = ext,
                         retrying = ext.internalName in retryingNames,
+                        selectionMode = selectionMode,
+                        selected = ext.internalName in selectedNames,
+                        onToggleSelected = { toggleSelected(ext.internalName) },
+                        onLongPress = { enterSelection(ext.internalName) },
                         onRetry = { csManager.retryPlugin(ext) },
                         onUninstall = { csManager.uninstallPlugin(ext) },
                         onClick = { onOpenPluginDetail(ext.internalName) },
@@ -211,6 +263,10 @@ internal fun CloudstreamExtensionsSection(
                     CsUntrustedRow(
                         modifier = Modifier.animateItem(),
                         extension = ext,
+                        selectionMode = selectionMode,
+                        selected = ext.internalName in selectedNames,
+                        onToggleSelected = { toggleSelected(ext.internalName) },
+                        onLongPress = { enterSelection(ext.internalName) },
                         onTrust = { csManager.trustPlugin(ext) },
                         onUninstall = { csManager.uninstallPlugin(ext) },
                         onClick = { onOpenPluginDetail(ext.internalName) },
@@ -244,6 +300,10 @@ internal fun CloudstreamExtensionsSection(
                         modifier = Modifier.animateItem(),
                         extension = ext,
                         installStep = installStates[ext.plugin.internalName],
+                        selectionMode = selectionMode,
+                        selected = ext.plugin.internalName in selectedNames,
+                        onToggleSelected = { toggleSelected(ext.plugin.internalName) },
+                        onLongPress = { enterSelection(ext.plugin.internalName) },
                         onInstall = { csManager.installPlugin(ext) },
                         onClick = { onOpenPluginDetail(ext.plugin.internalName) },
                     )
@@ -259,6 +319,126 @@ internal fun CloudstreamExtensionsSection(
             backgroundColor = MaterialTheme.colorScheme.background,
             modifier = Modifier.align(Alignment.TopCenter),
         )
+
+        // ── ROUND 92 (D-639): THE BOTTOM ACTION BAR — the aniyomi tab's twin:
+        // only the actions the current selection supports, each applied to
+        // its own subset (Install → the selected AVAILABLE rows; Trust → the
+        // UNTRUSTED ones; Untrust → the INSTALLED ones; Delete → everything
+        // on the device). ──
+        val selInstalled = filteredInstalled.filter { it.internalName in selectedNames }
+        val selErrored = filteredErrored.filter { it.internalName in selectedNames }
+        val selUntrusted = filteredUntrusted.filter { it.internalName in selectedNames }
+        val selAvailable = filteredAvailable.filter { it.plugin.internalName in selectedNames }
+        ExtensionSelectionBar(
+            visible = selectionMode,
+            label = "${selectedNames.size} selected",
+            onClose = { exitSelection() },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            if (selAvailable.isNotEmpty()) {
+                SelectionBarAction(
+                    icon = Icons.Filled.Download,
+                    label = "Install",
+                    onClick = {
+                        val targets = selAvailable.toList()
+                        exitSelection()
+                        // One after the other, with a small stagger so each
+                        // row's progress machine visibly takes its turn.
+                        csScope.launch {
+                            for (ext in targets) {
+                                csManager.installPlugin(ext)
+                                delay(350)
+                            }
+                        }
+                    },
+                )
+            }
+            if (selUntrusted.isNotEmpty()) {
+                SelectionBarAction(
+                    icon = Icons.Filled.VerifiedUser,
+                    label = "Trust",
+                    onClick = {
+                        val targets = selUntrusted.toList()
+                        exitSelection()
+                        targets.forEach { csManager.trustPlugin(it) }
+                    },
+                )
+            }
+            if (selInstalled.isNotEmpty()) {
+                SelectionBarAction(
+                    icon = Icons.Filled.RemoveModerator,
+                    label = "Untrust",
+                    onClick = {
+                        val targets = selInstalled.toList()
+                        exitSelection()
+                        csScope.launch {
+                            for (ext in targets) {
+                                csManager.untrustPlugin(ext)
+                                delay(250)
+                            }
+                        }
+                    },
+                )
+            }
+            if (selInstalled.isNotEmpty() || selErrored.isNotEmpty() || selUntrusted.isNotEmpty()) {
+                SelectionBarAction(
+                    icon = Icons.Filled.Delete,
+                    label = "Delete",
+                    destructive = true,
+                    onClick = { showBatchDeleteConfirm = true },
+                )
+            }
+        }
+
+        // ROUND 92 (D-639): THE ONE DELETE CONFIRMATION for the whole batch —
+        // "a single confirmation to delete it all because it does not need
+        // the system prompt" — then the uninstalls run one after the other.
+        val deletableCount = selInstalled.size + selErrored.size + selUntrusted.size
+        if (showBatchDeleteConfirm && deletableCount > 0) {
+            AlertDialog(
+                onDismissRequest = { showBatchDeleteConfirm = false },
+                title = {
+                    Text(
+                        "Uninstall ${if (deletableCount == 1) "plugin" else "$deletableCount plugins"}?",
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                },
+                text = {
+                    Text(
+                        "This will remove $deletableCount CloudStream ${if (deletableCount == 1) "plugin" else "plugins"} from your device.",
+                        fontFamily = RobotoFamily,
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showBatchDeleteConfirm = false
+                            val targets = selInstalled.toList() + selErrored.toList() + selUntrusted.toList()
+                            exitSelection()
+                            csScope.launch {
+                                for (ext in targets) {
+                                    csManager.uninstallPlugin(ext)
+                                    delay(300)
+                                }
+                            }
+                        },
+                    ) {
+                        Text(
+                            "Uninstall",
+                            color = MaterialTheme.colorScheme.error,
+                            fontFamily = RobotoFamily,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showBatchDeleteConfirm = false }) {
+                        Text("Cancel", fontFamily = RobotoFamily)
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -273,6 +453,11 @@ private fun CsInstalledRow(
     modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Installed,
     installStep: InstallStep?,
+    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows).
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelected: () -> Unit = {},
+    onLongPress: () -> Unit = {},
     onUpdate: (() -> Unit)?,
     onUninstall: () -> Unit,
     onUntrust: () -> Unit,
@@ -305,17 +490,35 @@ private fun CsInstalledRow(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = if (selectionMode && selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        },
+        border = if (selectionMode && selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+        } else {
+            null
+        },
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .deleteExitLayer(deleteExit)
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = if (selectionMode) onToggleSelected else onClick,
+                onLongClick = onLongPress,
+            ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (selectionMode) {
+                SelectionCheckBubble(selected = selected)
+                Spacer(Modifier.width(9.dp))
+            }
             CsPluginIcon(iconUrl = extension.iconUrl, name = extension.name)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -345,30 +548,33 @@ private fun CsInstalledRow(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            // D-301/D-309 lineage: the shared "Update" pill → live download ring.
-            ExtensionUpdateControl(
-                installStep = installStep,
-                onUpdate = onUpdate,
-            )
-            // Task 45 (round-4 report): UNTRUST directly from the Trusted
-            // Sources list. Task 46 (round-5 report): NO confirmation dialog —
-            // aniyomi's untrust is a one-tap action, and the CS list now
-            // matches it (the round-5 feedback explicitly asked for parity).
-            // Untrusting unloads the plugin's code (providers vanish from the
-            // search picker + the source bridge) but KEEPS the file — Trust
-            // brings it back without a re-download.
-            ActionIconButton(
-                icon = Icons.Filled.RemoveModerator,
-                contentDescription = "Untrust plugin (keep file)",
-                onClick = { if (!exitingForUntrust) exitingForUntrust = true },
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ActionIconButton(
-                icon = Icons.Filled.Delete,
-                contentDescription = "Uninstall plugin",
-                onClick = { showDeleteConfirm = true },
-                tint = MaterialTheme.colorScheme.error,
-            )
+            // D-301/D-309 lineage: the shared "Update" pill → live download
+            // ring. ROUND 92 (D-639): the row actions hide while selecting.
+            if (!selectionMode) {
+                ExtensionUpdateControl(
+                    installStep = installStep,
+                    onUpdate = onUpdate,
+                )
+                // Task 45 (round-4 report): UNTRUST directly from the Trusted
+                // Sources list. Task 46 (round-5 report): NO confirmation dialog —
+                // aniyomi's untrust is a one-tap action, and the CS list now
+                // matches it (the round-5 feedback explicitly asked for parity).
+                // Untrusting unloads the plugin's code (providers vanish from the
+                // search picker + the source bridge) but KEEPS the file — Trust
+                // brings it back without a re-download.
+                ActionIconButton(
+                    icon = Icons.Filled.RemoveModerator,
+                    contentDescription = "Untrust plugin (keep file)",
+                    onClick = { if (!exitingForUntrust) exitingForUntrust = true },
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ActionIconButton(
+                    icon = Icons.Filled.Delete,
+                    contentDescription = "Uninstall plugin",
+                    onClick = { showDeleteConfirm = true },
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 
@@ -396,6 +602,11 @@ private fun CsErroredRow(
     modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Errored,
     retrying: Boolean = false,
+    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows).
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelected: () -> Unit = {},
+    onLongPress: () -> Unit = {},
     onRetry: () -> Unit,
     onUninstall: () -> Unit,
     onClick: () -> Unit,
@@ -414,18 +625,36 @@ private fun CsErroredRow(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = if (selectionMode && selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        },
+        border = if (selectionMode && selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+        } else {
+            null
+        },
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .deleteExitLayer(deleteExit)
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = if (selectionMode) onToggleSelected else onClick,
+                onLongClick = onLongPress,
+            ),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (selectionMode) {
+                    SelectionCheckBubble(selected = selected)
+                    Spacer(Modifier.width(9.dp))
+                }
                 CsPluginIcon(iconUrl = extension.iconUrl, name = extension.name)
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -450,31 +679,34 @@ private fun CsErroredRow(
                 // D-296: Retry (re-attempt the load) + Delete (uninstall).
                 // Task 44: the retry icon becomes a spinner while the reload
                 // is in flight (device round 3: "no animation while reloading").
-                if (retrying) {
-                    Box(
-                        modifier = Modifier.size(40.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.primary,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(18.dp),
+                // ROUND 92 (D-639): hidden while selecting.
+                if (!selectionMode) {
+                    if (retrying) {
+                        Box(
+                            modifier = Modifier.size(40.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    } else {
+                        ActionIconButton(
+                            icon = Icons.Filled.Refresh,
+                            contentDescription = "Retry loading plugin",
+                            onClick = onRetry,
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
-                } else {
                     ActionIconButton(
-                        icon = Icons.Filled.Refresh,
-                        contentDescription = "Retry loading plugin",
-                        onClick = onRetry,
-                        tint = MaterialTheme.colorScheme.primary,
+                        icon = Icons.Filled.Delete,
+                        contentDescription = "Uninstall plugin",
+                        onClick = { showDeleteConfirm = true },
+                        tint = MaterialTheme.colorScheme.error,
                     )
                 }
-                ActionIconButton(
-                    icon = Icons.Filled.Delete,
-                    contentDescription = "Uninstall plugin",
-                    onClick = { showDeleteConfirm = true },
-                    tint = MaterialTheme.colorScheme.error,
-                )
             }
             // The real failure reason straight from the loader — no silent vanishing.
             Text(
@@ -517,6 +749,11 @@ private fun CsErroredRow(
 private fun CsUntrustedRow(
     modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Untrusted,
+    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows).
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelected: () -> Unit = {},
+    onLongPress: () -> Unit = {},
     onTrust: () -> Unit,
     onUninstall: () -> Unit,
     onClick: () -> Unit,
@@ -545,17 +782,35 @@ private fun CsUntrustedRow(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = if (selectionMode && selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        },
+        border = if (selectionMode && selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+        } else {
+            null
+        },
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .deleteExitLayer(deleteExit)
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = if (selectionMode) onToggleSelected else onClick,
+                onLongClick = onLongPress,
+            ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (selectionMode) {
+                SelectionCheckBubble(selected = selected)
+                Spacer(Modifier.width(9.dp))
+            }
             CsPluginIcon(iconUrl = extension.iconUrl, name = extension.name)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -586,18 +841,21 @@ private fun CsUntrustedRow(
             // icon (VerifiedUser) — the old checkmark-badge glyph (Verified)
             // read as "already verified" instead of "trust this plugin".
             // ROUND 85: the trust tap plays the exit choreography first.
-            ActionIconButton(
-                icon = Icons.Filled.VerifiedUser,
-                contentDescription = "Trust plugin",
-                onClick = { if (!exitingForTrust) exitingForTrust = true },
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            ActionIconButton(
-                icon = Icons.Filled.Delete,
-                contentDescription = "Uninstall plugin",
-                onClick = { showDeleteConfirm = true },
-                tint = MaterialTheme.colorScheme.error,
-            )
+            // ROUND 92 (D-639): hidden while selecting.
+            if (!selectionMode) {
+                ActionIconButton(
+                    icon = Icons.Filled.VerifiedUser,
+                    contentDescription = "Trust plugin",
+                    onClick = { if (!exitingForTrust) exitingForTrust = true },
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                ActionIconButton(
+                    icon = Icons.Filled.Delete,
+                    contentDescription = "Uninstall plugin",
+                    onClick = { showDeleteConfirm = true },
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 
@@ -630,21 +888,44 @@ private fun CsAvailableRow(
     modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Available,
     installStep: InstallStep?,
+    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows).
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelected: () -> Unit = {},
+    onLongPress: () -> Unit = {},
     onInstall: () -> Unit,
     onClick: () -> Unit,
 ) {
     val plugin = extension.plugin
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = if (selectionMode && selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        },
+        border = if (selectionMode && selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+        } else {
+            null
+        },
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = if (selectionMode) onToggleSelected else onClick,
+                onLongClick = onLongPress,
+            ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (selectionMode) {
+                SelectionCheckBubble(selected = selected)
+                Spacer(Modifier.width(9.dp))
+            }
             CsPluginIcon(iconUrl = plugin.iconUrl, name = plugin.name)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -672,11 +953,14 @@ private fun CsAvailableRow(
                 )
             }
             // The SAME state machine + normal Download button as the aniyomi
-            // rows (the round's cloud-shaped button is gone).
-            AvailableInstallControl(
-                installStep = installStep,
-                onInstall = onInstall,
-            )
+            // rows (the round's cloud-shaped button is gone). ROUND 92
+            // (D-639): hidden while selecting.
+            if (!selectionMode) {
+                AvailableInstallControl(
+                    installStep = installStep,
+                    onInstall = onInstall,
+                )
+            }
         }
     }
 }
