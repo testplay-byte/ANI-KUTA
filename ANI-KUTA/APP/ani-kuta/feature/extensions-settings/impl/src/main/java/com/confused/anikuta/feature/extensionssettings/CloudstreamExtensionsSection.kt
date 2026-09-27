@@ -492,17 +492,24 @@ internal fun CloudstreamExtensionsSection(
                     TextButton(
                         onClick = {
                             showBatchDeleteConfirm = false
-                            val targets = selInstalled.toList() + selErrored.toList() + selUntrusted.toList()
+                            // D-645: pair each target with its internalName —
+                            // the sealed CloudstreamExtension base has no
+                            // internalName, and the exitingNames set is keyed
+                            // by it (the row keys).
+                            val targets =
+                                selInstalled.map { it.internalName to it } +
+                                    selErrored.map { it.internalName to it } +
+                                    selUntrusted.map { it.internalName to it }
                             exitSelection()
                             csScope.launch {
-                                for (ext in targets) {
+                                for ((name, ext) in targets) {
                                     // D-645: the row starts its exit…
-                                    exitingNames = exitingNames + ext.internalName
+                                    exitingNames = exitingNames + name
                                     delay(370) // …the choreography window (~350ms)
                                     // …and only then does the data removal land.
                                     csManager.uninstallPlugin(ext)
                                     delay(140) // let the refresh settle before the next
-                                    exitingNames = exitingNames - ext.internalName
+                                    exitingNames = exitingNames - name
                                 }
                             }
                         },
