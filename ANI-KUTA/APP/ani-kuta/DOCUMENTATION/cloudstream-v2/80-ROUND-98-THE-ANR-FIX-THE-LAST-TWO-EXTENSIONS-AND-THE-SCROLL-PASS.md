@@ -203,7 +203,18 @@ and the hidden-state dimming are unchanged.
 
 ## 9. The release
 
-TBD-RELEASE (filled at ship time below)
+v1.1.55/10155 per the standing D-565 loop: `release/1.1.55` cut from
+the green head b6443f87; the bump ca098389 rides the branch (D-430 — the
+mainline stays 1.1.20/10120); annotated tag v1.1.55 with the honest
+what-you'll-see body (the ANR fix, both extensions, the corner-flush rows,
+the scroll pass, and the disclosed trade-offs: +2.3 MB and the GPL bundle).
+Release APK run **36359825028 GREEN** → **v1.1.55 LIVE** (published
+2026-09-27T23:49:37Z, stable latest, arm64-v8a debug APK **70.9 MB** +
+SHA256SUMS.txt — verified via the API: tag, assets, latest flag, body).
+APK size: +2.3 MB over v1.1.54's 68.6 MB — the NewPipe stack + rhino +
+protobuf + the desugar runtime (far under the ~10 MB worst-case estimate;
+the debug line's native libs dominate either way). The in-app updater
+(debug checks this repo, D-440) picks it up.
 
 ## 10. The device-round checklist (v1.1.55)
 
