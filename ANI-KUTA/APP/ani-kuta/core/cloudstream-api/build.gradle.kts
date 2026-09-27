@@ -48,6 +48,19 @@ dependencies {
     // Jackson fallback) documented in doc 05 §10.1.
     implementation(libs.kotlinx.serialization.json)
 
+    // ROUND 98 (D-671) — NewPipeExtractor v0.26.3 (JitPack): the extraction
+    // stack the YoutubeProvider plugin family links against
+    // (org.schabi.newpipe.extractor.ServiceList & friends). The plugins see it
+    // PARENT-FIRST through the host classloader, so `implementation` (runtime
+    // classpath, no API leak to our consumers) is the right exposure. This is
+    // the GPL-3.0 bundle the round-97 doctrine deferred to an explicit user
+    // order — the user gave that order in the round-98 report (“handle the
+    // remaining NoClassDefFoundError extensions properly”); disclosed in
+    // doc 80 §5 and the release notes. Transitive deps (jsoup 1.22.2 — the
+    // catalog pin now matches, nanojson, jsr305, protobuf-javalite,
+    // rhino 1.8.1 for YouTube's JS deciphering) ride along automatically.
+    implementation(libs.newpipeextractor)
+
     // kotlinx-datetime — LocalDate in the plugin-visible Episode.addDate overload.
     implementation(libs.kotlinx.datetime)
 

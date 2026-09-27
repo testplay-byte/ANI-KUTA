@@ -82,6 +82,32 @@ class CloudstreamPluginLoader(
     private val providerOwners = HashMap<String, String>()
     private val loadedPlugins = HashMap<String, LoadedEntry>() // filePath → entry
 
+    /**
+     * ROUND 98 (D-669) — one memoized load failure. The stamp fields gate the
+     * memo: a file change (update/reinstall writes a new lastModified+size)
+     * or a load-CONTEXT change (the late-activity self-heal swaps the app
+     * context for the real MainActivity) invalidates it, so those paths keep
+     * their genuine retries.
+     */
+    private data class FailedLoad(
+        val reason: String,
+        val cause: Throwable?,
+        val contextClass: String,
+        val fileStamp: Long,
+        val fileSize: Long,
+    )
+
+    /**
+     * ROUND 98 (D-669) — filePath → the memoized failure. See loadPlugin's
+     * fast path. Accessed only from the manager's single load worker
+     * (D-668), so a plain HashMap is safe.
+     */
+    private val failedPlugins = HashMap<String, FailedLoad>()
+
+    /** The context class a load WOULD use right now (the memo's context key). */
+    private fun currentLoadContextClass(): String =
+        (CommonActivity.activity as? Context)?.javaClass?.name ?: context.javaClass.name
+
     fun isLoaded(filePath: String): Boolean = loadedPlugins.containsKey(filePath)
 
     fun providersFor(filePath: String): List<MainAPI> =
@@ -100,6 +126,30 @@ class CloudstreamPluginLoader(
                 providers = providersFor(filePath),
                 extractorCount = entry.extractorCount,
             )
+        }
+        // ROUND 98 (D-669): the failure memo. A deterministic load failure
+        // (NoSuchMethodError / NoClassDefFoundError / ClassFormatError …)
+        // fails IDENTICALLY on every retry — but the manager's refreshLocked →
+        // loadAll re-attempted every errored plugin on EVERY mutation: the
+        // v1.1.54 device logcat dex-loaded CineStream THREE times in three
+        // seconds (trust → its refresh → the next trust's refresh), each
+        // attempt a fresh PathClassLoader + class init + the plugin's own
+        // remote-config fetch. With the memo, the repeat is an O(1) map hit.
+        // [unloadPlugin] clears the entry — Retry / uninstall / update
+        // re-attempt for real — and a changed file stamp or context class
+        // invalidates it (the late-activity self-heal keeps its retry).
+        failedPlugins[filePath]?.let { memo ->
+            if (file.lastModified() == memo.fileStamp &&
+                file.length() == memo.fileSize &&
+                currentLoadContextClass() == memo.contextClass
+            ) {
+                Logger.i(TAG) {
+                    "loadPlugin: ${file.name} failed before " +
+                        "(${memo.reason.take(80)}) — memoized, skipping the re-attempt"
+                }
+                return PluginLoadResult.Failure(memo.reason, memo.cause)
+            }
+            failedPlugins.remove(filePath) // stamp/context drifted — retry for real
         }
         return try {
             // 1. Read-only before opening the dex (Android 14+ SecurityException guard).
@@ -173,6 +223,9 @@ class CloudstreamPluginLoader(
                 }
             }
             loadedPlugins[filePath] = LoadedEntry(plugin, manifest, newExtractorCount)
+            // A previously-failed file now loads (a fix landed, or the retry
+            // found a better context) — drop any stale failure memo (D-669).
+            failedPlugins.remove(filePath)
 
             Logger.i(TAG) {
                 "Loaded ${file.name} v${manifest.version}: ${newProviders.size} provider(s), " +
@@ -194,6 +247,15 @@ class CloudstreamPluginLoader(
             Logger.e(TAG, t) {
                 "Failed to load ${file.name}: ${t::class.simpleName}: ${t.message}"
             }
+            // ROUND 98 (D-669): memoize — the deterministic failures must not
+            // re-dex on every refresh (see the fast path above).
+            failedPlugins[filePath] = FailedLoad(
+                reason = "${t::class.simpleName}: ${t.message}",
+                cause = t,
+                contextClass = currentLoadContextClass(),
+                fileStamp = file.lastModified(),
+                fileSize = file.length(),
+            )
             PluginLoadResult.Failure("${t::class.simpleName}: ${t.message}", t)
         }
     }
@@ -214,6 +276,10 @@ class CloudstreamPluginLoader(
                 .forEach { extractorApis.remove(it) }
         }
         loadedPlugins.remove(filePath)
+        // ROUND 98 (D-669): the failure memo dies with the unload — Retry's
+        // unload-then-refresh path must get a GENUINE re-attempt, not the
+        // memoized failure (the same reason updates call unload first).
+        failedPlugins.remove(filePath)
         Logger.i(TAG) { "Unloaded $filePath" }
     }
 

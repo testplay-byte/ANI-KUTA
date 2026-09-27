@@ -41,6 +41,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
@@ -123,8 +124,13 @@ fun CloudstreamPluginDetailScreen(
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val collapsed = listState.firstVisibleItemIndex > 0 ||
-        listState.firstVisibleItemScrollOffset > 20
+    // ROUND 98 (D-673): derivedStateOf — the raw two-state read invalidated this
+    // scope on EVERY scroll frame (each pixel of firstVisibleItemScrollOffset
+    // recomposed the whole screen body); the derived wrapper only flips the
+    // boolean when the header actually collapses or expands.
+    val collapsed by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20 }
+    }
     // Task 58 (round 18 — plugin sharing): the export handler runs against the
     // local context (cache-dir export copy + the system share sheet).
     val shareContext = LocalContext.current

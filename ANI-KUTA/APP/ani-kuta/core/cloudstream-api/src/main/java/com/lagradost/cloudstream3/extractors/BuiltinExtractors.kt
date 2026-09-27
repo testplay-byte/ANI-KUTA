@@ -895,6 +895,12 @@ private val registered = AtomicBoolean(false)
 /** Instantiates + registers every built-in extractor (idempotent, once). */
 fun registerBuiltinExtractors() {
     if (registered.getAndSet(true)) return
+    // ROUND 98 (D-671): install the NewPipe runtime BEFORE anything can touch
+    // it — the YouTube extractors below extract through it, and plugin loads
+    // that construct ServiceList references happen after this call (the
+    // plugin manager invokes registerBuiltinExtractors ahead of loadAll).
+    // Idempotent + statics-only, so it is safe on whatever thread registers.
+    com.lagradost.cloudstream3.network.ensureNewPipeInitialized()
     val builtins: List<() -> ExtractorApi> = listOf(
         ::StreamWishExtractor, ::VidStack, ::Filesim, ::VidHidePro, ::VidhideExtractor,
         ::FilemoonV2, ::Vidmoly, ::EmturbovidExtractor, ::DoodLaExtractor, ::StreamTape,
@@ -905,6 +911,11 @@ fun registerBuiltinExtractors() {
         // Task 50 (round 10): census top-ups (Fix G).
         ::DoodTo, ::DoodWf, ::D000D, ::WaawTo, ::VidhideVip, ::VidhidePlus,
         ::MixdropAg, ::StreamSBNet,
+        // ROUND 98 (D-671): the NewPipe-powered YouTube set — the dispatch
+        // target for YoutubeProvider's loadLinks("https://youtube.com/watch?")
+        // (and every youtube/youtu.be/m./nocookie embed out there).
+        ::YoutubeExtractor, ::YoutubeShortLinkExtractor, ::YoutubeMobileExtractor,
+        ::YoutubeNoCookieExtractor,
     )
     builtins.forEach { constructor -> extractorApis.add(constructor.invoke()) }
     Log.i("BuiltinExtractors", "registered ${builtins.size} built-in extractor(s)")

@@ -8,6 +8,18 @@ gradle = "8.11.1"
 # plugin ecosystem compiles against. Jackson STRICTLY 2.13.1 — newer versions
 # drop minSdk<26 support (our minSdk is 24). Gson 2.11.0 = CS3 app's own pin
 # (~16% of real plugins import gson directly).
+# ROUND 98 (D-671): NewPipeExtractor v0.26.3 — the exact version upstream
+# recloudstream bundles (their gradle/libs.versions.toml) and therefore what
+# YoutubeProvider.cs3 compiles against. JitPack artifact (see settings.gradle.kts).
+# jsoup bumped 1.19.1 → 1.22.2 to MATCH NewPipeExtractor's transitive pin —
+# Gradle would resolve to 1.22.2 anyway (highest wins), so the pin is explicit.
+newpipeextractor = "v0.26.3"
+# ROUND 98 (D-671): core library desugaring — NewPipeExtractor's classes use
+# java.time (11 files: DateTimeFormatter/OffsetDateTime/…) which exists on
+# Android only from API 26 while our minSdk is 24; D8 rewrites those refs to
+# the desugar runtime during the app's dexing. The standard (non-NIO) flavor
+# suffices — NewPipe's java.nio usage is StandardCharsets only (API 1).
+desugarJdkLibs = "2.1.5"
 jacksonModuleKotlin = { strictly = "2.13.1" }
 gson = "2.11.0"
 junit = "4.13.2"
@@ -88,7 +100,10 @@ workRuntime = "2.10.0"
 # removed from the catalog with the declarations.
 
 # Source API (binary compat for extensions)
-jsoup = "1.19.1"
+# ROUND 98 (D-671): 1.19.1 → 1.22.2 — aligned with NewPipeExtractor v0.26.3's
+# transitive pin (highest-version resolution would pick it regardless; making
+# it explicit keeps the catalog the single source of truth).
+jsoup = "1.22.2"
 rxjava = "1.3.8"
 rxandroid = "1.2.1"
 nanohttpd = "2.3.1"
@@ -180,6 +195,12 @@ coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp"
 
 # Source API (binary compat for extensions)
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+# ROUND 98 (D-671) — the NewPipe extractor stack for the YoutubeProvider plugin
+# family (GPL-3.0, bundled on the user's round-98 order — see doc 80 §5). JitPack
+# coordinates, the same artifact upstream recloudstream consumes.
+newpipeextractor = { group = "com.github.TeamNewPipe", name = "NewPipeExtractor", version.ref = "newpipeextractor" }
+# ROUND 98 (D-671) — core library desugaring runtime (see the versions block).
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 rxjava = { group = "io.reactivex", name = "rxjava", version.ref = "rxjava" }
 rxandroid = { group = "io.reactivex", name = "rxandroid", version.ref = "rxandroid" }
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }

@@ -80,7 +80,26 @@ class CloudstreamPluginManager(
     private val pluginStore: CloudstreamPluginStore,
     private val appPreferences: AppPreferences,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    /**
+     * ROUND 98 (D-668) — THE LOAD WORKER. This scope was Dispatchers.Main
+     * through v1.1.54, which put EVERY plugin load on the main thread:
+     * loadAll dex-loads ~90 .cs3 files (classloader + class init + the
+     * constructors that fetch remote config — CineStream pulls urls.json
+     * synchronously in its entry class), and the v1.1.54 device round ANR'd
+     * TWICE in 5 seconds while trusting plugins (the logcat stacks ran
+     * DispatchedTask.run → Looper.loop → ActivityThread.main). The fix is a
+     * SINGLE-THREAD background dispatcher:
+     *  • one worker = the exact FIFO serialization the Main dispatcher gave
+     *    us (a synchronous loadAll still cannot interleave with trustPlugin /
+     *    refreshLocked — the atomicity the old init comment relied on),
+     *  • everything the manager does (dex loading, store writes, StateFlow
+     *    emissions, repo fetches) is thread-safe off-main — the UI collects
+     *    the same StateFlows unchanged.
+     * Nothing in a .cs3 load requires the main thread — upstream CloudStream
+     * itself loads plugins on Dispatchers.IO; plugins stash the activity
+     * reference they're handed but construct fine from any thread.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
 
     private val _installed = MutableStateFlow<List<CloudstreamExtension.Installed>>(emptyList())
     val installed: StateFlow<List<CloudstreamExtension.Installed>> = _installed.asStateFlow()
@@ -207,8 +226,9 @@ class CloudstreamPluginManager(
             // below holds that mutex across its NETWORK fetches, and waiting
             // behind them would delay plugin availability for seconds. This
             // loadAll is fully synchronous (zero suspension points) on the
-            // Main-dispatcher scope, so it executes atomically wrt every other
-            // main-thread coroutine — the mutex would add delay, not safety.
+            // single-worker load scope (ROUND 98 D-668 — used to be the Main
+            // dispatcher), so it executes atomically wrt every OTHER
+            // coroutine on that worker — the mutex would add delay, not safety.
             loadAll()
 
             // Task 48.1 (device round 8 — MovieBox dead after a crash): when the
@@ -474,7 +494,12 @@ class CloudstreamPluginManager(
         if (!force && now - lastUpdateCheck < UPDATE_CHECK_THROTTLE_MS) return
         if (_updateCheckState.value is UpdateCheckState.Checking) return
         _updateCheckState.value = UpdateCheckState.Checking
-        scope.launch(Dispatchers.IO) {
+        // ROUND 98 (D-668): launched on the manager's SINGLE load worker —
+        // the old explicit Dispatchers.IO would have escaped the one-worker
+        // serialization and let a repo refresh interleave with a loadAll on
+        // another thread. The network fetches still never touch the main
+        // thread; they just queue behind (or ahead of) the loads now.
+        scope.launch {
             runCatching { installMutex.withLock { refreshAvailableInternal() } }
                 .onFailure { Logger.w(TAG) { "Update check failed: ${it.message}" } }
             lastUpdateCheck = System.currentTimeMillis()

@@ -73,6 +73,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -390,8 +391,13 @@ fun ExtensionsSettingsScreen(
     }
 
     val listState = rememberLazyListState()
-    val collapsed = listState.firstVisibleItemIndex > 0 ||
-        listState.firstVisibleItemScrollOffset > 20
+    // ROUND 98 (D-673): derivedStateOf — the raw two-state read invalidated this
+    // scope on EVERY scroll frame (each pixel of firstVisibleItemScrollOffset
+    // recomposed the whole screen body); the derived wrapper only flips the
+    // boolean when the header actually collapses or expands.
+    val collapsed by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20 }
+    }
 
     // D-301: auto update-check when the user enters the extensions page — smooth
     // (throttled to once per 30 min inside the manager) + non-blocking.
@@ -436,8 +442,12 @@ fun ExtensionsSettingsScreen(
         }
     }
 
-    val installedPkgs = installedExtensions.map { it.pkgName }.toSet()
-    val untrustedPkgs = untrustedExtensions.map { it.pkgName }.toSet()
+    // ROUND 98 (D-673): memoized — these sets fed the Available filter's
+    // remember keys but were rebuilt on EVERY recomposition of this scope
+    // (each scroll frame pre-D-673, every install-progress tick after);
+    // now they only rebuild when their source list instance changes.
+    val installedPkgs = remember(installedExtensions) { installedExtensions.map { it.pkgName }.toSet() }
+    val untrustedPkgs = remember(untrustedExtensions) { untrustedExtensions.map { it.pkgName }.toSet() }
 
     // D-298: language filter — the distinct set of languages across ALL sections
     // of BOTH tabs (session 2: the shared filters bar serves aniyomi + CloudStream,

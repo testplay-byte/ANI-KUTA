@@ -1,6 +1,7 @@
 package com.confused.anikuta.feature.extensionssettings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,10 +38,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -104,8 +109,13 @@ fun ExtensionRepoSettingsScreen(
     var deleteCsRepoTarget by remember { mutableStateOf<CloudstreamRepo?>(null) }
 
     val listState = rememberLazyListState()
-    val collapsed = listState.firstVisibleItemIndex > 0 ||
-        listState.firstVisibleItemScrollOffset > 20
+    // ROUND 98 (D-673): derivedStateOf — the raw two-state read invalidated this
+    // scope on EVERY scroll frame (each pixel of firstVisibleItemScrollOffset
+    // recomposed the whole screen body); the derived wrapper only flips the
+    // boolean when the header actually collapses or expands.
+    val collapsed by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20 }
+    }
 
     val totalRepos = repos.size + csRepos.size
 
@@ -137,7 +147,9 @@ fun ExtensionRepoSettingsScreen(
                         contentPadding = PaddingValues(vertical = 8.dp),
                     ) {
                         // ── Aniyomi repositories ──
-                        items(repos, key = { "aniyomi-${it.baseUrl}" }) { repo ->
+                        // ROUND 98 (D-673): contentType hints so the Lazy
+                        // layout reuses the row slot across sections.
+                        items(repos, key = { "aniyomi-${it.baseUrl}" }, contentType = { "repoRow" }) { repo ->
                             RepoRow(
                                 name = repo.name.ifEmpty { repo.baseUrl },
                                 url = repo.baseUrl,
@@ -153,7 +165,7 @@ fun ExtensionRepoSettingsScreen(
                             )
                         }
                         // ── CloudStream repositories ──
-                        items(csRepos, key = { "cs-${it.url}" }) { repo ->
+                        items(csRepos, key = { "cs-${it.url}" }, contentType = { "repoRow" }) { repo ->
                             RepoRow(
                                 name = repo.name.ifEmpty { repo.url },
                                 url = repo.url,
@@ -170,7 +182,7 @@ fun ExtensionRepoSettingsScreen(
                         }
                         // Round 82 (D-574): discoverability hint for the
                         // long-press-to-copy action on the rows above.
-                        item(key = "copy-hint") {
+                        item(key = "copy-hint", contentType = { "hint" }) {
                             Text(
                                 text = "Tip: long-press a repository to copy its URL",
                                 fontFamily = RobotoFamily,
@@ -433,38 +445,48 @@ private fun RepoRow(
                 },
             ),
     ) {
-        Column(
+        // ROUND 98 (D-672) — THE CORNER-FLUSH OVERLAY. The v1.1.54 layout ran
+        // the eye and delete INLINE at the ends of the two text rows, using
+        // the shared 36dp ActionIconButton boxes: the glyph sat ~22dp from
+        // the card edge (14dp inner padding + 8dp circle inset), and each
+        // text row's height was inflated to the 36dp box — the device report's
+        // "a lot of empty space on the right side of them… and at the top and
+        // at the bottom". The buttons now OVERLAY the card in a Box, pinned
+        // to the TRUE corners (3dp inset — inside the 12dp corner radius),
+        // sized for the glyphs they carry (26dp box, 16dp icon) so they never
+        // drive the row height: the row is as tall as its two text lines
+        // (min 58dp so the two corner buttons can never collide). The text
+        // column keeps a 42dp end reserve so nothing runs under the buttons.
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 6.dp),
+                .heightIn(min = 58.dp),
         ) {
-            // ── The TOP line: title + badge + the SHOW/HIDE eye (very top right) ──
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = name,
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .weight(1f)
-                        .alpha(contentAlpha),
-                )
-                Spacer(Modifier.size(8.dp))
-                Box(modifier = Modifier.alpha(contentAlpha)) {
-                    RepoTypeBadge(typeLabel = typeLabel, isCloudstream = isCloudstream)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 14.dp, end = 42.dp, top = 7.dp, bottom = 7.dp),
+            ) {
+                // The title line: name + the ecosystem badge.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = name,
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .alpha(contentAlpha),
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Box(modifier = Modifier.alpha(contentAlpha)) {
+                        RepoTypeBadge(typeLabel = typeLabel, isCloudstream = isCloudstream)
+                    }
                 }
-                ActionIconButton(
-                    icon = if (isHidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                    contentDescription = if (isHidden) "Show repository" else "Hide repository",
-                    onClick = onToggleHidden,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            // ── The BOTTOM line: the URL + DELETE (very bottom right) ──
-            Row(verticalAlignment = Alignment.CenterVertically) {
+                // The URL line (long-press the row to copy it).
                 Text(
                     text = url,
                     fontFamily = RobotoFamily,
@@ -473,18 +495,61 @@ private fun RepoRow(
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier
-                        .weight(1f)
                         .padding(top = 2.dp)
                         .alpha(contentAlpha),
                 )
-                ActionIconButton(
-                    icon = Icons.Filled.Delete,
-                    contentDescription = "Delete repository",
-                    onClick = onDelete,
-                    tint = MaterialTheme.colorScheme.error,
-                )
             }
+            // The SHOW/HIDE eye — flush into the TOP-RIGHT corner.
+            RepoRowCornerButton(
+                icon = if (isHidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                contentDescription = if (isHidden) "Show repository" else "Hide repository",
+                onClick = onToggleHidden,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 3.dp, end = 4.dp),
+            )
+            // DELETE — flush into the BOTTOM-RIGHT corner.
+            RepoRowCornerButton(
+                icon = Icons.Filled.Delete,
+                contentDescription = "Delete repository",
+                onClick = onDelete,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 3.dp, end = 4.dp),
+            )
         }
+    }
+}
+
+/**
+ * ROUND 98 (D-672) — the repo row's compact corner button: a 26dp rounded
+ * target with a 16dp glyph, sized for the CORNER (not the shared 36dp
+ * ActionIconButton the extension rows use — those carry more visual weight
+ * and sit inline with tall content, so they are deliberately untouched).
+ */
+@Composable
+private fun RepoRowCornerButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(26.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.size(16.dp),
+        )
     }
 }
 

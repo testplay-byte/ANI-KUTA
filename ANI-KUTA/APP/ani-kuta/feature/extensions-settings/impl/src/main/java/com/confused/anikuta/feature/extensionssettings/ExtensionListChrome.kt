@@ -53,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -68,7 +69,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import coil3.compose.SubcomposeAsyncImage
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.providerapi.InstallStep
@@ -499,21 +499,37 @@ internal fun ActionIconButton(
  * Task 61 (round 21 — the "no icon shown anywhere" device report): the URL
  * branch used a bare AsyncImage with NO error state — a failed load (a 404,
  * the network, or a `file://` iconUrl exported from ANOTHER device's shared
- * file) rendered a BLANK box. Now a SubcomposeAsyncImage: BOTH the loading and
- * the error slots render the colorful letter tile, so the icon area is NEVER
- * empty — the user's "a default icon rather than showing nothing".
+ * file) rendered a BLANK box, so the tile must render for BOTH the loading
+ * and the error states — the icon area is NEVER empty.
+ *
+ * ROUND 98 (D-673): SubcomposeAsyncImage RETIRED — it ran a real
+ * subcomposition per visible icon (a measurable scroll cost with ~90 rows
+ * above the fold on the CloudStream tab, and the round-98 report demands a
+ * stable 60 FPS extensions scroll). The plain AsyncImage + an onState-tracked
+ * placeholder behind it delivers the identical visuals — tile while loading,
+ * tile on error — with ZERO subcomposition and a single recomposition per
+ * icon when the load resolves.
  */
 @Composable
 internal fun CsPluginIcon(iconUrl: String?, name: String, size: Dp = 40.dp) {
     val resolved = iconUrl?.replace("%size%", "64")?.replace("%exact_size%", "64")
     if (resolved != null) {
-        SubcomposeAsyncImage(
-            model = resolved,
-            contentDescription = "$name icon",
-            modifier = Modifier.size(size).clip(RoundedCornerShape(8.dp)),
-            loading = { ExtensionIconPlaceholder(name.removeSuffix("Provider"), size) },
-            error = { ExtensionIconPlaceholder(name.removeSuffix("Provider"), size) },
-        )
+        var loadSucceeded by remember(resolved) { mutableStateOf(false) }
+        Box(modifier = Modifier.size(size)) {
+            // The letter tile stays composed until Coil reports Success — it
+            // is the loading AND the error slot in one (see the header).
+            if (!loadSucceeded) {
+                ExtensionIconPlaceholder(name.removeSuffix("Provider"), size)
+            }
+            AsyncImage(
+                model = resolved,
+                contentDescription = "$name icon",
+                modifier = Modifier.size(size).clip(RoundedCornerShape(8.dp)),
+                onState = { state ->
+                    loadSucceeded = state is coil3.compose.AsyncImagePainter.State.Success
+                },
+            )
+        }
     } else {
         ExtensionIconPlaceholder(name.removeSuffix("Provider"), size)
     }

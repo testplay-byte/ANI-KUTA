@@ -100,9 +100,31 @@ android {
             }
         }
     }
+
+    // ROUND 98 (D-671) — CORE LIBRARY DESUGARING. NewPipeExtractor (bundled
+    // for the YoutubeProvider plugin family, see :core:cloudstream-api) uses
+    // java.time in its extraction paths (verified against the v0.26.3
+    // sources: DateTimeFormatter/OffsetDateTime/Instant in 11 files), which
+    // Android only ships from API 26 while our minSdk is 24. Enabling it HERE
+    // — the final dexing step — makes D8 rewrite every java.time reference in
+    // ALL program classes (our own + every jar on the runtime classpath,
+    // including NewPipe's) to the desugar runtime below. This mirrors what
+    // upstream recloudstream ships (they enable the NIO flavor; we need only
+    // the standard one — NewPipe's java.nio usage is StandardCharsets, API 1).
+    // The plugins themselves carry ZERO java.time references (their dexes
+    // predate desugaring and resolve NewPipe parent-first from THIS apk).
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 }
 
 dependencies {
+    // ROUND 98 (D-671): the desugar runtime the rewritten java.time calls
+    // dispatch to at runtime (~0.5 MB of dex; see the compileOptions block).
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+
     // Core modules
     implementation(project(":core:common"))
     implementation(project(":core:designsystem"))

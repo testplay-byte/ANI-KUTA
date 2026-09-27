@@ -229,14 +229,28 @@ class ExtensionManager(
         if (available.isEmpty()) return
 
         val availableByPkg = available.associateBy { it.pkgName }
+        // ROUND 98 (D-673): instance stability — the old unconditional
+        // .copy() created ~90 fresh Installed instances on EVERY call (each
+        // catalog refresh / package broadcast), which defeated Compose's
+        // skippability and recomposed every visible row on the extensions
+        // page for zero visual change. Rows whose flags did not move keep
+        // their instances, and the flow only re-emits when something
+        // actually changed.
+        var changed = false
         val updated = _installedExtensions.value.map { installed ->
             val av = availableByPkg[installed.pkgName]
-            installed.copy(
-                hasUpdate = av != null && (av.versionCode > installed.versionCode),
-                isObsolete = av == null,
-            )
+            val hasUpdate = av != null && (av.versionCode > installed.versionCode)
+            val isObsolete = av == null
+            if (installed.hasUpdate == hasUpdate && installed.isObsolete == isObsolete) {
+                installed
+            } else {
+                changed = true
+                installed.copy(hasUpdate = hasUpdate, isObsolete = isObsolete)
+            }
         }
-        _installedExtensions.value = updated
+        if (changed) {
+            _installedExtensions.value = updated
+        }
     }
 
     // ── Trust ──────────────────────────────────────────────────────────────────

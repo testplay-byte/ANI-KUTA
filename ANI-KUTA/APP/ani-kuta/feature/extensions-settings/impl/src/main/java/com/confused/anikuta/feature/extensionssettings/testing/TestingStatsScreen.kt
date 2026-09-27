@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -121,8 +122,13 @@ fun TestingStatsScreen(
     val targetsById = targets.associateBy { it.id }
 
     val listState = rememberLazyListState()
-    val collapsed = listState.firstVisibleItemIndex > 0 ||
-        listState.firstVisibleItemScrollOffset > 20
+    // ROUND 98 (D-673): derivedStateOf — the raw two-state read invalidated this
+    // scope on EVERY scroll frame (each pixel of firstVisibleItemScrollOffset
+    // recomposed the whole screen body); the derived wrapper only flips the
+    // boolean when the header actually collapses or expands.
+    val collapsed by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20 }
+    }
 
     val primaryColor = MaterialTheme.colorScheme.primary
     val errorColor = MaterialTheme.colorScheme.error
