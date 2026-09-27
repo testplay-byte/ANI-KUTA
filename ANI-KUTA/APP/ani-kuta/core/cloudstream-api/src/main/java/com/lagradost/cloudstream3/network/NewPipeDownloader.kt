@@ -77,12 +77,14 @@ class NewPipeDownloader(
             val body = response.body?.bytes()?.decodeToString() ?: ""
             val headers = response.headers.toMultimap()
                 .mapValues { (_, values) -> values.toList() }
+            // Java constructor — positional arguments (Kotlin prohibits
+            // named args for non-Kotlin functions; run-1 CI lesson).
             return Response(
-                responseCode = response.code,
-                responseMessage = response.message,
-                responseHeaders = headers,
-                responseBody = body,
-                latestUrl = response.request.url.toString(),
+                response.code,
+                response.message,
+                headers,
+                body,
+                response.request.url.toString(),
             )
         }
     }
