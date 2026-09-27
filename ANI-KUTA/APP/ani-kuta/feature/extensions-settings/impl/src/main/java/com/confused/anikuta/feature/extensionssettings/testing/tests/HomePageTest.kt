@@ -22,7 +22,17 @@ import kotlinx.coroutines.withContext
 class HomePageTest : ExtensionTest {
 
     override val kind = ExtensionTestKind.HOME_PAGE
-    override val requiresAnyOf = emptySet<ExtensionTestKind>()
+
+    /**
+     * ROUND 93 (D-646): PING is now a HARD prerequisite — "if an extension
+     * fails the ping test, then all the other tests will automatically, by
+     * default, be marked as failed." The engine's honest gate turns this
+     * into FAILED "Not run — Ping failed" (and the failure cascades through
+     * every downstream stage's own prerequisites).
+     */
+    override val requiresAnyOf = setOf(
+        ExtensionTestKind.PING,
+    )
 
     private companion object {
         /** The payload's entry cap — tiny blob, still browsable. */

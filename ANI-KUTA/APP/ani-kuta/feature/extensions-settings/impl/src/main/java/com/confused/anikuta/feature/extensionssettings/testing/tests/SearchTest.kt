@@ -46,7 +46,18 @@ import kotlinx.coroutines.withTimeout
 class SearchTest : ExtensionTest {
 
     override val kind = ExtensionTestKind.SEARCH
-    override val requiresAnyOf = emptySet<ExtensionTestKind>()
+
+    /**
+     * ROUND 93 (D-646): PING is a HARD prerequisite (see HomePageTest) — a
+     * dead site fails the whole chain by default, exactly as the user
+     * specified. A search that fails while the HOME PAGE PASSED is
+     * FORGIVEN at the end of the chain (the engine's D-646 forgiveness) —
+     * the chain continues from the home page's entries and the extension
+     * still counts as working when the rest passes.
+     */
+    override val requiresAnyOf = setOf(
+        ExtensionTestKind.PING,
+    )
 
     /** What one ladder attempt ended with (drives the aggregate failure). */
     private sealed interface Attempt {
@@ -204,7 +215,8 @@ class SearchTest : ExtensionTest {
     private companion object {
         const val RUN_TAG = "Anikuta:Feature:ExtensionsTesting"
 
-        /** Per-attempt bound — 4-5 attempts × 12s stays inside the 80s budget. */
+        /** Per-attempt bound — up to 4 attempts (custom + 3 phrases) × 12s
+         *  stays comfortably inside the 80s budget. */
         const val ATTEMPT_TIMEOUT_MS = 12_000L
 
         /** The payload's entry cap — tiny blob, still browsable. */

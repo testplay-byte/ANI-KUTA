@@ -124,6 +124,18 @@ import java.util.Locale
 //      "Not run yet"), and sections EXPAND SMOOTHLY when results arrive;
 //    • the VERDICT BANNER is a SOLID elevated surface with a darkening
 //      gradient scrim above and below.
+//
+//  ROUND 93 (D-647 — the v1.1.49 device round's professional pass):
+//    • the RESULT CARDS lost their "glowing" full-card color washes — every
+//      card is a NEUTRAL surface with a hairline border and a thin LEADING
+//      ACCENT edge in the kind's color (the banner language; the kind's hue
+//      survives only in the header dot + that edge);
+//    • the STAGE TIMINGS section plays the LIVE RUN's motion — one row per
+//      STARTED stage (expand+fade reveal), each with a TIME BAR sized
+//      against the longest stage shown; the running bar grows live and the
+//      earlier bars renormalize (animated) when a new maximum lands; stages
+//      that never ran render nothing (the equal-placeholder segmented strip
+//      is gone).
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -374,13 +386,20 @@ fun TestingTargetDetailScreen(
                         }
                     }
 
-                    // ── ROUND 91 (D-632): THE STAGE BAR — its OWN SECTION now,
-                    // below the dossier ("the bar segments… should be in a
-                    // separate section below it"), with a small header and the
-                    // honest caption. The bar itself: EQUAL segments by
-                    // default; the running segment starts smallest and grows
-                    // with its live time; finished segments hold their actual
-                    // durations; every reflow animates.
+                    // ── ROUND 91 (D-632) + ROUND 93 (D-647): THE STAGE
+                    // TIMINGS — rebuilt with the LIVE RUN's motion (the
+                    // v1.1.49 report: "this can be implemented similarly in
+                    // the stage timings too… if there is only the first run,
+                    // then there will be a full bar… when the third one comes
+                    // in… it will start from zero… and the other two will
+                    // start becoming smaller"). Only STARTED stages render
+                    // (each revealing with an expand+fade as its turn
+                    // arrives); every shown stage carries a TIME BAR whose
+                    // length is its duration relative to the LONGEST stage
+                    // shown; the running bar grows live (150ms ticker) and
+                    // every earlier bar RENORMALIZES (animated) when a new
+                    // maximum lands. The old single segmented strip (equal
+                    // placeholders for stages that never ran) is GONE.
                     item(key = "stage-bar") {
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -396,10 +415,10 @@ fun TestingTargetDetailScreen(
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
                                 Spacer(Modifier.height(9.dp))
-                                MultiStageProgressBar(state = state)
+                                StageTimingRows(state = state)
                                 Spacer(Modifier.height(6.dp))
                                 Text(
-                                    text = "Each segment is one test — equal until tested, then sized by its time",
+                                    text = "Each bar is one test's time, sized against the longest so far",
                                     fontFamily = RobotoFamily,
                                     fontSize = 10.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
@@ -789,27 +808,17 @@ private fun VerdictCountChip(label: String, count: Int, color: Color) {
 }
 
 /**
- * THE TIME-PROPORTIONAL STAGE BAR (round 87, D-606; honesty pass round 88,
- * D-620; ROUND 91, D-632 — the EQUAL-BY-DEFAULT model). The user's spec:
- * "by default each of the segments should be of same length. And as the
- * tests start, only then will the appropriate segment be in the smallest
- * length, and then it will expand based on how much time it is taking. And
- * also the other segments along the way will be adjusted accordingly to
- * along with it, like the previous segments will shrink in their size too…
- * and the animation needs to be handled smoothly."
- *   • an UNTESTED segment holds the NOMINAL share — every pending segment
- *     the same length (the old timeoutMs budgets made them differ pre-run);
- *   • the RUNNING segment's weight = its LIVE elapsed (it starts as the
- *     smallest and grows, ticking every 150ms);
- *   • a FINISHED segment's weight = its ACTUAL durationMs;
- *   • every weight ANIMATES (a short FastOutSlowIn chase), so the pending →
- *     running shrink, the live growth, and the neighbors' renormalizing
- *     reflow all read as one smooth motion;
- *   • tiny segments keep the VISIBILITY FLOOR + RENORMALIZATION from D-620
- *     (floors never steal width — the row always sums to exactly one bar).
+ * ROUND 93 (D-647): THE PROGRESSIVE STAGE-TIMING ROWS — the live run's hero
+ * motion, brought to the detail page (the twin of TestingRunScreen's D-637
+ * machine): a stage renders ONLY once it has STARTED (expand+fade reveal),
+ * and each shown stage carries a TIME BAR whose length is its duration
+ * relative to the LONGEST stage shown — the running bar grows live and every
+ * earlier bar RENORMALIZES (animated) whenever a new maximum lands. Stages
+ * that never ran render NOTHING here (the old equal-placeholder segments
+ * are gone); an untested target shows the honest empty line instead.
  */
 @Composable
-private fun MultiStageProgressBar(state: TargetRunState?) {
+private fun StageTimingRows(state: TargetRunState?) {
     val runningStartedAtMs = state?.runningKindStartedAtMs
     var liveMs by remember(runningStartedAtMs) {
         mutableLongStateOf(
@@ -824,68 +833,109 @@ private fun MultiStageProgressBar(state: TargetRunState?) {
         }
     }
 
-    // The segment model: kind + verdict + its raw TIME weight.
-    val segments = ExtensionTestKind.entries.map { kind ->
-        val result = state?.results?.get(kind)
-        val targetMs = when {
-            result == null || result.status == TestStatus.PENDING -> STAGE_NOMINAL_MS
-            result.status == TestStatus.RUNNING -> liveMs.coerceAtLeast(STAGE_MIN_MS)
+    fun stageMs(kind: ExtensionTestKind): Long {
+        val result = state?.results?.get(kind) ?: return 0L
+        return when (result.status) {
+            TestStatus.RUNNING -> liveMs.coerceAtLeast(STAGE_MIN_MS)
+            TestStatus.PENDING -> 0L
             else -> result.durationMs.coerceAtLeast(STAGE_MIN_MS)
-        }.toFloat()
-        Triple(kind, result, targetMs)
+        }
     }
-    // D-632: every weight chases its target with a short tween — the live
-    // growth and every reflow stay smooth (no state-change pops).
-    val animatedWeights = segments.map { (_, _, ms) ->
-        val animated by animateFloatAsState(
-            targetValue = ms,
-            animationSpec = tween(350, easing = FastOutSlowInEasing),
-            label = "stageWeight",
-        )
-        animated
-    }
-    val totalMs = animatedWeights.sum().coerceAtLeast(1f)
-    // D-620: floor every fraction for visibility, then RENORMALIZE so the
-    // floors never steal width — the row always sums to exactly one bar.
-    val minFraction = 0.03f
-    val floored = animatedWeights.map { (it / totalMs).coerceAtLeast(minFraction) }
-    val flooredTotal = floored.sum().coerceAtLeast(0.01f)
+    val maxStageMs = ExtensionTestKind.entries
+        .maxOf { stageMs(it) }
+        .coerceAtLeast(STAGE_MIN_MS)
 
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(10.dp)
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f)),
+    var anyShown = false
+    Column(
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = Modifier.animateContentSize(
+            animationSpec = tween(Motion.DurationStandard, easing = Motion.EasingEmphasized),
+        ),
     ) {
-        segments.forEachIndexed { index, (kind, result, _) ->
-            val pending = result == null || result.status == TestStatus.PENDING
-            val baseColor = TestingPalette.kindColor(kind)
-            val fillColor = when {
-                // D-632: a touch brighter than the old 0.16 — the pending
-                // row reads as its kind's color, just resting ("contrasty,
-                // not dulled").
-                pending -> baseColor.copy(alpha = 0.28f)
-                result?.status == TestStatus.SKIPPED -> baseColor.copy(alpha = 0.30f)
-                result?.status == TestStatus.FAILED -> baseColor.copy(alpha = 0.55f)
-                else -> baseColor
+        ExtensionTestKind.entries.forEach { kind ->
+            val kindResult = state?.results?.get(kind)
+            val started = kindResult != null && kindResult.status != TestStatus.PENDING
+            if (started) anyShown = true
+            AnimatedVisibility(
+                visible = started,
+                enter = fadeIn(tween(180)) +
+                    expandVertically(tween(220, easing = Motion.EasingEmphasized)),
+                exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
+            ) {
+                val fraction by animateFloatAsState(
+                    targetValue = (stageMs(kind).toFloat() / maxStageMs).coerceIn(0.04f, 1f),
+                    animationSpec = tween(350, easing = FastOutSlowInEasing),
+                    label = "detailStageBarWidth",
+                )
+                val baseColor = TestingPalette.kindColor(kind)
+                val fillColor = when (kindResult?.status) {
+                    TestStatus.FAILED -> baseColor.copy(alpha = 0.55f)
+                    TestStatus.SKIPPED -> baseColor.copy(alpha = 0.30f)
+                    else -> baseColor
+                }
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(baseColor),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = kind.label,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (kindResult?.status == TestStatus.RUNNING && runningStartedAtMs != null) {
+                            LiveElapsedText(
+                                startedAtMs = runningStartedAtMs,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 10.sp,
+                            )
+                        } else {
+                            Text(
+                                text = TestTimeFormat.format(kindResult?.durationMs ?: 0L),
+                                fontFamily = RobotoFamily,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 3.dp)
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f)),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(50))
+                                .background(fillColor),
+                        )
+                    }
+                }
             }
-            Box(
-                modifier = Modifier
-                    .weight(floored[index] / flooredTotal)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(50))
-                    .background(fillColor),
+        }
+        if (!anyShown) {
+            Text(
+                text = "Nothing timed yet — run the tests to see the stage timings",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
         }
     }
 }
 
-/** The equal share every untested segment holds (D-632) — ~a typical test. */
-private const val STAGE_NOMINAL_MS = 10_000L
-
-/** The visibility floor for live/finished weights (D-632). */
+/** The visibility floor for live/finished weights (D-632; the D-637 twin). */
 private const val STAGE_MIN_MS = 250L
 
 /** One timeline bubble — the status-colored circle on the left rail. */
@@ -1057,20 +1107,23 @@ private fun TransientResultBanner(
 }
 
 /**
- * One kind's result card on the timeline — THE COLORED BLOCK (round 87,
- * D-607; failure-presentation pass round 88, D-618; ROUND 91, D-632 — the
- * never-run state moved OUT to the timeline's compact section). The user's
- * spec: the results render INSIDE the block ("inside the pink block, there
- * will be the results… a section inside the pink block"), and the code-window
- * view is REMOVED COMPLETELY. What the card holds:
+ * One kind's result card on the timeline (round 87, D-607; failure pass
+ * round 88, D-618; ROUND 91, D-632; ROUND 93, D-647 — THE PROFESSIONAL
+ * PASS: the v1.1.49 report — "the style of the test results is not proper,
+ * like the glowing kind of blocks and such… try to make it look
+ * professional, just like how the rest of our application is"). The card is
+ * now a NEUTRAL surface like every other card in the app — a hairline
+ * border, a thin LEADING ACCENT edge in the kind's color (the banner
+ * language), and the kind's hue living ONLY in the small header dot + that
+ * edge. The full-card color wash + tinted border are gone. What the card
+ * holds (unchanged):
  *   • the kind's color dot + label + LIVE elapsed while running;
  *   • the verdict message + the detail line as clean text rows — the
- *     detail line shows IN FULL now (the "full details" page ellipsizing
- *     the failure reason at two lines was backwards);
+ *     detail line shows IN FULL;
  *   • the search ladder's advanced stats as stat pills (not code lines);
- *   • the RESULTS SECTION — an inset inside the block carrying the payload
- *     (result grid / dossier / episode chips / link rows / live preview),
- *     SKIPPED ENTIRELY when the payload view would render nothing (PING).
+ *   • the RESULTS SECTION — a neutral inset carrying the payload (result
+ *     grid / dossier / episode chips / link rows / live preview), SKIPPED
+ *     ENTIRELY when the payload view would render nothing (PING).
  * A RUNNING or terminal result only — the not-yet-run kinds render the
  * timeline's compact name+color section instead (D-632).
  */
@@ -1086,12 +1139,30 @@ private fun KindDetailCard(
     val running = status == TestStatus.RUNNING
     val accent = TestingPalette.kindColor(kind)
     Surface(
-        color = accent.copy(alpha = 0.10f),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.30f)),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)),
         shape = RoundedCornerShape(13.dp),
+        tonalElevation = 1.dp,
         modifier = modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
+        ) {
+            // D-647: the leading accent edge — the kind's hue as a thin bar,
+            // the same language as the transient banner (never a full wash).
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .fillMaxHeight()
+                    .background(accent),
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
             // ── Header: kind dot + label + (live) duration ──
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -1177,14 +1248,14 @@ private fun KindDetailCard(
                     SearchStatPill(text = "won on \u201C$winner\u201D")
                 }
             }
-            // ── THE RESULTS SECTION — inside the colored block; skipped
-            // ENTIRELY when the payload view would render nothing (PING's
-            // chips are gone by design — an empty labeled box only made
-            // the block look broken; D-622).
+            // ── THE RESULTS SECTION — a NEUTRAL inset (D-647: surfaceVariant
+            // instead of the old background wash, matching the neutral card);
+            // skipped ENTIRELY when the payload view would render nothing
+            // (PING's chips are gone by design — D-622).
             val payload = result.payload
             if (payload != null && kindPayloadHasContent(kind, payload)) {
                 Surface(
-                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.55f),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1207,6 +1278,7 @@ private fun KindDetailCard(
                         )
                     }
                 }
+            }
             }
         }
     }

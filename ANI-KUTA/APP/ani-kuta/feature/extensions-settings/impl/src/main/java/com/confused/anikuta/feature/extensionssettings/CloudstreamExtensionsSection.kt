@@ -1,7 +1,7 @@
 package com.confused.anikuta.feature.extensionssettings
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -76,8 +76,10 @@ import org.koin.compose.koinInject
  * device round 2): description, authors, version, status, size, supported
  * modes, language, and the live provider list.
  *
- * Search / sort / language / NSFW all flow in from the ONE filters bar shared
+ * Search / language / NSFW all flow in from the ONE filters bar shared
  * with the aniyomi tab (G4: NSFW here is the persisted gate, default OFF).
+ * (ROUND 93, D-644: the sort inputs are gone — every section is
+ * alphabetical, like the aniyomi tab.)
  *
  * ROUND 92 (D-639): THE MULTI-SELECT — the same contract as the aniyomi tab
  * (long-press enters selection; the bottom action bar carries ONLY the
@@ -87,15 +89,20 @@ import org.koin.compose.koinInject
  * batch — "it will just do a single confirmation to delete it all because it
  * does not need the system prompt to delete them" (plugins are files, not
  * APKs — no per-package system dialogs).
+ *
+ * ROUND 93 (D-641/D-645): the multi-select gained the RANGE long-press + the
+ * long-press DRAG paint (the shared drag handler — the aniyomi tab's twin),
+ * and the batch DELETE now removes ONE ROW AT A TIME — each row plays the
+ * exit choreography (settle dip → slide + fade) before its uninstall fires,
+ * so the batch reads as a wave of rows leaving instead of a single collapse;
+ * an install completing on an available row plays the same exit as it moves
+ * into the Untrusted section.
  */
 @Composable
 internal fun CloudstreamExtensionsSection(
     csManager: CloudstreamPluginManager = koinInject(),
     csRepoRepository: CloudstreamRepoRepository = koinInject(),
     searchQuery: String = "",
-    sortMode: ExtensionSortMode = ExtensionSortMode.NAME,
-    // Round 82 (D-572): ascending/descending, toggled from the sort menu.
-    sortAscending: Boolean = true,
     langFilter: String? = null,
     showNsfw: Boolean = false,
     onOpenPluginDetail: (internalName: String) -> Unit = {},
@@ -111,52 +118,62 @@ internal fun CloudstreamExtensionsSection(
     val updateCheckState by csManager.updateCheckState.collectAsState()
     val csRepos by csRepoRepository.repos.collectAsState()
 
-    // ── ROUND 92 (D-639): the multi-select state (the aniyomi tab's twin,
-    // keyed by internalName). ──
+    // ── ROUND 92 (D-639) + ROUND 93 (D-641): the multi-select state (the
+    // aniyomi tab's twin, keyed by internalName). ──
     val csScope = rememberCoroutineScope()
     val csContext = LocalContext.current
     var selectionMode by remember { mutableStateOf(false) }
     var selectedNames by remember { mutableStateOf(setOf<String>()) }
+    // ROUND 93 (D-641): the range anchor — a second long-press selects
+    // anchor…row inclusive; the drag paints from it.
+    var selectionAnchor by remember { mutableStateOf<String?>(null) }
     // The ONE delete confirmation for the whole batch (D-639).
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+    // ROUND 93 (D-645): the batch-delete exit choreography set — a name in
+    // here plays the exit motion; its uninstall fires after the window.
+    var exitingNames by remember { mutableStateOf(setOf<String>()) }
     fun toggleSelected(name: String) {
         selectedNames = if (name in selectedNames) selectedNames - name else selectedNames + name
         if (selectedNames.isEmpty()) selectionMode = false
     }
     fun enterSelection(name: String) {
         selectedNames = setOf(name)
+        selectionAnchor = name
         selectionMode = true
         HapticHelper.lightTick(csContext)
     }
     fun exitSelection() {
         selectionMode = false
         selectedNames = emptySet()
+        selectionAnchor = null
     }
 
     val listState = rememberLazyListState()
     val isChecking = updateCheckState is CloudstreamPluginManager.UpdateCheckState.Checking
 
-    // ── Filtering + sorting (same rules as the aniyomi tab's lists) ──
+    // ── Filtering (ROUND 93, D-644: ALPHABETICAL EVERYWHERE — the CS sort
+    // twins are gone with the shared sort menu; name-ascending like the
+    // aniyomi sections) ──
     val filteredInstalled = installed
         .filter {
             matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
                 (langFilter == null || it.language == langFilter)
         }
-        .let { sortCsExtensions(it, sortMode, sortAscending) }
+        .sortedBy { it.name.lowercase() }
 
     val filteredUntrusted = untrusted
         .filter {
             matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
                 (langFilter == null || it.language == langFilter)
         }
-        .let { sortCsUntrusted(it, sortMode, sortAscending) }
+        .sortedBy { it.name.lowercase() }
 
     val filteredErrored = errored
         .filter {
             matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
                 (langFilter == null || it.language == langFilter)
         }
-        .let { sortCsErrored(it, sortMode, sortAscending) }
+        .sortedBy { it.name.lowercase() }
 
     val filteredAvailable = available
         .filter { showNsfw || !it.isNsfw }
@@ -164,17 +181,62 @@ internal fun CloudstreamExtensionsSection(
             matchesSearch(it.plugin.name, searchQuery) &&
                 (langFilter == null || it.plugin.language == langFilter)
         }
-        .let { sortCsAvailable(it, sortMode, sortAscending) }
+        .sortedBy { it.plugin.name.lowercase() }
+
+    // ── ROUND 93 (D-641): the flattened SELECTABLE key order + the range /
+    // drag handlers (the aniyomi tab's twin, keyed by internalName) ──
+    val orderedSelectableKeys = remember(
+        filteredInstalled, filteredErrored, filteredUntrusted, filteredAvailable,
+    ) {
+        filteredInstalled.map { it.internalName } +
+            filteredErrored.map { it.internalName } +
+            filteredUntrusted.map { it.internalName } +
+            filteredAvailable.map { it.plugin.internalName }
+    }
+    val selectableKeySet = remember(orderedSelectableKeys) { orderedSelectableKeys.toSet() }
+    fun selectRange(fromKey: String, toKey: String) {
+        val keys = orderedSelectableKeys
+        val from = keys.indexOf(fromKey)
+        val to = keys.indexOf(toKey)
+        if (from < 0 || to < 0) return
+        val range = if (from <= to) keys.subList(from, to + 1) else keys.subList(to, from + 1)
+        selectedNames = selectedNames + range.toSet()
+        if (selectedNames.isNotEmpty()) selectionMode = true
+    }
+    fun dragSelectStart(name: String) {
+        if (!selectionMode) {
+            enterSelection(name)
+            return
+        }
+        val anchor = selectionAnchor
+        if (anchor != null && anchor != name) {
+            selectRange(anchor, name)
+        } else if (anchor == null) {
+            selectedNames = selectedNames + name
+        }
+        selectionAnchor = name
+        HapticHelper.lightTick(csContext)
+    }
+    val dragSelectionModifier = rememberDragSelectionModifier(
+        listState = listState,
+        selectableKeys = selectableKeySet,
+        onLongPressSelect = { name -> dragSelectStart(name) },
+        onRangeSelect = { from, to -> selectRange(from, to) },
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                // ROUND 93 (D-641): the drag-selection handler — this list's
+                // long-press belongs to it (rows keep plain taps).
+                .then(dragSelectionModifier),
             // ROUND 92 (D-639): extra bottom clearance while the selection bar
             // rides over the list's foot.
             contentPadding = PaddingValues(
                 start = 12.dp, end = 12.dp, top = 4.dp,
-                bottom = if (selectionMode) 190.dp else 110.dp,
+                bottom = if (selectionMode) 210.dp else 110.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -198,11 +260,13 @@ internal fun CloudstreamExtensionsSection(
                     modifier = Modifier.animateItem(),
                     extension = ext,
                     installStep = installStates[ext.internalName],
-                    // ROUND 92 (D-639): the multi-select contract.
+                    // ROUND 92 (D-639): the multi-select contract (ROUND 93,
+                    // D-641 — the long-press lives on the list's drag handler).
                     selectionMode = selectionMode,
                     selected = ext.internalName in selectedNames,
                     onToggleSelected = { toggleSelected(ext.internalName) },
-                    onLongPress = { enterSelection(ext.internalName) },
+                    // ROUND 93 (D-645): the batch-delete exit choreography.
+                    forcedExit = ext.internalName in exitingNames,
                     onUpdate = ext.availableUpdateVersion?.let {
                         {
                             // Task 62 (round 22): the online catalog target is
@@ -242,7 +306,7 @@ internal fun CloudstreamExtensionsSection(
                         selectionMode = selectionMode,
                         selected = ext.internalName in selectedNames,
                         onToggleSelected = { toggleSelected(ext.internalName) },
-                        onLongPress = { enterSelection(ext.internalName) },
+                        forcedExit = ext.internalName in exitingNames,
                         onRetry = { csManager.retryPlugin(ext) },
                         onUninstall = { csManager.uninstallPlugin(ext) },
                         onClick = { onOpenPluginDetail(ext.internalName) },
@@ -266,7 +330,7 @@ internal fun CloudstreamExtensionsSection(
                         selectionMode = selectionMode,
                         selected = ext.internalName in selectedNames,
                         onToggleSelected = { toggleSelected(ext.internalName) },
-                        onLongPress = { enterSelection(ext.internalName) },
+                        forcedExit = ext.internalName in exitingNames,
                         onTrust = { csManager.trustPlugin(ext) },
                         onUninstall = { csManager.uninstallPlugin(ext) },
                         onClick = { onOpenPluginDetail(ext.internalName) },
@@ -303,7 +367,6 @@ internal fun CloudstreamExtensionsSection(
                         selectionMode = selectionMode,
                         selected = ext.plugin.internalName in selectedNames,
                         onToggleSelected = { toggleSelected(ext.plugin.internalName) },
-                        onLongPress = { enterSelection(ext.plugin.internalName) },
                         onInstall = { csManager.installPlugin(ext) },
                         onClick = { onOpenPluginDetail(ext.plugin.internalName) },
                     )
@@ -320,9 +383,11 @@ internal fun CloudstreamExtensionsSection(
             modifier = Modifier.align(Alignment.TopCenter),
         )
 
-        // ── ROUND 92 (D-639): THE BOTTOM ACTION BAR — the aniyomi tab's twin:
-        // only the actions the current selection supports, each applied to
-        // its own subset (Install → the selected AVAILABLE rows; Trust → the
+        // ── ROUND 92 (D-639) + ROUND 93 (D-640): THE BOTTOM ACTION BAR — the
+        // aniyomi tab's twin (the shared two-row bar): the status row carries
+        // the count + Select all, the action row the WEIGHT-FILLED actions —
+        // only the ones the current selection supports, each applied to its
+        // own subset (Install → the selected AVAILABLE rows; Trust → the
         // UNTRUSTED ones; Untrust → the INSTALLED ones; Delete → everything
         // on the device). ──
         val selInstalled = filteredInstalled.filter { it.internalName in selectedNames }
@@ -333,17 +398,24 @@ internal fun CloudstreamExtensionsSection(
             visible = selectionMode,
             label = "${selectedNames.size} selected",
             onClose = { exitSelection() },
+            onSelectAll = if (selectionMode) {
+                { selectedNames = selectableKeySet }
+            } else {
+                null
+            },
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             if (selAvailable.isNotEmpty()) {
                 SelectionBarAction(
                     icon = Icons.Filled.Download,
                     label = "Install",
+                    modifier = Modifier.weight(1f),
                     onClick = {
                         val targets = selAvailable.toList()
                         exitSelection()
                         // One after the other, with a small stagger so each
-                        // row's progress machine visibly takes its turn.
+                        // row's progress machine visibly takes its turn (the
+                        // manager's own queue serializes the installs).
                         csScope.launch {
                             for (ext in targets) {
                                 csManager.installPlugin(ext)
@@ -357,6 +429,7 @@ internal fun CloudstreamExtensionsSection(
                 SelectionBarAction(
                     icon = Icons.Filled.VerifiedUser,
                     label = "Trust",
+                    modifier = Modifier.weight(1f),
                     onClick = {
                         val targets = selUntrusted.toList()
                         exitSelection()
@@ -368,6 +441,7 @@ internal fun CloudstreamExtensionsSection(
                 SelectionBarAction(
                     icon = Icons.Filled.RemoveModerator,
                     label = "Untrust",
+                    modifier = Modifier.weight(1f),
                     onClick = {
                         val targets = selInstalled.toList()
                         exitSelection()
@@ -385,6 +459,7 @@ internal fun CloudstreamExtensionsSection(
                     icon = Icons.Filled.Delete,
                     label = "Delete",
                     destructive = true,
+                    modifier = Modifier.weight(1f),
                     onClick = { showBatchDeleteConfirm = true },
                 )
             }
@@ -392,7 +467,10 @@ internal fun CloudstreamExtensionsSection(
 
         // ROUND 92 (D-639): THE ONE DELETE CONFIRMATION for the whole batch —
         // "a single confirmation to delete it all because it does not need
-        // the system prompt" — then the uninstalls run one after the other.
+        // the system prompt" — then ROUND 93 (D-645): the uninstalls run ONE
+        // ROW AT A TIME, each row playing the exit choreography (settle dip →
+        // slide + fade) BEFORE its uninstall fires — the batch reads as a wave
+        // of rows smoothly leaving, not a single collapse.
         val deletableCount = selInstalled.size + selErrored.size + selUntrusted.size
         if (showBatchDeleteConfirm && deletableCount > 0) {
             AlertDialog(
@@ -418,8 +496,13 @@ internal fun CloudstreamExtensionsSection(
                             exitSelection()
                             csScope.launch {
                                 for (ext in targets) {
+                                    // D-645: the row starts its exit…
+                                    exitingNames = exitingNames + ext.internalName
+                                    delay(370) // …the choreography window (~350ms)
+                                    // …and only then does the data removal land.
                                     csManager.uninstallPlugin(ext)
-                                    delay(300)
+                                    delay(140) // let the refresh settle before the next
+                                    exitingNames = exitingNames - ext.internalName
                                 }
                             }
                         },
@@ -453,11 +536,15 @@ private fun CsInstalledRow(
     modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Installed,
     installStep: InstallStep?,
-    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows).
+    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows;
+    // ROUND 93, D-641 — the long-press lives on the list's drag handler).
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
-    onLongPress: () -> Unit = {},
+    // ROUND 93 (D-645): the batch-delete exit choreography — the row plays
+    // its exit when the name enters the set; the batch fires the uninstall
+    // after the window.
+    forcedExit: Boolean = false,
     onUpdate: (() -> Unit)?,
     onUninstall: () -> Unit,
     onUntrust: () -> Unit,
@@ -479,6 +566,12 @@ private fun CsInstalledRow(
         delay(2500)
         deleteExit.restoreFromExit()
         removing = false
+    }
+    // ROUND 93 (D-645): the BATCH path — the exit plays on command; the data
+    // removal arrives from the batch loop after the window.
+    LaunchedEffect(forcedExit) {
+        if (!forcedExit) return@LaunchedEffect
+        deleteExit.runExitChoreography()
     }
     // ROUND 85: UNTRUST gets the same exit choreography, tap-driven — the
     // row visibly leaves Trusted Sources before the data change fires.
@@ -504,11 +597,12 @@ private fun CsInstalledRow(
         modifier = modifier
             .deleteExitLayer(deleteExit)
             .fillMaxWidth()
-            .combinedClickable(
+            // ROUND 93 (D-641): plain clickable — the list-level drag handler
+            // owns the long-press (no ripple; see the aniyomi rows).
+            .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = if (selectionMode) onToggleSelected else onClick,
-                onLongClick = onLongPress,
             ),
     ) {
         Row(
@@ -602,11 +696,13 @@ private fun CsErroredRow(
     modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Errored,
     retrying: Boolean = false,
-    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows).
+    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows;
+    // ROUND 93, D-641 — the long-press lives on the list's drag handler;
+    // D-645 — forcedExit is the batch-delete exit choreography).
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
-    onLongPress: () -> Unit = {},
+    forcedExit: Boolean = false,
     onRetry: () -> Unit,
     onUninstall: () -> Unit,
     onClick: () -> Unit,
@@ -622,6 +718,10 @@ private fun CsErroredRow(
         delay(2500)
         deleteExit.restoreFromExit()
         removing = false
+    }
+    LaunchedEffect(forcedExit) {
+        if (!forcedExit) return@LaunchedEffect
+        deleteExit.runExitChoreography()
     }
 
     Surface(
@@ -639,11 +739,12 @@ private fun CsErroredRow(
         modifier = modifier
             .deleteExitLayer(deleteExit)
             .fillMaxWidth()
-            .combinedClickable(
+            // ROUND 93 (D-641): plain clickable — the list-level drag handler
+            // owns the long-press (no ripple).
+            .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = if (selectionMode) onToggleSelected else onClick,
-                onLongClick = onLongPress,
             ),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
@@ -749,11 +850,13 @@ private fun CsErroredRow(
 private fun CsUntrustedRow(
     modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Untrusted,
-    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows).
+    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows;
+    // ROUND 93, D-641 — the long-press lives on the list's drag handler;
+    // D-645 — forcedExit is the batch-delete exit choreography).
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
-    onLongPress: () -> Unit = {},
+    forcedExit: Boolean = false,
     onTrust: () -> Unit,
     onUninstall: () -> Unit,
     onClick: () -> Unit,
@@ -771,6 +874,11 @@ private fun CsUntrustedRow(
         delay(2500)
         deleteExit.restoreFromExit()
         removing = false
+    }
+    // ROUND 93 (D-645): the BATCH path — the exit plays on command.
+    LaunchedEffect(forcedExit) {
+        if (!forcedExit) return@LaunchedEffect
+        deleteExit.runExitChoreography()
     }
     // ROUND 85: TRUST gets the same exit choreography, tap-driven — the row
     // visibly leaves the untrusted section and re-enters Trusted Sources.
@@ -796,11 +904,12 @@ private fun CsUntrustedRow(
         modifier = modifier
             .deleteExitLayer(deleteExit)
             .fillMaxWidth()
-            .combinedClickable(
+            // ROUND 93 (D-641): plain clickable — the list-level drag handler
+            // owns the long-press (no ripple).
+            .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = if (selectionMode) onToggleSelected else onClick,
-                onLongClick = onLongPress,
             ),
     ) {
         Row(
@@ -882,21 +991,35 @@ private fun CsUntrustedRow(
  * Available catalog row — byte-for-byte the aniyomi AvailableExtensionRow
  * anatomy: icon, name, ONE metadata line (version · language · NSFW — no file
  * size, no description per the device report), and the shared install control.
+ *
+ * ROUND 93 (D-645): when THIS row's install completes, it plays the exit
+ * choreography — the "Done" beat reads first, then the row slides out just
+ * as the list refresh moves it into the Untrusted section ("if I download
+ * them, they do not go smoothly away to the untrusted section" — now they
+ * do; the manager's 850ms completion beat is the motion's window).
  */
 @Composable
 private fun CsAvailableRow(
     modifier: Modifier = Modifier,
     extension: CloudstreamExtension.Available,
     installStep: InstallStep?,
-    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows).
+    // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows;
+    // ROUND 93, D-641 — the long-press lives on the list's drag handler).
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
-    onLongPress: () -> Unit = {},
     onInstall: () -> Unit,
     onClick: () -> Unit,
 ) {
     val plugin = extension.plugin
+    // ROUND 93 (D-645): the install-completion exit — see the header comment.
+    val deleteExit = rememberDeleteExitState()
+    LaunchedEffect(installStep) {
+        if (installStep is InstallStep.Installed) {
+            delay(320) // let the "Done" beat show
+            deleteExit.runExitChoreography()
+        }
+    }
     Surface(
         color = if (selectionMode && selected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
@@ -910,12 +1033,12 @@ private fun CsAvailableRow(
         },
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
+            .deleteExitLayer(deleteExit)
             .fillMaxWidth()
-            .combinedClickable(
+            .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = if (selectionMode) onToggleSelected else onClick,
-                onLongClick = onLongPress,
             ),
     ) {
         Row(
@@ -970,35 +1093,5 @@ private fun CsAvailableRow(
  * so the plugin detail screen shares the same treatment).
  */
 
-// ── Sorting (CloudStream twins of the shared aniyomi comparators) ───────────
-
-private fun <T> sortCsBase(
-    list: List<T>,
-    mode: ExtensionSortMode,
-    ascending: Boolean,
-    name: (T) -> String,
-    lang: (T) -> String?,
-    nsfw: (T) -> Boolean,
-): List<T> = when (mode) {
-    ExtensionSortMode.NAME ->
-        if (ascending) list.sortedBy { name(it).lowercase() }
-        else list.sortedByDescending { name(it).lowercase() }
-    ExtensionSortMode.LANGUAGE ->
-        if (ascending) list.sortedBy { (lang(it) ?: "zz").lowercase() }
-        else list.sortedByDescending { (lang(it) ?: "").lowercase() }
-    ExtensionSortMode.NSFW ->
-        if (ascending) list.sortedByDescending(nsfw)
-        else list.sortedBy(nsfw)
-}
-
-private fun sortCsExtensions(list: List<CloudstreamExtension.Installed>, mode: ExtensionSortMode, ascending: Boolean): List<CloudstreamExtension.Installed> =
-    sortCsBase(list, mode, ascending, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
-
-private fun sortCsErrored(list: List<CloudstreamExtension.Errored>, mode: ExtensionSortMode, ascending: Boolean): List<CloudstreamExtension.Errored> =
-    sortCsBase(list, mode, ascending, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
-
-private fun sortCsUntrusted(list: List<CloudstreamExtension.Untrusted>, mode: ExtensionSortMode, ascending: Boolean): List<CloudstreamExtension.Untrusted> =
-    sortCsBase(list, mode, ascending, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
-
-private fun sortCsAvailable(list: List<CloudstreamExtension.Available>, mode: ExtensionSortMode, ascending: Boolean): List<CloudstreamExtension.Available> =
-    sortCsBase(list, mode, ascending, name = { it.plugin.name }, lang = { it.plugin.language }, nsfw = { it.isNsfw })
+// (ROUND 93, D-644: the CloudStream sort twins are RETIRED with the shared
+//  sort menu — every section sorts by name, exactly like the aniyomi tab.)

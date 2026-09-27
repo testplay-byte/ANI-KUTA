@@ -15,7 +15,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -43,11 +42,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -58,8 +53,6 @@ import androidx.compose.material.icons.filled.RemoveModerator
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -85,7 +78,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -108,6 +100,7 @@ import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import com.confused.anikuta.data.extension.repo.ExtensionRepoRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -117,7 +110,7 @@ import org.koin.compose.koinInject
  * Extensions Settings screen — lists installed, untrusted, and available extensions.
  *
  * Three dedicated sections, each in its own card with a distinct background:
- * 1. Trusted Sources — installed + trusted extensions (long-press to reorder).
+ * 1. Trusted Sources — installed + trusted extensions (alphabetical).
  * 2. Untrusted — installed but not yet trusted (trust / delete buttons).
  * 3. Available Extensions — listed in repos, not yet installed (install button
  *    with spinner animation during install).
@@ -125,16 +118,22 @@ import org.koin.compose.koinInject
  * UI design (per user spec):
  * - CollapsingHeader "Extensions" that shrinks on scroll + ScrollBlurOverlay.
  * - Filters button at the top-right (NO default search bar). Tapping it reveals
- *   the search + sort bar.
+ *   the search + language + NSFW filters (ROUND 93: the sort pill is GONE —
+ *   every section is alphabetical, D-644).
  * - Each section in a dedicated background card with clear separation + spacing
  *   between rows.
  * - Available extensions filtered to exclude installed/untrusted.
  * - Download button shows a circular spinner during install.
- * - Trusted sources: reorder via the header's SwapVert pill (ROUND 92, D-638 —
- *   long-press now enters MULTI-SELECT instead: select rows, then act on the
- *   whole batch from the bottom bar — Install / Trust / Untrust / Delete,
- *   each applied one after the other; the aniyomi Delete chains the SYSTEM
- *   uninstall prompts, one confirm per extension).
+ * - Trusted sources: long-press enters MULTI-SELECT (ROUND 92, D-638) — select
+ *   rows (ROUND 93, D-641: a second long-press RANGE-selects; long-press +
+ *   drag paints the selection with auto-scroll), then act on the whole batch
+ *   from the bottom bar — Install / Trust / Untrust / Delete, each applied one
+ *   after the other; the aniyomi Install awaits each system prompt before
+ *   firing the next (D-642); the aniyomi Delete chains the SYSTEM uninstall
+ *   prompts one per confirmed removal (advancing on the removal broadcast,
+ *   D-643).
+ * - ROUND 93 (D-643): leaving the page cancels in-flight downloads/installs
+ *   and sweeps downloaded-but-uninstalled temp files.
  * - Round 82 (D-571): the ANIYOMI uninstall flow has NO in-app confirmation
  *   dialog anymore — the trash icon fires the SYSTEM uninstaller directly
  *   (ACTION_DELETE), and Android's own "Do you want to uninstall this app?"
@@ -203,10 +202,6 @@ fun ExtensionsSettingsScreen(
     val scope = rememberCoroutineScope()
     var showFilters by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var sortMode by remember { mutableStateOf(ExtensionSortMode.NAME) }
-    // Round 82 (D-572): ascending/descending — tapping the ACTIVE sort mode in
-    // the sort menu flips this; the pill label + trailing arrow show it.
-    var sortAscending by remember { mutableStateOf(true) }
     var showNsfw by remember { mutableStateOf(true) }
 
     // Session 2: ONE filters bar drives BOTH tabs. The aniyomi NSFW state stays
@@ -217,39 +212,47 @@ fun ExtensionsSettingsScreen(
     var csShowNsfw by remember { mutableStateOf(appPreferences.cloudstreamShowNsfw) }
 
     var langFilter by remember { mutableStateOf<String?>(null) }
-    var reorderMode by remember { mutableStateOf(false) }
-    var reorderedInstalled by remember { mutableStateOf<List<AnimeExtension.Installed>>(emptyList()) }
     // ROUND 92 (D-638): hoisted above the selection block (it ticks on
     // long-press) — the old declaration lived further down with the CS toast.
     val context = LocalContext.current
 
-    // ── ROUND 92 (D-638): THE MULTI-SELECT MODE — "if I long press on any of
-    // the extensions, then it should show me the selection menu where I can
-    // select the extensions and click the delete button or select the other
-    // options which might be available, like untrust or trust, or maybe the
-    // install action, depending on what I have selected." Long-press enters
-    // the mode and pre-selects the pressed row; taps toggle rows; the bottom
-    // bar (rendered below the list) shows ONLY the actions the current
-    // selection supports, and each action applies only to the rows it fits
-    // (a mixed installed+available selection offers BOTH Install and Delete;
-    // Delete touches just the installed ones). Selection is tab-local and
-    // resets when the last row deselects. ──
+    // ── ROUND 93 (D-644): SORTING IS GONE — the user's order: "remove it and
+    // just handle it in alphabetical order everywhere where needed". Every
+    // section below sorts by name (case-insensitive); the sort menu AND the
+    // manual reorder mode (the header's SwapVert pill) are both retired —
+    // "alphabetical everywhere" cannot coexist with a manual order. ──
+
+    // ── ROUND 92 (D-638) + ROUND 93 (D-641): THE MULTI-SELECT MODE —
+    // long-press any row → selection mode; taps toggle rows; a SECOND
+    // long-press RANGE-selects everything in between; long-press + DRAG
+    // paints the selection along the finger with auto-scroll at the edges
+    // (the shared rememberDragSelectionModifier drives both). The bottom
+    // bar shows ONLY the actions the current selection supports, each
+    // applying only to the rows it fits. ──
     var selectionMode by remember { mutableStateOf(false) }
     var selectedPkgs by remember { mutableStateOf(setOf<String>()) }
+    // ROUND 93 (D-641): the range anchor — the row the last long-press/drag
+    // started on. A second long-press selects anchor…row inclusive.
+    var selectionAnchor by remember { mutableStateOf<String?>(null) }
     fun toggleSelected(pkg: String) {
         selectedPkgs = if (pkg in selectedPkgs) selectedPkgs - pkg else selectedPkgs + pkg
         if (selectedPkgs.isEmpty()) selectionMode = false
     }
     fun enterSelection(pkg: String) {
-        reorderMode = false
         selectedPkgs = setOf(pkg)
+        selectionAnchor = pkg
         selectionMode = true
         HapticHelper.lightTick(context)
     }
     fun exitSelection() {
         selectionMode = false
         selectedPkgs = emptySet()
+        selectionAnchor = null
     }
+
+    // ROUND 93 (D-641): dragSelectStart + selectRange are declared BELOW the
+    // section lists (they close over the flattened key order) — see the
+    // selection block after the filtering pass.
 
     // ROUND 92 (D-638): THE CHAINED SYSTEM-UNINSTALL BATCH — "it will show me
     // the pop-up, I will click delete or OK, and it will delete, and
@@ -282,7 +285,10 @@ fun ExtensionsSettingsScreen(
         fireUninstallerFor(pkgs.first())
     }
     // The advance watcher: a head that left the flows = a confirmed removal
-    // → pop it and fire the next head.
+    // → pop it and fire the next head. (ROUND 93, D-643: the PRIMARY advance
+    // signal is now the removal BROADCAST in the ghost receiver below — it
+    // lands before this flows-refresh pass; this watcher stays as the
+    // belt-and-suspenders for removals that happen outside the batch.)
     LaunchedEffect(uninstallQueue, installedExtensions, untrustedExtensions, erroredExtensions) {
         val head = uninstallQueue.firstOrNull() ?: return@LaunchedEffect
         val gone = installedExtensions.none { it.pkgName == head } &&
@@ -319,10 +325,8 @@ fun ExtensionsSettingsScreen(
         }
     }
 
-    // Keep reorderedInstalled in sync with installedExtensions (when not reordering).
-    LaunchedEffect(installedExtensions) {
-        if (!reorderMode) reorderedInstalled = installedExtensions
-    }
+    // Keep the installed list fresh (the reorder-mode shadow list is GONE —
+    // D-644 removed manual reordering with the sort menu).
 
     // ROUND 92 (D-638): switching tabs drops the selection — each tab's batch
     // actions belong to that tab's rows (the CS tab carries its own state).
@@ -364,23 +368,22 @@ fun ExtensionsSettingsScreen(
             .sorted()
     }
 
-    // ── Filtering + sorting ──
-    val filteredInstalled = reorderedInstalled.filter { ext ->
+    // ── Filtering (ROUND 93, D-644: ALPHABETICAL EVERYWHERE — the sort menu
+    // and the manual reorder are retired; every section is name-ascending) ──
+    val filteredInstalled = installedExtensions.filter { ext ->
         matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
             (langFilter == null || ext.lang == langFilter)
-    }.let { if (reorderMode) it else sortExtensions(it, sortMode, sortAscending) }
-        // Phase 2d: disabled extensions sorted to the bottom (enabled first).
-        .let { sorted -> if (reorderMode) sorted else sorted.sortedBy { !it.isEnabled } }
+    }.sortedBy { it.name.lowercase() }
 
     val filteredErrored = erroredExtensions.filter { ext ->
         matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
             (langFilter == null || ext.lang == langFilter)
-    }.let { sortExtensions(it, sortMode, sortAscending) }
+    }.sortedBy { it.name.lowercase() }
 
     val filteredUntrusted = untrustedExtensions.filter { ext ->
         matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
             (langFilter == null || ext.lang == langFilter)
-    }.let { sortExtensions(it, sortMode, sortAscending) }
+    }.sortedBy { it.name.lowercase() }
 
     val filteredAvailable = availableExtensions
         .filter { it.pkgName !in installedPkgs && it.pkgName !in untrustedPkgs }
@@ -388,7 +391,7 @@ fun ExtensionsSettingsScreen(
             matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
                 (langFilter == null || ext.lang == langFilter)
         }
-        .let { sortExtensions(it, sortMode, sortAscending) }
+        .sortedBy { it.name.lowercase() }
 
     // ══ ROUND 85: the CONFIRMED-REMOVAL ghost rows ══
     // The device report: the delete animation must fire when the user clicks
@@ -434,6 +437,17 @@ fun ExtensionsSettingsScreen(
                 untrustedNow.firstOrNull { it.pkgName == pkg }?.let { ext ->
                     untrustedGhosts = untrustedGhosts + (pkg to (untrustedNow.indexOf(ext) to ext))
                 }
+                // ROUND 93 (D-643): the uninstall batch now advances on THE
+                // BROADCAST ITSELF — the system's removal confirmation —
+                // instead of waiting for the manager's flows to re-scan
+                // (~a second of PackageManager queries per removal). The next
+                // prompt fires the instant the previous uninstall lands, so a
+                // chained batch reads as one continuous motion. (The flows
+                // watcher above remains as the fallback path.)
+                if (uninstallQueue.firstOrNull() == pkg) {
+                    uninstallQueue = uninstallQueue.drop(1)
+                    uninstallQueue.firstOrNull()?.let { fireUninstallerFor(it) }
+                }
             }
         }
         ContextCompat.registerReceiver(
@@ -453,6 +467,109 @@ fun ExtensionsSettingsScreen(
     val ghostedErrored = mergeGhosts(filteredErrored, erroredGhosts) { it.pkgName }
     val ghostedUntrusted = mergeGhosts(filteredUntrusted, untrustedGhosts) { it.pkgName }
 
+    // ── ROUND 93 (D-641): the flattened SELECTABLE key order (the sections in
+    // their exact visual order) + the range/drag handlers that close over it ──
+    val orderedSelectableKeys = remember(
+        ghostedInstalled, ghostedErrored, ghostedUntrusted, filteredAvailable,
+    ) {
+        ghostedInstalled.map { it.pkgName } +
+            ghostedErrored.map { it.pkgName } +
+            ghostedUntrusted.map { it.pkgName } +
+            filteredAvailable.map { it.pkgName }
+    }
+    val selectableKeySet = remember(orderedSelectableKeys) { orderedSelectableKeys.toSet() }
+    fun selectRange(fromKey: String, toKey: String) {
+        val keys = orderedSelectableKeys
+        val from = keys.indexOf(fromKey)
+        val to = keys.indexOf(toKey)
+        if (from < 0 || to < 0) return
+        val range = if (from <= to) keys.subList(from, to + 1) else keys.subList(to, from + 1)
+        selectedPkgs = selectedPkgs + range.toSet()
+        if (selectedPkgs.isNotEmpty()) selectionMode = true
+    }
+    fun dragSelectStart(pkg: String) {
+        if (!selectionMode) {
+            enterSelection(pkg)
+            return
+        }
+        val anchor = selectionAnchor
+        if (anchor != null && anchor != pkg) {
+            selectRange(anchor, pkg)
+        } else if (anchor == null) {
+            selectedPkgs = selectedPkgs + pkg
+        }
+        selectionAnchor = pkg
+        HapticHelper.lightTick(context)
+    }
+    val dragSelectionModifier = rememberDragSelectionModifier(
+        listState = listState,
+        selectableKeys = selectableKeySet,
+        onLongPressSelect = { pkg -> dragSelectStart(pkg) },
+        onRangeSelect = { from, to -> selectRange(from, to) },
+    )
+
+    // ── ROUND 93 (D-642): THE BATCH INSTALL — collects the manager's sequential
+    // batch (parallel downloads → ONE system prompt at a time, each awaited).
+    // The job is cancellable from the bar's X; leaving the page cancels it too.
+    var batchInstallJob by remember { mutableStateOf<Job?>(null) }
+    var batchInstallProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) } // done → total
+    fun startBatchInstall(targets: List<AnimeExtension.Available>) {
+        if (targets.isEmpty()) return
+        batchInstallProgress = 0 to targets.size
+        batchInstallJob = scope.launch {
+            extensionManager.installExtensionsBatch(targets).collect { event ->
+                when (event) {
+                    is ExtensionManager.BatchInstallEvent.ItemDone -> {
+                        batchInstallProgress = (batchInstallProgress?.first?.plus(1) ?: 1) to
+                            (batchInstallProgress?.second ?: targets.size)
+                        if (event.step is InstallStep.Error) {
+                            Toast.makeText(
+                                context,
+                                "Couldn't install ${event.name}",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                    is ExtensionManager.BatchInstallEvent.Finished -> {
+                        if (event.installed > 0 && event.failed.isEmpty() && !event.aborted) {
+                            Toast.makeText(
+                                context,
+                                "Installed ${event.installed} extension${if (event.installed == 1) "" else "s"}",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        } else if (event.failed.isNotEmpty()) {
+                            Toast.makeText(
+                                context,
+                                "${event.installed} installed · ${event.failed.size} failed",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                }
+            }
+            batchInstallProgress = null
+            batchInstallJob = null
+        }
+    }
+    val batchInstallActive = batchInstallProgress != null
+
+    // ── ROUND 93 (D-643): THE PAGE-EXIT HOOK — "if I go back from the
+    // extensions page, then any extensions which were marked as downloading
+    // or installing, they will be canceled": the batch job dies with this
+    // screen's scope anyway, but the queue is explicitly dropped, the CS
+    // side's in-flight installs are cancelled, every still-visible
+    // downloading/installing row resets, and downloaded-but-uninstalled temp
+    // files are swept. No more closing the whole app to clear the page. ──
+    DisposableEffect(Unit) {
+        onDispose {
+            batchInstallJob?.cancel()
+            batchInstallJob = null
+            uninstallQueue = emptyList()
+            extensionManager.cancelInstallWork()
+            csManager.cancelActiveInstalls()
+        }
+    }
+
     val isCheckingUpdates = updateCheckState == ExtensionManager.UpdateCheckState.Checking
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -464,51 +581,28 @@ fun ExtensionsSettingsScreen(
                 // the old trailing back HeaderIconButton retired.
                 onBack = onBack,
                 actions = {
-                    if (reorderMode) {
-                        HeaderIconButton(
-                            icon = Icons.Filled.Check,
-                            contentDescription = "Done reordering",
-                            onClick = {
-                                reorderMode = false
-                                // TODO: persist priority order (Phase 5d).
-                            },
-                        )
-                    } else {
-                        // ROUND 92 (D-638): THE REORDER PILL — long-press now
-                        // enters MULTI-SELECT (the v1.1.48 device spec), so
-                        // reorder mode gets its own header door (aniyomi tab
-                        // only — the trusted-sources list is the reorderable
-                        // one).
-                        if (!showCloudstreamTab) {
-                            HeaderPillButton(
-                                icon = Icons.Filled.SwapVert,
-                                contentDescription = "Reorder trusted sources",
-                                onClick = { reorderMode = true },
-                            )
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        // ROUND 85 (the device report: "they should not be
-                        // showing text. There should only be the icons"):
-                        // icon-only stadium pills — Science · Filters · Settings.
-                        HeaderPillButton(
-                            icon = Icons.Filled.Science,
-                            contentDescription = "Extension testing",
-                            onClick = onOpenExtensionTesting,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        HeaderPillButton(
-                            icon = Icons.Filled.FilterList,
-                            contentDescription = "Filters",
-                            active = showFilters,
-                            onClick = { showFilters = !showFilters },
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        HeaderPillButton(
-                            icon = Icons.Filled.Settings,
-                            contentDescription = "Settings",
-                            onClick = onOpenRepoSettings,
-                        )
-                    }
+                    // ROUND 93 (D-644): the reorder pill is GONE with the sort
+                    // menu — the sections are alphabetical now, and the
+                    // long-press belongs to multi-select. Icon-only stadium
+                    // pills remain: Science · Filters · Settings.
+                    HeaderPillButton(
+                        icon = Icons.Filled.Science,
+                        contentDescription = "Extension testing",
+                        onClick = onOpenExtensionTesting,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    HeaderPillButton(
+                        icon = Icons.Filled.FilterList,
+                        contentDescription = "Filters",
+                        active = showFilters,
+                        onClick = { showFilters = !showFilters },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    HeaderPillButton(
+                        icon = Icons.Filled.Settings,
+                        contentDescription = "Settings",
+                        onClick = onOpenRepoSettings,
+                    )
                 },
             )
 
@@ -529,10 +623,6 @@ fun ExtensionsSettingsScreen(
                 ExtensionFiltersBar(
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
-                    sortMode = sortMode,
-                    onSortModeChange = { sortMode = it },
-                    sortAscending = sortAscending,
-                    onSortAscendingChange = { sortAscending = it },
                     // Session 2: the bar controls whichever tab is ACTIVE — the
                     // aniyomi session-local toggle or the persisted CS gate (G4).
                     showNsfw = if (showCloudstreamTab) csShowNsfw else showNsfw,
@@ -554,13 +644,12 @@ fun ExtensionsSettingsScreen(
                 // ── CloudStream tab content (doc 23 §5.4) ──
                 // Session 2: rendered with the SAME section chrome + row anatomy
                 // as the aniyomi tab (ExtensionListChrome.kt) and driven by the
-                // SAME filters bar — search, sort, language and the NSFW gate
-                // all flow in from the shared controls above.
+                // SAME filters bar — search, language and the NSFW gate all flow
+                // in from the shared controls above (ROUND 93: the sort inputs
+                // are gone with the sort menu).
                 CloudstreamExtensionsSection(
                     csManager = csManager,
                     searchQuery = searchQuery,
-                    sortMode = sortMode,
-                    sortAscending = sortAscending,
                     langFilter = langFilter,
                     showNsfw = csShowNsfw,
                     onOpenPluginDetail = onOpenCloudstreamPluginDetail,
@@ -569,13 +658,17 @@ fun ExtensionsSettingsScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // ROUND 93 (D-641): the drag-selection handler — this
+                        // list's long-press belongs to it (rows keep plain taps).
+                        .then(dragSelectionModifier),
                     // ROUND 92 (D-638): extra bottom clearance while the
-                    // selection bar (or a running uninstall batch) rides over
-                    // the list's foot.
+                    // selection bar (or a running batch) rides over the list's
+                    // foot.
                     contentPadding = PaddingValues(
                         start = 12.dp, end = 12.dp, top = 4.dp,
-                        bottom = if (selectionMode || uninstallQueue.isNotEmpty()) 190.dp else 110.dp,
+                        bottom = if (selectionMode || uninstallQueue.isNotEmpty() || batchInstallActive) 210.dp else 110.dp,
                     ),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -598,36 +691,15 @@ fun ExtensionsSettingsScreen(
                         key = { "installed-${it.pkgName}" },
                         contentType = { "installedRow" },
                     ) { ext ->
-                        val index = ghostedInstalled.indexOf(ext)
                         // D-580 (round 84): animateItem gives every row the
                         // add/remove/placement motion — after a delete's exit
                         // choreography the rows below GLIDE up (Downloads parity).
                         InstalledExtensionRow(
                                         modifier = Modifier.animateItem(),
                                         extension = ext,
-                                        isReordering = reorderMode,
-                                        canMoveUp = reorderMode && index > 0,
-                                        canMoveDown = reorderMode && index < ghostedInstalled.lastIndex,
-                                        onMoveUp = {
-                                            reorderedInstalled = reorderedInstalled.toMutableList().apply {
-                                                val i = indexOf(ext)
-                                                if (i > 0) {
-                                                    val tmp = this[i - 1]; this[i - 1] = this[i]; this[i] = tmp
-                                                }
-                                            }
-                                        },
-                                        onMoveDown = {
-                                            reorderedInstalled = reorderedInstalled.toMutableList().apply {
-                                                val i = indexOf(ext)
-                                                if (i < lastIndex) {
-                                                    val tmp = this[i + 1]; this[i + 1] = this[i]; this[i] = tmp
-                                                }
-                                            }
-                                        },
-                                        // ROUND 92 (D-638): long-press enters
-                                        // MULTI-SELECT now (reorder moved to the
-                                        // header's SwapVert pill).
-                                        onLongPress = { enterSelection(ext.pkgName) },
+                                        // ROUND 93 (D-641): long-press lives on the
+                                        // list's drag handler now — the row is
+                                        // tap-only (toggle while selecting).
                                         selectionMode = selectionMode,
                                         selected = ext.pkgName in selectedPkgs,
                                         onToggleSelected = { toggleSelected(ext.pkgName) },
@@ -674,7 +746,6 @@ fun ExtensionsSettingsScreen(
                                 selectionMode = selectionMode,
                                 selected = ext.pkgName in selectedPkgs,
                                 onToggleSelected = { toggleSelected(ext.pkgName) },
-                                onLongPress = { enterSelection(ext.pkgName) },
                                 onRetry = { extensionManager.retryExtension(ext) },
                                 onUntrust = { extensionManager.untrustExtension(ext) },
                                 onDelete = { extensionManager.uninstallExtension(ext) },
@@ -700,7 +771,6 @@ fun ExtensionsSettingsScreen(
                                 selectionMode = selectionMode,
                                 selected = ext.pkgName in selectedPkgs,
                                 onToggleSelected = { toggleSelected(ext.pkgName) },
-                                onLongPress = { enterSelection(ext.pkgName) },
                                 onTrust = { extensionManager.trustExtension(ext) },
                                 onDelete = { extensionManager.uninstallExtension(ext) },
                                 forcedExit = ext.pkgName in untrustedGhosts,
@@ -739,7 +809,6 @@ fun ExtensionsSettingsScreen(
                                 selectionMode = selectionMode,
                                 selected = ext.pkgName in selectedPkgs,
                                 onToggleSelected = { toggleSelected(ext.pkgName) },
-                                onLongPress = { enterSelection(ext.pkgName) },
                                 onInstall = {
                                     scope.launch {
                                         extensionManager.installExtension(ext).collectLatest { }
@@ -760,35 +829,43 @@ fun ExtensionsSettingsScreen(
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
 
-                // ── ROUND 92 (D-638): THE BOTTOM ACTION BAR — visible while
-                // selecting OR while a chained uninstall batch runs (its label
-                // then carries the progress and its X stops the batch). The
-                // actions are computed from the SELECTION's per-section
-                // subsets: Install for the selected AVAILABLE rows, Trust for
-                // the selected UNTRUSTED ones, Untrust for the selected
-                // INSTALLED/ERRORED ones, Delete for every selected row that
-                // is actually on the device — "the options will be only shown
-                // depending on the available actions for them", and each
-                // action applies only to its own subset. ──
+                // ── ROUND 92 (D-638) + ROUND 93 (D-640/D-642): THE BOTTOM
+                // ACTION BAR — visible while selecting OR while a chained
+                // uninstall batch / a sequential install batch runs (its
+                // label then carries the progress and its X stops the
+                // batch). The actions are computed from the SELECTION's
+                // per-section subsets, each WEIGHT-FILLED so all of them fit
+                // on one row. ──
                 val selInstalled = ghostedInstalled.filter { it.pkgName in selectedPkgs }
                 val selErrored = ghostedErrored.filter { it.pkgName in selectedPkgs }
                 val selUntrusted = ghostedUntrusted.filter { it.pkgName in selectedPkgs }
                 val selAvailable = filteredAvailable.filter { it.pkgName in selectedPkgs }
                 val batchRunning = uninstallQueue.isNotEmpty()
+                val installRunning = batchInstallActive
                 ExtensionSelectionBar(
-                    visible = selectionMode || batchRunning,
+                    visible = selectionMode || batchRunning || installRunning,
                     label = when {
                         batchRunning -> "Uninstalling ${uninstallBatchTotal - uninstallQueue.size}/$uninstallBatchTotal…"
+                        installRunning -> {
+                            val (done, total) = batchInstallProgress ?: 0 to 0
+                            "Installing $done/$total…"
+                        }
                         else -> "${selectedPkgs.size} selected"
                     },
                     onClose = {
                         // X = leave selection AND stop any pending batch.
                         exitSelection()
                         uninstallQueue = emptyList()
+                        batchInstallJob?.cancel()
+                    },
+                    onSelectAll = if (!batchRunning && !installRunning && selectionMode) {
+                        { selectedPkgs = selectableKeySet }
+                    } else {
+                        null
                     },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 ) {
-                    if (!batchRunning && selectionMode) {
+                    if (!batchRunning && !installRunning && selectionMode) {
                         if (selAvailable.isNotEmpty()) {
                             SelectionBarAction(
                                 icon = Icons.Filled.Download,
@@ -796,15 +873,13 @@ fun ExtensionsSettingsScreen(
                                 onClick = {
                                     val targets = selAvailable.toList()
                                     exitSelection()
-                                    // "Performed one after the other, but
-                                    // with proper care" — each install AWAYS
-                                    // completion before the next starts.
-                                    scope.launch {
-                                        for (ext in targets) {
-                                            extensionManager.installExtension(ext).collectLatest { }
-                                        }
-                                    }
+                                    // ROUND 93 (D-642): the manager's batch —
+                                    // downloads may run altogether, but each
+                                    // system prompt is dispatched and AWAITED
+                                    // before the next one fires.
+                                    startBatchInstall(targets)
                                 },
+                                modifier = Modifier.weight(1f),
                             )
                         }
                         if (selUntrusted.isNotEmpty()) {
@@ -816,6 +891,7 @@ fun ExtensionsSettingsScreen(
                                     exitSelection()
                                     targets.forEach { extensionManager.trustExtension(it) }
                                 },
+                                modifier = Modifier.weight(1f),
                             )
                         }
                         if (selInstalled.isNotEmpty() || selErrored.isNotEmpty()) {
@@ -827,6 +903,7 @@ fun ExtensionsSettingsScreen(
                                     exitSelection()
                                     targets.forEach { extensionManager.untrustExtension(it) }
                                 },
+                                modifier = Modifier.weight(1f),
                             )
                         }
                         if (selInstalled.isNotEmpty() || selErrored.isNotEmpty() || selUntrusted.isNotEmpty()) {
@@ -840,8 +917,20 @@ fun ExtensionsSettingsScreen(
                                     exitSelection()
                                     startUninstallBatch(pkgs)
                                 },
+                                modifier = Modifier.weight(1f),
                             )
                         }
+                    } else if (installRunning) {
+                        // While the install batch runs, the action row carries
+                        // the honest progress note (the X above stops it).
+                        Text(
+                            text = "One prompt at a time — answering each installs the next",
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }
@@ -924,21 +1013,16 @@ private fun SourceTabChip(
 //    field + clear), replacing the pills row while it is open.
 //  • The language menu is a proper capped, scrollable menu (was: an uncapped
 //    dropdown that covered the whole screen edge to edge).
-//  • The sort menu gains ascending/descending: tapping the ACTIVE mode flips
-//    its direction (the trailing arrow shows ↑/↓), switching modes keeps the
-//    current direction. The pill label shows "Sort: Name ↑".
 //  • NSFW is its own toggle pill (was buried at the bottom of the sort menu).
-//  Every control is a pill (icon + label) with a visible active state.
+//  ROUND 93 (D-644): the SORT pill + its menu are REMOVED entirely (the
+//  user's order — alphabetical everywhere); every control left is a pill
+//  (icon + label) with a visible active state.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun ExtensionFiltersBar(
     query: String,
     onQueryChange: (String) -> Unit,
-    sortMode: ExtensionSortMode,
-    onSortModeChange: (ExtensionSortMode) -> Unit,
-    sortAscending: Boolean,
-    onSortAscendingChange: (Boolean) -> Unit,
     showNsfw: Boolean,
     onToggleNsfw: () -> Unit,
     languages: List<String>,
@@ -947,7 +1031,6 @@ private fun ExtensionFiltersBar(
 ) {
     var searchMode by remember { mutableStateOf(false) }
     var showLangMenu by remember { mutableStateOf(false) }
-    var showSortMenu by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
 
     AnimatedContent(
@@ -1039,64 +1122,8 @@ private fun ExtensionFiltersBar(
                         }
                     }
 
-                    // Sort pill — tapping the ACTIVE mode flips ↑/↓ (D-572);
-                    // Round 84 (D-581): button-feel option cards, same language
-                    // as the language menu.
-                    Box {
-                        FilterPill(
-                            icon = Icons.Filled.Sort,
-                            label = "Sort: ${sortMode.shortLabel} ${if (sortAscending) "\u2191" else "\u2193"}",
-                            active = true,
-                            onClick = { showSortMenu = true },
-                        )
-                        DropdownMenu(
-                            expanded = showSortMenu,
-                            onDismissRequest = { showSortMenu = false },
-                            shape = RoundedCornerShape(16.dp),
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            tonalElevation = 3.dp,
-                        ) {
-                            Text(
-                                text = "Sort by — ${if (sortAscending) "ascending \u2191" else "descending \u2193"}",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
-                            )
-                            Column(modifier = Modifier.padding(horizontal = 8.dp)) {
-                                ExtensionSortMode.entries.forEach { mode ->
-                                    val isActive = sortMode == mode
-                                    MenuOptionButton(
-                                        label = mode.label,
-                                        active = isActive,
-                                        trailing = if (isActive) {
-                                            {
-                                                Icon(
-                                                    imageVector = if (sortAscending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
-                                                    contentDescription = if (sortAscending) "Ascending — tap to flip" else "Descending — tap to flip",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(18.dp),
-                                                )
-                                            }
-                                        } else null,
-                                        onClick = {
-                                            if (isActive) {
-                                                // Already active → flip the direction.
-                                                onSortAscendingChange(!sortAscending)
-                                            } else {
-                                                onSortModeChange(mode)
-                                            }
-                                            showSortMenu = false
-                                        },
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    // NSFW toggle pill (moved OUT of the sort menu — D-572).
+                    // NSFW toggle pill (moved OUT of the sort menu — D-572; the
+                    // sort pill itself is gone with D-644).
                     FilterPill(
                         icon = if (showNsfw) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
                         label = if (showNsfw) "NSFW on" else "NSFW off",
@@ -1410,16 +1437,11 @@ private fun HeaderPillButton(
 private fun InstalledExtensionRow(
     modifier: Modifier = Modifier,
     extension: AnimeExtension.Installed,
-    isReordering: Boolean,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
-    onLongPress: () -> Unit,
     // ROUND 92 (D-638): the multi-select contract — in selection mode the
-    // row's tap toggles its selection (long-press entered the mode), the
-    // leading check bubble appears before the icon, the action icons hide,
-    // and the surface wears the selected tint + ring.
+    // row's tap toggles its selection, the leading check bubble appears
+    // before the icon, the action icons hide, and the surface wears the
+    // selected tint + ring. ROUND 93 (D-641): the long-press moved to the
+    // LIST's drag handler — the row is tap-only now.
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
@@ -1473,41 +1495,22 @@ private fun InstalledExtensionRow(
             .deleteExitLayer(deleteExit)
             .fillMaxWidth()
             .graphicsLayer { alpha = if (extension.isEnabled) 1f else 0.45f }
-            .combinedClickable(
+            // ROUND 93 (D-641): plain clickable — the list-level drag handler
+            // owns the long-press (selection entry / range / drag-paint).
+            .clickable(
                 onClick = if (selectionMode) onToggleSelected else onClickExtension,
-                onLongClick = onLongPress,
             ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (isReordering) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    ActionIconButton(
-                        icon = Icons.Filled.ArrowUpward,
-                        contentDescription = "Move up",
-                        onClick = onMoveUp,
-                        tint = if (canMoveUp) MaterialTheme.colorScheme.onSurfaceVariant else Color.Transparent,
-                        enabled = canMoveUp,
-                    )
-                    ActionIconButton(
-                        icon = Icons.Filled.ArrowDownward,
-                        contentDescription = "Move down",
-                        onClick = onMoveDown,
-                        tint = if (canMoveDown) MaterialTheme.colorScheme.onSurfaceVariant else Color.Transparent,
-                        enabled = canMoveDown,
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-            } else {
-                if (selectionMode) {
-                    SelectionCheckBubble(selected = selected)
-                    Spacer(Modifier.width(9.dp))
-                }
-                ExtensionIcon(extension.icon, extension.name)
-                Spacer(Modifier.width(12.dp))
+            if (selectionMode) {
+                SelectionCheckBubble(selected = selected)
+                Spacer(Modifier.width(9.dp))
             }
+            ExtensionIcon(extension.icon, extension.name)
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = extension.name,
@@ -1531,7 +1534,7 @@ private fun InstalledExtensionRow(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            if (!isReordering && !selectionMode) {
+            if (!selectionMode) {
                 // Phase 2c: enable/disable toggle removed from list — moved to detail page.
                 // D-301/D-309: update control — a filled "Update" pill (was a bare
                 // Refresh icon indistinguishable from Retry) that transforms into a
@@ -1566,11 +1569,11 @@ private fun InstalledExtensionRow(
 private fun UntrustedExtensionRow(
     modifier: Modifier = Modifier,
     extension: AnimeExtension.Untrusted,
-    // ROUND 92 (D-638): the multi-select contract (see InstalledExtensionRow).
+    // ROUND 92 (D-638): the multi-select contract (see InstalledExtensionRow;
+    // ROUND 93, D-641 — the long-press lives on the list's drag handler).
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
-    onLongPress: () -> Unit = {},
     onTrust: () -> Unit,
     onDelete: () -> Unit,
     forcedExit: Boolean = false,
@@ -1611,15 +1614,14 @@ private fun UntrustedExtensionRow(
         modifier = modifier
             .deleteExitLayer(deleteExit)
             .fillMaxWidth()
-            // ROUND 92 (D-638): combinedClickable for the long-press →
-            // selection entry; no ripple (the check bubble + tint is the
+            // ROUND 93 (D-641): plain clickable (the list's drag handler owns
+            // the long-press); no ripple (the check bubble + tint is the
             // selection feedback; outside selection the row stays a no-op
             // tap, its original behavior).
-            .combinedClickable(
+            .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = rowClick,
-                onLongClick = onLongPress,
             ),
     ) {
         Row(
@@ -1677,11 +1679,11 @@ private fun UntrustedExtensionRow(
 private fun ErroredExtensionRow(
     modifier: Modifier = Modifier,
     extension: AnimeExtension.Errored,
-    // ROUND 92 (D-638): the multi-select contract (see InstalledExtensionRow).
+    // ROUND 92 (D-638): the multi-select contract (see InstalledExtensionRow;
+    // ROUND 93, D-641 — the long-press lives on the list's drag handler).
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
-    onLongPress: () -> Unit = {},
     onRetry: () -> Unit,
     onUntrust: () -> Unit,
     onDelete: () -> Unit,
@@ -1720,13 +1722,12 @@ private fun ErroredExtensionRow(
         modifier = modifier
             .deleteExitLayer(deleteExit)
             .fillMaxWidth()
-            // ROUND 92 (D-638): long-press → selection entry (no ripple; see
-            // UntrustedExtensionRow).
-            .combinedClickable(
+            // ROUND 93 (D-641): plain clickable (the list's drag handler owns
+            // the long-press; no ripple — see UntrustedExtensionRow).
+            .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = rowClick,
-                onLongClick = onLongPress,
             ),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
@@ -1805,12 +1806,12 @@ private fun AvailableExtensionRow(
     extension: AnimeExtension.Available,
     installStep: InstallStep?,
     // ROUND 92 (D-638): the multi-select contract (see InstalledExtensionRow)
-    // — long-press → selection; taps toggle while selecting; the install
-    // control hides and the bottom bar's Install action takes over in batch.
+    // — ROUND 93 (D-641): the long-press lives on the list's drag handler;
+    // taps toggle while selecting; the install control hides and the bottom
+    // bar's Install action takes over in batch.
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
-    onLongPress: () -> Unit = {},
     onInstall: () -> Unit,
 ) {
     // ROUND 92 (the CI fix): the explicitly-typed local — a bare `else {}`
@@ -1830,11 +1831,10 @@ private fun AvailableExtensionRow(
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .fillMaxWidth()
-            .combinedClickable(
+            .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = rowClick,
-                onLongClick = onLongPress,
             ),
     ) {
         Row(
@@ -1889,31 +1889,8 @@ private fun AvailableExtensionRow(
 }
 
 
-// ── Screen-header circular icon button (screen-local; rows use the shared
-//    ActionIconButton from ExtensionListChrome.kt) ──
-
-@Composable
-private fun HeaderIconButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
-    }
-}
+// ── Screen-header circular icon button (retired with the reorder mode in
+//    ROUND 93, D-644 — removed: no current caller) ──
 
 /**
  * Round 82 (D-576): the EXTENSION TESTING entry banner — REMOVED in round 83

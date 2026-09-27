@@ -23,6 +23,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -31,6 +33,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -58,6 +61,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -68,7 +72,6 @@ import coil3.compose.SubcomposeAsyncImage
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.providerapi.InstallStep
-import com.confused.anikuta.data.extension.model.AnimeExtension
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -560,35 +563,10 @@ internal fun ExtensionIconPlaceholder(name: String, size: Dp = 40.dp) {
     }
 }
 
-// ── Filtering + sorting helpers (shared by both tabs) ───────────────────────
+// ── Filtering helpers (shared by both tabs) ───────────────────────────────
 
 internal fun matchesSearch(name: String, query: String): Boolean =
     query.isBlank() || name.contains(query, ignoreCase = true)
-
-internal enum class ExtensionSortMode(val label: String, val shortLabel: String) {
-    NAME("Sort by name", "Name"),
-    LANGUAGE("Sort by language", "Language"),
-    NSFW("NSFW first", "NSFW"),
-}
-
-/**
- * Round 82 (D-572): [ascending] flips the comparator — the sort menu toggles
- * it by tapping the active mode again (ascending ↑ / descending ↓). NSFW's
- * "ascending" means NSFW-first (the mode's declared order); descending
- * reverses it.
- */
-internal fun <T : AnimeExtension> sortExtensions(list: List<T>, mode: ExtensionSortMode, ascending: Boolean = true): List<T> =
-    when (mode) {
-        ExtensionSortMode.NAME ->
-            if (ascending) list.sortedBy { it.name.lowercase() }
-            else list.sortedByDescending { it.name.lowercase() }
-        ExtensionSortMode.LANGUAGE ->
-            if (ascending) list.sortedBy { (it.lang ?: "zz").lowercase() }
-            else list.sortedByDescending { (it.lang ?: "").lowercase() }
-        ExtensionSortMode.NSFW ->
-            if (ascending) list.sortedByDescending { it.isNsfw }
-            else list.sortedBy { it.isNsfw }
-    }
 
 // ════════════════════════════════════════════════════════════════════════════
 //  D-580 (round 84): the shared DELETE EXIT CHOREOGRAPHY — the exact motion
@@ -725,8 +703,14 @@ internal fun SelectionCheckBubble(
 }
 
 /**
- * One action pill inside the selection bar — icon + label, primary-tinted by
- * default, error-tinted when [destructive] (Delete).
+ * One action pill inside the selection bar's ACTION ROW — icon + label,
+ * primary-tinted by default, error-tinted when [destructive] (Delete).
+ *
+ * ROUND 93 (D-640): compacted (11sp label, tighter padding) and given a
+ * [modifier] slot so the bar's action row can WEIGHT-FILL each pill — all
+ * four actions (Install / Trust / Untrust / Delete) fit side by side on one
+ * row even on narrow devices, and a two-action selection stretches them
+ * evenly instead of crowding the left edge.
  */
 @Composable
 internal fun SelectionBarAction(
@@ -734,6 +718,7 @@ internal fun SelectionBarAction(
     label: String,
     onClick: () -> Unit,
     destructive: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val color = if (destructive) {
         MaterialTheme.colorScheme.error
@@ -744,7 +729,7 @@ internal fun SelectionBarAction(
         color = color.copy(alpha = 0.13f),
         border = BorderStroke(1.dp, color.copy(alpha = 0.40f)),
         shape = RoundedCornerShape(50),
-        modifier = Modifier.clickable(
+        modifier = modifier.clickable(
             interactionSource = remember { MutableInteractionSource() },
             indication = null,
             onClick = onClick,
@@ -752,7 +737,10 @@ internal fun SelectionBarAction(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             Icon(
                 imageVector = icon,
@@ -764,7 +752,7 @@ internal fun SelectionBarAction(
             Text(
                 text = label,
                 fontFamily = RobotoFamily,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = color,
                 maxLines = 1,
@@ -774,18 +762,29 @@ internal fun SelectionBarAction(
 }
 
 /**
- * THE BOTTOM ACTION BAR — the selection-mode chrome, bottom-aligned over the
- * tab's list ("the options for these will be shown at the very bottom").
- * The leading X exits selection mode ([onClose] also cancels any pending
- * batch on the Aniyomi side — the caller decides what "close" means), the
- * [label] line carries the count (or the batch progress), and the [actions]
- * slot carries ONLY the actions available for the current selection.
+ * THE BOTTOM ACTION BAR (round 92, D-638; reworked ROUND 93, D-640 per the
+ * v1.1.49 device report) — now TWO rows so nothing ever clips:
+ *
+ *   ┌───────────────────────────────────────────────┐
+ *   │ ✕  12 selected · 3 to install      [Select all]│  ← the STATUS row
+ *   │ ───────────────────────────────────────────── │  ← hairline
+ *   │ [Install] [Trust] [Untrust] [Delete]           │  ← the ACTION row
+ *   └───────────────────────────────────────────────┘
+ *
+ * • The STATUS row carries the X (exit + stop any pending batch), the
+ *   [label] (the selection count / batch progress — it owns the row's full
+ *   width, so the count can never be cut off by the buttons anymore), and —
+ *   only while actively selecting — the Select-all pill ([onSelectAll]
+ *   null hides it, e.g. while a batch runs).
+ * • The ACTION row holds the [actions] slot; each pill is weight-filled by
+ *   the call sites so every applicable action fits (all four at once).
  */
 @Composable
 internal fun ExtensionSelectionBar(
     visible: Boolean,
     label: String,
     onClose: () -> Unit,
+    onSelectAll: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     // NOTE (the round-92 CI fix): [actions] must be the LAST parameter — the
     // call sites pass it as a TRAILING LAMBDA, and Kotlin only binds a
@@ -811,36 +810,69 @@ internal fun ExtensionSelectionBar(
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 7.dp, end = 10.dp, top = 7.dp, bottom = 7.dp),
+            Column(
+                modifier = Modifier.padding(start = 7.dp, end = 10.dp, top = 7.dp, bottom = 9.dp),
             ) {
+                // ── Row 1: the STATUS line — X + label (full width) + Select all ──
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onClose),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Exit selection",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = label,
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (onSelectAll != null) {
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onSelectAll,
+                            ),
+                        ) {
+                            Text(
+                                text = "Select all",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                // The hairline between the rows.
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onClose),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "Exit selection",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(17.dp),
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = label,
-                    fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
                 )
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.height(8.dp))
+                // ── Row 2: the ACTION row — the weight-filled pills ──
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
@@ -850,4 +882,121 @@ internal fun ExtensionSelectionBar(
             }
         }
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 93 (D-641): THE DRAG-SELECT HANDLER — long-press anywhere in a
+//  section list and DRAG: every row the finger crosses joins the selection,
+//  and the list AUTO-SCROLLS when the finger nears the viewport's edges
+//  ("long press and then scrolling downward or swiping up or down…
+//  everything in between gets selected and it auto scrolls too, just like
+//  how things are usually handled"). The SAME long-press also seeds the RANGE
+//  anchor: a second long-press further down selects everything in between
+//  ("it should select all the ones in between it, just like how it is
+//  handled on most modern UI designs").
+//
+//  HOW IT FITS THE ROWS: this handler lives on the LazyColumn ITSELF and
+//  owns the long-press for the whole tab — the rows keep plain taps
+//  (toggle / open detail) and DROP their own long-press callbacks. While the
+//  finger holds, the parent consumes every move event, so the row under the
+//  finger never also fires a tap when the drag ends.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Builds the drag-selection modifier for one tab's list.
+ *
+ * @param listState the tab's LazyListState (hit-testing + auto-scroll).
+ * @param selectableKeys every row key that CAN be selected (headers and
+ *   section spacers are not members — a drag over them keeps the last
+ *   selectable row).
+ * @param onLongPressSelect the long-press landed on [key]: outside selection
+ *   mode this enters it with the row selected; inside, it RANGE-selects from
+ *   the previous anchor to this row.
+ * @param onRangeSelect the drag crossed onto [toKey] — everything between
+ *   [fromKey] and [toKey] joins the selection.
+ */
+@Composable
+internal fun rememberDragSelectionModifier(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    selectableKeys: Set<String>,
+    onLongPressSelect: (key: String) -> Unit,
+    onRangeSelect: (fromKey: String, toKey: String) -> Unit,
+): Modifier {
+    // The auto-scroll velocity (px per ~16ms tick); 0 = resting.
+    var scrollVelocity by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableFloatStateOf(0f)
+    }
+    androidx.compose.runtime.LaunchedEffect(scrollVelocity) {
+        if (scrollVelocity != 0f) {
+            while (true) {
+                listState.scrollBy(scrollVelocity)
+                delay(16)
+            }
+        }
+    }
+    return Modifier.pointerInput(listState, selectableKeys) {
+        // The long-press anchor — the row the gesture started on.
+        var anchorKey: String? = null
+        val edgePx = 56.dp.toPx()
+        detectDragGesturesAfterLongPress(
+            onDragStart = { position ->
+                val key = keyAtPosition(listState, position.y, selectableKeys)
+                anchorKey = key
+                scrollVelocity = 0f
+                if (key != null) onLongPressSelect(key)
+            },
+            onDrag = { change, _ ->
+                val key = keyAtPosition(listState, change.position.y, selectableKeys)
+                val anchor = anchorKey
+                if (key != null && anchor != null && key != anchor) {
+                    onRangeSelect(anchor, key)
+                }
+                // AUTO-SCROLL: near the viewport's top/bottom edge, glide the
+                // list along so the selection can continue past the fold.
+                val viewportEnd = listState.layoutInfo.viewportEndOffset.toFloat()
+                scrollVelocity = when {
+                    change.position.y < edgePx ->
+                        -AUTO_SCROLL_STEP_PX * (1f - (change.position.y / edgePx).coerceIn(0f, 1f))
+                    change.position.y > viewportEnd - edgePx ->
+                        AUTO_SCROLL_STEP_PX * (
+                            1f - ((viewportEnd - change.position.y) / edgePx).coerceIn(0f, 1f)
+                            )
+                    else -> 0f
+                }
+            },
+            onDragEnd = {
+                anchorKey = null
+                scrollVelocity = 0f
+            },
+            onDragCancel = {
+                anchorKey = null
+                scrollVelocity = 0f
+            },
+        )
+    }
+}
+
+/** The base auto-scroll speed (px per 16ms tick) at the very edge. */
+private const val AUTO_SCROLL_STEP_PX = 14f
+
+/**
+ * Resolves the selectable row key under [y] (the LazyColumn's local
+ * coordinate). Falls back to the LAST selectable row at-or-above the finger
+ * — dragging through a section header keeps the selection anchored to the
+ * row above it instead of dropping the gesture.
+ */
+private fun keyAtPosition(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    y: Float,
+    selectableKeys: Set<String>,
+): String? {
+    val visible = listState.layoutInfo.visibleItemsInfo
+    val hit = visible.firstOrNull { info ->
+        y >= info.offset && y < info.offset + info.size && info.key is String && info.key in selectableKeys
+    }
+    if (hit != null) return hit.key as String
+    val above = visible.lastOrNull { info ->
+        info.offset <= y && info.key is String && info.key in selectableKeys
+    }
+    return above?.key as? String
 }

@@ -182,6 +182,35 @@ class ExtensionTestEngine(
                     " (original: ${detailsResult.message})"
             }
         }
+
+        // ── THE SEARCH FORGIVENESS (ROUND 93, D-646 — the user's rule) ─────
+        // "If the home page loads but the search page does not load, then
+        // that one will be considered as a candidate to move forward, and
+        // the details page will be opened from the home page itself. Because
+        // some extensions might have issues with the search page, but they
+        // do work, so those will be considered as working ones." The chain
+        // ALREADY continued from the home pool (DETAILS/EPISODE_LIST accept
+        // either feeder); this rewrite makes the VERDICT honest too — a
+        // search failure the chain survived is forgiven, so a home-page-
+        // working extension with broken search still reads as healthy when
+        // everything else passed. (A run that failed elsewhere keeps its
+        // failures — only the SEARCH row is rewritten.)
+        val searchResult = results[ExtensionTestKind.SEARCH]
+        if (
+            searchResult?.status == TestStatus.FAILED &&
+            results[ExtensionTestKind.HOME_PAGE]?.status == TestStatus.PASSED
+        ) {
+            val forgiven = searchResult.copy(
+                status = TestStatus.SKIPPED,
+                message = "Forgiven — continued from the home page",
+            )
+            results[ExtensionTestKind.SEARCH] = forgiven
+            onResult(ExtensionTestKind.SEARCH, forgiven)
+            Logger.i(TAG) {
+                "${context.target.name}: SEARCH forgiven — continued from the home page" +
+                    " (original: ${searchResult.message})"
+            }
+        }
         return ChainOutcome(abortedByUser = abortedByUser)
     }
 }

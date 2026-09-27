@@ -7,33 +7,34 @@ import android.net.Uri
 import android.widget.Toast
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.data.extension.model.AnimeExtension
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import com.confused.anikuta.core.providerapi.InstallStep
 
 /**
  * Downloads an extension APK via OkHttp and dispatches it to
  * [ExtensionInstallService] for installation.
  *
- * Ported from the old project. Serializes concurrent installs with a [Mutex]
- * (one install at a time, app-wide).
+ * ROUND 93 (D-642) — THE SPLIT: this class used to expose ONE
+ * `downloadAndInstall` flow that ENDED the moment the installer service was
+ * dispatched. The v1.1.49 device report exposed the flaw: a batch loop over
+ * that flow fired every system prompt back-to-back ("I clicked install and
+ * it was showing the exact same pop-up again and again, even while Android
+ * was already installing") because "dispatched" is not "answered". The
+ * pieces are now separate:
  *
- * D-309: the download STREAMS progress — [InstallStep.Downloading] carries a
- * percent (0..100, or -1 for unknown size) emitted at most every 200ms, so the
- * UI can render a real download animation (was: one opaque Downloading state,
- * no feedback until the OS install prompt appeared).
+ *  • [downloadToTemp] — just the download (parallel-safe; the batch path
+ *    runs several at once, per the user's explicit allowance);
+ *  • [dispatchInstall] — hands ONE downloaded apk to the service (ONE system
+ *    prompt per call; the caller awaits the manager's terminal result
+ *    before dispatching the next);
+ *  • [onInstallSettled] / [sweepAbandonedTempApks] — the page-exit hygiene:
+ *    downloaded-but-never-installed files are deleted, and a file owned by a
+ *    live dispatch is never touched.
  *
- * The [downloadAndInstall] flow only emits up to [InstallStep.Installing] — the
- * terminal [InstallStep.Installed] / [InstallStep.Error] arrives asynchronously
- * via the system PACKAGE_ADDED broadcast → [ExtensionInstallReceiver] →
- * [ExtensionManager] re-scan.
+ * D-309 lineage: the download STREAMS progress — [InstallStep.Downloading]
+ * carries a percent (0..100, or -1 for unknown size) emitted at most every
+ * 200ms, so the UI can render a real download animation.
  *
  * CORE_RULES §20: All operations logged with tag "Anikuta:Data:Extension:Installer".
  */
@@ -46,49 +47,101 @@ class ExtensionInstaller(
         private const val TAG = "Anikuta:Data:Extension:Installer"
         private const val DOWNLOAD_BUFFER_BYTES = 8192
         private const val PROGRESS_EMIT_INTERVAL_MS = 200L
+
+        /**
+         * ROUND 93 (D-642): files younger than this are left alone by the
+         * sweep — a download that just finished (or a dispatch whose service
+         * has not reported yet) still owns its APK.
+         */
+        private const val SWEEP_MIN_AGE_MS = 60_000L
     }
 
-    private val installMutex = Mutex()
+    /**
+     * ROUND 93 (D-642): the DISPATCHED-APK registry (pkg → temp path) — the
+     * files ExtensionInstallService may still be reading. The sweep skips
+     * these; entries drop when the manager reports the install settled.
+     */
+    private val dispatchedApks = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     /**
-     * Download + install [extension]'s APK.
-     *
-     * Emits: Pending → Downloading(progress…) → Installing.
-     * The terminal state (Installed/Error) arrives via the system broadcast,
-     * NOT from this flow.
+     * ROUND 93 (D-642): downloads [extension]'s APK to the shared temp
+     * location WITHOUT dispatching the installer. Returns the file, or null
+     * when the download failed (the partial is already deleted). CANCELLATION
+     * (the caller's scope died — e.g. the user left the extensions page)
+     * deletes the partial before unwinding: no orphaned half-APKs on disk.
      */
-    fun downloadAndInstall(apkUrl: String, extension: AnimeExtension.Available): Flow<InstallStep> = flow {
-        installMutex.withLock {
-            emit(InstallStep.Pending)
-
-            val tempFile = File(context.cacheDir, "ext-${extension.pkgName}-${extension.apkName}")
-
-            // Download (D-309: with streamed progress).
-            emit(InstallStep.Downloading(0))
+    suspend fun downloadToTemp(
+        apkUrl: String,
+        extension: AnimeExtension.Available,
+        onProgress: suspend (Int) -> Unit,
+    ): File? {
+        val tempFile = File(context.cacheDir, "ext-${extension.pkgName}-${extension.apkName}")
+        try {
+            onProgress(0)
             val downloaded = downloadApk(apkUrl, tempFile) { progress ->
-                emit(InstallStep.Downloading(progress))
+                onProgress(progress)
             }
             if (!downloaded) {
                 tempFile.delete()
-                emit(InstallStep.Error)
-                return@withLock
+                return null
             }
+            Logger.d(TAG) { "Downloaded ${extension.pkgName} to ${tempFile.name} (awaiting dispatch)" }
+            return tempFile
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            tempFile.delete()
+            Logger.w(TAG) { "Download of ${extension.pkgName} cancelled — partial deleted" }
+            throw ce
+        } catch (t: Throwable) {
+            tempFile.delete()
+            Logger.e(TAG, t) { "Download of ${extension.pkgName} failed" }
+            return null
+        }
+    }
 
-            // Dispatch to install service
-            emit(InstallStep.Installing)
-            val serviceIntent = ExtensionInstallService.newIntent(
-                context,
-                tempFile.absolutePath,
-                extension.pkgName,
-                downloadId = extension.versionCode,
-            )
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
+    /**
+     * ROUND 93 (D-642): hands a DOWNLOADED apk to the install service — ONE
+     * system prompt per call. The caller (the manager) awaits the terminal
+     * result before dispatching the next package.
+     */
+    fun dispatchInstall(tempFile: File, extension: AnimeExtension.Available) {
+        dispatchedApks[extension.pkgName] = tempFile.absolutePath
+        val serviceIntent = ExtensionInstallService.newIntent(
+            context,
+            tempFile.absolutePath,
+            extension.pkgName,
+            downloadId = extension.versionCode,
+        )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            context.startForegroundService(serviceIntent)
+        } else {
+            context.startService(serviceIntent)
+        }
+    }
+
+    /** ROUND 93 (D-642): the manager reports an install settled — its file is no longer shielded. */
+    fun onInstallSettled(pkgName: String) {
+        dispatchedApks.remove(pkgName)
+    }
+
+    /**
+     * ROUND 93 (D-643): deletes leftover temp APKs — downloaded but never
+     * installed (a cancelled batch, a scope that died mid-download). Files
+     * owned by a live DISPATCH are skipped, and so is anything younger than
+     * [SWEEP_MIN_AGE_MS].
+     */
+    fun sweepAbandonedTempApks() {
+        val active = dispatchedApks.values.toSet()
+        val now = System.currentTimeMillis()
+        val abandoned = context.cacheDir.listFiles { file -> file.name.startsWith("ext-") }
+            ?.filter { it.absolutePath !in active && now - it.lastModified() > SWEEP_MIN_AGE_MS }
+            .orEmpty()
+        if (abandoned.isEmpty()) return
+        abandoned.forEach { file ->
+            if (file.delete()) {
+                Logger.i(TAG) { "Swept abandoned temp APK ${file.name}" }
             }
         }
-    }.flowOn(Dispatchers.IO)
+    }
 
     /**
      * Uninstall an extension APK via the SYSTEM uninstaller.

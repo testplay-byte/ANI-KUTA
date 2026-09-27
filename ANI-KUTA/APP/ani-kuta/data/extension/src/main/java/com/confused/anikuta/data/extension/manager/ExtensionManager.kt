@@ -402,29 +402,69 @@ class ExtensionManager(
     // ── Install / Uninstall ────────────────────────────────────────────────────
 
     /**
-     * Install an available extension. Returns a flow of [InstallStep].
-     * Also tracks state in [_installStates] so the UI can show a spinner.
+     * ROUND 93 (D-642): per-package COMPLETABLES bridging the dispatched
+     * system prompt to its ANSWER. The install flow can only run as far as
+     * handing the APK to ExtensionInstallService — the "Do you want to
+     * install this app?" dialog is answered out-of-process, and the terminal
+     * verdict arrives asynchronously via [onInstallResult]. These deferreds
+     * let the caller AWAIT the answer before starting the NEXT install; the
+     * v1.1.49 device report's "the same pop-up again and again" was exactly
+     * the old flow completing at dispatch and racing ahead.
+     */
+    private val pendingInstallResults =
+        java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<InstallStep>>()
+
+    /**
+     * ROUND 93 (D-642): how long a dispatched prompt may wait for its answer
+     * — a generous safety net (the user can legitimately stare at the dialog
+     * for a while), after which the batch moves on with a recorded failure.
+     */
+    private val promptAnswerTimeoutMs = 5L * 60 * 1000
+
+    /**
+     * Install an available extension. Returns a flow of [InstallStep] that
+     * now runs the WHOLE install — download, dispatch, AND the awaited
+     * system-prompt answer (Installed / Error / Idle). A second install
+     * started while one is running waits on [installMutex], so the system
+     * prompts can never pile up on each other.
      *
-     * D-300: delegates the actual download+install to [ExtensionInstaller] — the
-     * single canonical install path (this manager previously had a near-duplicate
-     * copy of the whole download+service-dispatch pipeline).
+     * D-300 lineage: delegates the download+dispatch to [ExtensionInstaller]
+     * — the single canonical install path. D-309: the collector's scope
+     * dying (user left the screen mid-download) resets the row and the
+     * installer deletes the partial file.
      */
     fun installExtension(extension: AnimeExtension.Available): Flow<InstallStep> {
+        // Double-tap guard: a row whose install is already active ignores a
+        // second request (the running coroutine owns the progress state).
+        val active = _installStates.value[extension.pkgName]
+        if (active is InstallStep.Pending || active is InstallStep.Downloading ||
+            active is InstallStep.Installing
+        ) {
+            return kotlinx.coroutines.flow.flowOf()
+        }
         val apkUrl = api.getApkUrl(extension)
         return flow {
             installMutex.withLock {
                 setInstallState(extension.pkgName, InstallStep.Pending)
+                emit(InstallStep.Pending)
                 try {
-                    installer.downloadAndInstall(apkUrl, extension)
-                        .collect { step ->
-                            setInstallState(extension.pkgName, step)
-                            emit(step)
-                        }
+                    val tempFile = installer.downloadToTemp(apkUrl, extension) { progress ->
+                        val step = if (progress >= 0) InstallStep.Downloading(progress) else InstallStep.Downloading(-1)
+                        setInstallState(extension.pkgName, step)
+                        emit(step)
+                    }
+                    if (tempFile == null) {
+                        setInstallState(extension.pkgName, InstallStep.Error)
+                        emit(InstallStep.Error)
+                        return@withLock
+                    }
+                    val result = dispatchAndAwaitInstall(extension, tempFile)
+                    setInstallState(extension.pkgName, result)
+                    emit(result)
                 } catch (e: kotlinx.coroutines.CancellationException) {
-                    // D-309 review fix: the collector's scope died (user left the
-                    // screen mid-download) — without this the row sticks on a
-                    // frozen Downloading(x%) forever (the OS broadcast never fires
-                    // for an aborted download).
+                    // D-309 review fix: the collector's scope died — without
+                    // this the row sticks on a frozen Downloading(x%) forever
+                    // (the OS broadcast never fires for an aborted download).
                     setInstallState(extension.pkgName, InstallStep.Idle)
                     throw e
                 }
@@ -433,6 +473,148 @@ class ExtensionManager(
     }
 
     private val installMutex = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * ROUND 93 (D-642): registers the answer-bridge, dispatches the ONE
+     * system prompt, and AWAITS its terminal verdict (with the safety
+     * timeout). serialized on [installMutex] so a single-row install and a
+     * running batch can never put two prompts on screen at once.
+     */
+    private suspend fun dispatchAndAwaitInstall(
+        extension: AnimeExtension.Available,
+        tempFile: java.io.File,
+    ): InstallStep = installMutex.withLock {
+        setInstallState(extension.pkgName, InstallStep.Installing)
+        val deferred = kotlinx.coroutines.CompletableDeferred<InstallStep>()
+        pendingInstallResults[extension.pkgName] = deferred
+        try {
+            installer.dispatchInstall(tempFile, extension)
+            val answer = kotlinx.coroutines.withTimeoutOrNull(promptAnswerTimeoutMs) {
+                deferred.await()
+            }
+            if (answer == null) {
+                Logger.w(TAG) {
+                    "Install prompt for ${extension.pkgName} was never answered " +
+                        "(${promptAnswerTimeoutMs / 1000}s) — moving on"
+                }
+                return@withLock InstallStep.Error
+            }
+            return@withLock answer
+        } finally {
+            pendingInstallResults.remove(extension.pkgName)
+        }
+    }
+
+    /**
+     * ROUND 93 (D-642): THE BATCH INSTALL — "it should smoothly install one
+     * at a time and wait for the one to install, and only after that it
+     * should initiate the installing of the other ones", with downloads
+     * allowed to run altogether (the user's explicit allowance). Failures are
+     * recorded and the batch CONTINUES ("if some install failed due to any
+     * reason, then it would not show the proper details" — every event
+     * carries the name + verdict so the UI can surface it); a DENIED prompt
+     * (the user tapped Cancel on the system dialog) STOPS the batch — a
+     * cancel means cancel. Cancelling the collector (leaving the page, the
+     * bar's X) deletes every downloaded-but-undispatched file and resets the
+     * untouched rows to neutral.
+     */
+    sealed interface BatchInstallEvent {
+        /** One package's prompt was answered — [step] is the terminal verdict. */
+        data class ItemDone(val pkgName: String, val name: String, val step: InstallStep) : BatchInstallEvent
+
+        /** The batch ended — [failed] carries the names that did not make it. */
+        data class Finished(val installed: Int, val failed: List<String>, val aborted: Boolean) : BatchInstallEvent
+    }
+
+    fun installExtensionsBatch(extensions: List<AnimeExtension.Available>): Flow<BatchInstallEvent> = flow {
+        if (extensions.isEmpty()) return@flow
+        // Skip rows that already have an install in flight (double-fire guard).
+        val targets = extensions.filter { ext ->
+            val active = _installStates.value[ext.pkgName]
+            active !is InstallStep.Pending && active !is InstallStep.Downloading && active !is InstallStep.Installing
+        }
+        if (targets.isEmpty()) {
+            emit(BatchInstallEvent.Finished(0, emptyList(), aborted = false))
+            return@flow
+        }
+        targets.forEach { setInstallState(it.pkgName, InstallStep.Pending) }
+
+        // ── Phase 1: the downloads, ALTOGETHER (parallel) ──
+        data class Downloaded(val ext: AnimeExtension.Available, val file: java.io.File?)
+        val downloads = kotlinx.coroutines.coroutineScope {
+            targets.map { ext ->
+                kotlinx.coroutines.async(Dispatchers.IO) {
+                    val file = installer.downloadToTemp(api.getApkUrl(ext), ext) { progress ->
+                        val step = if (progress >= 0) InstallStep.Downloading(progress) else InstallStep.Downloading(-1)
+                        setInstallState(ext.pkgName, step)
+                    }
+                    if (file == null) setInstallState(ext.pkgName, InstallStep.Error)
+                    Downloaded(ext, file)
+                }
+            }.map { it.await() }
+        }
+        val failed = mutableListOf<String>()
+        downloads.filter { it.file == null }.forEach { failed += it.ext.name }
+        val toInstall = downloads.filter { it.file != null }
+
+        // ── Phase 2: the system prompts, STRICTLY ONE AT A TIME ──
+        var installed = 0
+        var aborted = false
+        val dispatchedPkgs = mutableSetOf<String>()
+        try {
+            for (item in toInstall) {
+                val result = dispatchAndAwaitInstall(item.ext, item.file!!)
+                dispatchedPkgs += item.ext.pkgName
+                emit(BatchInstallEvent.ItemDone(item.ext.pkgName, item.ext.name, result))
+                when (result) {
+                    is InstallStep.Installed -> installed++
+                    is InstallStep.Error -> failed += item.ext.name
+                    is InstallStep.Idle -> {
+                        // The user DENIED this prompt — stop the whole batch.
+                        aborted = true
+                        Logger.i(TAG) {
+                            "Batch install aborted by the user at ${item.ext.pkgName} " +
+                                "(${toInstall.size - dispatchedPkgs.size} left untouched)"
+                        }
+                        break
+                    }
+                    else -> Unit
+                }
+            }
+        } finally {
+            // The untouched tail (abort or cancellation): downloaded files
+            // that were never dispatched are DELETED (downloaded-but-
+            // uninstalled = cleaned, per the user's storage rule) and their
+            // rows reset to neutral.
+            toInstall.forEach { item ->
+                if (item.ext.pkgName !in dispatchedPkgs) {
+                    item.file?.delete()
+                    setInstallState(item.ext.pkgName, InstallStep.Idle)
+                }
+            }
+        }
+        emit(BatchInstallEvent.Finished(installed, failed.toList(), aborted))
+    }.flowOn(Dispatchers.IO)
+
+    /**
+     * ROUND 93 (D-643): the extensions page's EXIT hook — the user walked
+     * away, so every still-visible "downloading / installing" row resets to
+     * neutral (the page must never greet the next visit frozen mid-state)
+     * and any downloaded-but-never-installed temp APK is swept. A system
+     * prompt that is CURRENTLY on screen cannot be dismissed by the app (it
+     * is system UI) — if the user answers it anyway, the install lands
+     * normally and the broadcast refresh catches it.
+     */
+    fun cancelInstallWork() {
+        val active = _installStates.value.filterValues { step ->
+            step is InstallStep.Pending || step is InstallStep.Downloading || step is InstallStep.Installing
+        }
+        if (active.isNotEmpty()) {
+            Logger.i(TAG) { "cancelInstallWork: resetting ${active.size} in-flight install state(s)" }
+            _installStates.value = _installStates.value - active.keys
+        }
+        installer.sweepAbandonedTempApks()
+    }
 
     private fun setInstallState(pkgName: String, step: InstallStep) {
         _installStates.value = _installStates.value + (pkgName to step)
@@ -454,6 +636,10 @@ class ExtensionManager(
     fun onInstallResult(pkgName: String, step: InstallStep) {
         if (step is InstallStep.Installed || step is InstallStep.Error || step is InstallStep.Idle) {
             setInstallState(pkgName, step)
+            installer.onInstallSettled(pkgName)
+            // D-642: hand the answer to whoever is awaiting this prompt (the
+            // single-install flow / the batch's sequential dispatcher).
+            pendingInstallResults.remove(pkgName)?.complete(step)
             if (step is InstallStep.Installed) {
                 Logger.i(TAG) { "Install succeeded for $pkgName — triggering post-install refresh (loadAll)" }
                 loadAll()

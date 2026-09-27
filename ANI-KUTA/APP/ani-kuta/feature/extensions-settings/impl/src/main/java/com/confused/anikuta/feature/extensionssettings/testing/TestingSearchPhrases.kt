@@ -30,22 +30,21 @@ data class SearchPhrase(
 object TestingSearchPhrases {
 
     /**
-     * The well-known fallback phrases, ordered anime-first (this is an anime
-     * app — the most relevant hit should come first), then live-action series,
-     * then movies.
-     *
-     * ROUND 85 (the user's spec): the canonical test anime must be a
-     * ~12–24-episode show — One Piece (1000+ episodes) made the EPISODE_LIST
-     * and VIDEO_RESOLVE stages a marathon on every healthy source. The anime
-     * phrases now lead with globally-indexed SHORT shows, including one
-     * CHINESE donghua ("Link Click") so the ladder spans a wider catalog
-     * spread. One phrase failing (a network error, an empty page) never fails
-     * the test on its own; only ALL attempts failing does.
+     * ROUND 93 (D-646): the user's exact spec — ONLY these three, in THIS
+     * order: "only these three will be searched, and these will be searched
+     * in order. If the first one fails, then the next one will be searched.
+     * But if the first one passes, then the other ones will not be tested
+     * for":
+     *   1. Jujutsu Kaisen — the test anime (globally indexed, short);
+     *   2. Interstellar — a very common, popular, well-known movie;
+     *   3. Link Click — a popular, widely available Chinese donghua.
+     * The ladder semantics are unchanged (first hit wins, the rest skipped;
+     * one phrase failing never fails the test on its own — only ALL of them
+     * does).
      */
     val wellKnown: List<SearchPhrase> = listOf(
         SearchPhrase("Jujutsu Kaisen", "Anime"),
-        SearchPhrase("Link Click", "Donghua"),
-        SearchPhrase("Breaking Bad", "Series"),
         SearchPhrase("Interstellar", "Movie"),
+        SearchPhrase("Link Click", "Donghua"),
     )
 }

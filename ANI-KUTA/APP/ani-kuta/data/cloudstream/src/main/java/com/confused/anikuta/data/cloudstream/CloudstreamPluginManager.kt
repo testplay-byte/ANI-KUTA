@@ -472,6 +472,31 @@ class CloudstreamPluginManager(
     // ── Install / uninstall ─────────────────────────────────────────────────
 
     /**
+     * ROUND 93 (D-643): the live install JOBS (internalName → job) — the
+     * page-exit hook ([cancelActiveInstalls]) cancels these so leaving the
+     * extensions page stops in-flight plugin downloads instead of letting
+     * them run invisible in the background (the v1.1.49 report: "currently
+     * if I have to clear them out, I have to close the whole app").
+     */
+    private val installJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+
+    /**
+     * ROUND 93 (D-643): the extensions page's EXIT hook — cancels every
+     * in-flight plugin install (download or swap/load phase) and clears the
+     * visible in-progress states. The download flow's own catch deletes its
+     * temp file, so nothing partial is left behind; a completed install
+     * STAYS installed (an install that already reached record+load simply
+     * finished — a .cs3 has no system prompt to leave hanging).
+     */
+    fun cancelActiveInstalls() {
+        val jobs = installJobs.values.toList()
+        if (jobs.isEmpty()) return
+        Logger.i(TAG) { "cancelActiveInstalls: cancelling ${jobs.size} plugin install(s)" }
+        jobs.forEach { it.cancel() }
+        _installStates.value = _installStates.value.filterValues { !isInstallActive(it) }
+    }
+
+    /**
      * Downloads + verifies + installs + records one available plugin. Emits progress
      * via [installStates] (shared InstallStep model, doc 23 §5.5).
      *
@@ -500,7 +525,7 @@ class CloudstreamPluginManager(
             return
         }
 
-        scope.launch {
+        val job = scope.launch {
             // OUTSIDE the queue lock — visible immediately, so queued rows
             // show their own Pending state while an earlier install runs.
             _installStates.value = _installStates.value + (internalName to InstallStep.Pending)
@@ -579,6 +604,13 @@ class CloudstreamPluginManager(
                 _installStates.value = _installStates.value + (internalName to InstallStep.Installed)
                 delay(COMPLETION_BEAT_MS)
                 installMutex.withLock { refreshLocked() }
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                // ROUND 93 (D-643): a CANCELLED install (the page-exit hook)
+                // is not a failure — reset the row quietly. The installer's
+                // own catch already deleted the temp file.
+                Logger.i(TAG) { "Install of $internalName cancelled — state reset" }
+                _installStates.value = _installStates.value - internalName
+                throw ce
             } catch (t: Throwable) {
                 Logger.e(TAG) { "Install failed for $internalName: ${t.message}" }
                 _installStates.value = _installStates.value + (internalName to InstallStep.Error)
@@ -590,6 +622,9 @@ class CloudstreamPluginManager(
                 }
             }
         }
+        // ROUND 93 (D-643): track the job so the page-exit hook can cancel it.
+        installJobs[internalName] = job
+        job.invokeOnCompletion { installJobs.remove(internalName, job) }
     }
 
     // ── Task 58/59: the shared-file import (.WHITECAT + export metadata) ──────
@@ -938,8 +973,14 @@ class CloudstreamPluginManager(
          */
         private const val AWAIT_ACTIVITY_TIMEOUT_MS = 15_000L
 
-        /** How long the success state plays on the row before the list reshuffles. */
-        private const val COMPLETION_BEAT_MS = 700L
+        /**
+         * How long the success state plays on the row before the list
+         * reshuffles. ROUND 93 (D-645): 700 → 850ms — the available row now
+         * plays its exit choreography (slide-out toward the Untrusted
+         * section) during this window; the extra margin keeps the list
+         * refresh from cutting the motion short.
+         */
+        private const val COMPLETION_BEAT_MS = 850L
 
         /** How long a terminal install state lingers after everything settled. */
         private const val INSTALL_STATE_CLEAR_MS = 1500L
