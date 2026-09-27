@@ -1488,10 +1488,14 @@ fun AppRoot() {
                 // D-388 (round 25): the dedicated Update Check History button.
                 onOpenUpdateCheckHistory = { backstack.add(UpdateCheckLogKey) },
             )
-            // D-561 (round 73): the hidden Always-sponsor page (long-press on
-            // the Debug options row). One toggle, default OFF = normal ops.
+            // D-561 (round 73): the hidden Always-sponsor page (HOLD the
+            // "Debug options" row for TEN SECONDS — D-657 — to reach it).
+            // ROUND 95 (D-657): the page also carries the EXTENSION-TESTING
+            // gate; while ON, its door row opens the testing system (the
+            // same destination the extensions header's Science pill uses).
             is SponsorDebugKey -> com.confused.anikuta.settings.SponsorDebugScreen(
                 onBack = pop,
+                onOpenExtensionTesting = { backstack.add(ExtensionTestingKey) },
             )
             // CloudStream V2: the plugin detail page — resolves the plugin across
             // Trusted/Untrusted/Failed/Available and shows metadata + live

@@ -227,6 +227,14 @@ fun ExtensionsSettingsScreen(
         appPreferences.extensionsNsfwMode = nsfwMode.raw
     }
 
+    // ── ROUND 95 (D-657): THE EXTENSION-TESTING GATE — "By default it will
+    // be hidden. It will not be shown and the user has to enable it": the
+    // Science pill only renders while the debug page's Extension Testing
+    // toggle is ON. The flow (not a one-shot read) so a toggle flipped on
+    // the debug page applies the moment this screen recomposes. ──
+    val extensionTestingEnabled by appPreferences.extensionTestingEnabledFlow()
+        .collectAsState(initial = appPreferences.extensionTestingEnabled)
+
     var langFilter by remember { mutableStateOf<String?>(null) }
     // ROUND 92 (D-638): hoisted above the selection block (it ticks on
     // long-press) — the old declaration lived further down with the CS toast.
@@ -393,33 +401,48 @@ fun ExtensionsSettingsScreen(
     // D-650: the NSFW tri-state; D-651: the search matches NAME + LANGUAGE
     // + VERSION — "if the user types 14, then all the extensions which have
     // version 14 will be shown… if the user types FR or EN, then the
-    // extensions with English or FR tags will be also shown") ──
-    val filteredInstalled = installedExtensions.filter { ext ->
-        matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
-            nsfwMode.passes(ext.isNsfw) &&
-            (langFilter == null || ext.lang == langFilter)
-    }.sortedBy { it.name.lowercase() }
-
-    val filteredErrored = erroredExtensions.filter { ext ->
-        matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
-            nsfwMode.passes(ext.isNsfw) &&
-            (langFilter == null || ext.lang == langFilter)
-    }.sortedBy { it.name.lowercase() }
-
-    val filteredUntrusted = untrustedExtensions.filter { ext ->
-        matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
-            nsfwMode.passes(ext.isNsfw) &&
-            (langFilter == null || ext.lang == langFilter)
-    }.sortedBy { it.name.lowercase() }
-
-    val filteredAvailable = availableExtensions
-        .filter { it.pkgName !in installedPkgs && it.pkgName !in untrustedPkgs }
-        .filter { ext ->
+    // extensions with English or FR tags will be also shown").
+    // ROUND 95 (D-658): the four passes are MEMOIZED on their inputs —
+    // every unrelated body recomposition (a batch-progress tick, a
+    // selection change, the drag session's rows) used to re-run all four
+    // filter+sort passes over the full repo catalog; now they only re-run
+    // when a list or a filter input actually changes. ──
+    val filteredInstalled = remember(installedExtensions, searchQuery, nsfwMode, langFilter) {
+        installedExtensions.filter { ext ->
             matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
                 nsfwMode.passes(ext.isNsfw) &&
                 (langFilter == null || ext.lang == langFilter)
-        }
-        .sortedBy { it.name.lowercase() }
+        }.sortedBy { it.name.lowercase() }
+    }
+
+    val filteredErrored = remember(erroredExtensions, searchQuery, nsfwMode, langFilter) {
+        erroredExtensions.filter { ext ->
+            matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
+                nsfwMode.passes(ext.isNsfw) &&
+                (langFilter == null || ext.lang == langFilter)
+        }.sortedBy { it.name.lowercase() }
+    }
+
+    val filteredUntrusted = remember(untrustedExtensions, searchQuery, nsfwMode, langFilter) {
+        untrustedExtensions.filter { ext ->
+            matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
+                nsfwMode.passes(ext.isNsfw) &&
+                (langFilter == null || ext.lang == langFilter)
+        }.sortedBy { it.name.lowercase() }
+    }
+
+    val filteredAvailable = remember(
+        availableExtensions, installedPkgs, untrustedPkgs, searchQuery, nsfwMode, langFilter,
+    ) {
+        availableExtensions
+            .filter { it.pkgName !in installedPkgs && it.pkgName !in untrustedPkgs }
+            .filter { ext ->
+                matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
+                    nsfwMode.passes(ext.isNsfw) &&
+                    (langFilter == null || ext.lang == langFilter)
+            }
+            .sortedBy { it.name.lowercase() }
+    }
 
     // ══ ROUND 85: the CONFIRMED-REMOVAL ghost rows ══
     // The device report: the delete animation must fire when the user clicks
@@ -537,11 +560,17 @@ fun ExtensionsSettingsScreen(
         selectionAnchor = key
         HapticHelper.lightTick(context)
     }
+    // ROUND 95 (D-653): THE DRAG-SESSION STATE — while the list's drag
+    // handler owns the finger (from the long-press to the lift), every row's
+    // body clickable is DISABLED, so lifting a STILL finger can never fire
+    // the tap that used to deselect the just-selected row.
+    val dragSession = rememberDragSelectionSessionState()
     val dragSelectionModifier = rememberDragSelectionModifier(
         listState = listState,
         selectableKeys = selectableKeySet,
         onLongPressSelect = { key -> dragSelectStart(key) },
         onRangeSelect = { from, to -> selectRange(from, to) },
+        session = dragSession,
     )
 
     // ── ROUND 93 (D-642): THE BATCH INSTALL — collects the manager's sequential
@@ -553,38 +582,47 @@ fun ExtensionsSettingsScreen(
         if (targets.isEmpty()) return
         batchInstallProgress = 0 to targets.size
         batchInstallJob = scope.launch {
-            extensionManager.installExtensionsBatch(targets).collect { event ->
-                when (event) {
-                    is ExtensionManager.BatchInstallEvent.ItemDone -> {
-                        batchInstallProgress = (batchInstallProgress?.first?.plus(1) ?: 1) to
-                            (batchInstallProgress?.second ?: targets.size)
-                        if (event.step is InstallStep.Error) {
-                            Toast.makeText(
-                                context,
-                                "Couldn't install ${event.name}",
-                                Toast.LENGTH_LONG,
-                            ).show()
+            // ROUND 95 (D-654): THE X-BUTTON FIX — the two resets used to sit
+            // AFTER the collect, so CANCELLING the batch (the bar's X — the
+            // v1.1.51 device report: "the installing of it cancels, but the
+            // bottom menu does not go away") threw out of the collect and
+            // SKIPPED them; batchInstallProgress stayed set and the bar never
+            // left. The finally clears both on every exit path.
+            try {
+                extensionManager.installExtensionsBatch(targets).collect { event ->
+                    when (event) {
+                        is ExtensionManager.BatchInstallEvent.ItemDone -> {
+                            batchInstallProgress = (batchInstallProgress?.first?.plus(1) ?: 1) to
+                                (batchInstallProgress?.second ?: targets.size)
+                            if (event.step is InstallStep.Error) {
+                                Toast.makeText(
+                                    context,
+                                    "Couldn't install ${event.name}",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
                         }
-                    }
-                    is ExtensionManager.BatchInstallEvent.Finished -> {
-                        if (event.installed > 0 && event.failed.isEmpty() && !event.aborted) {
-                            Toast.makeText(
-                                context,
-                                "Installed ${event.installed} extension${if (event.installed == 1) "" else "s"}",
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        } else if (event.failed.isNotEmpty()) {
-                            Toast.makeText(
-                                context,
-                                "${event.installed} installed · ${event.failed.size} failed",
-                                Toast.LENGTH_LONG,
-                            ).show()
+                        is ExtensionManager.BatchInstallEvent.Finished -> {
+                            if (event.installed > 0 && event.failed.isEmpty() && !event.aborted) {
+                                Toast.makeText(
+                                    context,
+                                    "Installed ${event.installed} extension${if (event.installed == 1) "" else "s"}",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            } else if (event.failed.isNotEmpty()) {
+                                Toast.makeText(
+                                    context,
+                                    "${event.installed} installed · ${event.failed.size} failed",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
                         }
                     }
                 }
+            } finally {
+                batchInstallProgress = null
+                batchInstallJob = null
             }
-            batchInstallProgress = null
-            batchInstallJob = null
         }
     }
     val batchInstallActive = batchInstallProgress != null
@@ -621,12 +659,17 @@ fun ExtensionsSettingsScreen(
                     // menu — the sections are alphabetical now, and the
                     // long-press belongs to multi-select. Icon-only stadium
                     // pills remain: Science · Filters · Settings.
-                    HeaderPillButton(
-                        icon = Icons.Filled.Science,
-                        contentDescription = "Extension testing",
-                        onClick = onOpenExtensionTesting,
-                    )
-                    Spacer(Modifier.width(8.dp))
+                    // ROUND 95 (D-657): the Science pill is GATED — the
+                    // extension-testing system stays hidden until the
+                    // debug-options page's Extension Testing toggle is ON.
+                    if (extensionTestingEnabled) {
+                        HeaderPillButton(
+                            icon = Icons.Filled.Science,
+                            contentDescription = "Extension testing",
+                            onClick = onOpenExtensionTesting,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
                     HeaderPillButton(
                         icon = Icons.Filled.FilterList,
                         contentDescription = "Filters",
@@ -731,6 +774,9 @@ fun ExtensionsSettingsScreen(
                                         // tap-only (toggle while selecting).
                                         // ROUND 94 (D-648): the selection state is
                                         // keyed by the list's item keys.
+                                        // ROUND 95 (D-653): the body clickable
+                                        // yields while a drag session is live.
+                                        dragSessionActive = dragSession.active,
                                         selectionMode = selectionMode,
                                         selected = installedKeyOf(ext.pkgName) in selectedKeys,
                                         onToggleSelected = { toggleSelected(installedKeyOf(ext.pkgName)) },
@@ -774,6 +820,7 @@ fun ExtensionsSettingsScreen(
                             ErroredExtensionRow(
                                 modifier = Modifier.animateItem(),
                                 extension = ext,
+                                dragSessionActive = dragSession.active,
                                 selectionMode = selectionMode,
                                 selected = erroredKeyOf(ext.pkgName) in selectedKeys,
                                 onToggleSelected = { toggleSelected(erroredKeyOf(ext.pkgName)) },
@@ -799,6 +846,7 @@ fun ExtensionsSettingsScreen(
                             UntrustedExtensionRow(
                                 modifier = Modifier.animateItem(),
                                 extension = ext,
+                                dragSessionActive = dragSession.active,
                                 selectionMode = selectionMode,
                                 selected = untrustedKeyOf(ext.pkgName) in selectedKeys,
                                 onToggleSelected = { toggleSelected(untrustedKeyOf(ext.pkgName)) },
@@ -837,6 +885,7 @@ fun ExtensionsSettingsScreen(
                                 modifier = Modifier.animateItem(),
                                 extension = ext,
                                 installStep = installStep,
+                                dragSessionActive = dragSession.active,
                                 selectionMode = selectionMode,
                                 selected = availableKeyOf(ext.pkgName, ext.versionCode) in selectedKeys,
                                 onToggleSelected = {
@@ -1486,6 +1535,10 @@ private fun InstalledExtensionRow(
     // before the icon, the action icons hide, and the surface wears the
     // selected tint + ring. ROUND 93 (D-641): the long-press moved to the
     // LIST's drag handler — the row is tap-only now.
+    // ROUND 95 (D-653): while a drag-selection session is live on the list,
+    // the body clickable DISABLES — the still-finger lift at the end of a
+    // long-press must never fire the tap that deselects the row.
+    dragSessionActive: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
@@ -1541,7 +1594,10 @@ private fun InstalledExtensionRow(
             .graphicsLayer { alpha = if (extension.isEnabled) 1f else 0.45f }
             // ROUND 93 (D-641): plain clickable — the list-level drag handler
             // owns the long-press (selection entry / range / drag-paint).
+            // ROUND 95 (D-653): disabled for the drag session's lifetime —
+            // a still long-press + lift must not fire a tap.
             .clickable(
+                enabled = !dragSessionActive,
                 onClick = if (selectionMode) onToggleSelected else onClickExtension,
             ),
     ) {
@@ -1614,7 +1670,9 @@ private fun UntrustedExtensionRow(
     modifier: Modifier = Modifier,
     extension: AnimeExtension.Untrusted,
     // ROUND 92 (D-638): the multi-select contract (see InstalledExtensionRow;
-    // ROUND 93, D-641 — the long-press lives on the list's drag handler).
+    // ROUND 93, D-641 — the long-press lives on the list's drag handler;
+    // ROUND 95, D-653 — the clickable yields to a live drag session).
+    dragSessionActive: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
@@ -1661,8 +1719,10 @@ private fun UntrustedExtensionRow(
             // ROUND 93 (D-641): plain clickable (the list's drag handler owns
             // the long-press); no ripple (the check bubble + tint is the
             // selection feedback; outside selection the row stays a no-op
-            // tap, its original behavior).
+            // tap, its original behavior). ROUND 95 (D-653): disabled while a
+            // drag session is live.
             .clickable(
+                enabled = !dragSessionActive,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = rowClick,
@@ -1724,7 +1784,9 @@ private fun ErroredExtensionRow(
     modifier: Modifier = Modifier,
     extension: AnimeExtension.Errored,
     // ROUND 92 (D-638): the multi-select contract (see InstalledExtensionRow;
-    // ROUND 93, D-641 — the long-press lives on the list's drag handler).
+    // ROUND 93, D-641 — the long-press lives on the list's drag handler;
+    // ROUND 95, D-653 — the clickable yields to a live drag session).
+    dragSessionActive: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
@@ -1768,7 +1830,9 @@ private fun ErroredExtensionRow(
             .fillMaxWidth()
             // ROUND 93 (D-641): plain clickable (the list's drag handler owns
             // the long-press; no ripple — see UntrustedExtensionRow).
+            // ROUND 95 (D-653): disabled while a drag session is live.
             .clickable(
+                enabled = !dragSessionActive,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = rowClick,
@@ -1852,7 +1916,9 @@ private fun AvailableExtensionRow(
     // ROUND 92 (D-638): the multi-select contract (see InstalledExtensionRow)
     // — ROUND 93 (D-641): the long-press lives on the list's drag handler;
     // taps toggle while selecting; the install control hides and the bottom
-    // bar's Install action takes over in batch.
+    // bar's Install action takes over in batch. ROUND 95, D-653 — the
+    // clickable yields to a live drag session.
+    dragSessionActive: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
@@ -1875,7 +1941,10 @@ private fun AvailableExtensionRow(
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .fillMaxWidth()
+            // ROUND 95 (D-653): disabled while a drag session is live — the
+            // still-lift tap after a long-press must never deselect.
             .clickable(
+                enabled = !dragSessionActive,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = rowClick,

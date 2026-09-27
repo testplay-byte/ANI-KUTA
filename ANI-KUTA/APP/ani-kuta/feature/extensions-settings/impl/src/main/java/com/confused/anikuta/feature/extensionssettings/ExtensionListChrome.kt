@@ -923,13 +923,47 @@ internal fun ExtensionSelectionBar(
 //  anchor: a second long-press further down selects everything in between
 //  ("it should select all the ones in between it, just like how it is
 //  handled on most modern UI designs").
-//
-//  HOW IT FITS THE ROWS: this handler lives on the LazyColumn ITSELF and
-//  owns the long-press for the whole tab — the rows keep plain taps
-//  (toggle / open detail) and DROP their own long-press callbacks. While the
-//  finger holds, the parent consumes every move event, so the row under the
-//  finger never also fires a tap when the drag ends.
 // ════════════════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 95 (D-653): THE DRAG-SESSION STATE — the still-lift long-press fix.
+//
+//  THE BUG (the v1.1.51 device report): "if I long press and do not move my
+//  finger anywhere, then the selection automatically disappears. For the
+//  selection to count, I have to move my finger anywhere." The list-level
+//  detectDragGesturesAfterLongPress fires onDragStart at the long-press
+//  timeout and enters selection mode — but the ROW's own `clickable` stays
+//  ARMED underneath: its tap detector has no long-press timeout, so lifting
+//  the finger WITHOUT moving completed a perfectly ordinary tap, and that tap
+//  hit the row's freshly-swapped selection-mode lambda (onToggleSelected) —
+//  deselecting the one selected row and exiting selection mode. Moving the
+//  finger made the parent consume the move events, which cancelled the row's
+//  pending tap — which is why moving "made the selection count".
+//
+//  THE FIX: while a drag-selection session is ACTIVE (from the long-press
+//  detection to the finger lift), every row's body clickable is DISABLED —
+//  `clickable(enabled = false)` disposes the pending tap detector the moment
+//  the session starts, so the eventual lift can never fire a click. Taps
+//  resume the instant the session ends. The state object is read INSIDE each
+//  row composable so only the rows recompose when a session begins/ends.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The live drag-selection session flag shared between the list's drag
+ * handler (which drives it) and the rows (which disable their body
+ * clickables while it is active — D-653).
+ */
+@androidx.compose.runtime.Stable
+internal class DragSelectionSessionState {
+    /** True from the long-press detection until the finger lifts / cancels. */
+    var active by androidx.compose.runtime.mutableStateOf(false)
+        internal set
+}
+
+/** Creates one session state per list (D-653). */
+@Composable
+internal fun rememberDragSelectionSessionState(): DragSelectionSessionState =
+    androidx.compose.runtime.remember { DragSelectionSessionState() }
 
 /**
  * Builds the drag-selection modifier for one tab's list.
@@ -944,6 +978,10 @@ internal fun ExtensionSelectionBar(
  * QUADRATICALLY with edge depth, ACCELERATES the longer the finger rests in
  * the zone (up to ~2.1×), and the loop hit-tests EVERY TICK so rows
  * scrolling under a STATIONARY finger keep joining the selection.
+ *
+ * ROUND 95 (D-653): the handler now also drives [session] — active for the
+ * whole gesture — so the rows can disable their clickables and a STILL
+ * finger's lift can never fire the tap that used to deselect the row.
  *
  * HOW IT FITS THE ROWS: this handler lives on the LazyColumn ITSELF and
  * owns the long-press for the whole tab — the rows keep plain taps
@@ -961,6 +999,9 @@ internal fun ExtensionSelectionBar(
  *   the previous anchor to this row.
  * @param onRangeSelect the drag crossed onto [toKey] — everything between
  *   [fromKey] and [toKey] joins the selection.
+ * @param session the shared D-653 session state (defaults to a private one;
+ *   the screens pass the one their rows read so the click suppression
+ *   actually reaches the rows).
  */
 @Composable
 internal fun rememberDragSelectionModifier(
@@ -968,6 +1009,7 @@ internal fun rememberDragSelectionModifier(
     selectableKeys: Set<String>,
     onLongPressSelect: (key: String) -> Unit,
     onRangeSelect: (fromKey: String, toKey: String) -> Unit,
+    session: DragSelectionSessionState = rememberDragSelectionSessionState(),
 ): Modifier {
     // The long-lived loop must always see the CURRENT composition's key set
     // + callbacks (mid-drag list mutations — an install completing, a filter
@@ -1057,6 +1099,10 @@ internal fun rememberDragSelectionModifier(
         .pointerInput(listState) {
             detectDragGesturesAfterLongPress(
                 onDragStart = { position ->
+                    // D-653: the session is LIVE from the long-press detection —
+                    // the rows disable their clickables for the whole gesture, so
+                    // a STILL finger's lift can never fire the deselecting tap.
+                    session.active = true
                     val key = keyAtPosition(listState, position.y, currentSelectableKeys)
                     dragAnchorKey = key
                     dragPointerY = position.y
@@ -1073,10 +1119,12 @@ internal fun rememberDragSelectionModifier(
                 onDragEnd = {
                     dragAnchorKey = null
                     dragPointerY = Float.NaN
+                    session.active = false
                 },
                 onDragCancel = {
                     dragAnchorKey = null
                     dragPointerY = Float.NaN
+                    session.active = false
                 },
             )
         }

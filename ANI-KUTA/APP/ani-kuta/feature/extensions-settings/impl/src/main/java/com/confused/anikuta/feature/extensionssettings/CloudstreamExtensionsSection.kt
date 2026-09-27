@@ -159,43 +159,52 @@ internal fun CloudstreamExtensionsSection(
 
     // ── Filtering (ROUND 93, D-644: ALPHABETICAL EVERYWHERE; ROUND 94
     // D-650: the shared NSFW tri-state; D-651: the multi-field search —
-    // name + language + version) ──
-    val filteredInstalled = installed
-        .filter {
-            matchesExtensionSearch(searchQuery, it.name, it.language, it.version.toString()) &&
-                nsfwMode.passes(it.isNsfw) &&
-                (langFilter == null || it.language == langFilter)
-        }
-        .sortedBy { it.name.lowercase() }
+    // name + language + version; ROUND 95, D-658 — the passes are MEMOIZED
+    // on their inputs so unrelated recompositions stop re-filtering) ──
+    val filteredInstalled = remember(installed, searchQuery, nsfwMode, langFilter) {
+        installed
+            .filter {
+                matchesExtensionSearch(searchQuery, it.name, it.language, it.version.toString()) &&
+                    nsfwMode.passes(it.isNsfw) &&
+                    (langFilter == null || it.language == langFilter)
+            }
+            .sortedBy { it.name.lowercase() }
+    }
 
-    val filteredUntrusted = untrusted
-        .filter {
-            matchesExtensionSearch(searchQuery, it.name, it.language, it.version.toString()) &&
-                nsfwMode.passes(it.isNsfw) &&
-                (langFilter == null || it.language == langFilter)
-        }
-        .sortedBy { it.name.lowercase() }
+    val filteredUntrusted = remember(untrusted, searchQuery, nsfwMode, langFilter) {
+        untrusted
+            .filter {
+                matchesExtensionSearch(searchQuery, it.name, it.language, it.version.toString()) &&
+                    nsfwMode.passes(it.isNsfw) &&
+                    (langFilter == null || it.language == langFilter)
+            }
+            .sortedBy { it.name.lowercase() }
+    }
 
-    val filteredErrored = errored
-        .filter {
-            matchesExtensionSearch(searchQuery, it.name, it.language, it.version.toString()) &&
-                nsfwMode.passes(it.isNsfw) &&
-                (langFilter == null || it.language == langFilter)
-        }
-        .sortedBy { it.name.lowercase() }
+    val filteredErrored = remember(errored, searchQuery, nsfwMode, langFilter) {
+        errored
+            .filter {
+                matchesExtensionSearch(searchQuery, it.name, it.language, it.version.toString()) &&
+                    nsfwMode.passes(it.isNsfw) &&
+                    (langFilter == null || it.language == langFilter)
+            }
+            .sortedBy { it.name.lowercase() }
+    }
 
-    val filteredAvailable = available
-        .filter { nsfwMode.passes(it.isNsfw) }
-        .filter {
-            matchesExtensionSearch(
-                searchQuery,
-                it.plugin.name,
-                it.plugin.language,
-                it.plugin.version.toString(),
-            ) &&
-                (langFilter == null || it.plugin.language == langFilter)
-        }
-        .sortedBy { it.plugin.name.lowercase() }
+    val filteredAvailable = remember(available, searchQuery, nsfwMode, langFilter) {
+        available
+            .filter { nsfwMode.passes(it.isNsfw) }
+            .filter {
+                matchesExtensionSearch(
+                    searchQuery,
+                    it.plugin.name,
+                    it.plugin.language,
+                    it.plugin.version.toString(),
+                ) &&
+                    (langFilter == null || it.plugin.language == langFilter)
+            }
+            .sortedBy { it.plugin.name.lowercase() }
+    }
 
     // ── ROUND 93 (D-641) + ROUND 94 (D-648): the flattened SELECTABLE key
     // order + the range / drag handlers (the aniyomi tab's twin) — keyed by
@@ -237,11 +246,16 @@ internal fun CloudstreamExtensionsSection(
         selectionAnchor = key
         HapticHelper.lightTick(csContext)
     }
+    // ROUND 95 (D-653): THE DRAG-SESSION STATE — while the list's drag
+    // handler owns the finger, every row's body clickable is DISABLED (the
+    // still-lift long-press fix; see the aniyomi tab's twin).
+    val dragSession = rememberDragSelectionSessionState()
     val dragSelectionModifier = rememberDragSelectionModifier(
         listState = listState,
         selectableKeys = selectableKeySet,
         onLongPressSelect = { key -> dragSelectStart(key) },
         onRangeSelect = { from, to -> selectRange(from, to) },
+        session = dragSession,
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -281,7 +295,9 @@ internal fun CloudstreamExtensionsSection(
                     extension = ext,
                     installStep = installStates[ext.internalName],
                     // ROUND 92 (D-639): the multi-select contract (ROUND 93,
-                    // D-641 — the long-press lives on the list's drag handler).
+                    // D-641 — the long-press lives on the list's drag handler;
+                    // ROUND 95, D-653 — the clickable yields to a live session).
+                    dragSessionActive = dragSession.active,
                     selectionMode = selectionMode,
                     selected = installedKeyOf(ext.internalName) in selectedKeys,
                     onToggleSelected = { toggleSelected(installedKeyOf(ext.internalName)) },
@@ -323,6 +339,7 @@ internal fun CloudstreamExtensionsSection(
                         modifier = Modifier.animateItem(),
                         extension = ext,
                         retrying = ext.internalName in retryingNames,
+                        dragSessionActive = dragSession.active,
                         selectionMode = selectionMode,
                         selected = erroredKeyOf(ext.internalName) in selectedKeys,
                         onToggleSelected = { toggleSelected(erroredKeyOf(ext.internalName)) },
@@ -347,6 +364,7 @@ internal fun CloudstreamExtensionsSection(
                     CsUntrustedRow(
                         modifier = Modifier.animateItem(),
                         extension = ext,
+                        dragSessionActive = dragSession.active,
                         selectionMode = selectionMode,
                         selected = untrustedKeyOf(ext.internalName) in selectedKeys,
                         onToggleSelected = { toggleSelected(untrustedKeyOf(ext.internalName)) },
@@ -384,6 +402,7 @@ internal fun CloudstreamExtensionsSection(
                         modifier = Modifier.animateItem(),
                         extension = ext,
                         installStep = installStates[ext.plugin.internalName],
+                        dragSessionActive = dragSession.active,
                         selectionMode = selectionMode,
                         selected = availableKeyOf(ext.plugin.internalName) in selectedKeys,
                         onToggleSelected = { toggleSelected(availableKeyOf(ext.plugin.internalName)) },
@@ -566,7 +585,9 @@ private fun CsInstalledRow(
     extension: CloudstreamExtension.Installed,
     installStep: InstallStep?,
     // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows;
-    // ROUND 93, D-641 — the long-press lives on the list's drag handler).
+    // ROUND 93, D-641 — the long-press lives on the list's drag handler;
+    // ROUND 95, D-653 — the clickable yields to a live drag session).
+    dragSessionActive: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
@@ -629,6 +650,7 @@ private fun CsInstalledRow(
             // ROUND 93 (D-641): plain clickable — the list-level drag handler
             // owns the long-press (no ripple; see the aniyomi rows).
             .clickable(
+                enabled = !dragSessionActive,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = if (selectionMode) onToggleSelected else onClick,
@@ -727,7 +749,9 @@ private fun CsErroredRow(
     retrying: Boolean = false,
     // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows;
     // ROUND 93, D-641 — the long-press lives on the list's drag handler;
-    // D-645 — forcedExit is the batch-delete exit choreography).
+    // D-645 — forcedExit is the batch-delete exit choreography;
+    // ROUND 95, D-653 — the clickable yields to a live drag session).
+    dragSessionActive: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
@@ -771,6 +795,7 @@ private fun CsErroredRow(
             // ROUND 93 (D-641): plain clickable — the list-level drag handler
             // owns the long-press (no ripple).
             .clickable(
+                enabled = !dragSessionActive,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = if (selectionMode) onToggleSelected else onClick,
@@ -881,7 +906,9 @@ private fun CsUntrustedRow(
     extension: CloudstreamExtension.Untrusted,
     // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows;
     // ROUND 93, D-641 — the long-press lives on the list's drag handler;
-    // D-645 — forcedExit is the batch-delete exit choreography).
+    // D-645 — forcedExit is the batch-delete exit choreography;
+    // ROUND 95, D-653 — the clickable yields to a live drag session).
+    dragSessionActive: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
@@ -936,6 +963,7 @@ private fun CsUntrustedRow(
             // ROUND 93 (D-641): plain clickable — the list-level drag handler
             // owns the long-press (no ripple).
             .clickable(
+                enabled = !dragSessionActive,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = if (selectionMode) onToggleSelected else onClick,
@@ -1033,7 +1061,9 @@ private fun CsAvailableRow(
     extension: CloudstreamExtension.Available,
     installStep: InstallStep?,
     // ROUND 92 (D-639): the multi-select contract (see the aniyomi rows;
-    // ROUND 93, D-641 — the long-press lives on the list's drag handler).
+    // ROUND 93, D-641 — the long-press lives on the list's drag handler;
+    // ROUND 95, D-653 — the clickable yields to a live drag session).
+    dragSessionActive: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelected: () -> Unit = {},
@@ -1065,6 +1095,7 @@ private fun CsAvailableRow(
             .deleteExitLayer(deleteExit)
             .fillMaxWidth()
             .clickable(
+                enabled = !dragSessionActive,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = if (selectionMode) onToggleSelected else onClick,

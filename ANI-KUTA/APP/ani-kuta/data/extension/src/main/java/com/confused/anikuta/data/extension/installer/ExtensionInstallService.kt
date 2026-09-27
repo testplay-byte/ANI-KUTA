@@ -21,6 +21,21 @@ import java.io.File
  * Foreground service hosting one [PackageInstallerBackend]. Processes one install
  * per [startService] call, then [stopSelf]s.
  *
+ * ROUND 95 (D-654) — THE STOPSELF(STARTID) FIX. The old code called plain
+ * `stopSelf()` (no argument) from each install's finally — and a plain
+ * stopSelf stops the service UNCONDITIONALLY, even when a NEWER start
+ * request has already been delivered. The v1.1.51 device report caught the
+ * race: "the very last one apparently does not show me the pop-up… it gets
+ * stuck on installing after downloading" — a batch's next dispatch
+ * (startService for install N+1) could land while the previous answer's
+ * stopSelf was still pending on the main looper; the service then delivered
+ * onStartCommand(N+1), launched its install coroutine, and the queued
+ * stopSelf DESTROYED the service anyway — onDestroy cancelled the scope and
+ * killed install N+1 mid-flight (no prompt, no result, the row stuck on
+ * "Installing" until the 5-minute safety timeout). `stopSelf(startId)` only
+ * stops when THIS start request is the most recent one, so a queued-next
+ * install survives and stops itself cleanly when it finishes.
+ *
  * Ported from the old project. Must be declared in the app manifest with
  * `android:foregroundServiceType="dataSync"`.
  *
@@ -61,7 +76,8 @@ class ExtensionInstallService : Service() {
 
         if (apkPath == null || pkgName == null) {
             Logger.w(TAG) { "Missing extras in install intent" }
-            stopSelf()
+            // D-654: the startId-aware stop — see the class header.
+            stopSelf(startId)
             return START_NOT_STICKY
         }
 
@@ -73,7 +89,7 @@ class ExtensionInstallService : Service() {
             try {
                 if (!apkFile.exists()) {
                     Logger.e(TAG) { "APK file not found: $apkPath" }
-                    stopSelf()
+                    stopSelf(startId)
                     return@launch
                 }
                 val result = backend.install(apkFile, pkgName)
@@ -94,7 +110,8 @@ class ExtensionInstallService : Service() {
             } finally {
                 // Always clean up the temp APK.
                 apkFile.delete()
-                stopSelf()
+                // D-654: startId-aware — never kills a newer start's install.
+                stopSelf(startId)
             }
         }
 

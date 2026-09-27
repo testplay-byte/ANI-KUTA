@@ -156,6 +156,10 @@ class SearchTest : ExtensionTest {
                     detail = results.first().title,
                     // The ACTUAL results — rendered as thumbnail cards.
                     payload = TestPayload(
+                        // D-656 (round 95): the RAW result total for the card
+                        // header ("10, 4, <name>") — the browsable list is
+                        // capped at 12.
+                        entryCount = results.size,
                         entries = results.take(PAYLOAD_ENTRY_CAP).map { anime ->
                             TestPayloadEntry(title = anime.title, thumbnailUrl = anime.thumbnail_url)
                         },

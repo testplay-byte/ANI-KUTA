@@ -48,7 +48,11 @@ class PingTest(
     }
 
     private fun ExchangeResult.Ok.toOutcome(base: String): TestOutcome = TestOutcome.pass(
-        message = "Responded HTTP $code in $durationMs ms",
+        // ROUND 95 (D-656): the duration is GONE from the message — the card's
+        // header carries it on the very right now ("it would only say
+        // responded, HTTP and then the number"); the round trip lives in the
+        // payload's rttMs for anyone who wants the number.
+        message = "Responded, HTTP $code",
         detail = base,
         // ROUND 85: the live metrics — the detail page renders them as chips.
         payload = TestPayload(httpCode = code, rttMs = durationMs),

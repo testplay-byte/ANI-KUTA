@@ -1,5 +1,6 @@
 package com.confused.anikuta.feature.extensionssettings.testing
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloat
@@ -7,6 +8,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +32,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SkipNext
@@ -540,27 +544,74 @@ internal fun KindPayloadView(
 
         ExtensionTestKind.DETAILS -> PayloadDetailsDossier(payload, modifier)
 
-        ExtensionTestKind.EPISODE_LIST -> PayloadEpisodeChips(payload, modifier)
+        ExtensionTestKind.EPISODE_LIST -> PayloadEpisodeList(payload, modifier)
 
         ExtensionTestKind.VIDEO_RESOLVE -> PayloadVideoRows(payload.videos, modifier)
 
         ExtensionTestKind.STREAM_PLAY -> {
-            // The chips are gone (same duplication); what the user wants here
-            // is the REAL THING — a muted 30s-capped preview of the resolved
-            // stream, rendered whenever the payload carries its URL. ROUND 88
-            // (D-622): [autoPlayPreview] = false renders a TAP-TO-PLAY strip
-            // instead — a stored page must not start streaming on open.
+            // ROUND 95 (D-656): THE STREAM FACTS — "the UI of it will be made
+            // quite simple and quite clean. Like it will show the details of
+            // the stream, like resolved link which it played, and other
+            // details like the amount loaded… in a proper formatted way":
+            // the resolved link as its own monospace line and the loaded
+            // amount (+ the HTTP code) as a labeled fact, THEN the live
+            // preview (which keeps its last frame after success below).
             payload.streamUrl?.let { url ->
-                StreamPreviewPlayer(
-                    url = url,
-                    referer = payload.streamReferer,
-                    userAgent = payload.streamUserAgent,
-                    headers = payload.streamHeaders,
-                    modifier = modifier,
-                    autoPlay = autoPlayPreview,
-                )
+                Column(modifier = modifier.fillMaxWidth()) {
+                    StreamFactRow(label = "LINK", value = url, monospace = true)
+                    payload.streamBytesLabel?.let { bytes ->
+                        val loaded = if (payload.streamHttpCode != null) {
+                            "$bytes · HTTP ${payload.streamHttpCode}"
+                        } else {
+                            bytes
+                        }
+                        StreamFactRow(label = "LOADED", value = loaded, monospace = false)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    StreamPreviewPlayer(
+                        url = url,
+                        referer = payload.streamReferer,
+                        userAgent = payload.streamUserAgent,
+                        headers = payload.streamHeaders,
+                        modifier = Modifier,
+                        autoPlay = autoPlayPreview,
+                    )
+                }
             }
         }
+    }
+}
+
+/**
+ * ROUND 95 (D-656): one stream-play fact row — a small bold label on the
+ * left, the value on the right (the resolved link renders monospace, one
+ * ellipsized line).
+ */
+@Composable
+private fun StreamFactRow(label: String, value: String, monospace: Boolean) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.6.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            modifier = Modifier.width(52.dp),
+        )
+        Text(
+            text = value,
+            fontFamily = if (monospace) FontFamily.Monospace else RobotoFamily,
+            fontSize = 10.sp,
+            fontWeight = if (monospace) FontWeight.Normal else FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -585,8 +636,13 @@ internal fun kindPayloadHasContent(kind: ExtensionTestKind, payload: TestPayload
 }
 
 /**
- * The ACTUAL search/home entries — the round-86 GRID, uncapped in round 88
- * (D-623): ALL the captured results in a 3-wide layout, every title ONE line.
+ * The ACTUAL search/home entries — ROUND 95 (D-656): the TOP THREE by
+ * default, one clean 3-wide row, with an EXPAND button revealing the rest
+ * of the captured list ("it should only show by default the top three
+ * results. And below it there should be an expand button which I can click
+ * to see the other results"). The round-88 all-12 grid is the EXPANDED
+ * state now — the resting card loads a third of the thumbnails (a real
+ * perf win on stored pages).
  */
 @Composable
 private fun PayloadEntriesGrid(
@@ -594,13 +650,15 @@ private fun PayloadEntriesGrid(
     modifier: Modifier = Modifier,
 ) {
     if (entries.isNullOrEmpty()) return
-    // ROUND 88 (D-623): the grid shows ALL the captured results (12 — four
-    // rows of three) — the old take(6) hid half of what the test actually
-    // returned, on the page whose purpose is the FULL result.
-    val grid = entries.take(12).chunked(3)
+    var expanded by remember { mutableStateOf(false) }
+    // The captured cap is 12 — the grid reveals it row by row on expand.
+    val shown = if (expanded) entries.take(12) else entries.take(3)
+    val grid = shown.chunked(3)
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(tween(220)),
     ) {
         grid.forEach { rowEntries ->
             Row(
@@ -650,10 +708,80 @@ private fun PayloadEntriesGrid(
                 repeat(3 - rowEntries.size) { Spacer(modifier = Modifier.weight(1f)) }
             }
         }
+        if (entries.size > 3) {
+            PayloadExpandButton(
+                expanded = expanded,
+                hiddenCount = entries.size - shown.size,
+                onToggle = { expanded = !expanded },
+            )
+        }
     }
 }
 
-/** The details dossier — poster + title + genres + status (+ synopsis). */
+/**
+ * ROUND 95 (D-656): THE EXPAND BUTTON — the shared top-3 affordance. A quiet
+ * full-width outlined strip with a chevron: "Expand · 9 more" when
+ * collapsed (the hidden count says what the click buys), "Collapse" when
+ * open. Used by the results grid, the episode list and the resolved links.
+ */
+@Composable
+private fun PayloadExpandButton(
+    expanded: Boolean,
+    hiddenCount: Int,
+    onToggle: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClick = onToggle,
+            ),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+        ) {
+            Icon(
+                imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text = if (expanded) {
+                    "Collapse"
+                } else {
+                    "Expand" + if (hiddenCount > 0) " · $hiddenCount more" else ""
+                },
+                fontFamily = RobotoFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/**
+ * The details dossier — ROUND 95 (D-656): "in the loaded details, what it
+ * will show is the title of it, and the title will be shown in only one
+ * single line, and the other few details will be shown below it but in a
+ * proper formatted way." So: poster + the ONE-LINE title; the status as a
+ * primary-tinted pill and every genre as its own quiet pill below (the old
+ * crammed status·genre·genre string could not be formatted properly); the
+ * URL as its own monospace line. The synopsis is retired from the CARD (the
+ * compression pass — it stays captured in the payload/store).
+ */
 @Composable
 private fun PayloadDetailsDossier(payload: TestPayload, modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -670,36 +798,35 @@ private fun PayloadDetailsDossier(payload: TestPayload, modifier: Modifier = Mod
                 )
             }
             Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = payload.detailsTitle ?: "",
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val meta = buildList {
-                    payload.detailsStatus?.let { add(it) }
-                    // ROUND 88 (D-623): all the captured genres — the old
-                    // take(3) amputated the list on the FULL-details page.
-                    payload.detailsGenres?.take(8)?.let { addAll(it) }
-                }
-                if (meta.isNotEmpty()) {
-                    Text(
-                        text = meta.joinToString(" · "),
-                        fontFamily = RobotoFamily,
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+            Text(
+                text = payload.detailsTitle ?: "",
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        // The few details, PROPERLY FORMATTED: the status as a tinted pill,
+        // the genres as quiet pills — never one crammed string again.
+        val status = payload.detailsStatus
+        val genres = payload.detailsGenres.orEmpty().take(8)
+        if (status != null || genres.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            ) {
+                status?.let { PayloadMetaChip(text = it, emphasized = true) }
+                genres.forEach { genre -> PayloadMetaChip(text = genre, emphasized = false) }
             }
         }
-        // D-592 (round 86): the entry's URL as its own formatted line — the
-        // user asked for "the title, the details, the URL properly shown".
+        // The entry's URL as its own formatted line — kept from D-592 ("the
+        // title, the details, the URL properly shown").
         payload.detailsUrl?.let { url ->
             Text(
                 text = url,
@@ -708,90 +835,143 @@ private fun PayloadDetailsDossier(payload: TestPayload, modifier: Modifier = Mod
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-        payload.detailsSynopsis?.let { synopsis ->
-            Text(
-                text = synopsis,
-                fontFamily = RobotoFamily,
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 6.dp),
             )
         }
     }
 }
 
-/** The ACTUAL episode chips — EP 1 … EP n (+N more when capped). */
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * ROUND 95 (D-656): one details pill — the status wears the primary tint,
+ * the genres stay quiet surfaceVariant.
+ */
 @Composable
-private fun PayloadEpisodeChips(payload: TestPayload, modifier: Modifier = Modifier) {
+private fun PayloadMetaChip(text: String, emphasized: Boolean) {
+    val tint = if (emphasized) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        color = if (emphasized) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        },
+        shape = RoundedCornerShape(50),
+    ) {
+        Text(
+            text = text,
+            fontFamily = RobotoFamily,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = tint,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+    }
+}
+
+/**
+ * The ACTUAL episodes — ROUND 95 (D-656): a LIST VIEW now, "and below it it
+ * will not say any description like episode 13 details or anything like
+ * that. It would just show the episode found, and it would show those
+ * episodes in a list view, and only the top three will be shown, and the
+ * others can be shown by expanding it. But by default it will be
+ * collapsed." Each row: the episode number bold + its name (one ellipsized
+ * line); the captured cap (48) is the EXPANDED state; a quiet trailing row
+ * states the uncaptured remainder ("+512 more on the site").
+ */
+@Composable
+private fun PayloadEpisodeList(payload: TestPayload, modifier: Modifier = Modifier) {
     val episodes = payload.episodes.orEmpty()
     if (episodes.isEmpty()) return
-    // ROUND 88 (D-623): the chips show the WHOLE captured list (48) — the
-    // old take(24) hid half the episodes behind "+N more" for no reason;
-    // the chips are tiny, the full list fits.
-    val shown = episodes.take(48)
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
-        modifier = modifier.fillMaxWidth(),
+    var expanded by remember { mutableStateOf(false) }
+    val shown = if (expanded) episodes else episodes.take(3)
+    val total = payload.episodeCount ?: episodes.size
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(tween(220)),
     ) {
         shown.forEach { episode ->
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(7.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(
-                    text = "EP ${episode.number}",
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        text = "EP ${episode.number}",
+                        fontFamily = RobotoFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    episode.name.takeIf { it.isNotBlank() }?.let { name ->
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = name,
+                            fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
             }
         }
-        val hidden = (payload.episodeCount ?: episodes.size) - shown.size
-        if (hidden > 0) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(7.dp),
-            ) {
-                Text(
-                    text = "+$hidden more",
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
-                )
-            }
+        // The uncaptured remainder — honest, one quiet line.
+        val uncaptured = total - episodes.size
+        if (expanded && uncaptured > 0) {
+            Text(
+                text = "+$uncaptured more on the site",
+                fontFamily = RobotoFamily,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.padding(start = 2.dp),
+            )
+        }
+        if (total > 3 || episodes.size > 3) {
+            PayloadExpandButton(
+                expanded = expanded,
+                hiddenCount = (if (expanded) uncaptured else episodes.size - shown.size).coerceAtLeast(0),
+                onToggle = { expanded = !expanded },
+            )
         }
     }
 }
 
-/** The ACTUAL resolved servers/qualities — one formatted card row each
- *  (the round-86 "all the resolved screens shown properly in a formatted
- *  layout"). */
+/**
+ * The ACTUAL resolved servers/qualities — ROUND 95 (D-656): the TOP THREE
+ * rows by default with the shared EXPAND button below ("it would only show
+ * the top three links, and others can be seen by expanding it if
+ * available"); each row is the round-86 formatted anatomy (index + dot +
+ * label + quality pill), and the full captured list (24) is the EXPANDED
+ * state.
+ */
 @Composable
 private fun PayloadVideoRows(
     videos: List<TestPayloadVideo>?,
     modifier: Modifier = Modifier,
 ) {
     if (videos.isNullOrEmpty()) return
-    // ROUND 87 (D-596): the WHOLE payload list renders — the 24-row cap is
-    // the capture cap (VideoResolveTest), not the UI's. The old take(10)
-    // hid what the user explicitly asked to see ("all the resolved videos
-    // should be shown in a list properly").
+    var expanded by remember { mutableStateOf(false) }
+    val shown = if (expanded) videos else videos.take(3)
     Column(
         verticalArrangement = Arrangement.spacedBy(5.dp),
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(tween(220)),
     ) {
-        videos.forEachIndexed { index, video ->
+        shown.forEachIndexed { index, video ->
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                 shape = RoundedCornerShape(8.dp),
@@ -843,6 +1023,13 @@ private fun PayloadVideoRows(
                     }
                 }
             }
+        }
+        if (videos.size > 3) {
+            PayloadExpandButton(
+                expanded = expanded,
+                hiddenCount = videos.size - shown.size,
+                onToggle = { expanded = !expanded },
+            )
         }
     }
 }
@@ -960,12 +1147,20 @@ internal fun StreamPreviewPlayer(
     var phase by remember(url) { mutableStateOf(StreamPreviewPhase.PLAYING) }
     var secondsLeft by remember(url) { mutableIntStateOf(STREAM_PREVIEW_CAP_S) }
 
-    if (phase == StreamPreviewPhase.PLAYING) {
-        // The player object lives ONLY while the preview plays — when the
-        // cap (or the stream, or an error) ends the phase, this branch
-        // LEAVES COMPOSITION and the DisposableEffect below releases the
-        // player, the surface and every buffer. No permanent black 16:9
-        // box, no orphaned ExoPlayer.
+    // ROUND 95 (D-656): THE LAST-FRAME KEEP — "the live preview will show
+    // properly even after it has been successful, like the live preview
+    // will show the very last frame… and it would be properly cached
+    // temporarily." The player + surface now stay composed in the ENDED
+    // phase too: the 30s cap PAUSES playback (a paused ExoPlayer holds its
+    // current frame on the surface — the "temporary cache"), the caption
+    // bar swaps to the success line, and everything releases when the card
+    // leaves composition. Only the FAILED path collapses to the quiet strip
+    // (there is no frame to hold).
+    if (phase != StreamPreviewPhase.FAILED) {
+        // The player object lives while the preview is on screen — PLAYING
+        // or paused-at-its-last-frame (ENDED). When the card leaves
+        // composition, the DisposableEffect below releases the player, the
+        // surface and every buffer.
         val player = remember(url) {
             // The stream's own request headers (Referer / User-Agent / the flat
             // map the capture kept) ride a dedicated DefaultHttpDataSource — the
@@ -1013,15 +1208,17 @@ internal fun StreamPreviewPlayer(
                     prepare()
                 }
         }
-        // THE 30-SECOND CAP — a one-second countdown, then the player stops
-        // itself and the card reports success. Nothing plays past the cap.
+        // THE 30-SECOND CAP — a one-second countdown, then playback PAUSES
+        // (the frame stays on the surface — D-656's last-frame keep) and the
+        // caption reports success. Nothing plays past the cap.
         LaunchedEffect(url) {
             while (phase == StreamPreviewPhase.PLAYING && secondsLeft > 0) {
                 delay(1_000)
                 if (phase == StreamPreviewPhase.PLAYING) secondsLeft--
             }
             if (phase == StreamPreviewPhase.PLAYING) {
-                player.stop()
+                player.pause()
+                secondsLeft = 0
                 phase = StreamPreviewPhase.ENDED
             }
         }
@@ -1058,28 +1255,48 @@ internal fun StreamPreviewPlayer(
                         .background(Color.Black.copy(alpha = 0.5f))
                         .padding(horizontal = 9.dp, vertical = 5.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFB1F256)),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "LIVE PREVIEW · muted · ${secondsLeft}s left",
-                        fontFamily = RobotoFamily,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFFB1F256),
-                    )
+                    if (phase == StreamPreviewPhase.PLAYING) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFB1F256)),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "LIVE PREVIEW · muted · ${secondsLeft}s left",
+                            fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFFB1F256),
+                        )
+                    } else {
+                        // D-656: the success caption — playback paused at the
+                        // cap, the very last frame held on the surface.
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFFB1F256),
+                            modifier = Modifier.size(13.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Stream played successfully · last frame held",
+                            fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFFB1F256),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
     } else {
-        // THE END STRIP (round 88, D-622): success or failure collapses to
-        // ONE quiet row — the full-width black surface is GONE the moment
-        // the preview ends (the round-87 report: nothing on this page may
-        // outstay its welcome).
+        // THE FAILED STRIP — the player never delivered a frame, so there is
+        // nothing to hold: one quiet row (D-622's language; only the error
+        // path collapses now — D-656).
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
             shape = RoundedCornerShape(10.dp),

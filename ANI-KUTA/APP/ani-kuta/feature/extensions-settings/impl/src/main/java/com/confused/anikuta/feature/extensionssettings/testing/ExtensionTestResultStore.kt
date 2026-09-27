@@ -293,6 +293,9 @@ class ExtensionTestResultStore(context: Context) {
             }
             o.put("entries", arr)
         }
+        // D-656 (round 95): the raw totals round-trip (search/home entries,
+        // video links) — the card headers read them.
+        p.entryCount?.let { o.put("entryCount", it) }
         p.detailsTitle?.let { o.put("detailsTitle", it) }
         p.detailsGenres?.let { list -> o.put("detailsGenres", org.json.JSONArray(list)) }
         p.detailsStatus?.let { o.put("detailsStatus", it) }
@@ -316,6 +319,7 @@ class ExtensionTestResultStore(context: Context) {
             }
             o.put("videos", arr)
         }
+        p.videoCount?.let { o.put("videoCount", it) }
         p.streamBytesLabel?.let { o.put("streamBytesLabel", it) }
         p.streamHttpCode?.let { o.put("streamHttpCode", it) }
         p.streamUrl?.let { o.put("streamUrl", it) }
@@ -345,6 +349,8 @@ class ExtensionTestResultStore(context: Context) {
                 }
             }.takeIf { it.isNotEmpty() }
         },
+        // D-656 (round 95): the raw totals read back (opt — older blobs lack them).
+        entryCount = if (o.has("entryCount")) o.optInt("entryCount") else null,
         detailsTitle = o.optString("detailsTitle").takeIf { it.isNotEmpty() },
         detailsGenres = o.optJSONArray("detailsGenres")?.let { arr ->
             (0 until arr.length()).mapNotNull { i ->
@@ -373,6 +379,7 @@ class ExtensionTestResultStore(context: Context) {
                 }
             }.takeIf { it.isNotEmpty() }
         },
+        videoCount = if (o.has("videoCount")) o.optInt("videoCount") else null,
         streamBytesLabel = o.optString("streamBytesLabel").takeIf { it.isNotEmpty() },
         streamHttpCode = if (o.has("streamHttpCode")) o.optInt("streamHttpCode") else null,
         streamUrl = o.optString("streamUrl").takeIf { it.isNotEmpty() },

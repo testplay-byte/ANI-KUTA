@@ -115,6 +115,21 @@ class AppPreferences(private val store: PreferenceStore) {
         get() = store.getString(KEY_EXTENSIONS_NSFW_MODE, "off")
         set(value) = store.putString(KEY_EXTENSIONS_NSFW_MODE, value)
 
+    // ── ROUND 95 (D-657): THE EXTENSION-TESTING GATE ──
+    // The extension-testing system is HIDDEN by default ("By default it will
+    // be hidden. It will not be shown and the user has to enable it"): the
+    // entry (the extensions header's Science pill) only renders while this
+    // is ON, and the toggle itself lives on the hidden debug-options page
+    // (Settings → HOLD the "Debug options" row for 10 seconds → "Extension
+    // Testing"). A debug TOOL, not a feature flag — flipping it off merely
+    // hides the door again; the routes stay alive.
+    var extensionTestingEnabled: Boolean
+        get() = store.getBoolean(KEY_EXTENSION_TESTING_ENABLED, false)
+        set(value) = store.putBoolean(KEY_EXTENSION_TESTING_ENABLED, value)
+
+    fun extensionTestingEnabledFlow(): kotlinx.coroutines.flow.Flow<Boolean> =
+        store.booleanFlow(KEY_EXTENSION_TESTING_ENABLED, false)
+
     companion object {
         private const val KEY_CONTENT_MODE = "content_mode"
         private const val KEY_TRACKING_RETENTION = "tracking_retention_days"
@@ -132,5 +147,8 @@ class AppPreferences(private val store: PreferenceStore) {
         // ROUND 94 (D-650): the extensions-page NSFW tri-state (default "off");
         // retired with it: the Task-41/G4 boolean cloudstream_show_nsfw.
         private const val KEY_EXTENSIONS_NSFW_MODE = "extensions_nsfw_mode"
+        // ROUND 95 (D-657): the extension-testing gate (default false — the
+        // testing system is hidden until the user enables it).
+        private const val KEY_EXTENSION_TESTING_ENABLED = "extension_testing_enabled"
     }
 }

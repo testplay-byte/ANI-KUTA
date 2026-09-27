@@ -57,7 +57,11 @@ class HomePageTest : ExtensionTest {
                     "${entries.size} entr${if (entries.size == 1) "y" else "ies"} on the home page",
                     detail = entries.first().title,
                     // The ACTUAL popular entries — rendered as thumbnail cards.
+                    // D-656 (round 95): entryCount = the RAW total (the
+                    // browsable list is capped at 12; the card header shows the
+                    // honest number).
                     payload = TestPayload(
+                        entryCount = entries.size,
                         entries = entries.take(PAYLOAD_ENTRY_CAP).map { anime ->
                             TestPayloadEntry(title = anime.title, thumbnailUrl = anime.thumbnail_url)
                         },

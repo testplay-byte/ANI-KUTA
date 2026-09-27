@@ -97,6 +97,10 @@ class VideoResolveTest(
                         detail = lastDetail,
                         // The ACTUAL server/quality list — capped.
                         payload = TestPayload(
+                            // D-656 (round 95): the RAW link total for the
+                            // card header ("N links") — the browsable list is
+                            // capped at 24.
+                            videoCount = videos.size,
                             videos = videos.take(VIDEO_CAP).map { v ->
                                 TestPayloadVideo(
                                     label = v.videoTitle.ifBlank { "Video" },
@@ -256,7 +260,10 @@ class VideoResolveTest(
         Logger.d(TAG) { "CS resolve test: $linkCount links, first = $firstName" }
         return TestOutcome.pass(
             "$linkCount link${if (linkCount == 1) "" else "s"} — first: ${context.resolvedVideoLabel}",
-            payload = TestPayload(videos = linksForPayload),
+            payload = TestPayload(
+                videoCount = linkCount,
+                videos = linksForPayload,
+            ),
         )
     }
 

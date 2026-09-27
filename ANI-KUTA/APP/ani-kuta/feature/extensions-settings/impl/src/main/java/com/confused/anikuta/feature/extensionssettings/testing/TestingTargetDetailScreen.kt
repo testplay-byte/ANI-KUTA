@@ -561,7 +561,7 @@ fun TestingTargetDetailScreen(
                                                     if (index == 0) Color.Transparent else railColor,
                                                 ),
                                         )
-                                        TimelineBubble(result?.status ?: TestStatus.PENDING)
+                                        TimelineBubble(result?.status ?: TestStatus.PENDING, TestingPalette.kindColor(kind))
                                         Box(
                                             modifier = Modifier
                                                 .width(2.dp)
@@ -795,15 +795,27 @@ private fun VerdictCountChip(label: String, count: Int, color: Color) {
 }
 
 /**
- * ROUND 93 (D-647) → ROUND 94 (D-652): THE STAGE-TIMING BARS — BARS ONLY.
+ * ROUND 93 (D-647) → ROUND 94 (D-652) → ROUND 95 (D-655): THE STAGE-TIMING
+ * BARS — bars, their in-bar durations, and the one-line completion verdict.
  * The v1.1.50 report retired the labeled row list ("There won't be any
- * text to them, nothing, only bars"): each STARTED stage is now one thin
- * bar stacked right against its neighbors with just a hair of padding
- * (3dp), sized against the LONGEST stage shown. The D-637 motion survives:
- * the bar reveals (expand+fade) the moment its stage starts, the running
- * bar GROWS LIVE (150ms ticker), and every earlier bar RENORMALIZES
- * (animated 350ms) whenever a new maximum lands. Never-run stages render
- * nothing; an untested target shows one quiet empty line.
+ * text to them, nothing, only bars"); each STARTED stage is one thin bar
+ * stacked right against its neighbors with just a hair of padding (3dp),
+ * sized against the LONGEST stage shown. The v1.1.51 report then added the
+ * two read-outs back in a STRICTLY visual form: "alongside with the bar, we
+ * could show small text inside the bars themselves, on the right side, in a
+ * way that it is clearly visible. And what it will show is the duration of
+ * each one of those bars" — so every bar now carries a small SCRIM CHIP at
+ * its right edge holding the duration (the translucent dark pill behind
+ * the white 9sp text guarantees contrast over ANY kind color AND over the
+ * bare track of a short bar — no clipping, no threshold jumps while the
+ * running bar grows). And below the stack: ONE line, never wrapped —
+ * "All tests successfully completed in 1m 42s" (a healthy chain) or
+ * "All tests failed in 23 s" (any failure), the honest totals. The D-637
+ * motion survives: the bar reveals (expand+fade) the moment its stage
+ * starts, the running bar GROWS LIVE (150ms ticker, its chip ticking with
+ * it), and every earlier bar RENORMALIZES (animated 350ms) whenever a new
+ * maximum lands. Never-run stages render nothing; an untested target shows
+ * one quiet empty line.
  */
 @Composable
 private fun StageTimingBars(state: TargetRunState?) {
@@ -832,6 +844,23 @@ private fun StageTimingBars(state: TargetRunState?) {
     val maxStageMs = ExtensionTestKind.entries
         .maxOf { stageMs(it) }
         .coerceAtLeast(STAGE_MIN_MS)
+
+    // ── D-655: THE COMPLETION VERDICT LINE. One line, never wrapped: the
+    // healthy chain states its total ("All tests successfully completed
+    // in…"), any failure states the time it failed in ("All tests failed
+    // in…"). It lands once the run has SETTLED (live runs stay quiet until
+    // their verdict is final); aborted and never-run targets show nothing.
+    val decidedResults = state?.results?.values
+        ?.filter { it.status != TestStatus.PENDING && it.status != TestStatus.RUNNING }
+        .orEmpty()
+    val failedCount = decidedResults.count { it.status == TestStatus.FAILED }
+    val settledAndDecided = state != null && !state.isRunning && decidedResults.isNotEmpty()
+    val completionText: String? = when {
+        settledAndDecided && failedCount > 0 -> "All tests failed in"
+        settledAndDecided && state?.isHealthy == true -> "All tests successfully completed in"
+        else -> null
+    }
+    val completionTotalMs = decidedResults.sumOf { it.durationMs }
 
     var anyShown = false
     Column(
@@ -865,10 +894,11 @@ private fun StageTimingBars(state: TargetRunState?) {
                     TestStatus.SKIPPED -> baseColor.copy(alpha = 0.30f)
                     else -> baseColor
                 }
+                // D-655: the bar grew to hold its duration chip (7dp → 15dp).
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(7.dp)
+                        .height(15.dp)
                         .clip(RoundedCornerShape(50))
                         .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f)),
                 ) {
@@ -876,9 +906,33 @@ private fun StageTimingBars(state: TargetRunState?) {
                         modifier = Modifier
                             .fillMaxWidth(fraction)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(50))
-                            .background(fillColor),
+                            .background(fillColor, RoundedCornerShape(50)),
                     )
+                    // THE DURATION CHIP — the bar's own time, "inside the
+                    // bars themselves, on the right side… clearly visible".
+                    // The translucent dark pill guarantees the white text
+                    // reads over the light kind colors (sky/amber/lime), over
+                    // the dimmed failed/skipped fills, and over the bare
+                    // track of a short bar — one anchored position, so the
+                    // running bar's live growth never makes it jump.
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.40f),
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 4.dp),
+                    ) {
+                        Text(
+                            text = TestTimeFormat.format(stageMs(kind)),
+                            fontFamily = RobotoFamily,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                        )
+                    }
                 }
             }
         }
@@ -889,6 +943,24 @@ private fun StageTimingBars(state: TargetRunState?) {
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
+        } else if (completionText != null) {
+            // D-655: the ONE-LINE verdict — never wrapped, never a second
+            // line ("it will not be formatted to the next line").
+            Text(
+                text = "$completionText ${TestTimeFormat.format(completionTotalMs)}",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (failedCount > 0) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 5.dp),
+            )
         }
     }
 }
@@ -896,15 +968,20 @@ private fun StageTimingBars(state: TargetRunState?) {
 /** The visibility floor for live/finished weights (D-632; the D-637 twin). */
 private const val STAGE_MIN_MS = 250L
 
-/** One timeline bubble — the status-colored circle on the left rail. */
+/** One timeline bubble — the status-colored circle on the left rail.
+ *  ROUND 95 (D-656): "the timeline bubbles should be theme colored" — the
+ *  bubble now wears its KIND's color from the testing palette (the same
+ *  identity hue as the stage bar + the card heading). FAILED keeps the
+ *  error red and SKIPPED dims to a whisper — the verdict must stay legible
+ *  (the D-594 doctrine: a failure never masquerades as a system color). */
 @Composable
-private fun TimelineBubble(status: TestStatus) {
+private fun TimelineBubble(status: TestStatus, kindColor: Color) {
     val color = when (status) {
         TestStatus.PENDING -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
-        TestStatus.RUNNING -> MaterialTheme.colorScheme.primary
-        TestStatus.PASSED -> MaterialTheme.colorScheme.primary
+        TestStatus.RUNNING -> kindColor
+        TestStatus.PASSED -> kindColor
         TestStatus.FAILED -> MaterialTheme.colorScheme.error
-        TestStatus.SKIPPED -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        TestStatus.SKIPPED -> kindColor.copy(alpha = 0.35f)
     }
     if (status == TestStatus.RUNNING) {
         // ROUND 88 (D-621): a RUNNING test's bubble BREATHES — a pulsing ring
@@ -1066,24 +1143,35 @@ private fun TransientResultBanner(
 
 /**
  * One kind's result card on the timeline (round 87, D-607; failure pass
- * round 88, D-618; ROUND 91, D-632; ROUND 93, D-647 — THE PROFESSIONAL
- * PASS: the v1.1.49 report — "the style of the test results is not proper,
- * like the glowing kind of blocks and such… try to make it look
- * professional, just like how the rest of our application is"). The card is
- * now a NEUTRAL surface like every other card in the app — a hairline
- * border, a thin LEADING ACCENT edge in the kind's color (the banner
- * language), and the kind's hue living ONLY in the small header dot + that
- * edge. The full-card color wash + tinted border are gone. What the card
- * holds (unchanged):
- *   • the kind's color dot + label + LIVE elapsed while running;
- *   • the verdict message + the detail line as clean text rows — the
- *     detail line shows IN FULL;
- *   • the search ladder's advanced stats as stat pills (not code lines);
- *   • the RESULTS SECTION — a neutral inset carrying the payload (result
- *     grid / dossier / episode chips / link rows / live preview), SKIPPED
- *     ENTIRELY when the payload view would render nothing (PING).
- * A RUNNING or terminal result only — the not-yet-run kinds render the
- * timeline's compact name+color section instead (D-632).
+ * round 88, D-618; ROUND 91, D-632; ROUND 93, D-647; ROUND 95, D-656 —
+ * THE RESULTS-SECTION REDESIGN, the v1.1.51 report's item-by-item spec).
+ *
+ * THE NEW ANATOMY (the user's exact words): "At the top it will give the
+ * heading… the heading needs to be made a little bit bigger, and it should
+ * be in the theme color, and there does not need to be a dot on the left
+ * side of it. And on the right side of it, it will show the actual URL /
+ * count… and on the very right side of it… the total duration in which it
+ * completed or in which it failed." So:
+ *
+ *   ┌──────────────────────────────────────────────────────┐
+ *   │ Ping        https://example.com            820 ms    │  ← the header
+ *   ├──────────────────────────────────────────────────────┤
+ *   │ Responded, HTTP 200                                 │  ← the body
+ *   │ [ RESULTS / LOADED DETAILS / EPISODES FOUND / … ]    │
+ *   └──────────────────────────────────────────────────────┘
+ *
+ *   • the heading: 15sp ExtraBold in the KIND's color, NO dot, no leading
+ *     accent edge ("on the left side of them, it does not need to show the
+ *     theme colored line or such" — the D-647 3dp edge is gone);
+ *   • the middle read-out per kind — PING the pinged URL, HOME "15 entries",
+ *     SEARCH "10, 4, <first name>" (the attempts number only when a second
+ *     attempt was made, never the category, the name compresses), EPISODES
+ *     "13 episodes" (locale-grouped: "1,000 episodes"), VIDEO "5 links";
+ *   • the duration on the VERY right (live while running);
+ *   • the body: a PASSED card carries ONLY its payload section (top-3 lists
+ *     + Expand, the details dossier, the stream facts + preview); PING keeps
+ *     its one "Responded, HTTP n" line; FAILED/SKIPPED cards keep their
+ *     reason lines in full; the search stat pills ("won on…") are GONE.
  */
 @Composable
 private fun KindDetailCard(
@@ -1103,41 +1191,39 @@ private fun KindDetailCard(
         tonalElevation = 1.dp,
         modifier = modifier.fillMaxWidth(),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(IntrinsicSize.Min),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
-            // D-647: the leading accent edge — the kind's hue as a thin bar,
-            // the same language as the transient banner (never a full wash).
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .fillMaxHeight()
-                    .background(accent),
-            )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            ) {
-            // ── Header: kind dot + label + (live) duration ──
+            // ── THE HEADER (D-656): [HEADING] [middle read-out] [duration] ──
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(9.dp)
-                        .clip(CircleShape)
-                        .background(accent.copy(alpha = 0.9f)),
-                )
-                Spacer(Modifier.width(8.dp))
+                // "the heading needs to be made a little bit bigger, and it
+                // should be in the theme color, and there does not need to be
+                // a dot on the left side of it."
                 Text(
                     text = kind.label,
                     fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
+                    color = accent,
+                    maxLines = 1,
                 )
+                Spacer(Modifier.width(10.dp))
+                kindHeaderInfo(kind, result)?.let { info ->
+                    Text(
+                        text = info,
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                } ?: Spacer(Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                // "on the very right side of it… the total duration in which
+                // it completed or in which it failed" — LIVE while running.
                 if (running && state?.runningKindStartedAtMs != null) {
                     LiveElapsedText(
                         startedAtMs = state.runningKindStartedAtMs!!,
@@ -1154,31 +1240,55 @@ private fun KindDetailCard(
                 }
             }
 
-            // ── The verdict message + detail as clean text rows ──
-            if (result.message.isNotBlank()) {
-                Text(
-                    text = result.message,
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = when (status) {
-                        TestStatus.FAILED -> MaterialTheme.colorScheme.error
-                        TestStatus.RUNNING -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.onSurface
-                    },
-                    modifier = Modifier.padding(top = 7.dp),
-                )
+            // ── THE BODY ──
+            // A FAILED or SKIPPED card keeps its reason lines IN FULL (the
+            // "full details" page's whole point); a PASSED card carries only
+            // its payload section — PING keeps its one honest line.
+            if (status == TestStatus.FAILED || status == TestStatus.SKIPPED) {
+                if (result.message.isNotBlank()) {
+                    Text(
+                        text = result.message,
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (status == TestStatus.FAILED) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        modifier = Modifier.padding(top = 7.dp),
+                    )
+                }
+                result.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+                    // PING's detail IS the URL — already in the header. The
+                    // other kinds' details stay (they carry the failure's why).
+                    if (kind != ExtensionTestKind.PING) {
+                        Text(
+                            text = detail,
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
+            } else if (status == TestStatus.PASSED && kind == ExtensionTestKind.PING) {
+                // "below it it will show the normal details like responded,
+                // HTTP 200 or other… It would only say responded, HTTP and
+                // then the number" (no duration — that is the header's now).
+                if (result.message.isNotBlank()) {
+                    Text(
+                        text = result.message,
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = 7.dp),
+                    )
+                }
             }
-            result.detail?.takeIf { it.isNotBlank() }?.let { detail ->
-                Text(
-                    text = detail,
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            // The LIVE per-phrase search status (the D-592 pipe).
+            // The LIVE per-phrase search status (the D-592 pipe) — the one
+            // RUNNING body line that stays.
             if (running && kind == ExtensionTestKind.SEARCH && !state?.runningDetail.isNullOrBlank()) {
                 Text(
                     text = state!!.runningDetail.orEmpty(),
@@ -1191,25 +1301,9 @@ private fun KindDetailCard(
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
-            // The search ladder's ADVANCED STATS — stat pills now, not
-            // code lines (the round-87 report).
-            val winner = result.payload?.searchWinningPhrase
-            if (winner != null) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(top = 7.dp),
-                ) {
-                    SearchStatPill(
-                        text = "${result.payload?.searchAttempts ?: 1} " +
-                            if ((result.payload?.searchAttempts ?: 1) > 1) "attempts" else "attempt",
-                    )
-                    SearchStatPill(text = "won on \u201C$winner\u201D")
-                }
-            }
-            // ── THE RESULTS SECTION — a NEUTRAL inset (D-647: surfaceVariant
-            // instead of the old background wash, matching the neutral card);
-            // skipped ENTIRELY when the payload view would render nothing
-            // (PING's chips are gone by design — D-622).
+            // ── THE RESULTS SECTION — the payload (D-656: the counts live in
+            // the HEADER now; the section label is the plain name) — skipped
+            // ENTIRELY when the payload view would render nothing (PING).
             val payload = result.payload
             if (payload != null && kindPayloadHasContent(kind, payload)) {
                 Surface(
@@ -1221,7 +1315,7 @@ private fun KindDetailCard(
                 ) {
                     Column(modifier = Modifier.padding(8.dp)) {
                         Text(
-                            text = resultsSectionLabel(kind, payload),
+                            text = resultsSectionLabel(kind),
                             fontFamily = RobotoFamily,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -1237,42 +1331,62 @@ private fun KindDetailCard(
                     }
                 }
             }
-            }
         }
     }
 }
 
-/** The results section's label — one line per kind, with the payload's
- *  count where there is one (the FULL-details page shows how many it has). */
-private fun resultsSectionLabel(kind: ExtensionTestKind, payload: TestPayload?): String = when (kind) {
-    ExtensionTestKind.SEARCH -> "TOP RESULTS" + payload?.entries?.size?.takeIf { it > 0 }?.let { " · $it" }.orEmpty()
-    ExtensionTestKind.HOME_PAGE ->
-        "HOME PAGE RESULTS" + payload?.entries?.size?.takeIf { it > 0 }?.let { " · $it" }.orEmpty()
-    ExtensionTestKind.DETAILS -> "LOADED DETAILS"
-    ExtensionTestKind.EPISODE_LIST ->
-        "EPISODES FOUND" + payload?.episodeCount?.takeIf { it > 0 }?.let { " · $it" }.orEmpty()
-    ExtensionTestKind.VIDEO_RESOLVE ->
-        "RESOLVED LINKS" + payload?.videos?.size?.takeIf { it > 0 }?.let { " · $it" }.orEmpty()
-    ExtensionTestKind.STREAM_PLAY -> "LIVE PREVIEW"
-    ExtensionTestKind.PING -> "PING"
+/**
+ * D-656: the header's MIDDLE read-out — the one-line fact each kind carries
+ * between its heading and its duration. PING shows the URL it tried; HOME
+ * shows its entry total ("15 entries", never "30 entries on the home page");
+ * SEARCH shows "10, 4, <name>" — the raw total, the ATTEMPT NUMBER ONLY when
+ * a second attempt was made ("it will also not show the total number of
+ * attempts unless second attempts were made"), and the first result's name
+ * (never the category — "it will not say which kind of content it was"),
+ * compressed by the row's ellipsis when there is not enough space; EPISODES
+ * shows the locale-grouped total ("13 episodes", "1,000 episodes"); VIDEO
+ * shows its link total. DETAILS and STREAM_PLAY carry no middle fact — their
+ * payloads are the body.
+ */
+private fun kindHeaderInfo(kind: ExtensionTestKind, result: TestResult): String? {
+    val payload = result.payload
+    return when (kind) {
+        ExtensionTestKind.PING -> result.detail?.takeIf { it.isNotBlank() }
+        ExtensionTestKind.HOME_PAGE -> {
+            val count = payload?.entryCount ?: payload?.entries?.size ?: 0
+            "$count entries"
+        }
+        ExtensionTestKind.SEARCH -> buildString {
+            append(payload?.entryCount ?: payload?.entries?.size ?: 0)
+            val attempts = payload?.searchAttempts ?: 1
+            if (attempts > 1) append(", $attempts")
+            payload?.entries?.firstOrNull()?.title?.takeIf { it.isNotBlank() }?.let { name ->
+                append(", $name")
+            }
+        }
+        ExtensionTestKind.DETAILS -> null
+        ExtensionTestKind.EPISODE_LIST -> {
+            val count = payload?.episodeCount ?: payload?.episodes?.size ?: 0
+            "%,d episodes".format(count)
+        }
+        ExtensionTestKind.VIDEO_RESOLVE -> {
+            val count = payload?.videoCount ?: payload?.videos?.size ?: 0
+            "$count links"
+        }
+        ExtensionTestKind.STREAM_PLAY -> null
+    }
 }
 
-/** One small stat pill (the search ladder's attempts / winning phrase). */
-@Composable
-private fun SearchStatPill(text: String) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(50),
-    ) {
-        Text(
-            text = text,
-            fontFamily = RobotoFamily,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-        )
-    }
+/**
+ * The results section's label (D-656: the count suffixes are GONE — the
+ * totals live in the card headers now).
+ */
+private fun resultsSectionLabel(kind: ExtensionTestKind): String = when (kind) {
+    ExtensionTestKind.SEARCH -> "RESULTS"
+    ExtensionTestKind.HOME_PAGE -> "RESULTS"
+    ExtensionTestKind.DETAILS -> "LOADED DETAILS"
+    ExtensionTestKind.EPISODE_LIST -> "EPISODES FOUND"
+    ExtensionTestKind.VIDEO_RESOLVE -> "RESOLVED LINKS"
+    ExtensionTestKind.STREAM_PLAY -> "LIVE PREVIEW"
+    ExtensionTestKind.PING -> "PING"
 }

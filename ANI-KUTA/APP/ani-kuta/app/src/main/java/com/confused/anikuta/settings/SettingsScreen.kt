@@ -386,6 +386,13 @@ fun SettingsScreen(
                         // family (the round-24 device instruction: remove the console
                         // logs ONLY — this Debug options page and everything in it
                         // stays exactly as it was).
+                        // ROUND 95 (D-657): the hidden gate is now a TEN-SECOND
+                        // HOLD — "the long press functionality on the debug
+                        // options needs to be handled better… the user has to
+                        // long press on it for a bit more longer than usually
+                        // necessary. He has to long press on it for 10
+                        // seconds." A normal tap still opens the ordinary
+                        // Debug page; a robbed hold (a scroll) fires nothing.
                         item {
                             HubSection(
                                 activeAnchor = highlightAnchor,
@@ -395,10 +402,12 @@ fun SettingsScreen(
                                 title = "Debug options",
                                 subtitle = "Debug bubble and source details",
                                 onClick = onOpenDebug,
-                                // D-561: the hidden gate — HOLD the row to
-                                // open the Always-sponsor page. No visual
-                                // hint anywhere; you have to know.
+                                // D-561 → D-657: the hidden gate — HOLD the
+                                // row for TEN SECONDS to open the hidden
+                                // debug-options page (Always sponsor +
+                                // Extension Testing). No visual hint anywhere.
                                 onLongClick = onOpenSponsorDebug,
+                                holdActivationMillis = DEBUG_GATE_HOLD_MS,
                             )
                         }
                     }
@@ -433,6 +442,8 @@ private fun HubSection(
     subtitle: String,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    // D-657: the slow-hold window (Settings' debug row only, 10s).
+    holdActivationMillis: Long? = null,
 ) {
     SettingsSectionLabel(label)
     SettingsHighlightTarget(anchorId = anchorId, activeAnchor = activeAnchor) {
@@ -442,9 +453,13 @@ private fun HubSection(
             subtitle = subtitle,
             onClick = onClick,
             onLongClick = onLongClick,
+            holdActivationMillis = holdActivationMillis,
         )
     }
 }
+
+/** D-657: the debug-options gate — a deliberate TEN-SECOND hold. */
+private const val DEBUG_GATE_HOLD_MS = 10_000L
 
 /**
  * The D-558 search bar — a rounded quiet surface with the search glyph, the

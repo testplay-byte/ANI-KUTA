@@ -112,7 +112,11 @@ data class TestPayload(
     val httpCode: Int? = null,
     val rttMs: Long? = null,
     // Search / Home page
+    // D-656 (round 95): entryCount = the RAW total the page returned (the
+    // browsable [entries] list is capped at 12 for the payload blob — the
+    // card's header count needs the honest number, not the cap).
     val entries: List<TestPayloadEntry>? = null,
+    val entryCount: Int? = null,
     // Details page
     val detailsTitle: String? = null,
     val detailsGenres: List<String>? = null,
@@ -124,7 +128,10 @@ data class TestPayload(
     val episodeCount: Int? = null,
     val episodes: List<TestPayloadEpisode>? = null,
     // Video resolve
+    // D-656 (round 95): videoCount = the RAW resolved-link total (the
+    // browsable [videos] list is capped at 24).
     val videos: List<TestPayloadVideo>? = null,
+    val videoCount: Int? = null,
     // Stream play
     val streamBytesLabel: String? = null,
     val streamHttpCode: Int? = null,
