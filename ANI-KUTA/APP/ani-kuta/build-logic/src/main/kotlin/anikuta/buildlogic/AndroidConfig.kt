@@ -544,8 +544,36 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10153
+    const val versionName = "1.1.53"
+    // D-659..D-661 (round 96): release/1.1.53 — cut from the round-96 ledger
+    // head 5263069c (the implementation 612e3563 + the CI fix ebd1d480 GREEN
+    // on Build APK run 36345425001 — run 2 of 2, inside the D-472 <=2
+    // budget; run 1 failed on the picker's two wrong import packages).
+    // What the release carries on top of v1.1.52 (the v1.1.52 device round
+    // — full detail: doc 78 + decisions D-659..D-661):
+    // D-659 THE DEAD DOOR — the hidden debug page's "Open Extension
+    // Testing" row did NOTHING on tap: it took an onClick parameter but
+    // never wired any clickable to it (dead code; the navigation wiring
+    // was correct all along). The row now carries the app-standard press
+    // feedback (scale 0.97, no ripple) and the tap navigates.
+    // D-659 THE DURATION CHIPS — the stage-timing durations were cut off
+    // at the bottom with empty space above and a shadow behind them: the
+    // chip's text scales with the system font while the bar was a FIXED
+    // 15dp clipping track (any font scale above ~1.05 sliced the pill),
+    // and the translucent black pill read as a drop shadow. The bar height
+    // now derives from the same sp the chip uses (growing with the font
+    // scale, never below 15dp) and the chip is an OPAQUE theme badge that
+    // reads as a deliberate tag in both light and dark themes.
+    // D-660 SHOW STATUS ON EXTENSIONS — the testing page's new Options
+    // section at its very foot; while ON, every TRUSTED extension row on
+    // BOTH tabs carries its testing verdict as a small color dot at the
+    // very right of the delete button (emerald/sky pass, red/orange fail,
+    // two grays for never-tested — the suite-health ring's own palette).
+    // D-661 THE SOURCE-PICKER REWORK — the Search page's "Pick a source"
+    // sheet: the Aniyomi/CloudStream system selector (when both sides
+    // have sources), a live search bar over the names, and alphabetical
+    // order on both lists.
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
