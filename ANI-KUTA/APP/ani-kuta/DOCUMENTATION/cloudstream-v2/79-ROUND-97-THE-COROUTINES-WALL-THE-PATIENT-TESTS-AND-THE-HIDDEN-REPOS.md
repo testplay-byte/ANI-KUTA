@@ -230,10 +230,16 @@ finished, cached clearance, results showed. Exactly the user's report.
 ## 10. The release
 
 Per the D-565 loop: implementation + this record + the ledger committed on
-the mainline → Build APK CI → `release/1.1.54` cut from the green head → the
-version bump (10120→10154 / 1.1.20→1.1.54) rides the branch (D-430) → tag
-`v1.1.54` → the Release APK workflow publishes the arm64-v8a debug APK +
-SHA256SUMS.txt → the in-app updater picks it up.
+the mainline (0eaed454 + 8c5d854d) → Build APK run 36351323517 FAILED on two
+of the round's own errors (the duplicate getCaptchaToken — the census grep
+was case-sensitive against the camelCase name and missed APIHolder's existing
+inert stub — and PosDur without @Serializable) → fixed in 6e12936b → run
+**36351641064 GREEN** (run 2 of 2, inside the D-472 ≤2 budget, disclosed) →
+`release/1.1.54` cut from the green head → the version bump (10120→10154 /
+1.1.20→1.1.54, commit 67b5c2c8) rides the branch (D-430) → tag `v1.1.54` →
+Release APK run **36351937411 GREEN** → **v1.1.54 LIVE** (published
+2026-09-27T21:33:05Z, arm64-v8a debug APK 68.6 MB + SHA256SUMS.txt — verified
+via the API) → the in-app updater picks it up.
 
 ## 11. The device-round checklist (v1.1.54)
 
