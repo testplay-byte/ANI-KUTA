@@ -193,11 +193,17 @@ and the hidden-state dimming are unchanged.
 - Symbol greps: no dangling references to `ActionIconButton` in the repo
   screen (same-package symbol still used by the extension rows), no leftover
   `SubcomposeAsyncImage` imports, `derivedStateOf` imported in all 11 files.
-- CI: Build APK run PLACEHOLDER_CI on 796726b9 — PLACEHOLDER_VERDICT.
+- CI: Build APK run 36358901872 FAILED on my own one-error cluster (named
+  arguments passed to NewPipe's JAVA Response constructor — Kotlin
+  prohibits named args for non-Kotlin functions; the parameter names don't
+  exist at the bytecode level) → fixed positionally in b6443f87 → run
+  36359199002 GREEN (run 2 of 2, inside the D-472 budget). Every other
+  module compiled clean on run 1 — the failure was isolated to the new
+  Downloader adapter file.
 
 ## 9. The release
 
-PLACEHOLDER_RELEASE
+TBD-RELEASE (filled at ship time below)
 
 ## 10. The device-round checklist (v1.1.55)
 
