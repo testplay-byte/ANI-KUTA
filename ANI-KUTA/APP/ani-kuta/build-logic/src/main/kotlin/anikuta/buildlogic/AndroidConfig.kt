@@ -544,8 +544,39 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10151
+    const val versionName = "1.1.51"
+    // D-648..D-652 (round 94): release/1.1.51 — cut from the round-94 ledger
+    // head bb1910c5 (the implementation ed0c179f GREEN on Build APK run
+    // 36320244240 — the FIRST run, back inside the D-472 <=2 budget). What
+    // the release carries on top of v1.1.50 (the v1.1.50 device round —
+    // full detail: doc 76 + decisions D-648..D-652):
+    // D-648 THE LONG-PRESS KEY-SPACE FIX — round 93's drag-selection handler
+    // hit-tested the lists' PREFIXED item keys against raw package-name
+    // sets, so the long-press opened NOTHING on either tab; the selection
+    // now lives in the exact item-key space. The edge auto-scroll was
+    // reworked in the same pass: a quadratic speed ramp with hold-time
+    // acceleration (up to ~2,500px/s) and per-tick hit-testing, so rows
+    // scrolling under a STATIONARY finger keep joining the selection and a
+    // long hold at the bottom edge finally scrolls fast.
+    // D-649 THE INSTALL-DEADLOCK FIX — a single-tap install held the
+    // install mutex across the download and then tried to lock it AGAIN
+    // (non-reentrant): the system prompt never appeared after the download
+    // and every other install tap silently queued behind the dead lock.
+    // Downloads now run in parallel (every tapped row shows its own
+    // progress immediately) and the prompts stay strictly one at a time,
+    // each awaited before the next fires; a queued row pulses "Installing".
+    // D-650 THE NSFW TRI-STATE — off (the default) / on / only, one
+    // persisted mode for BOTH tabs, cycled by the filters pill and
+    // remembered across page entries (the search screen's CloudStream
+    // source picker follows the same gate).
+    // D-651 THE MULTI-FIELD SEARCH — the extensions search now matches the
+    // NAME + LANGUAGE + VERSION (typing "14" finds version-14 extensions;
+    // "en"/"fr" finds the language tags).
+    // D-652 THE BARS-ONLY STAGE TIMINGS — the testing full-details page's
+    // stage-timings card shows ONLY the bars (no title, labels, durations
+    // or captions), stacked close together; the progressive reveal, live
+    // growth and renormalization all survive.
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
