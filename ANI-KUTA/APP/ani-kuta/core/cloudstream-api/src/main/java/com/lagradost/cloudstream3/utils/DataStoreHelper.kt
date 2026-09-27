@@ -17,6 +17,7 @@ import com.lagradost.cloudstream3.TvType
 import kotlinx.serialization.Serializable
 
 /** Position + duration pair (the watch-progress payload). */
+@Serializable
 data class PosDur(
     val position: Long,
     val duration: Long,
