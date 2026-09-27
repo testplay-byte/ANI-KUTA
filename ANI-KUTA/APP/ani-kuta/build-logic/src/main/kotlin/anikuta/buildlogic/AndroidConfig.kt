@@ -544,8 +544,40 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10152
+    const val versionName = "1.1.52"
+    // D-653..D-658 (round 95): release/1.1.52 — cut from the round-95 ledger
+    // head 202fc831 (the implementation f4efa62e + the CI fix 80adde65 GREEN
+    // on Build APK run 36340710916, inside the D-472 <=2 budget). What the
+    // release carries on top of v1.1.51 (the v1.1.51 device round — full
+    // detail: doc 77 + decisions D-653..D-658):
+    // D-653 THE STILL-LIFT LONG-PRESS FIX — the row's own clickable stayed
+    // armed under the list-level long-press, so lifting a STILL finger fired
+    // a tap that deselected the just-selected row ("for the selection to
+    // count, I have to move my finger"); a drag-session state now disables
+    // the row clickables for the gesture's lifetime.
+    // D-654 THE INSTALL-PIPELINE HARDENING — the service's plain stopSelf()
+    // raced the next startService and killed the LAST of a batch's installs
+    // mid-flight (its system prompt never showed; now stopSelf(startId)); the
+    // installer backend is stateless with per-session broadcast filtering
+    // (no cross-talk); the bar's X now actually dismisses the bar (the
+    // collector's resets moved into a finally).
+    // D-655 THE STAGE-TIMING READ-OUTS — every bar carries its duration in a
+    // scrim chip at the right edge, plus the settled one-line verdict
+    // ("All tests successfully completed in…" / "All tests failed in…").
+    // D-656 THE RESULTS-SECTION REDESIGN — kind-colored dotless headings with
+    // per-kind header facts (the ping URL, raw entry/link counts, the search
+    // "total, attempts, name" read-out, locale-grouped episode totals), the
+    // duration on the very right, top-3 payload lists with a shared Expand
+    // button, the one-line details dossier with status/genre pills, the
+    // stream facts, and the live preview keeping its LAST FRAME after
+    // success.
+    // D-657 THE EXTENSION-TESTING DEBUG GATE — the testing system is hidden
+    // by default (extensionTestingEnabled gates the header pill); the
+    // Settings "Debug options" row now requires a TEN-SECOND hold, and the
+    // hidden debug page carries the Extension Testing toggle + its door.
+    // D-658 THE PERF PASS — memoized filter/sort derivations on both tabs
+    // and a third of the resting thumbnail loads (top-3 payload lists).
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
