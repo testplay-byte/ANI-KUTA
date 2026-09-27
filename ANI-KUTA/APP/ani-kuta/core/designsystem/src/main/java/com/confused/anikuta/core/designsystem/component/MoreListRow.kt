@@ -233,7 +233,8 @@ private suspend fun PointerInputScope.detectTapOrLongHold(
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
         down.consume()
-        interactionSource.tryEmit(PressInteraction.Press(down.position))
+        val press = PressInteraction.Press(down.position)
+        interactionSource.tryEmit(press)
         var sawUp = false
         val heldFullWindow = withTimeoutOrNull(holdMillis) {
             // True when the finger lifted cleanly (a tap); false when the
@@ -245,7 +246,7 @@ private suspend fun PointerInputScope.detectTapOrLongHold(
             onLongHold()
         }
         interactionSource.tryEmit(
-            if (sawUp) PressInteraction.Release() else PressInteraction.Cancel(),
+            if (sawUp) PressInteraction.Release(press) else PressInteraction.Cancel(press),
         )
         if (sawUp) onTap()
     }
