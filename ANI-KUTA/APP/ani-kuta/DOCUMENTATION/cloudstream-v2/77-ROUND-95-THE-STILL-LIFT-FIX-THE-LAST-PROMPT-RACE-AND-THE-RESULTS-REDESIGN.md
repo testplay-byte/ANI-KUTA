@@ -227,6 +227,8 @@ the one external `installExtension` caller compiles unchanged; the
 `getParcelableExtra` call in the backend kept its existing (accepted)
 deprecation form; the "no sponsor words" standing order is respected (the
 pre-existing "Always sponsor" toggle label is the frozen D-562 surface; all
-NEW copy avoids the words). CI: Build APK run **36340511405** on `f4efa62e`
-(the run number is recorded in the header — the ledger below carries the
-final verdict).
+NEW copy avoids the words). CI: run 1 (36340511405, `f4efa62e`) FAILED on ONE compile error —
+this Compose version's `PressInteraction.Release`/`Cancel` constructors
+require the originating `press` (no no-arg forms); run 2 (**36340710916**,
+`80adde65`) carried the fix and went **GREEN** — inside the D-472 <=2
+budget.
