@@ -544,8 +544,17 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── ROUND 98 (v1.1.55 — rides the release branch only, D-430) ─────────────
+    // The ANR fix + the last two extensions + the corner-flush repo rows +
+    // the 60 FPS scroll pass: the load worker (D-668, plugin loading off the
+    // main thread), the failure memo (D-669), the SimklApi compat (D-670,
+    // CineStream), the user-ordered NewPipe bundle (D-671, YoutubeProvider —
+    // the APK now carries GPL-3.0 code as a library dependency, disclosed in
+    // doc 80 §5), the corner-flush repo rows (D-672), and the scroll pass
+    // (D-673, derivedStateOf ×11 + instance stability + the icon
+    // subcomposition retirement).
+    const val versionCode = 10155
+    const val versionName = "1.1.55"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
