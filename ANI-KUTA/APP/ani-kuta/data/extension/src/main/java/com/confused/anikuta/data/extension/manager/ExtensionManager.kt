@@ -14,6 +14,8 @@ import eu.kanade.tachiyomi.animesource.AnimeSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -541,9 +543,9 @@ class ExtensionManager(
 
         // ── Phase 1: the downloads, ALTOGETHER (parallel) ──
         data class Downloaded(val ext: AnimeExtension.Available, val file: java.io.File?)
-        val downloads = kotlinx.coroutines.coroutineScope {
+        val downloads = coroutineScope {
             targets.map { ext ->
-                kotlinx.coroutines.async(Dispatchers.IO) {
+                async(Dispatchers.IO) {
                     val file = installer.downloadToTemp(api.getApkUrl(ext), ext) { progress ->
                         val step = if (progress >= 0) InstallStep.Downloading(progress) else InstallStep.Downloading(-1)
                         setInstallState(ext.pkgName, step)
