@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -862,6 +863,25 @@ private fun StageTimingBars(state: TargetRunState?) {
     }
     val completionTotalMs = decidedResults.sumOf { it.durationMs }
 
+    // ── ROUND 96 (D-659): THE ADAPTIVE BAR HEIGHT. The v1.1.52 device
+    // report caught the duration chip glitching — "it is cut off at the
+    // bottom, and there is a lot of empty space above, but it is also
+    // aligned to the bottom of it." Root cause: the chip is SP-DRIVEN
+    // (its 9sp text grows with the system font scale) while the bar was a
+    // FIXED 15dp track that CLIPS its children — any font scale above
+    // ~1.05 made the chip taller than the bar, and the outer stadium clip
+    // sliced it (Roboto's top leading inside the pill pushed the glyphs
+    // low, so the visible remnant read as "bottom-aligned with space
+    // above, cut at the bottom"). The height now derives from the SAME
+    // sp the chip's text uses — 19.4dp at font scale 1.0, growing WITH
+    // the user's font scale, never below the round-95 15dp minimum — so
+    // the track always clears the chip with real margin and the centered
+    // pill can never be sliced again.
+    val chipFontSize = 9.sp
+    val barHeight = with(LocalDensity.current) {
+        maxOf(15.dp, chipFontSize.toDp() * 1.6f + 5.dp)
+    }
+
     var anyShown = false
     Column(
         // D-652: "very close to each other, just a slight padding on them
@@ -894,11 +914,13 @@ private fun StageTimingBars(state: TargetRunState?) {
                     TestStatus.SKIPPED -> baseColor.copy(alpha = 0.30f)
                     else -> baseColor
                 }
-                // D-655: the bar grew to hold its duration chip (7dp → 15dp).
+                // D-655: the bar grew to hold its duration chip (7dp → 15dp;
+                // ROUND 96, D-659 — the height is now the ADAPTIVE
+                // [barHeight] above, font-scale-proof).
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(15.dp)
+                        .height(barHeight)
                         .clip(RoundedCornerShape(50))
                         .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f)),
                 ) {
@@ -908,15 +930,23 @@ private fun StageTimingBars(state: TargetRunState?) {
                             .fillMaxHeight()
                             .background(fillColor, RoundedCornerShape(50)),
                     )
-                    // THE DURATION CHIP — the bar's own time, "inside the
+                    // THE DURATION CHIP v2 — the bar's own time, "inside the
                     // bars themselves, on the right side… clearly visible".
-                    // The translucent dark pill guarantees the white text
-                    // reads over the light kind colors (sky/amber/lime), over
-                    // the dimmed failed/skipped fills, and over the bare
-                    // track of a short bar — one anchored position, so the
-                    // running bar's live growth never makes it jump.
+                    // ROUND 96 (D-659): the v1.1.52 report also caught "a
+                    // shadow showing behind the duration" — that was the
+                    // old TRANSLUCENT BLACK pill (40% black reads as a drop
+                    // shadow over the light kind colors and the bare track).
+                    // The chip is now an OPAQUE THEME BADGE: a solid
+                    // `surface` stadium with `onSurface` text — a deliberate
+                    // tag pinned on the bar's right end, crisp over ANY kind
+                    // color, over the dimmed failed/skipped fills, over the
+                    // bare track of a short bar, and in BOTH themes. The
+                    // centered line-height style kills Roboto's
+                    // bottom-heavy leading so the glyphs sit optically
+                    // centered inside the pill; one anchored position, so
+                    // the running bar's live growth never makes it jump.
                     Surface(
-                        color = Color.Black.copy(alpha = 0.40f),
+                        color = MaterialTheme.colorScheme.surface,
                         shape = RoundedCornerShape(50),
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
@@ -925,12 +955,19 @@ private fun StageTimingBars(state: TargetRunState?) {
                         Text(
                             text = TestTimeFormat.format(stageMs(kind)),
                             fontFamily = RobotoFamily,
-                            fontSize = 9.sp,
+                            fontSize = chipFontSize,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             softWrap = false,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                            style = androidx.compose.ui.text.TextStyle(
+                                lineHeight = 12.sp,
+                                lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                                    alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                                    trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.None,
+                                ),
+                            ),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         )
                     }
                 }

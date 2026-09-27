@@ -1,6 +1,12 @@
 package com.confused.anikuta.settings
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,8 +31,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -198,6 +206,15 @@ fun SponsorDebugScreen(
 /**
  * D-657: one door row on the debug page — the MoreListRow anatomy (icon +
  * title + subtitle + chevron) with the section's quiet surface.
+ *
+ * ROUND 96 (D-659): THE DEAD-DOOR FIX — the v1.1.52 device report: "I click
+ * it, but apparently nothing happens. It does not redirect me to the
+ * appropriate page." The row took an [onClick] parameter but its Surface
+ * never wired ANY clickable to it — the parameter was dead code, so the
+ * door rendered perfectly and responded to nothing. The row now carries
+ * the app-standard press feedback (CORE_RULES §22: scale 0.97, NO ripple —
+ * the exact [com.confused.anikuta.core.designsystem.component.MoreListRow]
+ * treatment) and the tap actually fires the navigation.
  */
 @Composable
 private fun DebugDoorRow(
@@ -206,10 +223,27 @@ private fun DebugDoorRow(
     subtitle: String,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = tween(
+            com.confused.anikuta.core.designsystem.theme.Motion.DurationShort,
+            easing = FastOutSlowInEasing,
+        ),
+        label = "debugDoorScale",
+    )
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null, // No ripple — clean press animation per design language
+                onClick = onClick,
+            ),
     ) {
         Row(
             modifier = Modifier

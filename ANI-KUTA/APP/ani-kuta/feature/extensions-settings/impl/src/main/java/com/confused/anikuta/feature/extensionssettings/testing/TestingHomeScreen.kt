@@ -36,6 +36,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,8 +60,10 @@ import com.confused.anikuta.core.designsystem.color.rememberIconTint
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.core.preferences.AppPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import org.koin.compose.koinInject
 
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE 1 of 5 — TESTING HOME (round 84, D-583; round-85 rework; ROUND 91
@@ -99,6 +102,14 @@ fun TestingHomeScreen(
     val controller = remember { ExtensionTestRunController.get(context) }
     val targets by controller.targets.collectAsState()
     val session by controller.session.collectAsState()
+
+    // ── ROUND 96 (D-660): THE OPTIONS SECTION's first option — the
+    // write-through reactive read of "Show Status on Extensions" (the
+    // same Flow-backed pattern as the debug page's toggles — the Switch
+    // can never lie about what is persisted).
+    val appPreferences: AppPreferences = koinInject()
+    val showTestStatus by appPreferences.extensionsShowTestStatusFlow()
+        .collectAsState(initial = appPreferences.extensionsShowTestStatus)
 
     // The persisted verdicts — reloaded whenever a run advances (a finished
     // target is persisted immediately, so the hero follows along live).
@@ -676,6 +687,63 @@ fun TestingHomeScreen(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // ── ROUND 96 (D-660): THE OPTIONS SECTION — "at the very
+                // bottom, just below the details and everything like that,
+                // there will be some spacing, and after that spacing the
+                // new section will start, and in that section the user
+                // will be given some options." The spacing: a deliberate
+                // extra 10dp on top of the list's own 10dp gap, so the
+                // section reads as a NEW chapter under the command footer,
+                // not a continuation. The first (and so far only) option:
+                // SHOW STATUS ON EXTENSIONS — while ON, the Extensions
+                // page's trusted rows carry their testing-verdict color
+                // dots (the palette's six: emerald/sky pass, red/orange
+                // fail, the two grays for new) at the very right of the
+                // delete button. The row anatomy matches the debug page's
+                // toggles (quiet surface + title + Switch) with one quiet
+                // one-line subtitle — this is a user-facing option, not a
+                // bare debug switch, so it says what it does.
+                item(key = "options-spacer") { Spacer(Modifier.height(10.dp)) }
+                item(key = "options-label") { SectionLabel("Options") }
+                item(key = "option-show-status") {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Show Status on Extensions",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                )
+                                Text(
+                                    text = "Test-result color dots on the Extensions page",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(top = 2.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Switch(
+                                checked = showTestStatus,
+                                onCheckedChange = { appPreferences.extensionsShowTestStatus = it },
+                            )
                         }
                     }
                 }

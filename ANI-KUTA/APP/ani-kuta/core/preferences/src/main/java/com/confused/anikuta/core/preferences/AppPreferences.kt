@@ -130,6 +130,24 @@ class AppPreferences(private val store: PreferenceStore) {
     fun extensionTestingEnabledFlow(): kotlinx.coroutines.flow.Flow<Boolean> =
         store.booleanFlow(KEY_EXTENSION_TESTING_ENABLED, false)
 
+    // ── ROUND 96 (D-660): SHOW TEST STATUS ON THE EXTENSIONS PAGE ──
+    // "on the main extension testing page, at the very bottom… there will
+    // be some spacing, and after that spacing the new section will start,
+    // and in that section the user will be given some options… it will say
+    // that Show Status on Extensions": while this is ON, the Extensions
+    // page's trusted rows carry a small COLOR DOT (the testing palette's
+    // per-verdict, per-system pair — emerald/sky pass, red/orange fail,
+    // the two grays for never-tested) at the very right of the delete
+    // button. Default OFF — the dots are a debug-testing companion, not
+    // a default surface. No text, just the colors ("no pass text will be
+    // shown or anything like that… the colors will be shown").
+    var extensionsShowTestStatus: Boolean
+        get() = store.getBoolean(KEY_EXTENSIONS_SHOW_TEST_STATUS, false)
+        set(value) = store.putBoolean(KEY_EXTENSIONS_SHOW_TEST_STATUS, value)
+
+    fun extensionsShowTestStatusFlow(): kotlinx.coroutines.flow.Flow<Boolean> =
+        store.booleanFlow(KEY_EXTENSIONS_SHOW_TEST_STATUS, false)
+
     companion object {
         private const val KEY_CONTENT_MODE = "content_mode"
         private const val KEY_TRACKING_RETENTION = "tracking_retention_days"
@@ -150,5 +168,8 @@ class AppPreferences(private val store: PreferenceStore) {
         // ROUND 95 (D-657): the extension-testing gate (default false — the
         // testing system is hidden until the user enables it).
         private const val KEY_EXTENSION_TESTING_ENABLED = "extension_testing_enabled"
+        // ROUND 96 (D-660): the extensions-page test-status dots (default
+        // false — off until the user turns the testing-page option on).
+        private const val KEY_EXTENSIONS_SHOW_TEST_STATUS = "extensions_show_test_status"
     }
 }

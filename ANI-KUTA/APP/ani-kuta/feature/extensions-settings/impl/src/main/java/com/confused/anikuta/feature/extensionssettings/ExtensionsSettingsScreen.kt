@@ -103,6 +103,12 @@ import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import com.confused.anikuta.data.extension.repo.ExtensionRepoRepository
+import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestRunController
+import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestVerdict
+import com.confused.anikuta.feature.extensionssettings.testing.TestEcosystem
+import com.confused.anikuta.feature.extensionssettings.testing.TestStatusDot
+import com.confused.anikuta.feature.extensionssettings.testing.aggregateVerdict
+import com.confused.anikuta.data.cloudstream.content.CsSourceIds
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -227,6 +233,12 @@ fun ExtensionsSettingsScreen(
         appPreferences.extensionsNsfwMode = nsfwMode.raw
     }
 
+    var langFilter by remember { mutableStateOf<String?>(null) }
+
+    // ROUND 96 (D-660): hoisted above the test-status block (the store
+    // load needs it) — the same local the selection block used to declare.
+    val context = LocalContext.current
+
     // ── ROUND 95 (D-657): THE EXTENSION-TESTING GATE — "By default it will
     // be hidden. It will not be shown and the user has to enable it": the
     // Science pill only renders while the debug page's Extension Testing
@@ -235,10 +247,58 @@ fun ExtensionsSettingsScreen(
     val extensionTestingEnabled by appPreferences.extensionTestingEnabledFlow()
         .collectAsState(initial = appPreferences.extensionTestingEnabled)
 
-    var langFilter by remember { mutableStateOf<String?>(null) }
-    // ROUND 92 (D-638): hoisted above the selection block (it ticks on
-    // long-press) — the old declaration lived further down with the CS toast.
-    val context = LocalContext.current
+    // ── ROUND 96 (D-660): THE TEST-STATUS DOTS — while "Show Status on
+    // Extensions" is ON (the testing page's new Options section), every
+    // TRUSTED row on BOTH tabs carries a small verdict color dot at the
+    // very right of its delete button: "the status will be shown in a
+    // cleaner way, like no pass text will be shown or anything like
+    // that… the colors will be shown. There are two colors for pass, and
+    // there are two colors for fail, and there are two colors for new"
+    // — the testing palette's per-system pairs (emerald/sky pass,
+    // red/orange fail, two grays for new), the same hues the
+    // suite-health ring teaches. THE MAP: the store keeps ONE latest run
+    // per target id; aniyomi rows aggregate over their sources' ids,
+    // CloudStream rows over each provider's stable synthetic id
+    // ([CsSourceIds.idFor] — the exact mint the bridge registers, so the
+    // ids match the stored runs bit-for-bit). Loaded ONLY while the
+    // toggle is ON (zero cost otherwise); reloaded on every re-entry to
+    // this screen (leaving for the testing pages disposes this
+    // composition — returning rebuilds it, so fresh verdicts always
+    // render). The passes are memoized on their inputs (the D-658 rule).
+    // ──
+    val showTestStatus by appPreferences.extensionsShowTestStatusFlow()
+        .collectAsState(initial = appPreferences.extensionsShowTestStatus)
+    val storedTestRuns = remember(showTestStatus) {
+        if (showTestStatus) {
+            ExtensionTestRunController.get(context).resultStore.loadAll()
+        } else {
+            emptyMap()
+        }
+    }
+    val aniyomiVerdicts = remember(installedExtensions, storedTestRuns) {
+        if (showTestStatus) {
+            installedExtensions.associate { ext ->
+                ext.pkgName to aggregateVerdict(
+                    storedTestRuns,
+                    ext.sources.map { it.id },
+                )
+            }
+        } else {
+            emptyMap()
+        }
+    }
+    val csVerdicts = remember(csInstalled, storedTestRuns) {
+        if (showTestStatus) {
+            csInstalled.associate { ext ->
+                ext.internalName to aggregateVerdict(
+                    storedTestRuns,
+                    ext.providers.map { CsSourceIds.idFor(it.name) },
+                )
+            }
+        } else {
+            emptyMap()
+        }
+    }
 
     // ── ROUND 93 (D-644): SORTING IS GONE — the user's order: "remove it and
     // just handle it in alphabetical order everywhere where needed". Every
@@ -725,6 +785,9 @@ fun ExtensionsSettingsScreen(
                     langFilter = langFilter,
                     nsfwMode = nsfwMode,
                     onOpenPluginDetail = onOpenCloudstreamPluginDetail,
+                    // ROUND 96 (D-660): the trusted CS rows' test-verdict
+                    // dots (internalName → verdict; empty = hidden).
+                    testVerdicts = csVerdicts,
                 )
             } else {
             Box(modifier = Modifier.fillMaxSize()) {
@@ -787,6 +850,9 @@ fun ExtensionsSettingsScreen(
                                         },
                             onUntrust = { extensionManager.untrustExtension(ext) },
                             onDelete = { extensionManager.uninstallExtension(ext) },
+                            // ROUND 96 (D-660): the testing-verdict dot —
+                            // null while "Show Status on Extensions" is OFF.
+                            testVerdict = aniyomiVerdicts[ext.pkgName],
                             // ROUND 85: the ghost contract — this row IS a
                             // confirmed removal; play the exit once, then drop.
                             forcedExit = ext.pkgName in installedGhosts,
@@ -1546,6 +1612,10 @@ private fun InstalledExtensionRow(
     onToggleEnabled: () -> Unit,
     onUntrust: () -> Unit,
     onDelete: () -> Unit,
+    // ROUND 96 (D-660): the row's testing verdict (null = the dots are
+    // off); rendered as the quiet color dot at the very right of the
+    // delete button.
+    testVerdict: ExtensionTestVerdict? = null,
     onUpdate: (() -> Unit)? = null,
     // D-309: live install state (from ExtensionManager.installStates) so the
     // update control can animate the download progress. Previously the row
@@ -1660,6 +1730,20 @@ private fun InstalledExtensionRow(
                     onClick = onDelete,
                     tint = MaterialTheme.colorScheme.error,
                 )
+                // ROUND 96 (D-660): THE TEST-STATUS DOT — "the dots will be
+                // shown on the very right side of them. Just on the right
+                // side of the delete button": the row's aggregated testing
+                // verdict as one quiet 9dp circle in the Aniyomi palette
+                // (emerald pass / red fail / gray new), NO text. Hidden with
+                // the actions while selecting (the bottom bar owns the row
+                // then; the delete button the dot anchors to is gone).
+                testVerdict?.let { verdict ->
+                    Spacer(Modifier.width(6.dp))
+                    TestStatusDot(
+                        verdict = verdict,
+                        ecosystem = TestEcosystem.ANIYOMI,
+                    )
+                }
             }
         }
     }

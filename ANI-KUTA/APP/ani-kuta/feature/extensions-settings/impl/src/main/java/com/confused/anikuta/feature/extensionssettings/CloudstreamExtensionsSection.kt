@@ -53,6 +53,9 @@ import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.cloudstream.CloudstreamPluginManager
 import com.confused.anikuta.data.cloudstream.model.CloudstreamExtension
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository
+import com.confused.anikuta.feature.extensionssettings.testing.ExtensionTestVerdict
+import com.confused.anikuta.feature.extensionssettings.testing.TestEcosystem
+import com.confused.anikuta.feature.extensionssettings.testing.TestStatusDot
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -109,6 +112,10 @@ internal fun CloudstreamExtensionsSection(
     // Boolean G4 gate — the whole page now speaks the one OFF/ON/ONLY mode).
     nsfwMode: NsfwFilterMode = NsfwFilterMode.OFF,
     onOpenPluginDetail: (internalName: String) -> Unit = {},
+    // ROUND 96 (D-660): the trusted rows' testing verdicts (internalName →
+    // verdict), computed by the parent screen from the testing store while
+    // "Show Status on Extensions" is ON; empty map = the dots are hidden.
+    testVerdicts: Map<String, ExtensionTestVerdict> = emptyMap(),
 ) {
     val installed by csManager.installed.collectAsState()
     val untrusted by csManager.untrusted.collectAsState()
@@ -294,6 +301,9 @@ internal fun CloudstreamExtensionsSection(
                     modifier = Modifier.animateItem(),
                     extension = ext,
                     installStep = installStates[ext.internalName],
+                    // ROUND 96 (D-660): the testing-verdict dot (null while
+                    // the testing page's option is OFF).
+                    testVerdict = testVerdicts[ext.internalName],
                     // ROUND 92 (D-639): the multi-select contract (ROUND 93,
                     // D-641 — the long-press lives on the list's drag handler;
                     // ROUND 95, D-653 — the clickable yields to a live session).
@@ -599,6 +609,10 @@ private fun CsInstalledRow(
     onUninstall: () -> Unit,
     onUntrust: () -> Unit,
     onClick: () -> Unit,
+    // ROUND 96 (D-660): the row's testing verdict (null = the dots are
+    // off); rendered as the quiet color dot at the very right of the
+    // delete button.
+    testVerdict: ExtensionTestVerdict? = null,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     // D-580 (round 84): the in-app AlertDialog is the confirmation, so the
@@ -719,6 +733,19 @@ private fun CsInstalledRow(
                     onClick = { showDeleteConfirm = true },
                     tint = MaterialTheme.colorScheme.error,
                 )
+                // ROUND 96 (D-660): THE TEST-STATUS DOT — "the dots will be
+                // shown on the very right side of them. Just on the right
+                // side of the delete button": the plugin's aggregated testing
+                // verdict as one quiet 9dp circle in the CloudStream palette
+                // (sky pass / orange fail / gray new), NO text. Hidden with
+                // the actions while selecting, exactly like the aniyomi rows.
+                testVerdict?.let { verdict ->
+                    Spacer(Modifier.width(6.dp))
+                    TestStatusDot(
+                        verdict = verdict,
+                        ecosystem = TestEcosystem.CLOUDSTREAM,
+                    )
+                }
             }
         }
     }
