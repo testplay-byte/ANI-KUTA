@@ -58,6 +58,14 @@ dependencies {
     // surface) for the skeleton app-side classes.
     implementation(libs.androidx.core.ktx)
 
+    // ROUND 97 (D-663): appcompat — the compat surface now declares
+    // com.lagradost.cloudstream3.MainActivity (an AppCompatActivity ancestor, so
+    // plugins' `context is MainActivity` checks can be satisfied by the app's own
+    // MainActivity subclassing it) and AppContextUtils.setDefaultFocus takes an
+    // androidx.appcompat.app.AlertDialog. `api`: the MainActivity class is public
+    // and :app subclasses it.
+    api(libs.androidx.appcompat)
+
     // Unit tests (doc 23 §6): pure-JVM interop-fact locks.
     testImplementation(libs.junit)
 }

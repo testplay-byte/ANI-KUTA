@@ -79,3 +79,30 @@ var insecureApp = Requests(
 ).apply {
     defaultHeaders = mapOf("user-agent" to USER_AGENT)
 }
+
+/**
+ * ROUND 97 (D-663) — THE ACTIVITY ANCHOR. The v1.1.53 device round caught
+ * Ultima failing to load with NoClassDefFoundError:
+ * com/lagradost/cloudstream3/MainActivity — upstream plugins reference the
+ * class (the dex census: the Companion's afterPluginsLoadedEvent /
+ * bookmarksUpdatedEvent / reloadLibraryEvent getters, plus `instance-of`
+ * checks against the load context). Upstream's MainActivity is the app's
+ * whole UI; ours is deliberately an EMPTY AppCompatActivity ancestor the
+ * app's own :app MainActivity subclasses — so `context is MainActivity`
+ * answers true for the live activity plugins receive in Plugin.load(context)
+ * — with exactly the companion events the census reads. Nothing else is
+ * mirrored: plugins only touch the companion (zero instance-method
+ * references in the census), and the app's real screens stay where they are.
+ */
+open class MainActivity : androidx.appcompat.app.AppCompatActivity() {
+    companion object {
+        /** Fires once every plugin has loaded — plugins hook bookkeeping onto it. */
+        val afterPluginsLoadedEvent = com.lagradost.cloudstream3.utils.Event<Boolean>()
+
+        /** Fires when the bookmark set changes. */
+        val bookmarksUpdatedEvent = com.lagradost.cloudstream3.utils.Event<Boolean>()
+
+        /** Fires when a library refresh is wanted. */
+        val reloadLibraryEvent = com.lagradost.cloudstream3.utils.Event<Boolean>()
+    }
+}

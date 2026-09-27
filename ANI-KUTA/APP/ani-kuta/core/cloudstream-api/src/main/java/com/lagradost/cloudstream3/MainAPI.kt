@@ -140,6 +140,60 @@ object APIHolder {
     fun String.capitalize(): String =
         if (isEmpty()) this else this[0].uppercaseChar() + substring(1)
 
+    /**
+     * ROUND 97 (D-663) — the Google reCAPTCHA token minter StreamPlay calls
+     * (the census: getCaptchaToken(String url, String key, String? referer)).
+     * The observable protocol: fetch the api.js release token for the key,
+     * pull the anchor token, then reload it into a usable rresp. Runs on the
+     * shared plugin client ([app]); a null return means "no token" — callers
+     * treat that as an unsolvable captcha and surface their own error.
+     */
+    suspend fun getCaptchaToken(url: String, key: String, referer: String? = null): String? {
+        return try {
+            val host = runCatching {
+                with(okhttp3.HttpUrl.Companion) { url.toHttpUrlOrNull() }
+            }.getOrNull() ?: return null
+            val domain = base64Encode(
+                ("${host.scheme}://${host.host}:443").encodeToByteArray(),
+            ).replace("\n", "").replace("=", ".")
+
+            val vToken = app.get(
+                "https://www.google.com/recaptcha/api.js?render=$key",
+                referer = referer,
+                cacheTime = 0,
+            ).text
+                .substringAfter("releases/")
+                .substringBefore("/")
+
+            val recapToken = app.get(
+                "https://www.google.com/recaptcha/api2/anchor?ar=1&hl=en&size=invisible" +
+                    "&cb=cs3&k=$key&co=$domain&v=$vToken",
+            ).document
+                .selectFirst("#recaptcha-token")
+                ?.attr("value")
+                ?: return null
+
+            app.post(
+                "https://www.google.com/recaptcha/api2/reload?k=$key",
+                data = mapOf(
+                    "v" to vToken,
+                    "k" to key,
+                    "c" to recapToken,
+                    "co" to domain,
+                    "sa" to "",
+                    "reason" to "q",
+                ),
+                cacheTime = 0,
+            ).text
+                .substringAfter("rresp\",\"")
+                .substringBefore("\"")
+                .takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            com.lagradost.api.Log.w("Anikuta:CsCompat:Captcha", "getCaptchaToken failed: ${e.message}")
+            null
+        }
+    }
+
     var apis: AtomicMutableList<MainAPI> = atomicListOf()
 
     var apiMap: Map<String, Int>? = null

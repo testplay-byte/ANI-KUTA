@@ -322,6 +322,27 @@ class CloudflareKiller : Interceptor {
             }
 
             val solved = runCatching { solveViaWebView(request.url) }.getOrElse { t ->
+                // ROUND 97 (D-665): an INTERRUPTED solve is not a failed solve.
+                // The extension tests run each kind on a dedicated thread that
+                // is shutdownNow()-ed at the kind's wall-clock deadline; the
+                // interrupt lands on this thread's latch.await and used to be
+                // recorded as a host failure — poisoning every later request
+                // to the host for FAILED_SOLVE_COOLDOWN_MS (60s) with
+                // instant CloudflareBlockedExceptions. That turned one slow
+                // challenge into "home page + search + details all failed"
+                // while the app's real (untimed) browsing solved the same
+                // challenge fine — the v1.1.53 device round's false-failure
+                // report. An interruption now skips the cooldown entirely:
+                // the WebView on the main thread keeps running to its own
+                // watchdog, and its cookies land in the system CookieManager
+                // where the next attempt's manual-jar merge picks them up.
+                if (t is InterruptedException) {
+                    com.lagradost.api.Log.w(
+                        TAG,
+                        "cf: solve on $host interrupted (caller deadline) — NOT recording a failure",
+                    )
+                    throw CloudflareBlockedException(host, "solve interrupted")
+                }
                 com.lagradost.api.Log.w(
                     TAG,
                     "cf: WebView solve error on $host: ${t::class.java.simpleName}: ${t.message}",

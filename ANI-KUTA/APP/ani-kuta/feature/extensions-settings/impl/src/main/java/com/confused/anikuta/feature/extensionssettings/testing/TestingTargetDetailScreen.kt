@@ -882,6 +882,15 @@ private fun StageTimingBars(state: TargetRunState?) {
         maxOf(15.dp, chipFontSize.toDp() * 1.6f + 5.dp)
     }
 
+    // ROUND 97 (D-666): the fixed trailing zone every duration badge
+    // START-aligns inside — same width on every row, derived from the chip's
+    // own sp so the column survives any font scale (the D-659 rule, applied
+    // to the width). 9sp × 5 + 16dp comfortably covers the widest
+    // TestTimeFormat output ("12m 30s") with its pill padding.
+    val durationZoneWidth = with(LocalDensity.current) {
+        maxOf(52.dp, chipFontSize.toDp() * 5f + 16.dp)
+    }
+
     var anyShown = false
     Column(
         // D-652: "very close to each other, just a slight padding on them
@@ -917,58 +926,63 @@ private fun StageTimingBars(state: TargetRunState?) {
                 // D-655: the bar grew to hold its duration chip (7dp → 15dp;
                 // ROUND 96, D-659 — the height is now the ADAPTIVE
                 // [barHeight] above, font-scale-proof).
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(barHeight)
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f)),
-                ) {
+                //
+                // ROUND 97 (D-666) — THE ALIGNED DURATION COLUMN: the v1.1.53
+                // device report asked for the durations to "align properly
+                // with each other instead of aligning them to the right" —
+                // the chip used to float at the FULL-WIDTH track's far-right
+                // edge (over the fill, over the dimmed bar, over the bare
+                // track, wherever the row ended). Every row is now
+                // [track (weight 1f)] + [fixed-width zone holding the badge
+                // START-aligned] — one tidy column of durations just right of
+                // the bars, every badge sharing the same left edge. The zone
+                // width derives from the chip's own sp (font-scale-proof,
+                // like [barHeight]); the badge became a solid surfaceVariant
+                // tag with onSurface text because it no longer rides a colored
+                // bar (the D-659 opaque-badge doctrine, re-homed for the
+                // card's background).
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(fraction)
-                            .fillMaxHeight()
-                            .background(fillColor, RoundedCornerShape(50)),
-                    )
-                    // THE DURATION CHIP v2 — the bar's own time, "inside the
-                    // bars themselves, on the right side… clearly visible".
-                    // ROUND 96 (D-659): the v1.1.52 report also caught "a
-                    // shadow showing behind the duration" — that was the
-                    // old TRANSLUCENT BLACK pill (40% black reads as a drop
-                    // shadow over the light kind colors and the bare track).
-                    // The chip is now an OPAQUE THEME BADGE: a solid
-                    // `surface` stadium with `onSurface` text — a deliberate
-                    // tag pinned on the bar's right end, crisp over ANY kind
-                    // color, over the dimmed failed/skipped fills, over the
-                    // bare track of a short bar, and in BOTH themes. The
-                    // centered line-height style kills Roboto's
-                    // bottom-heavy leading so the glyphs sit optically
-                    // centered inside the pill; one anchored position, so
-                    // the running bar's live growth never makes it jump.
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(end = 4.dp),
+                            .weight(1f)
+                            .height(barHeight)
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f)),
                     ) {
-                        Text(
-                            text = TestTimeFormat.format(stageMs(kind)),
-                            fontFamily = RobotoFamily,
-                            fontSize = chipFontSize,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            softWrap = false,
-                            style = androidx.compose.ui.text.TextStyle(
-                                lineHeight = 12.sp,
-                                lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
-                                    alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
-                                    trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.None,
-                                ),
-                            ),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction)
+                                .fillMaxHeight()
+                                .background(fillColor, RoundedCornerShape(50)),
                         )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier.width(durationZoneWidth),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(50),
+                        ) {
+                            Text(
+                                text = TestTimeFormat.format(stageMs(kind)),
+                                fontFamily = RobotoFamily,
+                                fontSize = chipFontSize,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                softWrap = false,
+                                style = androidx.compose.ui.text.TextStyle(
+                                    lineHeight = 12.sp,
+                                    lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                                        alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                                        trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.None,
+                                    ),
+                                ),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
                     }
                 }
             }

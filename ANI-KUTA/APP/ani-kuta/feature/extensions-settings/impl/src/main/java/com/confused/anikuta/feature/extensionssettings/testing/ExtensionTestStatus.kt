@@ -90,10 +90,13 @@ internal fun verdictColor(verdict: ExtensionTestVerdict, ecosystem: TestEcosyste
     }
 
 /**
- * THE STATUS DOT — a quiet 9dp circle in the verdict's system color, placed
+ * THE STATUS DOT — a 13dp circle in the verdict's system color, placed
  * by the caller just right of the row's delete button. No text, no border,
  * no ring: the color IS the status (the suite-health legend already teaches
- * the vocabulary).
+ * the vocabulary). ROUND 97 (D-666): 9dp → 13dp — the v1.1.53 device round
+ * found the first size too quiet to read at a glance ("the size of the dot
+ * could be made bigger"); 13dp keeps it a dot, not a badge, while landing
+ * clearly on the row's trailing edge.
  */
 @Composable
 internal fun TestStatusDot(
@@ -103,7 +106,7 @@ internal fun TestStatusDot(
 ) {
     Box(
         modifier = modifier
-            .size(9.dp)
+            .size(13.dp)
             .clip(CircleShape)
             .background(verdictColor(verdict, ecosystem)),
     )

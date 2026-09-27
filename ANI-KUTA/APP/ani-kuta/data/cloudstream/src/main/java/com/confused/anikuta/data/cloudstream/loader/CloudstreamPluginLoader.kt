@@ -117,6 +117,7 @@ class CloudstreamPluginLoader(
                 ?: return PluginLoadResult.Failure("manifest.json has no pluginClassName")
 
             // 4. Instantiate the entry class.
+            Logger.i(TAG) { "Loading entry class $entryClass from ${file.name}" }
             val instance = loader.loadClass(entryClass).getDeclaredConstructor().newInstance()
             val plugin = instance as? BasePlugin
                 ?: return PluginLoadResult.Failure(
@@ -185,7 +186,14 @@ class CloudstreamPluginLoader(
                 extractorCount = newExtractorCount,
             )
         } catch (t: Throwable) {
-            Logger.e(TAG) { "Failed to load ${file.name}: ${t::class.simpleName}: ${t.message}" }
+            // ROUND 97 (D-664): the throwable now rides along — the v1.1.53
+            // device round had to diagnose "NoSuchMethodError: runBlockingK"
+            // from the one-line message alone; logcat now carries the FULL
+            // stack trace (which class, which method, which line failed
+            // resolution) for every plugin load failure.
+            Logger.e(TAG, t) {
+                "Failed to load ${file.name}: ${t::class.simpleName}: ${t.message}"
+            }
             PluginLoadResult.Failure("${t::class.simpleName}: ${t.message}", t)
         }
     }

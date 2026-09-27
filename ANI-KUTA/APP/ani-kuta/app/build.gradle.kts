@@ -130,6 +130,9 @@ dependencies {
     // Data modules
     implementation(project(":data:extension"))
     implementation(project(":data:cloudstream"))  // CloudStream V2: extension system runtime
+    // ROUND 97 (D-663): the app's MainActivity subclasses the compat layer's
+    // com.lagradost.cloudstream3.MainActivity (the plugin-visible activity anchor).
+    implementation(project(":core:cloudstream-api"))
 
     // Feature modules (impl — the app wires them)
     implementation(project(":feature:anime-browse:api"))

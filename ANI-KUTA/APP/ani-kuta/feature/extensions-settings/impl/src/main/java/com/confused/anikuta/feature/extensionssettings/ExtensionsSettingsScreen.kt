@@ -491,11 +491,26 @@ fun ExtensionsSettingsScreen(
         }.sortedBy { it.name.lowercase() }
     }
 
+    // ROUND 97 (D-667): THE HIDDEN-REPO FILTER — "If I hide any of the
+    // repositories, then the results from that repository will not be shown…
+    // only the not downloaded results will not be shown. The downloaded
+    // results will continue to show exactly how they would." The Available
+    // section already excludes installed + untrusted rows, so filtering THIS
+    // list is precisely the user's rule: a hidden repo's catalog entries
+    // vanish while its INSTALLED extensions (the sections above) render
+    // untouched — updates included (the update check still reads every repo;
+    // hiding is display-only).
+    val visibleRepoUrls = remember(repos) {
+        repos.filter { !it.hidden }.map { it.baseUrl }.toSet()
+    }
+
     val filteredAvailable = remember(
         availableExtensions, installedPkgs, untrustedPkgs, searchQuery, nsfwMode, langFilter,
+        visibleRepoUrls,
     ) {
         availableExtensions
             .filter { it.pkgName !in installedPkgs && it.pkgName !in untrustedPkgs }
+            .filter { it.repoUrl in visibleRepoUrls }
             .filter { ext ->
                 matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
                     nsfwMode.passes(ext.isNsfw) &&
@@ -1730,15 +1745,15 @@ private fun InstalledExtensionRow(
                     onClick = onDelete,
                     tint = MaterialTheme.colorScheme.error,
                 )
-                // ROUND 96 (D-660): THE TEST-STATUS DOT — "the dots will be
-                // shown on the very right side of them. Just on the right
-                // side of the delete button": the row's aggregated testing
-                // verdict as one quiet 9dp circle in the Aniyomi palette
-                // (emerald pass / red fail / gray new), NO text. Hidden with
-                // the actions while selecting (the bottom bar owns the row
+                // ROUND 96 (D-660) + ROUND 97 (D-666): THE TEST-STATUS DOT —
+                // "the dots will be shown on the very right side of them.
+                // Just on the right side of the delete button": the row's
+                // aggregated testing verdict as one 13dp circle in the Aniyomi
+                // palette (emerald pass / red fail / gray new), NO text. Hidden
+                // with the actions while selecting (the bottom bar owns the row
                 // then; the delete button the dot anchors to is gone).
                 testVerdict?.let { verdict ->
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
                     TestStatusDot(
                         verdict = verdict,
                         ecosystem = TestEcosystem.ANIYOMI,

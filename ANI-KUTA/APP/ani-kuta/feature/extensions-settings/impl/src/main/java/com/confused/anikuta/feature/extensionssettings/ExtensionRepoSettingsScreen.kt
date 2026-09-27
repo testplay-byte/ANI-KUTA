@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
@@ -36,6 +38,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -140,10 +143,13 @@ fun ExtensionRepoSettingsScreen(
                                 url = repo.baseUrl,
                                 typeLabel = "Aniyomi",
                                 isCloudstream = false,
+                                isHidden = repo.hidden,
+                                onToggleHidden = {
+                                    repoRepository.setHidden(repo.baseUrl, !repo.hidden)
+                                },
                                 onDelete = {
                                     scope.launch { repoRepository.delete(repo.baseUrl) }
                                 },
-                                deleteRequiresConfirm = false,
                             )
                         }
                         // ── CloudStream repositories ──
@@ -153,8 +159,13 @@ fun ExtensionRepoSettingsScreen(
                                 url = repo.url,
                                 typeLabel = "CloudStream",
                                 isCloudstream = true,
+                                isHidden = repo.hidden,
+                                onToggleHidden = {
+                                    scope.launch {
+                                        csRepoRepository.setHidden(repo.url, !repo.hidden)
+                                    }
+                                },
                                 onDelete = { deleteCsRepoTarget = repo },
-                                deleteRequiresConfirm = true,
                             )
                         }
                         // Round 82 (D-574): discoverability hint for the
@@ -369,14 +380,27 @@ fun ExtensionRepoSettingsScreen(
     }
 }
 
+/**
+ * ROUND 97 (D-667): THE SPLIT-CORNER ROW — "there is the delete button, and
+ * I want you to move the delete button to the very bottom, and I want you
+ * to move the show or hide repository button to the very top right… the
+ * very right corner will be split into two parts, the top one and the
+ * bottom one." The title line ends in the SHOW/HIDE toggle (the eye), the
+ * URL line ends in the DELETE button — one action per corner, both flush
+ * against the row's right edge. A hidden repository DIMS its text (the eye
+ * flips to the slashed variant); its installed extensions and update checks
+ * are untouched — only the Extensions page's Available section filters it
+ * out. The round-82 long-press-to-copy affordance stays on the whole row.
+ */
 @Composable
 private fun RepoRow(
     name: String,
     url: String,
     typeLabel: String,
     isCloudstream: Boolean,
+    isHidden: Boolean,
+    onToggleHidden: () -> Unit,
     onDelete: () -> Unit,
-    deleteRequiresConfirm: Boolean,
 ) {
     // Round 82 (D-574): LONG-PRESS copies the repository URL to the clipboard
     // (haptic tick + toast feedback). The repo's URL text is single-line
@@ -384,6 +408,9 @@ private fun RepoRow(
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
+    // The hidden state's quiet dimming — actions stay at full strength (the
+    // eye is the way BACK; hiding delete too would strand the row).
+    val contentAlpha = if (isHidden) 0.55f else 1f
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -406,34 +433,38 @@ private fun RepoRow(
                 },
             ),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 6.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                // Session-3 device round: the type badge sits on the TITLE line
-                // (right-aligned against the title row's trailing edge), NOT
-                // vertically centered across the whole two-line row — the
-                // round-2 report read the centered badge as "aligned to the
-                // URL too". Identity (title) and classification (badge) now
-                // share one line; the URL below is unclaimed.
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = name,
-                        fontFamily = RobotoFamily,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(Modifier.size(8.dp))
+            // ── The TOP line: title + badge + the SHOW/HIDE eye (very top right) ──
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = name,
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .alpha(contentAlpha),
+                )
+                Spacer(Modifier.size(8.dp))
+                Box(modifier = Modifier.alpha(contentAlpha)) {
                     RepoTypeBadge(typeLabel = typeLabel, isCloudstream = isCloudstream)
                 }
+                ActionIconButton(
+                    icon = if (isHidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                    contentDescription = if (isHidden) "Show repository" else "Hide repository",
+                    onClick = onToggleHidden,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // ── The BOTTOM line: the URL + DELETE (very bottom right) ──
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = url,
                     fontFamily = RobotoFamily,
@@ -441,15 +472,16 @@ private fun RepoRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(top = 2.dp)
+                        .alpha(contentAlpha),
                 )
-            }
-            androidx.compose.material3.IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Filled.Delete,
+                ActionIconButton(
+                    icon = Icons.Filled.Delete,
                     contentDescription = "Delete repository",
+                    onClick = onDelete,
                     tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(20.dp),
                 )
             }
         }

@@ -13,15 +13,21 @@ import kotlinx.serialization.Serializable
  *
  * D-043: NO default repos. The user adds their own.
  *
+ * ROUND 97 (D-667): [hidden] — a VISIBILITY filter for the Extensions page's
+ * Available section, nothing more (see CloudstreamRepo.hidden for the full
+ * contract). Defaults false; old persisted JSON without the key loads fine.
+ *
  * @param baseUrl The repo base URL (no trailing slash).
  * @param name Human-readable name (from repo.json or fallback).
  * @param website Optional website URL.
+ * @param hidden True while the repo's not-installed entries are filtered out.
  */
 @Serializable
 data class ExtensionRepo(
     val baseUrl: String,
     val name: String = "",
     val website: String = "",
+    val hidden: Boolean = false,
 ) {
     val indexUrl: String
         get() = "${baseUrl.trimEnd('/')}/index.json"

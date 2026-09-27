@@ -38,7 +38,14 @@ enum class ExtensionTestKind(
     PING("Ping", "Reaches the source's site and measures the round trip", 15_000L),
 
     /** Loads the source's popular / home page. */
-    HOME_PAGE("Home page", "Loads the source's popular / home page", 20_000L),
+    // ROUND 97 (D-665): 20s → 45s — the budget is now sized around the
+    // Cloudflare WebView solve (SOLVE_TIMEOUT_MS = 20s + the page fetch). The
+    // v1.1.53 device round false-failed a working site exactly here: the
+    // solve alone ate the whole 20s budget, the deadline abandoned it, and
+    // the interrupt poisoned the host for 60s (fixed in the solver itself —
+    // this budget now gives an honest solve the room to finish and CACHE,
+    // so the search test runs on warm clearance).
+    HOME_PAGE("Home page", "Loads the source's popular / home page", 45_000L),
 
     /** Runs the configured query through the source's search. */
     // D-578: the timeout bounds the WHOLE multi-phrase ladder (custom query +
@@ -46,7 +53,13 @@ enum class ExtensionTestKind(
     // the round-82 20s cap could cut a legitimately slow source mid-ladder.
     // D-583: 60s was EXACTLY 5×12s (zero headroom — any inter-attempt latency
     // fired the engine budget mid-ladder); 80s gives the ladder real slack.
-    SEARCH("Search", "Tries the test query + well-known phrases and counts the results", 80_000L),
+    // ROUND 97 (D-665): 80s → 130s — the per-attempt cap rose 12s → 25s (a
+    // Cloudflare-cold phrase needs the solve + the search), so the kind
+    // budget follows: 4 × 25s + 30s slack. Warm sites still exit the ladder
+    // on the FIRST phrase in a few seconds — only challenged or slow sites
+    // use the extra room, and using it is exactly what stops the v1.1.53
+    // false-failure report ("the test failed but the search page works").
+    SEARCH("Search", "Tries the test query + well-known phrases and counts the results", 130_000L),
 
     /** Loads full details for the first anime found by SEARCH or HOME_PAGE. */
     DETAILS("Details page", "Loads the full details for a found anime", 25_000L),

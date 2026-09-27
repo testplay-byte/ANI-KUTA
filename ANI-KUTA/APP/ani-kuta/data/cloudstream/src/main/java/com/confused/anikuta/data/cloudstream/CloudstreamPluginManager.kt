@@ -302,6 +302,16 @@ class CloudstreamPluginManager(
             "loadAll: ${installedList.size} installed, ${untrustedList.size} untrusted, " +
                 "${erroredList.size} errored"
         }
+        // ROUND 97 (D-664): the per-plugin failure roll — every errored row's
+        // one-line reason in ONE block, so a device round can diagnose the
+        // whole set (the v1.1.53 logcat made you open each row to learn why).
+        if (erroredList.isNotEmpty()) {
+            Logger.w(TAG) {
+                "loadAll errored roll: " + erroredList.joinToString(" | ") {
+                    "${it.internalName} → ${it.message}"
+                }
+            }
+        }
     }
 
     // ── Trust flow (session 3) ──────────────────────────────────────────────
@@ -325,7 +335,10 @@ class CloudstreamPluginManager(
                     is PluginLoadResult.Failure ->
                         // The load failed — the refresh will surface an Errored row
                         // (D-295: never silent). The record stays trusted so Retry works.
-                        Logger.w(TAG) { "Trusted ${extension.internalName} but load failed: ${result.reason}" }
+                        // ROUND 97 (D-664): the full stack trace rides along too.
+                        Logger.w(TAG, result.cause) {
+                            "Trusted ${extension.internalName} but load failed: ${result.reason}"
+                        }
                 }
                 refreshLocked()
             }

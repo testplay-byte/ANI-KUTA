@@ -57,6 +57,18 @@ class ExtensionRepoRepository(context: Context) {
         return true
     }
 
+    /**
+     * ROUND 97 (D-667): flips one repository's visibility flag. Hiding is a
+     * DISPLAY filter on the Extensions page's Available section — installed
+     * extensions and update checks are untouched.
+     */
+    fun setHidden(baseUrl: String, hidden: Boolean): Boolean {
+        val target = _repos.value.firstOrNull { it.baseUrl == baseUrl } ?: return false
+        persist(_repos.value.map { if (it.baseUrl == baseUrl) it.copy(hidden = hidden) else it })
+        Logger.i(TAG) { "Repo ${target.name} (${baseUrl}) hidden=$hidden" }
+        return true
+    }
+
     private fun persist(repos: List<ExtensionRepo>) {
         val jsonStr = json.encodeToString(
             kotlinx.serialization.builtins.ListSerializer(ExtensionRepo.serializer()),

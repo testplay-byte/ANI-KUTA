@@ -198,9 +198,18 @@ internal fun CloudstreamExtensionsSection(
             .sortedBy { it.name.lowercase() }
     }
 
-    val filteredAvailable = remember(available, searchQuery, nsfwMode, langFilter) {
+    // ROUND 97 (D-667): THE HIDDEN-REPO FILTER — the aniyomi tab's twin. A
+    // hidden repository's not-yet-installed catalog entries vanish from the
+    // Available section; its INSTALLED plugins render untouched, updates
+    // included (hiding is display-only — see ExtensionsSettingsScreen).
+    val visibleCsRepoUrls = remember(csRepos) {
+        csRepos.filter { !it.hidden }.map { it.url }.toSet()
+    }
+
+    val filteredAvailable = remember(available, searchQuery, nsfwMode, langFilter, visibleCsRepoUrls) {
         available
             .filter { nsfwMode.passes(it.isNsfw) }
+            .filter { it.repoUrl in visibleCsRepoUrls }
             .filter {
                 matchesExtensionSearch(
                     searchQuery,
@@ -733,14 +742,15 @@ private fun CsInstalledRow(
                     onClick = { showDeleteConfirm = true },
                     tint = MaterialTheme.colorScheme.error,
                 )
-                // ROUND 96 (D-660): THE TEST-STATUS DOT — "the dots will be
-                // shown on the very right side of them. Just on the right
-                // side of the delete button": the plugin's aggregated testing
-                // verdict as one quiet 9dp circle in the CloudStream palette
-                // (sky pass / orange fail / gray new), NO text. Hidden with
-                // the actions while selecting, exactly like the aniyomi rows.
+                // ROUND 96 (D-660) + ROUND 97 (D-666): THE TEST-STATUS DOT —
+                // "the dots will be shown on the very right side of them.
+                // Just on the right side of the delete button": the plugin's
+                // aggregated testing verdict as one 13dp circle in the
+                // CloudStream palette (sky pass / orange fail / gray new),
+                // NO text. Hidden with the actions while selecting, exactly
+                // like the aniyomi rows.
                 testVerdict?.let { verdict ->
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
                     TestStatusDot(
                         verdict = verdict,
                         ecosystem = TestEcosystem.CLOUDSTREAM,

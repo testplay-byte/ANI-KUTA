@@ -160,8 +160,15 @@ import org.koin.compose.koinInject
  * app used is unchanged. The manifest theme was switched to an AppCompat
  * descendant in the same commit (visual attributes are pinned explicitly, so
  * rendering is identical).
+ *
+ * ROUND 97 (D-663): the superclass moved one level up — the compat layer's
+ * com.lagradost.cloudstream3.MainActivity (an empty AppCompatActivity
+ * ancestor) — so .cs3 plugins that check `context is
+ * com.lagradost.cloudstream3.MainActivity` (Ultima's dex census) or hard-cast
+ * the load context resolve against the app's OWN activity. Same ancestry as
+ * before (AppCompatActivity), zero behavior change for the app itself.
  */
-class MainActivity : androidx.appcompat.app.AppCompatActivity() {
+class MainActivity : com.lagradost.cloudstream3.MainActivity() {
 
     // D-222: OAuth redirect flags — observed by AppRoot to auto-navigate to Trackers
     // after a successful AniList login + show a snackbar.

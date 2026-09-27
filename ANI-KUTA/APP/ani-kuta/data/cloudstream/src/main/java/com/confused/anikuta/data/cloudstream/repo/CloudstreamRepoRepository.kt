@@ -58,6 +58,21 @@ class CloudstreamRepoRepository(
         }
     }
 
+    /**
+     * ROUND 97 (D-667): flips one repository's visibility flag. Hiding is a
+     * DISPLAY filter on the Extensions page's Available section — installed
+     * plugins and update checks are untouched.
+     */
+    suspend fun setHidden(url: String, hidden: Boolean) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            persist(
+                _repos.value.map { repo ->
+                    if (repo.url == url) repo.copy(hidden = hidden) else repo
+                },
+            )
+        }
+    }
+
     fun find(url: String): CloudstreamRepo? = _repos.value.firstOrNull { it.url == url }
 
     companion object {

@@ -66,7 +66,15 @@ androidxMedia3 = "1.9.3"
 
 # Serialization
 kotlinxSerialization = "2.2.0"
-kotlinxCoroutines = "1.9.0"
+# ROUND 97 (D-662): 1.9.0 → 1.11.0 — the v1.1.53 device round caught 17 of the
+# 22 errored CloudStream plugins dying with NoSuchMethodError runBlockingK /
+# runBlockingK$default in kotlinx/coroutines/BuildersKt: the current phisher98
+# extension repo builds against coroutines 1.11.x (the FIRST line with the
+# runBlockingK family; verified against the 1.10.2 and 1.11.0 Maven artifacts —
+# 1.10.2 does NOT contain it, 1.11.0 does). 1.11.0 needs kotlin-stdlib 2.2.20
+# (Gradle resolves it above our 2.2.0 pin — same 2.2 metadata family, forward
+# compatible) and keeps 1.9 binary compatibility for every earlier consumer.
+kotlinxCoroutines = "1.11.0"
 kotlinxSerializationJson = "1.7.3"
 
 # Image loading

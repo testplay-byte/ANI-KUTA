@@ -219,9 +219,18 @@ class SearchTest : ExtensionTest {
     private companion object {
         const val RUN_TAG = "Anikuta:Feature:ExtensionsTesting"
 
-        /** Per-attempt bound — up to 4 attempts (custom + 3 phrases) × 12s
-         *  stays comfortably inside the 80s budget. */
-        const val ATTEMPT_TIMEOUT_MS = 12_000L
+        /**
+         * Per-attempt bound — up to 4 attempts (custom + 3 phrases) × 25s
+         * stays comfortably inside the 130s budget.
+         *
+         * ROUND 97 (D-665): 12s → 25s — a Cloudflare-cold phrase legitimately
+         * needs the WebView solve (up to 20s) + the search request; the 12s
+         * cap abandoned the solve mid-flight and failed phrases that the
+         * app's own (untimed) search page resolved fine (the v1.1.53 device
+         * round's false-failure report). Warm sites still answer in a few
+         * seconds — the ladder's first-hit-wins exit keeps honest runs fast.
+         */
+        const val ATTEMPT_TIMEOUT_MS = 25_000L
 
         /** The payload's entry cap — tiny blob, still browsable. */
         const val PAYLOAD_ENTRY_CAP = 12
