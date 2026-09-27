@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 
@@ -194,9 +195,9 @@ class ExtensionManager(
         // Clear install states for extensions that have now appeared (installed or untrusted).
         val seenPkgs = trusted.map { it.pkgName } + untrusted.map { it.pkgName }
         if (seenPkgs.isNotEmpty()) {
-            val cleared = _installStates.value.filterKeys { it !in seenPkgs }
-            if (cleared.size != _installStates.value.size) {
-                _installStates.value = cleared
+            _installStates.update { states ->
+                val cleared = states.filterKeys { it !in seenPkgs }
+                if (cleared.size != states.size) cleared else states
             }
         }
 
@@ -425,10 +426,20 @@ class ExtensionManager(
 
     /**
      * Install an available extension. Returns a flow of [InstallStep] that
-     * now runs the WHOLE install — download, dispatch, AND the awaited
-     * system-prompt answer (Installed / Error / Idle). A second install
-     * started while one is running waits on [installMutex], so the system
-     * prompts can never pile up on each other.
+     * runs the WHOLE install — download, dispatch, AND the awaited
+     * system-prompt answer (Installed / Error / Idle).
+     *
+     * ROUND 94 (D-649): the DEADLOCK fix. Round 93 wrapped this whole flow
+     * in `installMutex.withLock` and then called [dispatchAndAwaitInstall],
+     * which locks the SAME (non-reentrant) mutex — a permanent self-deadlock:
+     * the download finished and then nothing ever dispatched (the v1.1.50
+     * report: "they downloaded, but after downloading they did not show me
+     * the install prompt"), while the forever-held lock silently swallowed
+     * every other install tap ("unable to click them"). The mutex now guards
+     * ONLY the prompt dispatch+await inside [dispatchAndAwaitInstall]:
+     * downloads run FREE (parallel — the user's allowance, and each tapped
+     * row immediately shows its own queue/download state), and the system
+     * prompts stay strictly ONE AT A TIME.
      *
      * D-300 lineage: delegates the download+dispatch to [ExtensionInstaller]
      * — the single canonical install path. D-309: the collector's scope
@@ -446,30 +457,49 @@ class ExtensionManager(
         }
         val apkUrl = api.getApkUrl(extension)
         return flow {
-            installMutex.withLock {
-                setInstallState(extension.pkgName, InstallStep.Pending)
-                emit(InstallStep.Pending)
-                try {
-                    val tempFile = installer.downloadToTemp(apkUrl, extension) { progress ->
-                        val step = if (progress >= 0) InstallStep.Downloading(progress) else InstallStep.Downloading(-1)
-                        setInstallState(extension.pkgName, step)
-                        emit(step)
-                    }
-                    if (tempFile == null) {
-                        setInstallState(extension.pkgName, InstallStep.Error)
-                        emit(InstallStep.Error)
-                        return@withLock
-                    }
-                    val result = dispatchAndAwaitInstall(extension, tempFile)
-                    setInstallState(extension.pkgName, result)
-                    emit(result)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    // D-309 review fix: the collector's scope died — without
-                    // this the row sticks on a frozen Downloading(x%) forever
-                    // (the OS broadcast never fires for an aborted download).
-                    setInstallState(extension.pkgName, InstallStep.Idle)
-                    throw e
+            // D-649: the guard RE-CHECKED at collection start — two rapid
+            // taps can both pass the call-time check before either collector
+            // sets Pending; the second collector bails here instead of
+            // double-downloading onto the same deterministic temp file.
+            val activeNow = _installStates.value[extension.pkgName]
+            if (activeNow is InstallStep.Pending || activeNow is InstallStep.Downloading ||
+                activeNow is InstallStep.Installing
+            ) {
+                return@flow
+            }
+            setInstallState(extension.pkgName, InstallStep.Pending)
+            emit(InstallStep.Pending)
+            var tempFile: java.io.File? = null
+            try {
+                tempFile = installer.downloadToTemp(apkUrl, extension) { progress ->
+                    val step = if (progress >= 0) InstallStep.Downloading(progress) else InstallStep.Downloading(-1)
+                    setInstallState(extension.pkgName, step)
+                    emit(step)
                 }
+                if (tempFile == null) {
+                    setInstallState(extension.pkgName, InstallStep.Error)
+                    emit(InstallStep.Error)
+                    return@flow
+                }
+                val result = dispatchAndAwaitInstall(extension, tempFile)
+                setInstallState(extension.pkgName, result)
+                emit(result)
+                // D-649: a finished terminal answer means the temp APK was
+                // handed to the system and settled — the file is the
+                // installer's to sweep once the answer lands.
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // D-309 review fix: the collector's scope died — without
+                // this the row sticks on a frozen Downloading(x%) forever
+                // (the OS broadcast never fires for an aborted download).
+                setInstallState(extension.pkgName, InstallStep.Idle)
+                // D-649: if this package's prompt was never dispatched (we
+                // died while DOWNLOADING or while QUEUED on the prompt
+                // mutex), the downloaded APK is abandoned — delete it now;
+                // the page-exit sweep only runs on navigation.
+                if (pendingInstallResults[extension.pkgName] == null) {
+                    tempFile?.delete()
+                }
+                throw e
             }
         }.flowOn(Dispatchers.IO)
     }
@@ -479,31 +509,39 @@ class ExtensionManager(
     /**
      * ROUND 93 (D-642): registers the answer-bridge, dispatches the ONE
      * system prompt, and AWAITS its terminal verdict (with the safety
-     * timeout). serialized on [installMutex] so a single-row install and a
+     * timeout). Serialized on [installMutex] so a single-row install and a
      * running batch can never put two prompts on screen at once.
+     *
+     * ROUND 94 (D-649): the Installing state flips BEFORE the mutex wait, so
+     * a row queued behind another package's prompt reads as "Installing"
+     * (pulsing) instead of a frozen full download ring — the queue is
+     * VISIBLE now. Callers must NOT hold [installMutex] when they call this
+     * (the round-93 single-install path did, which deadlocked it).
      */
     private suspend fun dispatchAndAwaitInstall(
         extension: AnimeExtension.Available,
         tempFile: java.io.File,
-    ): InstallStep = installMutex.withLock {
+    ): InstallStep {
         setInstallState(extension.pkgName, InstallStep.Installing)
-        val deferred = kotlinx.coroutines.CompletableDeferred<InstallStep>()
-        pendingInstallResults[extension.pkgName] = deferred
-        try {
-            installer.dispatchInstall(tempFile, extension)
-            val answer = kotlinx.coroutines.withTimeoutOrNull(promptAnswerTimeoutMs) {
-                deferred.await()
-            }
-            if (answer == null) {
-                Logger.w(TAG) {
-                    "Install prompt for ${extension.pkgName} was never answered " +
-                        "(${promptAnswerTimeoutMs / 1000}s) — moving on"
+        return installMutex.withLock {
+            val deferred = kotlinx.coroutines.CompletableDeferred<InstallStep>()
+            pendingInstallResults[extension.pkgName] = deferred
+            try {
+                installer.dispatchInstall(tempFile, extension)
+                val answer = kotlinx.coroutines.withTimeoutOrNull(promptAnswerTimeoutMs) {
+                    deferred.await()
                 }
-                return@withLock InstallStep.Error
+                if (answer == null) {
+                    Logger.w(TAG) {
+                        "Install prompt for ${extension.pkgName} was never answered " +
+                            "(${promptAnswerTimeoutMs / 1000}s) — moving on"
+                    }
+                    return@withLock InstallStep.Error
+                }
+                return@withLock answer
+            } finally {
+                pendingInstallResults.remove(extension.pkgName)
             }
-            return@withLock answer
-        } finally {
-            pendingInstallResults.remove(extension.pkgName)
         }
     }
 
@@ -613,13 +651,17 @@ class ExtensionManager(
         }
         if (active.isNotEmpty()) {
             Logger.i(TAG) { "cancelInstallWork: resetting ${active.size} in-flight install state(s)" }
-            _installStates.value = _installStates.value - active.keys
+            _installStates.update { it - active.keys }
         }
         installer.sweepAbandonedTempApks()
     }
 
     private fun setInstallState(pkgName: String, step: InstallStep) {
-        _installStates.value = _installStates.value + (pkgName to step)
+        // D-649: atomic read-modify-write — with downloads now running in
+        // PARALLEL, two collectors setting different rows' states at the
+        // same instant could clobber each other's entry under the old
+        // `value = value + …` assignment.
+        _installStates.update { it + (pkgName to step) }
     }
 
     /**

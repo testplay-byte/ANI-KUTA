@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Explicit
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
@@ -96,6 +97,8 @@ import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.core.preferences.NsfwFilterMode
+import com.confused.anikuta.core.preferences.raw
 import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.extension.model.AnimeExtension
@@ -202,14 +205,27 @@ fun ExtensionsSettingsScreen(
     val scope = rememberCoroutineScope()
     var showFilters by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var showNsfw by remember { mutableStateOf(true) }
 
-    // Session 2: ONE filters bar drives BOTH tabs. The aniyomi NSFW state stays
-    // session-local (default on, unchanged behavior); the CloudStream NSFW
-    // state is the persisted G4 gate (default OFF). Each tab reads whichever
-    // toggle is active — one shared control, two independent settings.
+    // ── ROUND 94 (D-650): THE NSFW TRI-STATE — ONE persisted mode for BOTH
+    // tabs. (The old split — a session-local aniyomi toggle defaulting ON
+    // + the CloudStream-persisted gate defaulting OFF — is retired.) OFF
+    // hides every NSFW row and is the DEFAULT; ON shows everything; ONLY
+    // shows just the NSFW rows. The pill cycles the three, every change is
+    // written straight to AppPreferences, and the page re-reads it on
+    // entry — "every single time the user enters the extensions page, then
+    // it will remember the last state it was on". ──
     val appPreferences = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
-    var csShowNsfw by remember { mutableStateOf(appPreferences.cloudstreamShowNsfw) }
+    var nsfwMode by remember {
+        mutableStateOf(NsfwFilterMode.fromRaw(appPreferences.extensionsNsfwMode))
+    }
+    fun cycleNsfwMode() {
+        nsfwMode = when (nsfwMode) {
+            NsfwFilterMode.OFF -> NsfwFilterMode.ON
+            NsfwFilterMode.ON -> NsfwFilterMode.ONLY
+            NsfwFilterMode.ONLY -> NsfwFilterMode.OFF
+        }
+        appPreferences.extensionsNsfwMode = nsfwMode.raw
+    }
 
     var langFilter by remember { mutableStateOf<String?>(null) }
     // ROUND 92 (D-638): hoisted above the selection block (it ticks on
@@ -222,31 +238,36 @@ fun ExtensionsSettingsScreen(
     // manual reorder mode (the header's SwapVert pill) are both retired —
     // "alphabetical everywhere" cannot coexist with a manual order. ──
 
-    // ── ROUND 92 (D-638) + ROUND 93 (D-641): THE MULTI-SELECT MODE —
-    // long-press any row → selection mode; taps toggle rows; a SECOND
-    // long-press RANGE-selects everything in between; long-press + DRAG
-    // paints the selection along the finger with auto-scroll at the edges
-    // (the shared rememberDragSelectionModifier drives both). The bottom
-    // bar shows ONLY the actions the current selection supports, each
-    // applying only to the rows it fits. ──
+    // ── ROUND 92 (D-638) + ROUND 93 (D-641) + ROUND 94 (D-648): THE
+    // MULTI-SELECT MODE — long-press any row → selection mode; taps toggle
+    // rows; a SECOND long-press RANGE-selects everything in between;
+    // long-press + DRAG paints the selection along the finger with
+    // auto-scroll at the edges (the shared rememberDragSelectionModifier
+    // drives both). The bottom bar shows ONLY the actions the current
+    // selection supports, each applying only to the rows it fits.
+    // ROUND 94 (D-648): the selection state lives in the EXACT LazyColumn
+    // ITEM-KEY space now ("installed-…" / "errored-…" / "untrusted-…" /
+    // "available-…"), because the drag handler hit-tests item keys — round
+    // 93 fed it raw pkgNames, which never matched a single item key and
+    // left the long-press completely dead on this tab. ──
     var selectionMode by remember { mutableStateOf(false) }
-    var selectedPkgs by remember { mutableStateOf(setOf<String>()) }
+    var selectedKeys by remember { mutableStateOf(setOf<String>()) }
     // ROUND 93 (D-641): the range anchor — the row the last long-press/drag
     // started on. A second long-press selects anchor…row inclusive.
     var selectionAnchor by remember { mutableStateOf<String?>(null) }
-    fun toggleSelected(pkg: String) {
-        selectedPkgs = if (pkg in selectedPkgs) selectedPkgs - pkg else selectedPkgs + pkg
-        if (selectedPkgs.isEmpty()) selectionMode = false
+    fun toggleSelected(key: String) {
+        selectedKeys = if (key in selectedKeys) selectedKeys - key else selectedKeys + key
+        if (selectedKeys.isEmpty()) selectionMode = false
     }
-    fun enterSelection(pkg: String) {
-        selectedPkgs = setOf(pkg)
-        selectionAnchor = pkg
+    fun enterSelection(key: String) {
+        selectedKeys = setOf(key)
+        selectionAnchor = key
         selectionMode = true
         HapticHelper.lightTick(context)
     }
     fun exitSelection() {
         selectionMode = false
-        selectedPkgs = emptySet()
+        selectedKeys = emptySet()
         selectionAnchor = null
     }
 
@@ -368,27 +389,34 @@ fun ExtensionsSettingsScreen(
             .sorted()
     }
 
-    // ── Filtering (ROUND 93, D-644: ALPHABETICAL EVERYWHERE — the sort menu
-    // and the manual reorder are retired; every section is name-ascending) ──
+    // ── Filtering (ROUND 93, D-644: ALPHABETICAL EVERYWHERE; ROUND 94
+    // D-650: the NSFW tri-state; D-651: the search matches NAME + LANGUAGE
+    // + VERSION — "if the user types 14, then all the extensions which have
+    // version 14 will be shown… if the user types FR or EN, then the
+    // extensions with English or FR tags will be also shown") ──
     val filteredInstalled = installedExtensions.filter { ext ->
-        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+        matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
+            nsfwMode.passes(ext.isNsfw) &&
             (langFilter == null || ext.lang == langFilter)
     }.sortedBy { it.name.lowercase() }
 
     val filteredErrored = erroredExtensions.filter { ext ->
-        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+        matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
+            nsfwMode.passes(ext.isNsfw) &&
             (langFilter == null || ext.lang == langFilter)
     }.sortedBy { it.name.lowercase() }
 
     val filteredUntrusted = untrustedExtensions.filter { ext ->
-        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+        matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
+            nsfwMode.passes(ext.isNsfw) &&
             (langFilter == null || ext.lang == langFilter)
     }.sortedBy { it.name.lowercase() }
 
     val filteredAvailable = availableExtensions
         .filter { it.pkgName !in installedPkgs && it.pkgName !in untrustedPkgs }
         .filter { ext ->
-            matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+            matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
+                nsfwMode.passes(ext.isNsfw) &&
                 (langFilter == null || ext.lang == langFilter)
         }
         .sortedBy { it.name.lowercase() }
@@ -467,15 +495,23 @@ fun ExtensionsSettingsScreen(
     val ghostedErrored = mergeGhosts(filteredErrored, erroredGhosts) { it.pkgName }
     val ghostedUntrusted = mergeGhosts(filteredUntrusted, untrustedGhosts) { it.pkgName }
 
-    // ── ROUND 93 (D-641): the flattened SELECTABLE key order (the sections in
-    // their exact visual order) + the range/drag handlers that close over it ──
+    // ── ROUND 93 (D-641) + ROUND 94 (D-648): the flattened SELECTABLE key
+    // order (the sections in their exact visual order) + the range/drag
+    // handlers that close over it. THE KEY SPACE: these are the EXACT
+    // LazyColumn item keys — the drag handler hit-tests item keys, so the
+    // selection and the hit-test must speak the same language (round 93's
+    // raw-pkgName set matched nothing and killed the long-press). ──
+    fun installedKeyOf(pkg: String) = "installed-$pkg"
+    fun erroredKeyOf(pkg: String) = "errored-$pkg"
+    fun untrustedKeyOf(pkg: String) = "untrusted-$pkg"
+    fun availableKeyOf(pkg: String, versionCode: Long) = "available-$pkg-$versionCode"
     val orderedSelectableKeys = remember(
         ghostedInstalled, ghostedErrored, ghostedUntrusted, filteredAvailable,
     ) {
-        ghostedInstalled.map { it.pkgName } +
-            ghostedErrored.map { it.pkgName } +
-            ghostedUntrusted.map { it.pkgName } +
-            filteredAvailable.map { it.pkgName }
+        ghostedInstalled.map { installedKeyOf(it.pkgName) } +
+            ghostedErrored.map { erroredKeyOf(it.pkgName) } +
+            ghostedUntrusted.map { untrustedKeyOf(it.pkgName) } +
+            filteredAvailable.map { availableKeyOf(it.pkgName, it.versionCode) }
     }
     val selectableKeySet = remember(orderedSelectableKeys) { orderedSelectableKeys.toSet() }
     fun selectRange(fromKey: String, toKey: String) {
@@ -484,27 +520,27 @@ fun ExtensionsSettingsScreen(
         val to = keys.indexOf(toKey)
         if (from < 0 || to < 0) return
         val range = if (from <= to) keys.subList(from, to + 1) else keys.subList(to, from + 1)
-        selectedPkgs = selectedPkgs + range.toSet()
-        if (selectedPkgs.isNotEmpty()) selectionMode = true
+        selectedKeys = selectedKeys + range.toSet()
+        if (selectedKeys.isNotEmpty()) selectionMode = true
     }
-    fun dragSelectStart(pkg: String) {
+    fun dragSelectStart(key: String) {
         if (!selectionMode) {
-            enterSelection(pkg)
+            enterSelection(key)
             return
         }
         val anchor = selectionAnchor
-        if (anchor != null && anchor != pkg) {
-            selectRange(anchor, pkg)
+        if (anchor != null && anchor != key) {
+            selectRange(anchor, key)
         } else if (anchor == null) {
-            selectedPkgs = selectedPkgs + pkg
+            selectedKeys = selectedKeys + key
         }
-        selectionAnchor = pkg
+        selectionAnchor = key
         HapticHelper.lightTick(context)
     }
     val dragSelectionModifier = rememberDragSelectionModifier(
         listState = listState,
         selectableKeys = selectableKeySet,
-        onLongPressSelect = { pkg -> dragSelectStart(pkg) },
+        onLongPressSelect = { key -> dragSelectStart(key) },
         onRangeSelect = { from, to -> selectRange(from, to) },
     )
 
@@ -623,17 +659,10 @@ fun ExtensionsSettingsScreen(
                 ExtensionFiltersBar(
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
-                    // Session 2: the bar controls whichever tab is ACTIVE — the
-                    // aniyomi session-local toggle or the persisted CS gate (G4).
-                    showNsfw = if (showCloudstreamTab) csShowNsfw else showNsfw,
-                    onToggleNsfw = {
-                        if (showCloudstreamTab) {
-                            csShowNsfw = !csShowNsfw
-                            appPreferences.cloudstreamShowNsfw = csShowNsfw
-                        } else {
-                            showNsfw = !showNsfw
-                        }
-                    },
+                    // ROUND 94 (D-650): the ONE shared NSFW tri-state — both
+                    // tabs read the same persisted mode; the pill cycles it.
+                    nsfwMode = nsfwMode,
+                    onCycleNsfw = { cycleNsfwMode() },
                     languages = allLanguages,
                     langFilter = langFilter,
                     onLangFilterChange = { langFilter = it },
@@ -644,14 +673,14 @@ fun ExtensionsSettingsScreen(
                 // ── CloudStream tab content (doc 23 §5.4) ──
                 // Session 2: rendered with the SAME section chrome + row anatomy
                 // as the aniyomi tab (ExtensionListChrome.kt) and driven by the
-                // SAME filters bar — search, language and the NSFW gate all flow
-                // in from the shared controls above (ROUND 93: the sort inputs
-                // are gone with the sort menu).
+                // SAME filters bar — search, language and the NSFW tri-state
+                // all flow in from the shared controls above (ROUND 93: the
+                // sort inputs are gone with the sort menu).
                 CloudstreamExtensionsSection(
                     csManager = csManager,
                     searchQuery = searchQuery,
                     langFilter = langFilter,
-                    showNsfw = csShowNsfw,
+                    nsfwMode = nsfwMode,
                     onOpenPluginDetail = onOpenCloudstreamPluginDetail,
                 )
             } else {
@@ -700,9 +729,11 @@ fun ExtensionsSettingsScreen(
                                         // ROUND 93 (D-641): long-press lives on the
                                         // list's drag handler now — the row is
                                         // tap-only (toggle while selecting).
+                                        // ROUND 94 (D-648): the selection state is
+                                        // keyed by the list's item keys.
                                         selectionMode = selectionMode,
-                                        selected = ext.pkgName in selectedPkgs,
-                                        onToggleSelected = { toggleSelected(ext.pkgName) },
+                                        selected = installedKeyOf(ext.pkgName) in selectedKeys,
+                                        onToggleSelected = { toggleSelected(installedKeyOf(ext.pkgName)) },
                                         onClickExtension = { onOpenExtensionDetail(ext.pkgName) },
                                         onToggleEnabled = {
                                             if (ext.isEnabled) extensionManager.disableExtension(ext.pkgName)
@@ -744,8 +775,8 @@ fun ExtensionsSettingsScreen(
                                 modifier = Modifier.animateItem(),
                                 extension = ext,
                                 selectionMode = selectionMode,
-                                selected = ext.pkgName in selectedPkgs,
-                                onToggleSelected = { toggleSelected(ext.pkgName) },
+                                selected = erroredKeyOf(ext.pkgName) in selectedKeys,
+                                onToggleSelected = { toggleSelected(erroredKeyOf(ext.pkgName)) },
                                 onRetry = { extensionManager.retryExtension(ext) },
                                 onUntrust = { extensionManager.untrustExtension(ext) },
                                 onDelete = { extensionManager.uninstallExtension(ext) },
@@ -769,8 +800,8 @@ fun ExtensionsSettingsScreen(
                                 modifier = Modifier.animateItem(),
                                 extension = ext,
                                 selectionMode = selectionMode,
-                                selected = ext.pkgName in selectedPkgs,
-                                onToggleSelected = { toggleSelected(ext.pkgName) },
+                                selected = untrustedKeyOf(ext.pkgName) in selectedKeys,
+                                onToggleSelected = { toggleSelected(untrustedKeyOf(ext.pkgName)) },
                                 onTrust = { extensionManager.trustExtension(ext) },
                                 onDelete = { extensionManager.uninstallExtension(ext) },
                                 forcedExit = ext.pkgName in untrustedGhosts,
@@ -807,8 +838,10 @@ fun ExtensionsSettingsScreen(
                                 extension = ext,
                                 installStep = installStep,
                                 selectionMode = selectionMode,
-                                selected = ext.pkgName in selectedPkgs,
-                                onToggleSelected = { toggleSelected(ext.pkgName) },
+                                selected = availableKeyOf(ext.pkgName, ext.versionCode) in selectedKeys,
+                                onToggleSelected = {
+                                    toggleSelected(availableKeyOf(ext.pkgName, ext.versionCode))
+                                },
                                 onInstall = {
                                     scope.launch {
                                         extensionManager.installExtension(ext).collectLatest { }
@@ -836,10 +869,12 @@ fun ExtensionsSettingsScreen(
                 // batch). The actions are computed from the SELECTION's
                 // per-section subsets, each WEIGHT-FILLED so all of them fit
                 // on one row. ──
-                val selInstalled = ghostedInstalled.filter { it.pkgName in selectedPkgs }
-                val selErrored = ghostedErrored.filter { it.pkgName in selectedPkgs }
-                val selUntrusted = ghostedUntrusted.filter { it.pkgName in selectedPkgs }
-                val selAvailable = filteredAvailable.filter { it.pkgName in selectedPkgs }
+                val selInstalled = ghostedInstalled.filter { installedKeyOf(it.pkgName) in selectedKeys }
+                val selErrored = ghostedErrored.filter { erroredKeyOf(it.pkgName) in selectedKeys }
+                val selUntrusted = ghostedUntrusted.filter { untrustedKeyOf(it.pkgName) in selectedKeys }
+                val selAvailable = filteredAvailable.filter {
+                    availableKeyOf(it.pkgName, it.versionCode) in selectedKeys
+                }
                 val batchRunning = uninstallQueue.isNotEmpty()
                 val installRunning = batchInstallActive
                 ExtensionSelectionBar(
@@ -850,7 +885,7 @@ fun ExtensionsSettingsScreen(
                             val (done, total) = batchInstallProgress ?: 0 to 0
                             "Installing $done/$total…"
                         }
-                        else -> "${selectedPkgs.size} selected"
+                        else -> "${selectedKeys.size} selected"
                     },
                     onClose = {
                         // X = leave selection AND stop any pending batch.
@@ -859,7 +894,7 @@ fun ExtensionsSettingsScreen(
                         batchInstallJob?.cancel()
                     },
                     onSelectAll = if (!batchRunning && !installRunning && selectionMode) {
-                        { selectedPkgs = selectableKeySet }
+                        { selectedKeys = selectableKeySet }
                     } else {
                         null
                     },
@@ -1023,8 +1058,8 @@ private fun SourceTabChip(
 private fun ExtensionFiltersBar(
     query: String,
     onQueryChange: (String) -> Unit,
-    showNsfw: Boolean,
-    onToggleNsfw: () -> Unit,
+    nsfwMode: NsfwFilterMode,
+    onCycleNsfw: () -> Unit,
     languages: List<String>,
     langFilter: String?,
     onLangFilterChange: (String?) -> Unit,
@@ -1122,13 +1157,22 @@ private fun ExtensionFiltersBar(
                         }
                     }
 
-                    // NSFW toggle pill (moved OUT of the sort menu — D-572; the
-                    // sort pill itself is gone with D-644).
+                    // ROUND 94 (D-650): THE NSFW TRI-STATE PILL — one tap
+                    // cycles OFF → ON → ONLY → OFF; the mode persists and the
+                    // page reopens on it. (Was: a two-state on/off toggle.)
                     FilterPill(
-                        icon = if (showNsfw) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                        label = if (showNsfw) "NSFW on" else "NSFW off",
-                        active = showNsfw,
-                        onClick = onToggleNsfw,
+                        icon = when (nsfwMode) {
+                            NsfwFilterMode.OFF -> Icons.Filled.VisibilityOff
+                            NsfwFilterMode.ON -> Icons.Filled.Visibility
+                            NsfwFilterMode.ONLY -> Icons.Filled.Explicit
+                        },
+                        label = when (nsfwMode) {
+                            NsfwFilterMode.OFF -> "NSFW off"
+                            NsfwFilterMode.ON -> "NSFW on"
+                            NsfwFilterMode.ONLY -> "NSFW only"
+                        },
+                        active = nsfwMode != NsfwFilterMode.OFF,
+                        onClick = onCycleNsfw,
                     )
                 }
             }

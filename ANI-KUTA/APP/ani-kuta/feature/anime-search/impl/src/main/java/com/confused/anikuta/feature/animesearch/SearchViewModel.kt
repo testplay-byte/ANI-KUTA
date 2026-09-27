@@ -8,6 +8,7 @@ import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.datacache.DataCacheRepository
 import com.confused.anikuta.core.preferences.AppPreferences
+import com.confused.anikuta.core.preferences.NsfwFilterMode
 import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.data.cloudstream.content.CloudstreamContentRepository
 import com.confused.anikuta.data.cloudstream.content.CsBrowseDisplay
@@ -273,16 +274,23 @@ class SearchViewModel(
 
     /**
      * The CloudStream sources available in the picker — every provider of every
-     * TRUSTED plugin, filtered by the persisted NSFW gate (G4) when it is OFF.
+     * TRUSTED plugin, filtered by the persisted NSFW gate when it is OFF.
      *
-     * The gate is read inside the map: the flow re-collects on every
-     * re-subscription (screen re-entry — the only way the gate can change is
-     * via the Extensions settings screen), so the filter is always fresh where
-     * it matters; no preference-change plumbing needed.
+     * ROUND 94 (D-650): the gate is the extensions page's NSFW TRI-STATE now
+     * (AppPreferences.extensionsNsfwMode — the old cloudstreamShowNsfw boolean
+     * is retired with it): OFF hides the NSFW sources, ON shows everything,
+     * ONLY keeps just the NSFW ones. The gate is read inside the map: the flow
+     * re-collects on every re-subscription (screen re-entry — the only way the
+     * gate can change is via the Extensions settings screen), so the filter is
+     * always fresh where it matters; no preference-change plumbing needed.
      */
     val csSources: StateFlow<List<CsProviderSource>> = cloudstreamRepository.sources
         .map { sources ->
-            if (appPreferences.cloudstreamShowNsfw) sources else sources.filterNot { it.isNsfw }
+            when (NsfwFilterMode.fromRaw(appPreferences.extensionsNsfwMode)) {
+                NsfwFilterMode.OFF -> sources.filterNot { it.isNsfw }
+                NsfwFilterMode.ON -> sources
+                NsfwFilterMode.ONLY -> sources.filter { it.isNsfw }
+            }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

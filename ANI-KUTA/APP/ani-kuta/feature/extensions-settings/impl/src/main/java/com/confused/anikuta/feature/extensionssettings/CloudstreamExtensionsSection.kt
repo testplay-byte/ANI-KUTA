@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.core.preferences.NsfwFilterMode
 import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.cloudstream.CloudstreamPluginManager
 import com.confused.anikuta.data.cloudstream.model.CloudstreamExtension
@@ -104,7 +105,9 @@ internal fun CloudstreamExtensionsSection(
     csRepoRepository: CloudstreamRepoRepository = koinInject(),
     searchQuery: String = "",
     langFilter: String? = null,
-    showNsfw: Boolean = false,
+    // ROUND 94 (D-650): the shared persisted NSFW tri-state (was: the
+    // Boolean G4 gate — the whole page now speaks the one OFF/ON/ONLY mode).
+    nsfwMode: NsfwFilterMode = NsfwFilterMode.OFF,
     onOpenPluginDetail: (internalName: String) -> Unit = {},
 ) {
     val installed by csManager.installed.collectAsState()
@@ -118,12 +121,15 @@ internal fun CloudstreamExtensionsSection(
     val updateCheckState by csManager.updateCheckState.collectAsState()
     val csRepos by csRepoRepository.repos.collectAsState()
 
-    // ── ROUND 92 (D-639) + ROUND 93 (D-641): the multi-select state (the
-    // aniyomi tab's twin, keyed by internalName). ──
+    // ── ROUND 92 (D-639) + ROUND 93 (D-641) + ROUND 94 (D-648): the
+    // multi-select state — the aniyomi tab's twin, keyed by the EXACT
+    // LazyColumn item keys ("cs-installed-…" etc.); round 93 fed the drag
+    // handler raw internalNames, which matched nothing and left the
+    // long-press dead on this tab too. ──
     val csScope = rememberCoroutineScope()
     val csContext = LocalContext.current
     var selectionMode by remember { mutableStateOf(false) }
-    var selectedNames by remember { mutableStateOf(setOf<String>()) }
+    var selectedKeys by remember { mutableStateOf(setOf<String>()) }
     // ROUND 93 (D-641): the range anchor — a second long-press selects
     // anchor…row inclusive; the drag paints from it.
     var selectionAnchor by remember { mutableStateOf<String?>(null) }
@@ -132,66 +138,80 @@ internal fun CloudstreamExtensionsSection(
     // ROUND 93 (D-645): the batch-delete exit choreography set — a name in
     // here plays the exit motion; its uninstall fires after the window.
     var exitingNames by remember { mutableStateOf(setOf<String>()) }
-    fun toggleSelected(name: String) {
-        selectedNames = if (name in selectedNames) selectedNames - name else selectedNames + name
-        if (selectedNames.isEmpty()) selectionMode = false
+    fun toggleSelected(key: String) {
+        selectedKeys = if (key in selectedKeys) selectedKeys - key else selectedKeys + key
+        if (selectedKeys.isEmpty()) selectionMode = false
     }
-    fun enterSelection(name: String) {
-        selectedNames = setOf(name)
-        selectionAnchor = name
+    fun enterSelection(key: String) {
+        selectedKeys = setOf(key)
+        selectionAnchor = key
         selectionMode = true
         HapticHelper.lightTick(csContext)
     }
     fun exitSelection() {
         selectionMode = false
-        selectedNames = emptySet()
+        selectedKeys = emptySet()
         selectionAnchor = null
     }
 
     val listState = rememberLazyListState()
     val isChecking = updateCheckState is CloudstreamPluginManager.UpdateCheckState.Checking
 
-    // ── Filtering (ROUND 93, D-644: ALPHABETICAL EVERYWHERE — the CS sort
-    // twins are gone with the shared sort menu; name-ascending like the
-    // aniyomi sections) ──
+    // ── Filtering (ROUND 93, D-644: ALPHABETICAL EVERYWHERE; ROUND 94
+    // D-650: the shared NSFW tri-state; D-651: the multi-field search —
+    // name + language + version) ──
     val filteredInstalled = installed
         .filter {
-            matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
+            matchesExtensionSearch(searchQuery, it.name, it.language, it.version.toString()) &&
+                nsfwMode.passes(it.isNsfw) &&
                 (langFilter == null || it.language == langFilter)
         }
         .sortedBy { it.name.lowercase() }
 
     val filteredUntrusted = untrusted
         .filter {
-            matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
+            matchesExtensionSearch(searchQuery, it.name, it.language, it.version.toString()) &&
+                nsfwMode.passes(it.isNsfw) &&
                 (langFilter == null || it.language == langFilter)
         }
         .sortedBy { it.name.lowercase() }
 
     val filteredErrored = errored
         .filter {
-            matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
+            matchesExtensionSearch(searchQuery, it.name, it.language, it.version.toString()) &&
+                nsfwMode.passes(it.isNsfw) &&
                 (langFilter == null || it.language == langFilter)
         }
         .sortedBy { it.name.lowercase() }
 
     val filteredAvailable = available
-        .filter { showNsfw || !it.isNsfw }
+        .filter { nsfwMode.passes(it.isNsfw) }
         .filter {
-            matchesSearch(it.plugin.name, searchQuery) &&
+            matchesExtensionSearch(
+                searchQuery,
+                it.plugin.name,
+                it.plugin.language,
+                it.plugin.version.toString(),
+            ) &&
                 (langFilter == null || it.plugin.language == langFilter)
         }
         .sortedBy { it.plugin.name.lowercase() }
 
-    // ── ROUND 93 (D-641): the flattened SELECTABLE key order + the range /
-    // drag handlers (the aniyomi tab's twin, keyed by internalName) ──
+    // ── ROUND 93 (D-641) + ROUND 94 (D-648): the flattened SELECTABLE key
+    // order + the range / drag handlers (the aniyomi tab's twin) — keyed by
+    // the EXACT LazyColumn item keys, so the drag handler's hit-tests
+    // actually match (round 93's raw internalNames never did). ──
+    fun installedKeyOf(name: String) = "cs-installed-$name"
+    fun erroredKeyOf(name: String) = "cs-errored-$name"
+    fun untrustedKeyOf(name: String) = "cs-untrusted-$name"
+    fun availableKeyOf(name: String) = "cs-available-$name"
     val orderedSelectableKeys = remember(
         filteredInstalled, filteredErrored, filteredUntrusted, filteredAvailable,
     ) {
-        filteredInstalled.map { it.internalName } +
-            filteredErrored.map { it.internalName } +
-            filteredUntrusted.map { it.internalName } +
-            filteredAvailable.map { it.plugin.internalName }
+        filteredInstalled.map { installedKeyOf(it.internalName) } +
+            filteredErrored.map { erroredKeyOf(it.internalName) } +
+            filteredUntrusted.map { untrustedKeyOf(it.internalName) } +
+            filteredAvailable.map { availableKeyOf(it.plugin.internalName) }
     }
     val selectableKeySet = remember(orderedSelectableKeys) { orderedSelectableKeys.toSet() }
     fun selectRange(fromKey: String, toKey: String) {
@@ -200,27 +220,27 @@ internal fun CloudstreamExtensionsSection(
         val to = keys.indexOf(toKey)
         if (from < 0 || to < 0) return
         val range = if (from <= to) keys.subList(from, to + 1) else keys.subList(to, from + 1)
-        selectedNames = selectedNames + range.toSet()
-        if (selectedNames.isNotEmpty()) selectionMode = true
+        selectedKeys = selectedKeys + range.toSet()
+        if (selectedKeys.isNotEmpty()) selectionMode = true
     }
-    fun dragSelectStart(name: String) {
+    fun dragSelectStart(key: String) {
         if (!selectionMode) {
-            enterSelection(name)
+            enterSelection(key)
             return
         }
         val anchor = selectionAnchor
-        if (anchor != null && anchor != name) {
-            selectRange(anchor, name)
+        if (anchor != null && anchor != key) {
+            selectRange(anchor, key)
         } else if (anchor == null) {
-            selectedNames = selectedNames + name
+            selectedKeys = selectedKeys + key
         }
-        selectionAnchor = name
+        selectionAnchor = key
         HapticHelper.lightTick(csContext)
     }
     val dragSelectionModifier = rememberDragSelectionModifier(
         listState = listState,
         selectableKeys = selectableKeySet,
-        onLongPressSelect = { name -> dragSelectStart(name) },
+        onLongPressSelect = { key -> dragSelectStart(key) },
         onRangeSelect = { from, to -> selectRange(from, to) },
     )
 
@@ -263,8 +283,8 @@ internal fun CloudstreamExtensionsSection(
                     // ROUND 92 (D-639): the multi-select contract (ROUND 93,
                     // D-641 — the long-press lives on the list's drag handler).
                     selectionMode = selectionMode,
-                    selected = ext.internalName in selectedNames,
-                    onToggleSelected = { toggleSelected(ext.internalName) },
+                    selected = installedKeyOf(ext.internalName) in selectedKeys,
+                    onToggleSelected = { toggleSelected(installedKeyOf(ext.internalName)) },
                     // ROUND 93 (D-645): the batch-delete exit choreography.
                     forcedExit = ext.internalName in exitingNames,
                     onUpdate = ext.availableUpdateVersion?.let {
@@ -304,8 +324,8 @@ internal fun CloudstreamExtensionsSection(
                         extension = ext,
                         retrying = ext.internalName in retryingNames,
                         selectionMode = selectionMode,
-                        selected = ext.internalName in selectedNames,
-                        onToggleSelected = { toggleSelected(ext.internalName) },
+                        selected = erroredKeyOf(ext.internalName) in selectedKeys,
+                        onToggleSelected = { toggleSelected(erroredKeyOf(ext.internalName)) },
                         forcedExit = ext.internalName in exitingNames,
                         onRetry = { csManager.retryPlugin(ext) },
                         onUninstall = { csManager.uninstallPlugin(ext) },
@@ -328,8 +348,8 @@ internal fun CloudstreamExtensionsSection(
                         modifier = Modifier.animateItem(),
                         extension = ext,
                         selectionMode = selectionMode,
-                        selected = ext.internalName in selectedNames,
-                        onToggleSelected = { toggleSelected(ext.internalName) },
+                        selected = untrustedKeyOf(ext.internalName) in selectedKeys,
+                        onToggleSelected = { toggleSelected(untrustedKeyOf(ext.internalName)) },
                         forcedExit = ext.internalName in exitingNames,
                         onTrust = { csManager.trustPlugin(ext) },
                         onUninstall = { csManager.uninstallPlugin(ext) },
@@ -365,8 +385,8 @@ internal fun CloudstreamExtensionsSection(
                         extension = ext,
                         installStep = installStates[ext.plugin.internalName],
                         selectionMode = selectionMode,
-                        selected = ext.plugin.internalName in selectedNames,
-                        onToggleSelected = { toggleSelected(ext.plugin.internalName) },
+                        selected = availableKeyOf(ext.plugin.internalName) in selectedKeys,
+                        onToggleSelected = { toggleSelected(availableKeyOf(ext.plugin.internalName)) },
                         onInstall = { csManager.installPlugin(ext) },
                         onClick = { onOpenPluginDetail(ext.plugin.internalName) },
                     )
@@ -390,16 +410,18 @@ internal fun CloudstreamExtensionsSection(
         // own subset (Install → the selected AVAILABLE rows; Trust → the
         // UNTRUSTED ones; Untrust → the INSTALLED ones; Delete → everything
         // on the device). ──
-        val selInstalled = filteredInstalled.filter { it.internalName in selectedNames }
-        val selErrored = filteredErrored.filter { it.internalName in selectedNames }
-        val selUntrusted = filteredUntrusted.filter { it.internalName in selectedNames }
-        val selAvailable = filteredAvailable.filter { it.plugin.internalName in selectedNames }
+        val selInstalled = filteredInstalled.filter { installedKeyOf(it.internalName) in selectedKeys }
+        val selErrored = filteredErrored.filter { erroredKeyOf(it.internalName) in selectedKeys }
+        val selUntrusted = filteredUntrusted.filter { untrustedKeyOf(it.internalName) in selectedKeys }
+        val selAvailable = filteredAvailable.filter {
+            availableKeyOf(it.plugin.internalName) in selectedKeys
+        }
         ExtensionSelectionBar(
             visible = selectionMode,
-            label = "${selectedNames.size} selected",
+            label = "${selectedKeys.size} selected",
             onClose = { exitSelection() },
             onSelectAll = if (selectionMode) {
-                { selectedNames = selectableKeySet }
+                { selectedKeys = selectableKeySet }
             } else {
                 null
             },

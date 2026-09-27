@@ -568,6 +568,35 @@ internal fun ExtensionIconPlaceholder(name: String, size: Dp = 40.dp) {
 internal fun matchesSearch(name: String, query: String): Boolean =
     query.isBlank() || name.contains(query, ignoreCase = true)
 
+/**
+ * ROUND 94 (D-651): THE MULTI-FIELD EXTENSION SEARCH — the v1.1.50 report:
+ * "The search functionality should not only search the name of the
+ * extensions, but it should also search the language of the extensions and
+ * also search the version of the extensions too… if the user types 14, then
+ * all the extensions which have version 14 will be shown. And if the user
+ * types FR or EN, then the extensions with English or FR tags will be also
+ * shown." One substring pass over NAME + LANGUAGE + VERSION — blank query
+ * passes everything. (The testing list keeps the name-only [matchesSearch];
+ * its targets have no language/version fields worth matching.)
+ */
+internal fun matchesExtensionSearch(
+    query: String,
+    name: String,
+    lang: String? = null,
+    version: String? = null,
+): Boolean {
+    val q = query.trim()
+    if (q.isEmpty()) return true
+    if (name.contains(q, ignoreCase = true)) return true
+    if (lang != null && lang.contains(q, ignoreCase = true)) return true
+    if (version != null && version.contains(q, ignoreCase = true)) return true
+    return false
+}
+
+// ROUND 94 (D-650): the NSFW tri-state lives in core/preferences
+// (NsfwFilterMode.kt) — the extensions page AND the search screen's source
+// picker both filter on it (one gate, one doctrine).
+
 // ════════════════════════════════════════════════════════════════════════════
 //  D-580 (round 84): the shared DELETE EXIT CHOREOGRAPHY — the exact motion
 //  the Downloads page plays when an episode is deleted (D-384), brought to
@@ -905,9 +934,27 @@ internal fun ExtensionSelectionBar(
 /**
  * Builds the drag-selection modifier for one tab's list.
  *
+ * ROUND 94 (D-648) — THE KEY-SPACE + SCROLL REWORK. Two round-93 defects
+ * fixed: (1) the hit-test compared the LazyColumn's ITEM KEYS against the
+ * callers' raw package-name sets — never a match, so the long-press opened
+ * NOTHING on either tab (the v1.1.50 report: "the long press functionality
+ * is gone… It does not open up the selection at all"); the callers now pass
+ * the EXACT item keys the lists use. (2) The edge auto-scroll was a fixed
+ * ~875px/s glide that only re-selected on drag EVENTS — now the speed ramps
+ * QUADRATICALLY with edge depth, ACCELERATES the longer the finger rests in
+ * the zone (up to ~2.1×), and the loop hit-tests EVERY TICK so rows
+ * scrolling under a STATIONARY finger keep joining the selection.
+ *
+ * HOW IT FITS THE ROWS: this handler lives on the LazyColumn ITSELF and
+ * owns the long-press for the whole tab — the rows keep plain taps
+ * (toggle / open detail) and DROP their own long-press callbacks. While the
+ * finger holds, the parent consumes every move event, so the row under the
+ * finger never also fires a tap when the drag ends.
+ *
  * @param listState the tab's LazyListState (hit-testing + auto-scroll).
- * @param selectableKeys every row key that CAN be selected (headers and
- *   section spacers are not members — a drag over them keeps the last
+ * @param selectableKeys the EXACT LazyColumn item keys that can be selected
+ *   (including any prefixes the list builds them with — headers and
+ *   section spacers are not members; a drag over them keeps the last
  *   selectable row).
  * @param onLongPressSelect the long-press landed on [key]: outside selection
  *   mode this enters it with the row selected; inside, it RANGE-selects from
@@ -922,62 +969,133 @@ internal fun rememberDragSelectionModifier(
     onLongPressSelect: (key: String) -> Unit,
     onRangeSelect: (fromKey: String, toKey: String) -> Unit,
 ): Modifier {
-    // The auto-scroll velocity (px per ~16ms tick); 0 = resting.
-    var scrollVelocity by androidx.compose.runtime.remember {
+    // The long-lived loop must always see the CURRENT composition's key set
+    // + callbacks (mid-drag list mutations — an install completing, a filter
+    // change — would otherwise leave it ranging over stale keys).
+    val currentSelectableKeys by androidx.compose.runtime.rememberUpdatedState(selectableKeys)
+    val currentOnLongPressSelect by androidx.compose.runtime.rememberUpdatedState(onLongPressSelect)
+    val currentOnRangeSelect by androidx.compose.runtime.rememberUpdatedState(onRangeSelect)
+
+    // The live drag session, shared between the gesture handler and the
+    // auto-scroll loop: the anchor row the gesture started on + the finger's
+    // last Y (NaN = no finger).
+    var dragAnchorKey by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<String?>(null)
+    }
+    var dragPointerY by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableFloatStateOf(Float.NaN)
+    }
+    // D-648: the list's measured height — the pointerInput's own coordinate
+    // space. (layoutInfo.viewportEndOffset's relationship to content padding
+    // made the old bottom-edge math unreliable; the physical bounds are
+    // exactly what the finger can reach.)
+    var viewportHeightPx by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableFloatStateOf(0f)
     }
-    androidx.compose.runtime.LaunchedEffect(scrollVelocity) {
-        if (scrollVelocity != 0f) {
-            while (true) {
-                listState.scrollBy(scrollVelocity)
-                delay(16)
+
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val edgeZonePx = androidx.compose.runtime.remember(density) {
+        with(density) { EDGE_ZONE_DP.toPx() }
+    }
+
+    /** Signed scroll speed (px/tick) for a finger resting at [y]. */
+    fun velocityFor(y: Float): Float {
+        val height = viewportHeightPx
+        if (height <= 0f || y.isNaN()) return 0f
+        val fromTop = y
+        val fromBottom = height - y
+        return when {
+            fromTop < edgeZonePx -> {
+                val depth = 1f - (fromTop / edgeZonePx).coerceIn(0f, 1f)
+                -MAX_EDGE_SCROLL_PX * depth * depth
             }
+            fromBottom < edgeZonePx -> {
+                val depth = 1f - (fromBottom / edgeZonePx).coerceIn(0f, 1f)
+                MAX_EDGE_SCROLL_PX * depth * depth
+            }
+            else -> 0f
         }
     }
-    return Modifier.pointerInput(listState, selectableKeys) {
-        // The long-press anchor — the row the gesture started on.
-        var anchorKey: String? = null
-        val edgePx = 56.dp.toPx()
-        detectDragGesturesAfterLongPress(
-            onDragStart = { position ->
-                val key = keyAtPosition(listState, position.y, selectableKeys)
-                anchorKey = key
-                scrollVelocity = 0f
-                if (key != null) onLongPressSelect(key)
-            },
-            onDrag = { change, _ ->
-                val key = keyAtPosition(listState, change.position.y, selectableKeys)
-                val anchor = anchorKey
-                if (key != null && anchor != null && key != anchor) {
-                    onRangeSelect(anchor, key)
+
+    // D-648: the auto-scroll + hit-test loop — runs for the LIFETIME of a
+    // drag session (keyed on the anchor, not the velocity, so the hold
+    // acceleration isn't reset every time the finger twitches).
+    androidx.compose.runtime.LaunchedEffect(dragAnchorKey) {
+        if (dragAnchorKey == null) return@LaunchedEffect
+        var holdTicks = 0
+        while (true) {
+            val y = dragPointerY
+            if (!y.isNaN()) {
+                val base = velocityFor(y)
+                if (base != 0f) {
+                    // Hold acceleration: the longer the finger rests inside
+                    // the edge zone, the faster the glide — capped at
+                    // 1f + HOLD_RAMP_SPAN after ~HOLD_RAMP_TICKS.
+                    val ramp = 1f + HOLD_RAMP_SPAN *
+                        (holdTicks.toFloat() / HOLD_RAMP_TICKS).coerceAtMost(1f)
+                    listState.scrollBy(base * ramp)
+                    holdTicks++
+                    // THE STATIONARY-FINGER FIX: rows scrolling UNDER the
+                    // resting finger join the selection every tick (the old
+                    // code only hit-tested on drag events, so holding at the
+                    // edge scrolled past rows without selecting them).
+                    val key = keyAtPosition(listState, y, currentSelectableKeys)
+                    val anchor = dragAnchorKey
+                    if (key != null && anchor != null && key != anchor) {
+                        currentOnRangeSelect(anchor, key)
+                    }
+                } else {
+                    holdTicks = 0
                 }
-                // AUTO-SCROLL: near the viewport's top/bottom edge, glide the
-                // list along so the selection can continue past the fold.
-                val viewportEnd = listState.layoutInfo.viewportEndOffset.toFloat()
-                scrollVelocity = when {
-                    change.position.y < edgePx ->
-                        -AUTO_SCROLL_STEP_PX * (1f - (change.position.y / edgePx).coerceIn(0f, 1f))
-                    change.position.y > viewportEnd - edgePx ->
-                        AUTO_SCROLL_STEP_PX * (
-                            1f - ((viewportEnd - change.position.y) / edgePx).coerceIn(0f, 1f)
-                            )
-                    else -> 0f
-                }
-            },
-            onDragEnd = {
-                anchorKey = null
-                scrollVelocity = 0f
-            },
-            onDragCancel = {
-                anchorKey = null
-                scrollVelocity = 0f
-            },
-        )
+            }
+            delay(AUTO_SCROLL_TICK_MS)
+        }
     }
+
+    return Modifier
+        .onSizeChanged { viewportHeightPx = it.height.toFloat() }
+        .pointerInput(listState) {
+            detectDragGesturesAfterLongPress(
+                onDragStart = { position ->
+                    val key = keyAtPosition(listState, position.y, currentSelectableKeys)
+                    dragAnchorKey = key
+                    dragPointerY = position.y
+                    if (key != null) currentOnLongPressSelect(key)
+                },
+                onDrag = { change, _ ->
+                    dragPointerY = change.position.y
+                    val key = keyAtPosition(listState, change.position.y, currentSelectableKeys)
+                    val anchor = dragAnchorKey
+                    if (key != null && anchor != null && key != anchor) {
+                        currentOnRangeSelect(anchor, key)
+                    }
+                },
+                onDragEnd = {
+                    dragAnchorKey = null
+                    dragPointerY = Float.NaN
+                },
+                onDragCancel = {
+                    dragAnchorKey = null
+                    dragPointerY = Float.NaN
+                },
+            )
+        }
 }
 
-/** The base auto-scroll speed (px per 16ms tick) at the very edge. */
-private const val AUTO_SCROLL_STEP_PX = 14f
+/** D-648: how close to the viewport edge (in dp) the auto-scroll zone starts. */
+private val EDGE_ZONE_DP = 96.dp
+
+/** D-648: the base scroll speed at the very edge, before hold acceleration (px/tick). */
+private const val MAX_EDGE_SCROLL_PX = 19f
+
+/** D-648: ticks (~16ms each) of edge-holding to reach full acceleration. */
+private const val HOLD_RAMP_TICKS = 55
+
+/** D-648: the acceleration span — the glide reaches ×2.1 at a full hold. */
+private const val HOLD_RAMP_SPAN = 1.1f
+
+/** D-648: the auto-scroll loop cadence. */
+private const val AUTO_SCROLL_TICK_MS = 16L
 
 /**
  * Resolves the selectable row key under [y] (the LazyColumn's local

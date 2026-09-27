@@ -386,43 +386,30 @@ fun TestingTargetDetailScreen(
                         }
                     }
 
-                    // ── ROUND 91 (D-632) + ROUND 93 (D-647): THE STAGE
-                    // TIMINGS — rebuilt with the LIVE RUN's motion (the
-                    // v1.1.49 report: "this can be implemented similarly in
-                    // the stage timings too… if there is only the first run,
-                    // then there will be a full bar… when the third one comes
-                    // in… it will start from zero… and the other two will
-                    // start becoming smaller"). Only STARTED stages render
-                    // (each revealing with an expand+fade as its turn
-                    // arrives); every shown stage carries a TIME BAR whose
-                    // length is its duration relative to the LONGEST stage
-                    // shown; the running bar grows live (150ms ticker) and
-                    // every earlier bar RENORMALIZES (animated) when a new
-                    // maximum lands. The old single segmented strip (equal
-                    // placeholders for stages that never ran) is GONE.
+                    // ── ROUND 91 (D-632) + ROUND 93 (D-647) + ROUND 94
+                    // (D-652): THE STAGE TIMINGS — BARS ONLY. The v1.1.50
+                    // report: "all the stage timings were shown at the top,
+                    // all together combined in a list view, which was not
+                    // good… you can only show the bars. You are not supposed
+                    // to show any details there or anything like that. Only
+                    // the bars will be shown in parallel to each other, very
+                    // close to each other, just a slight padding on them
+                    // with each other… There won't be any text to them,
+                    // nothing, only bars." The motion semantics stay (the
+                    // live run's machine): a bar renders ONLY once its stage
+                    // STARTED (expand+fade reveal), its length is its time
+                    // against the LONGEST stage shown, the running bar grows
+                    // live (150ms ticker), and earlier bars RENORMALIZE
+                    // (animated) when a new maximum lands — but every label,
+                    // dot, duration and caption is GONE. ──
                     item(key = "stage-bar") {
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = "Stage timings",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Spacer(Modifier.height(9.dp))
-                                StageTimingRows(state = state)
-                                Spacer(Modifier.height(6.dp))
-                                Text(
-                                    text = "Each bar is one test's time, sized against the longest so far",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                )
+                            Box(modifier = Modifier.padding(12.dp)) {
+                                StageTimingBars(state = state)
                             }
                         }
                     }
@@ -808,17 +795,18 @@ private fun VerdictCountChip(label: String, count: Int, color: Color) {
 }
 
 /**
- * ROUND 93 (D-647): THE PROGRESSIVE STAGE-TIMING ROWS — the live run's hero
- * motion, brought to the detail page (the twin of TestingRunScreen's D-637
- * machine): a stage renders ONLY once it has STARTED (expand+fade reveal),
- * and each shown stage carries a TIME BAR whose length is its duration
- * relative to the LONGEST stage shown — the running bar grows live and every
- * earlier bar RENORMALIZES (animated) whenever a new maximum lands. Stages
- * that never ran render NOTHING here (the old equal-placeholder segments
- * are gone); an untested target shows the honest empty line instead.
+ * ROUND 93 (D-647) → ROUND 94 (D-652): THE STAGE-TIMING BARS — BARS ONLY.
+ * The v1.1.50 report retired the labeled row list ("There won't be any
+ * text to them, nothing, only bars"): each STARTED stage is now one thin
+ * bar stacked right against its neighbors with just a hair of padding
+ * (3dp), sized against the LONGEST stage shown. The D-637 motion survives:
+ * the bar reveals (expand+fade) the moment its stage starts, the running
+ * bar GROWS LIVE (150ms ticker), and every earlier bar RENORMALIZES
+ * (animated 350ms) whenever a new maximum lands. Never-run stages render
+ * nothing; an untested target shows one quiet empty line.
  */
 @Composable
-private fun StageTimingRows(state: TargetRunState?) {
+private fun StageTimingBars(state: TargetRunState?) {
     val runningStartedAtMs = state?.runningKindStartedAtMs
     var liveMs by remember(runningStartedAtMs) {
         mutableLongStateOf(
@@ -847,7 +835,9 @@ private fun StageTimingRows(state: TargetRunState?) {
 
     var anyShown = false
     Column(
-        verticalArrangement = Arrangement.spacedBy(5.dp),
+        // D-652: "very close to each other, just a slight padding on them
+        // with each other" — a 3dp hair between the bars, nothing more.
+        verticalArrangement = Arrangement.spacedBy(3.dp),
         modifier = Modifier.animateContentSize(
             animationSpec = tween(Motion.DurationStandard, easing = Motion.EasingEmphasized),
         ),
@@ -868,65 +858,33 @@ private fun StageTimingRows(state: TargetRunState?) {
                     label = "detailStageBarWidth",
                 )
                 val baseColor = TestingPalette.kindColor(kind)
+                // The verdict still reads at a glance without any text: a
+                // failed bar dims, a skipped bar fades to a whisper.
                 val fillColor = when (kindResult?.status) {
                     TestStatus.FAILED -> baseColor.copy(alpha = 0.55f)
                     TestStatus.SKIPPED -> baseColor.copy(alpha = 0.30f)
                     else -> baseColor
                 }
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(baseColor),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = kind.label,
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (kindResult?.status == TestStatus.RUNNING && runningStartedAtMs != null) {
-                            LiveElapsedText(
-                                startedAtMs = runningStartedAtMs,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 10.sp,
-                            )
-                        } else {
-                            Text(
-                                text = TestTimeFormat.format(kindResult?.durationMs ?: 0L),
-                                fontFamily = RobotoFamily,
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(7.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f)),
+                ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 3.dp)
-                            .height(5.dp)
+                            .fillMaxWidth(fraction)
+                            .fillMaxHeight()
                             .clip(RoundedCornerShape(50))
-                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f)),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(fraction)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(50))
-                                .background(fillColor),
-                        )
-                    }
+                            .background(fillColor),
+                    )
                 }
             }
         }
         if (!anyShown) {
             Text(
-                text = "Nothing timed yet — run the tests to see the stage timings",
+                text = "Nothing timed yet",
                 fontFamily = RobotoFamily,
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),

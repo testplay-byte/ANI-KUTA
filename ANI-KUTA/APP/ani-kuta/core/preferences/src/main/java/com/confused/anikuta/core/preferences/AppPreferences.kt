@@ -102,13 +102,18 @@ class AppPreferences(private val store: PreferenceStore) {
         get() = store.getBoolean(KEY_COVER_TRANSITION_ENABLED, true)
         set(value) = store.putBoolean(KEY_COVER_TRANSITION_ENABLED, value)
 
-    // ── Task 41 / gate G4: CloudStream NSFW gate ──
-    // Universal-toggle DIRECTION: today this gates CloudStream catalog entries
-    // (tvTypes contains "NSFW"); when the app-wide NSFW master switch exists this
-    // links into it instead of standing alone (doc 23 §1 G4 row).
-    var cloudstreamShowNsfw: Boolean
-        get() = store.getBoolean(KEY_CLOUDSTREAM_SHOW_NSFW, false)
-        set(value) = store.putBoolean(KEY_CLOUDSTREAM_SHOW_NSFW, value)
+    // ── ROUND 94 (D-650): the extensions-page NSFW TRI-STATE ──
+    // "off" (the default) | "on" | "only" — one shared state for BOTH
+    // extension tabs (Aniyomi + CloudStream) AND the search screen's
+    // CloudStream source picker (the gate the old Task-41/G4 boolean
+    // `cloudstreamShowNsfw` used to carry — that boolean is retired with
+    // this). Read on every entry to the extensions page and written on
+    // every cycle of the filters pill, so the page always reopens exactly
+    // where the user left it ("every single time the user enters the
+    // extensions page, then it will remember the last state it was on").
+    var extensionsNsfwMode: String
+        get() = store.getString(KEY_EXTENSIONS_NSFW_MODE, "off")
+        set(value) = store.putString(KEY_EXTENSIONS_NSFW_MODE, value)
 
     companion object {
         private const val KEY_CONTENT_MODE = "content_mode"
@@ -124,7 +129,8 @@ class AppPreferences(private val store: PreferenceStore) {
         private const val KEY_DETAILS_BANNER_ANIMATION = "details_banner_animation"
         // D-320: experimental shared-element cover transition.
         private const val KEY_COVER_TRANSITION_ENABLED = "cover_transition_enabled"
-        // Task 41 / G4: CloudStream NSFW gate (default OFF).
-        private const val KEY_CLOUDSTREAM_SHOW_NSFW = "cloudstream_show_nsfw"
+        // ROUND 94 (D-650): the extensions-page NSFW tri-state (default "off");
+        // retired with it: the Task-41/G4 boolean cloudstream_show_nsfw.
+        private const val KEY_EXTENSIONS_NSFW_MODE = "extensions_nsfw_mode"
     }
 }
