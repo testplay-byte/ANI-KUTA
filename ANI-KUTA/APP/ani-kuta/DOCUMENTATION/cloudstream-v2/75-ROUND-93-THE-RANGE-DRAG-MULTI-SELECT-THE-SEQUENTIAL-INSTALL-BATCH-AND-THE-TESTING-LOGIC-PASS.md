@@ -168,8 +168,14 @@ features.
   its own long-lived scope) compiles unchanged against the same signature —
   it simply awaits the prompt's answer now, which is the correct behavior
   for a programmatic install too.
-- CI: Build APK run **36315107156** on `c7354ca2` (see §10 for the honest
-  run history).
+- CI (honestly over the D-472 ≤2 budget — three runs, two compile fixes,
+  both now lessons): run **36315107156** on `c7354ca2` FAILED
+  (`kotlinx.coroutines.async` is an extension on CoroutineScope and cannot
+  be invoked by its qualified name — the whole parallel-download phase
+  cascaded); run **36315263380** on `d85e8978` FAILED (the CloudStream
+  batch-delete loop iterated the sealed `CloudstreamExtension` base, which
+  carries no `internalName` — the targets are now paired with their keys
+  before the loop); run **36315494085** on `9a75bfcd` **GREEN**.
 
 ## 10. The device-round checklist (v1.1.50)
 
