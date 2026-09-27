@@ -79,7 +79,7 @@ Also: the sheet's height cap rose 0.70 → 0.78 of the screen (the selector + th
 
 ## 6. CI
 
-Build APK run **36345112122** on 612e3563 — see §8 for the verdict.
+Run **36345112122** (612e3563) FAILED on the picker's imports — `animateColorAsState` was imported from `androidx.compose.animation.core` (it lives in `androidx.compose.animation` — the ROUND-92 LESSSON, repeated) and `LocalFocusManager` from `androidx.compose.ui.focus` (it lives in `androidx.compose.ui.platform`); the "Cannot infer type" was the unresolved-delegate cascade. Run **36345425001** (ebd1d480 — the two-line import fix) — inside the D-472 ≤2 budget.
 
 ## 7. Release
 
