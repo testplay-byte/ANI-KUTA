@@ -544,8 +544,43 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10150
+    const val versionName = "1.1.50"
+    // D-640..D-647 (round 93): release/1.1.50 — cut from the round-93 ledger
+    // head 28f37ead (the implementation 9a75bfcd GREEN on Build APK run
+    // 36315494085 — the third run; the first two failures, the fully-qualified
+    // async extension call + the sealed base's missing internalName, are
+    // fixed + disclosed in doc 75 §9). What the release carries on top of
+    // v1.1.49 (the round-93 device round — full detail: doc 75 + decisions
+    // D-640..D-647):
+    // D-640 THE TWO-ROW SELECTION BAR — the status row (X + the count at
+    // full width + Select all) over the weight-filled action row, so the
+    // count never clips and Install/Trust/Untrust/Delete all fit at once.
+    // D-641 THE RANGE LONG-PRESS + THE DRAG-PAINT — a second long-press
+    // selects everything in between (the old code reset the selection to
+    // the new row); long-press + drag paints the selection along the
+    // finger with edge auto-scroll; both tabs.
+    // D-642 THE SEQUENTIAL INSTALL BATCH — the repeat-prompt bug fixed (the
+    // flow completed at dispatch): each system prompt is now dispatched and
+    // AWAITED before the next fires (parallel downloads, one prompt at a
+    // time, failures toasted, a denied prompt stops the batch).
+    // D-643 THE PAGE-EXIT HYGIENE + THE BROADCAST-DRIVEN UNINSTALL CHAIN —
+    // leaving the extensions page cancels downloads/installs, resets the
+    // rows and sweeps downloaded-but-uninstalled temp files; the uninstall
+    // chain advances on the removal broadcast (the next prompt fires the
+    // instant the previous uninstall lands).
+    // D-645 THE CLOUDSTREAM MOTIONS — the batch delete waves rows out one
+    // at a time (slide+fade per row, never a collapse); a completing
+    // install slides its available row out into Untrusted.
+    // D-644 SORTING REMOVED — the sort menu and the manual reorder are gone;
+    // alphabetical everywhere on both tabs.
+    // D-646 THE TESTING LOGIC — a failed ping fails the whole chain; a
+    // failed search with a working home page is forgiven (the extension
+    // counts as working); the search ladder is exactly Jujutsu Kaisen →
+    // Interstellar → Link Click.
+    // D-647 THE FULL-DETAILS PROFESSIONAL PASS — neutral result cards (the
+    // glowing color washes are gone) + the stage timings playing the live
+    // run's progressive motion.
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
