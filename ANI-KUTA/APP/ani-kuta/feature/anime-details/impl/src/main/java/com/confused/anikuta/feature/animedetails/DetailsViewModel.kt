@@ -2955,6 +2955,85 @@ class DetailsViewModel(
         _showManualLinkSheet.value = true
     }
 
+    // ── ROUND 101 (WS-C): the share system + the WebView action ──────────────
+
+    /**
+     * ROUND 101 (WS-C): builds the share system's input — everything the
+     * three-target share sheet needs, projected into :core:share's
+     * [com.confused.anikuta.core.share.ShareableContent].
+     *
+     * Targets by availability: the extension row needs a linked source (the
+     * absolute page URL), the data-source row needs an anilistId (AniList is
+     * the v1 provider — the list shape keeps future providers additive), and
+     * the app's own deep link needs the content mainId. Returns null only
+     * when there is no loaded anime at all.
+     */
+    fun buildShareContent(): com.confused.anikuta.core.share.ShareableContent? {
+        val anime = (_state.value as? DetailsState.Success)?.anime ?: return null
+        val sourceId = anime.sourceId
+        val animeUrl = anime.animeUrl
+        val extensionUrl = if (sourceId != null && animeUrl != null) {
+            buildFullContentUrl(sourceId, animeUrl)
+        } else {
+            null
+        }
+        val sourceName = _linkedSource.value?.sourceName
+            ?: sourceId?.let { extensionManager.getSource(it)?.name }
+        val dataLinks = anime.anilistId?.let { id ->
+            listOf(
+                com.confused.anikuta.core.share.DataSourceLink(
+                    providerId = "anilist",
+                    providerName = "AniList",
+                    url = com.confused.anikuta.core.share.ContentShareLinkFactory.buildAniListUrl(id),
+                ),
+            )
+        } ?: emptyList()
+        return com.confused.anikuta.core.share.ShareableContent(
+            title = anime.displayName,
+            mainId = currentMainId ?: "",
+            extensionUrl = extensionUrl,
+            extensionSourceName = sourceName,
+            dataSourceLinks = dataLinks,
+        )
+    }
+
+    /**
+     * ROUND 101 (WS-C): the ABSOLUTE page URL for the content on its
+     * extension's site — the source's baseUrl joined with the content's
+     * (usually relative) url. Works for BOTH ecosystems: aniyomi sources and
+     * CloudStream-bridged providers expose the same AnimeCatalogueSource
+     * baseUrl contract. Returns null when the source isn't loaded (uninstalled
+     * extension) or exposes no baseUrl.
+     */
+    fun buildFullContentUrl(sourceId: Long, animeUrl: String): String? {
+        if (animeUrl.isBlank()) return null
+        if (animeUrl.startsWith("http://") || animeUrl.startsWith("https://")) {
+            return animeUrl // already absolute
+        }
+        val source = extensionManager.getSource(sourceId) as? eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
+        val base = source?.baseUrl?.takeIf { it.isNotBlank() } ?: return null
+        return base.trimEnd('/') + "/" + animeUrl.trimStart('/')
+    }
+
+    /**
+     * ROUND 101 (WS-C): the "View in WebView" target — the same absolute page
+     * URL the extension share uses, opened in the app's internal WebView
+     * (the D-209 CloudflareWebViewActivity, cookies shared with OkHttp). Null
+     * when no source-linked URL exists (the menu hides the row then).
+     */
+    fun buildWebViewUrl(): String? {
+        val anime = (_state.value as? DetailsState.Success)?.anime ?: return null
+        val sourceId = anime.sourceId ?: return null
+        val animeUrl = anime.animeUrl ?: return null
+        return buildFullContentUrl(sourceId, animeUrl)
+    }
+
+    /** The extension source's display name (the WebView title / share subtitle). */
+    fun currentSourceName(): String? =
+        _linkedSource.value?.sourceName
+            ?: (_state.value as? DetailsState.Success)?.anime?.sourceId
+                ?.let { extensionManager.getSource(it)?.name }
+
     fun clearAniListSearch() {
         _anilistSearchState.value = AniListSearchState.Idle
     }

@@ -48,8 +48,6 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SearchOff  // D-226: reverse auto-link no-match
 import androidx.compose.material.icons.filled.Security  // D-209: Cloudflare error icon
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api  // D-314: PullToRefreshBox opt-in
@@ -423,7 +421,13 @@ fun DetailsScreen(
     val showMarkPreviousPrompt by viewModel.showMarkPreviousPrompt.collectAsState()
     val showMarkSeriesPrompt by viewModel.showMarkSeriesPrompt.collectAsState()
 
-    var showMenu by remember { mutableStateOf(false) }
+    // ── ROUND 101 (WS-C): the three-dot menu is now the DetailsActionSheet ──
+    // (a proper bottom sheet — the app's standard action surface; the old
+    // text-only DropdownMenu's UI was the user's complaint). Share opens the
+    // :core:share system's ShareContentSheet; View in WebView launches the
+    // internal WebView with the content's absolute page URL.
+    var showActionSheet by remember { mutableStateOf(false) }
+    var showShareSheet by remember { mutableStateOf(false) }
     var showManualSearch by remember { mutableStateOf(false) }
     var showResolverSheet by remember { mutableStateOf(false) }
     var resolverDownloadMode by remember { mutableStateOf(false) }
@@ -1039,37 +1043,14 @@ fun DetailsScreen(
                                 saved = isInLibrary,
                                 onToggleSave = { viewModel.toggleLibrary() },
                                 onLongPressSave = { viewModel.openCategorySheet() },
-                                onMore = { showMenu = true },
-                                showMenu = showMenu,
-                                onDismissMenu = { showMenu = false },
-                                onRefresh = {
-                                    showMenu = false
-                                    viewModel.refreshAll()
-                                },
-                                // Phase B: AniList link state + callbacks
-                                isExtensionEntry = anime.isFromExtension,
-                                isAniListLinked = anime.anilistId != null,
+                                // ROUND 101 (WS-C): the three-dot opens the
+                                // DetailsActionSheet now (Refresh / Share /
+                                // View in WebView / Tracking / data source /
+                                // link-unlink all live there, icon-rowed).
+                                onMore = { showActionSheet = true },
+                                // Phase B: the auto-link spinner stays on the
+                                // banner (it is progress feedback, not an action).
                                 isAutoLinkSearching = autoLinkState is AutoLinkState.Searching,
-                                onLinkAniList = {
-                                    showMenu = false
-                                    viewModel.openManualLinkSheet()
-                                },
-                                onUnlinkAniList = {
-                                    showMenu = false
-                                    viewModel.unlinkAniList()
-                                },
-                                // D-242: Tracking — opens the TrackSheet.
-                                onOpenTracking = {
-                                    showMenu = false
-                                    viewModel.openTrackSheet()
-                                },
-                                // D-134: Data source selector — shows when both
-                                // anilistId + sourceId are present (both data sources).
-                                hasBothDataSources = anime.anilistId != null && anime.sourceId != null,
-                                currentDataSourcePriority = anime.dataSourcePriority,
-                                onSwitchDataSource = { priority ->
-                                    viewModel.switchDataSource(priority)
-                                },
                             )
                         }
 
@@ -1704,6 +1685,61 @@ fun DetailsScreen(
         )
     }
 
+    // ── ROUND 101 (WS-C): the DetailsActionSheet — the three-dot menu's
+    // replacement (icon-rowed bottom sheet: data source / Refresh / Share /
+    // View in WebView / Tracking / link-unlink). Every action that existed
+    // in the old DropdownMenu keeps its exact behavior.
+    if (showActionSheet) {
+        // Computed once per open — the source lookup is a map read, but the
+        // sheet's lifetime is one interaction; re-reading on every sheet
+        // recomposition would be noise.
+        val webViewUrl = remember(showActionSheet) { viewModel.buildWebViewUrl() }
+        val currentAnime = (state as? DetailsState.Success)?.anime
+        DetailsActionSheet(
+            onDismiss = { showActionSheet = false },
+            contentTitle = currentAnime?.displayName ?: "",
+            // D-134: the selector shows when BOTH anilistId + sourceId exist.
+            hasBothDataSources = currentAnime?.anilistId != null && currentAnime?.sourceId != null,
+            currentDataSourcePriority = currentAnime?.dataSourcePriority
+                ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION,
+            onSwitchDataSource = { priority -> viewModel.switchDataSource(priority) },
+            onRefresh = { viewModel.refreshAll() },
+            onShare = { showShareSheet = true },
+            onViewInWebView = {
+                // The app's internal WebView (D-209 activity — cookies shared
+                // with OkHttp). Works for aniyomi AND CloudStream-bridged
+                // sources (same AnimeCatalogueSource baseUrl contract).
+                if (webViewUrl != null) {
+                    onOpenCloudflareWebView(webViewUrl, viewModel.currentSourceName() ?: "WebView")
+                }
+            },
+            canViewInWebView = webViewUrl != null,
+            onOpenTracking = { viewModel.openTrackSheet() },
+            // Phase B: the AniList link section (extension entries only — the
+            // old menu's rule, unchanged).
+            isExtensionEntry = currentAnime?.isFromExtension == true,
+            isAniListLinked = currentAnime?.anilistId != null,
+            onLinkAniList = { viewModel.openManualLinkSheet() },
+            onUnlinkAniList = { viewModel.unlinkAniList() },
+        )
+    }
+
+    // ── ROUND 101 (WS-C): the share sheet — :core:share's three targets ──
+    if (showShareSheet) {
+        val shareContent = remember(showShareSheet) { viewModel.buildShareContent() }
+        val shareLinks = remember(shareContent) {
+            shareContent?.let {
+                com.confused.anikuta.core.share.ContentShareLinkFactory.build(it)
+            } ?: emptyList()
+        }
+        ShareContentSheet(
+            onDismiss = { showShareSheet = false },
+            contentTitle = shareContent?.title
+                ?: (state as? DetailsState.Success)?.anime?.displayName ?: "",
+            links = shareLinks,
+        )
+    }
+
     // ── Phase B: Manual link sheet (AniList linking for extension entries) ──
     if (showManualLinkSheet) {
         ManualLinkSheet(
@@ -1825,76 +1861,6 @@ fun DetailsScreen(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Data source selector — for the three-dot dropdown menu (D-130, D-134)
-// ════════════════════════════════════════════════════════════════════════════
-
-/**
- * A data-source selector rendered inside the three-dot DropdownMenu.
- *
- * Shows a "Data source" label + a segmented toggle (AniList / Extension).
- * Tapping a segment calls [onSelect] — the caller closes the menu.
- *
- * D-134: The selector only appears when both AniList + extension data are
- * available (the entry is linked). For AniList-only or extension-only entries,
- * the selector is hidden (there's nothing to switch).
- *
- * Future: This will support more sources (TMDB, Kitsu) — the toggle will
- * become a multi-way selector.
- */
-@Composable
-private fun DataSourceSelectorMenu(
-    currentPriority: com.confused.anikuta.core.common.model.DataSourcePriority,
-    onSelect: (com.confused.anikuta.core.common.model.DataSourcePriority) -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Text(
-            text = "Data source",
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            listOf(
-                com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST to "AniList",
-                com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION to "Extension",
-            ).forEach { (priority, label) ->
-                val isSelected = currentPriority == priority
-                Surface(
-                    color = if (isSelected) MaterialTheme.colorScheme.primary
-                            else androidx.compose.ui.graphics.Color.Transparent,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onSelect(priority) },
-                ) {
-                    Text(
-                        text = label,
-                        fontFamily = RobotoFamily,
-                        fontSize = 13.sp,
-                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        maxLines = 1,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            }
-        }
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
 //  Banner — 360dp blurred cover + gradient + 3 action buttons + cover/title
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -1905,29 +1871,14 @@ private fun DetailBanner(
     saved: Boolean,
     onToggleSave: () -> Unit,
     onMore: () -> Unit,
-    showMenu: Boolean,
-    onDismissMenu: () -> Unit,
-    onRefresh: () -> Unit = {},
     onLongPressSave: () -> Unit = {},
     // D-315: cover tap → full-screen viewer (carries the cover's on-screen
     // bounds so the viewer can expand from the exact position).
     onCoverClick: (androidx.compose.ui.geometry.Rect) -> Unit = {},
     // D-320: shared-element key for the cover-transition (experimental).
     sharedCoverKey: String? = null,
-    // Phase B: AniList link state + callbacks
-    isExtensionEntry: Boolean = false,
-    isAniListLinked: Boolean = false,
+    // Phase B: the auto-linking spinner under the title (progress feedback).
     isAutoLinkSearching: Boolean = false,
-    // D-134: Data source selector params.
-    // Shows when BOTH anilistId + sourceId are present (both data sources available).
-    hasBothDataSources: Boolean = false,
-    currentDataSourcePriority: com.confused.anikuta.core.common.model.DataSourcePriority =
-        com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION,
-    onSwitchDataSource: (com.confused.anikuta.core.common.model.DataSourcePriority) -> Unit = {},
-    onLinkAniList: () -> Unit = {},
-    onUnlinkAniList: () -> Unit = {},
-    // D-242: Tracking — opens the TrackSheet.
-    onOpenTracking: () -> Unit = {},
 ) {
     val coverUrl = anime.coverUrl
     // D-236: Background image source — cover or banner (with fallback).
@@ -2068,68 +2019,15 @@ private fun DetailBanner(
                         )
                     }
                 }
-                // Three-dot menu — DropdownMenu is anchored here (next to the button).
-                Box {
-                    ActionButton(
-                        icon = Icons.Filled.MoreHoriz,
-                        contentDescription = "More",
-                        onClick = onMore,
-                    )
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = onDismissMenu,
-                    ) {
-                        // ── D-134: Data source selector (at the top of the menu) ──
-                        // Shows when both AniList + extension data are available.
-                        if (hasBothDataSources) {
-                            DataSourceSelectorMenu(
-                                currentPriority = currentDataSourcePriority,
-                                onSelect = { priority ->
-                                    onSwitchDataSource(priority)
-                                    onDismissMenu()
-                                },
-                            )
-                            androidx.compose.material3.HorizontalDivider()
-                        }
-                        DropdownMenuItem(
-                            text = { Text("Refresh", fontFamily = RobotoFamily) },
-                            onClick = onRefresh,
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Share", fontFamily = RobotoFamily) },
-                            onClick = onDismissMenu,
-                        )
-                        // ── D-242: Tracking (highlighted, separate) ──
-                        androidx.compose.material3.HorizontalDivider()
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    "Tracking",
-                                    fontFamily = RobotoFamily,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            },
-                            onClick = onOpenTracking,
-                        )
-                        androidx.compose.material3.HorizontalDivider()
-                        // ── Phase B: AniList link/unlink (extension entries only) ──
-                        if (isExtensionEntry) {
-                            androidx.compose.material3.HorizontalDivider()
-                            if (isAniListLinked) {
-                                DropdownMenuItem(
-                                    text = { Text("Unlink AniList", fontFamily = RobotoFamily) },
-                                    onClick = onUnlinkAniList,
-                                )
-                            } else {
-                                DropdownMenuItem(
-                                    text = { Text("Link to AniList", fontFamily = RobotoFamily) },
-                                    onClick = onLinkAniList,
-                                )
-                            }
-                        }
-                    }
-                }
+                // Three-dot menu — ROUND 101 (WS-C): opens the
+                // DetailsActionSheet (screen level). The old inline
+                // DropdownMenu is retired — every action lives in the sheet
+                // now, icon-rowed and sectioned.
+                ActionButton(
+                    icon = Icons.Filled.MoreHoriz,
+                    contentDescription = "More",
+                    onClick = onMore,
+                )
             }
         }
 
@@ -2179,8 +2077,11 @@ private fun DetailBanner(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 // D-238: Removed the "Linked to AniList" badge — no longer needed.
-                // Only show the auto-linking spinner while searching.
-                if (isExtensionEntry && isAutoLinkSearching) {
+                // Only show the auto-linking spinner while searching. (ROUND 101:
+                // the isExtensionEntry half of the old condition moved out with
+                // the menu params — the Searching state only ever fires on the
+                // extension entry's auto-link path, so the flag alone is honest.)
+                if (isAutoLinkSearching) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),

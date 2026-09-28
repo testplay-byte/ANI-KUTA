@@ -23,6 +23,7 @@ import com.confused.anikuta.core.content.contentModule
 import com.confused.anikuta.core.content.ContentSeeder
 import com.confused.anikuta.core.datacache.dataCacheModule
 import com.confused.anikuta.core.smartmatcher.smartMatcherModule
+import com.confused.anikuta.core.share.shareModule
 import com.confused.anikuta.core.trackeranilist.trackerAniListModule
 import com.confused.anikuta.core.videoresolver.videoResolverModule
 import com.confused.anikuta.core.watchprogress.watchProgressModule
@@ -166,6 +167,7 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 trackerAniListModule,
                 watchProgressModule,
                 smartMatcherModule,
+                shareModule,  // Round 101 (WS-C): the share system (:core:share)
                 contentModule,
                 dataCacheModule,
                 playbackCacheModule,

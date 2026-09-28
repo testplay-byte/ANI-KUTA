@@ -20,6 +20,8 @@ dependencies {
     implementation(project(":core:source-api"))
     implementation(project(":core:video-resolver"))
     implementation(project(":core:smart-matcher"))
+    // Round 101 (WS-C): the share system (:core:share).
+    implementation(project(":core:share"))
     implementation(project(":core:content"))
     implementation(project(":core:data-cache"))
     implementation(project(":core:download"))

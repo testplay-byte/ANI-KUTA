@@ -182,6 +182,8 @@ dependencies {
     implementation(project(":core:tracker-api"))
     implementation(project(":core:tracker-anilist"))
     implementation(project(":core:smart-matcher"))
+    // Round 101 (WS-C): the share system (:core:share — MainActivity deep-link intake).
+    implementation(project(":core:share"))
     implementation(project(":core:content"))
     implementation(project(":core:data-cache"))
     implementation(project(":core:playback-cache"))  // Video caching (test-feature branch)

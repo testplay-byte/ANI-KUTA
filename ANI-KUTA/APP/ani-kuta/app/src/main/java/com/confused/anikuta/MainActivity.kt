@@ -808,6 +808,49 @@ fun AppRoot() {
         }
     }
 
+    // ── ROUND 101 (WS-C): the app's OWN share deep-link intake ──
+    // anikuta://content/{mainId} (the :core:share ContentShareLinkFactory's
+    // APP_DEEP_LINK target) resolves through the SAME content-record lookup
+    // the notification tap uses — an AniList-linked record opens the AniList
+    // details key, an extension record opens the extension key. V1 is
+    // deliberately limited to exactly this (the user's spec: "for now, this
+    // functionality is going to be a bit limited"); the intent's data is
+    // consumed after handling so a recomposition never re-navigates.
+    val shareDeepLinkMainId = remember {
+        val activityIntent = (context as? android.app.Activity)?.intent
+        com.confused.anikuta.core.share.ContentShareLinkFactory.parseDeepLink(activityIntent?.dataString)
+    }
+    LaunchedEffect(shareDeepLinkMainId) {
+        if (!shareDeepLinkMainId.isNullOrBlank() && backstack.size == 1) {
+            val content = contentRepository.getMainEntryByMainId(shareDeepLinkMainId)
+            val details = content?.let { contentRepository.getContentDetails(it.mainId) }
+            val anilistId = details?.anilistId
+            if (anilistId != null) {
+                backstack.add(AnimeDetailsKey.AniList(anilistId))
+            } else if (content != null) {
+                val sid = content.sourceId
+                val url = content.animeUrl
+                if (sid != null && url != null) {
+                    backstack.add(
+                        AnimeDetailsKey.Extension(
+                            sourceId = sid,
+                            animeUrl = url,
+                            title = content.title,
+                        ),
+                    )
+                }
+            } else {
+                android.widget.Toast.makeText(
+                    context,
+                    "This content is not available on this device",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+            // Consume the URI so a later recomposition never re-navigates.
+            (context as? android.app.Activity)?.intent?.data = null
+        }
+    }
+
     val pop: () -> Unit = {
         if (backstack.size > 1) backstack.removeAt(backstack.lastIndex)
     }
