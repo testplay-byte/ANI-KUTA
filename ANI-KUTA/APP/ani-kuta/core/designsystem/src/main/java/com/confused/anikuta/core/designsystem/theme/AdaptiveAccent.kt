@@ -1,6 +1,7 @@
 package com.confused.anikuta.core.designsystem.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -52,7 +53,7 @@ fun AdaptiveAccentTheme(
  * callers keep the app's global scheme then.
  */
 @Composable
-fun rememberAdaptiveColorScheme(accentArgb: Long?): androidx.compose.ui.graphics.ColorScheme? {
+fun rememberAdaptiveColorScheme(accentArgb: Long?): ColorScheme? {
     val accent = accentArgb?.takeIf { it != 0L }?.let { Color(it.toInt()) } ?: return null
     val accentColors = AccentColors.from(accent)
     val isDark = isSystemInDarkTheme()
