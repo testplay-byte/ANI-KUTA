@@ -203,6 +203,22 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             Logger.e("AnikutaApp", e) { "Failed to wire CloudStream source bridge" }
         }
 
+        // ── ROUND 102 (WS-E — the tracking contract): START the watch→tracker
+        // bridge. Nothing depends on it (it is a self-starting observer of the
+        // watch_progress table), so this explicit get() at boot is what begins
+        // its process-lifetime collection — the same eager-start pattern the
+        // CloudStream source bridge above uses. Its INITIAL emission doubles
+        // as the startup sweep (reconciling every TRACKED content against its
+        // confirmed AniList cache — a sync interrupted by app death self-heals).
+        // ──
+        try {
+            org.koin.core.context.GlobalContext.get()
+                .get<com.confused.anikuta.core.trackeranilist.TrackingWatchSyncBridge>()
+            Logger.i("AnikutaApp") { "Tracking watch-sync bridge started" }
+        } catch (e: Exception) {
+            Logger.e("AnikutaApp", e) { "Failed to start the tracking watch-sync bridge" }
+        }
+
         // D-562 (round 74): the launcher-icon self-heal. PackageManager
         // component states CAN reset to the manifest defaults on an app
         // update while SharedPreferences survive — without this, a user who

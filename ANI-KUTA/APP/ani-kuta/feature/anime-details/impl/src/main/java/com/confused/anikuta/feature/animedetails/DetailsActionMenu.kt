@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.TrackChanges
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -111,10 +112,12 @@ fun DetailsActionMenu(
     ) {
         if (hasBothDataSources) {
             MenuSectionLabel("Data source")
+            // (priority, label, leading icon) — the picker's Tv/Cloud ecosystem
+            // glyphs for the two sides.
             listOf(
-                DataSourcePriority.ANILIST to "AniList",
-                DataSourcePriority.EXTENSION to "Extension",
-            ).forEach { (priority, label) ->
+                Triple(DataSourcePriority.ANILIST, "AniList", Icons.Filled.Star),
+                Triple(DataSourcePriority.EXTENSION, "Extension", Icons.Filled.Tv),
+            ).forEach { (priority, label, icon) ->
                 DropdownMenuItem(
                     text = {
                         MenuLabel(
@@ -122,7 +125,7 @@ fun DetailsActionMenu(
                             emphasize = currentDataSourcePriority == priority,
                         )
                     },
-                    leadingIcon = { MenuLeadingIcon(Icons.Filled.Star.takeIf { priority == DataSourcePriority.ANILIST } ?: Icons.Filled.Language) },
+                    leadingIcon = { MenuLeadingIcon(icon) },
                     trailingIcon = {
                         if (currentDataSourcePriority == priority) {
                             Icon(

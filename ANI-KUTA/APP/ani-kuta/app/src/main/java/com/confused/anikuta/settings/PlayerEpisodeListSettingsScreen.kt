@@ -341,7 +341,7 @@ fun PlayerEpisodeListSettingsScreen(
                                                 when (idx) {
                                                     1 -> "UPLOAD_DATE"
                                                     2 -> "ALPHABETICAL"
-                                                    else -> "EPISODE"
+                                                    else -> "EPISODE_NUMBER"
                                                 },
                                             )
                                         },
