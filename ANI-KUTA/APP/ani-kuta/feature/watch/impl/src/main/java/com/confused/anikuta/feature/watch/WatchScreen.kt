@@ -54,6 +54,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -63,6 +66,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
@@ -1645,6 +1649,69 @@ private fun MinimizedMode(
             episodeRating = runCatching { ratingStore.getEpisodeRating(watchKey.mainId, epKey) }.getOrNull()
         }
     }
+
+    // ── ROUND 101 (WS-E): the PLAYER episode-list customization ──────────────
+    // The dedicated settings (gear on the Episodes header) + search (the
+    // magnifier) + the sort/filter/style application — the details page's
+    // D-230/D-554 treatment, backed by the SEPARATE PlayerEpisodeListPreferences
+    // so the two surfaces stay independently tunable (the user's "separately
+    // customize the episode list of the player page" order).
+    val playerListPrefs = koinInject<com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences>()
+    val rowStyle by playerListPrefs.rowStyle.changes.collectAsState(initial = playerListPrefs.rowStyle.get())
+    val showSynopsis by playerListPrefs.showSynopsis.changes.collectAsState(initial = playerListPrefs.showSynopsis.get())
+    val showDatePill by playerListPrefs.showDatePill.changes.collectAsState(initial = playerListPrefs.showDatePill.get())
+    val dimWatched by playerListPrefs.dimWatched.changes.collectAsState(initial = playerListPrefs.dimWatched.get())
+    val watchedFilter by playerListPrefs.watchedFilter.changes.collectAsState(initial = playerListPrefs.watchedFilter.get())
+    val sortMode by playerListPrefs.sortMode.changes.collectAsState(initial = playerListPrefs.sortMode.get())
+    val sortDescending by playerListPrefs.sortDescending.changes.collectAsState(initial = playerListPrefs.sortDescending.get())
+    var showListSettings by remember { mutableStateOf(false) }
+    var searchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    // The watched set (live — the store emits as the player saves progress).
+    val watchProgressStore = koinInject<WatchProgressStore>()
+    val progressList by remember(watchKey.mainId) {
+        if (watchKey.mainId.isNotBlank()) {
+            watchProgressStore.observeByMainId(watchKey.mainId)
+        } else {
+            kotlinx.coroutines.flow.flowOf(emptyList<com.confused.anikuta.core.watchprogress.WatchProgress>())
+        }
+    }.collectAsState(initial = emptyList())
+    val watchedKeys = remember(progressList) {
+        progressList.filter { it.isWatched }.map { it.episodeKey }.toSet()
+    }
+
+    // The display list: watched filter → search → sort (the details page's
+    // EpisodeListProcessor pipeline, player-scoped).
+    val displayEpisodes = remember(
+        episodeList, watchedFilter, watchedKeys, searchActive, searchQuery, sortMode, sortDescending,
+    ) {
+        fun isWatchedEp(ep: SimpleEpisode) =
+            watchKey.mainId.isNotBlank() && watchedKeys.contains(buildEpisodeKey(watchKey.mainId, ep.episodeNumber))
+        var list = when (watchedFilter) {
+            "SHOW" -> episodeList.filter(::isWatchedEp)
+            "HIDE" -> episodeList.filterNot(::isWatchedEp)
+            else -> episodeList
+        }
+        if (searchActive && searchQuery.isNotBlank()) {
+            val q = searchQuery.trim().lowercase()
+            list = list.filter { ep ->
+                val title = episodeMetadata[ep.episodeNumber.toInt()]?.title ?: ep.name
+                ep.episodeNumber.toInt().toString() == q ||
+                    title.lowercase().contains(q) ||
+                    ep.name.lowercase().contains(q)
+            }
+        }
+        list = when (sortMode) {
+            "UPLOAD_DATE" -> list.sortedBy { episodeMetadata[it.episodeNumber.toInt()]?.airDateMillis ?: 0L }
+            "ALPHABETICAL" -> list.sortedBy {
+                (episodeMetadata[it.episodeNumber.toInt()]?.title ?: it.name).lowercase()
+            }
+            else -> list.sortedBy { it.episodeNumber }
+        }
+        if (sortDescending) list.asReversed() else list
+    }
+
     // Wrap in derivedStateOf to prevent excessive recompositions.
     val collapsed by remember {
         derivedStateOf {
@@ -1941,6 +2008,9 @@ private fun MinimizedMode(
                 // below can be lazy (virtualized). Was a single item{} with
                 // forEach{EpisodeListRow} — eager rendering of ALL episodes
                 // caused the crash on 1000+ episode series.
+                // ROUND 101 (WS-E): the header gained the customization gear
+                // + the search magnifier — the player page's dedicated section
+                // for its episode list (the details page's D-230 parity).
                 item {
                     Surface(
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
@@ -1963,7 +2033,7 @@ private fun MinimizedMode(
                                 shape = RoundedCornerShape(50),
                             ) {
                                 Text(
-                                    text = "${episodeList.size}",
+                                    text = "${displayEpisodes.size}",
                                     fontFamily = RobotoFamily,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.ExtraBold,
@@ -1971,19 +2041,109 @@ private fun MinimizedMode(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                 )
                             }
+                            Spacer(Modifier.weight(1f))
+                            // ROUND 101 (WS-E): search — toggles the in-list
+                            // search field (number or title, like the details
+                            // page's episode search).
+                            Surface(
+                                color = if (searchActive) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(50),
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable {
+                                        searchActive = !searchActive
+                                        if (!searchActive) searchQuery = ""
+                                    },
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    androidx.compose.material3.Icon(
+                                        imageVector = androidx.compose.material.icons.Icons.Filled.Search,
+                                        contentDescription = "Search episodes",
+                                        tint = if (searchActive) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            // ROUND 101 (WS-E): the customization gear — opens
+                            // PlayerEpisodeListSettingsSheet.
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(50),
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable { showListSettings = true },
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    androidx.compose.material3.Icon(
+                                        imageVector = androidx.compose.material.icons.Icons.Filled.Tune,
+                                        contentDescription = "Episode list settings",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
                         }
+                    }
+                }
+                // ROUND 101 (WS-E): the in-list search field — appears under
+                // the header while active, filters by number or title.
+                if (searchActive) {
+                    item(key = "episode-search") {
+                        androidx.compose.material3.OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = {
+                                androidx.compose.material3.Text(
+                                    "Search episode number or title…",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 13.sp,
+                                )
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+                // ROUND 101 (WS-E): the filtered-empty state — a filter/search
+                // that matches nothing says so (the extensions screen's twin
+                // message discipline).
+                if (displayEpisodes.isEmpty()) {
+                    item(key = "episode-list-empty") {
+                        Text(
+                            text = "No episodes match" +
+                                if (searchQuery.isNotBlank()) " — try a different search." else ".",
+                            fontFamily = RobotoFamily,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 20.dp),
+                        )
                     }
                 }
                 // D-230: Lazy episode rows — virtualized! Only ~10-15 rows
                 // composed at a time (the visible window), not all 1000.
-                items(episodeList, key = { it.url }) { ep ->
+                items(displayEpisodes, key = { it.url }) { ep ->
                     val isCurrent = ep.url == currentEpisodeUrl
                     val epNum = ep.episodeNumber.toInt()
                     val meta = episodeMetadata[epNum]
+                    val isWatchedEp = watchKey.mainId.isNotBlank() &&
+                        watchedKeys.contains(buildEpisodeKey(watchKey.mainId, ep.episodeNumber))
                     EpisodeListRow(
                         episode = ep,
                         metadata = meta,
                         isCurrent = isCurrent,
+                        isWatched = isWatchedEp,
+                        rowStyle = rowStyle,
+                        showSynopsis = showSynopsis,
+                        showDatePill = showDatePill,
+                        dimWatched = dimWatched,
                         onClick = {
                             if (!isCurrent) {
                                 onEpisodeSwitch(ep)
@@ -1993,6 +2153,13 @@ private fun MinimizedMode(
                 }
             }
             } // end LazyColumn
+
+            // ROUND 101 (WS-E): the player episode-list settings sheet.
+            if (showListSettings) {
+                com.confused.anikuta.feature.watch.sheets.PlayerEpisodeListSettingsSheet(
+                    onDismiss = { showListSettings = false },
+                )
+            }
 
             // ScrollBlurOverlay — gradient at the top edge of the scrollable content,
             // creating a smooth fade where content meets the player.
@@ -2114,18 +2281,34 @@ private fun EpisodeListRow(
     metadata: WatchEpisodeMeta?,
     isCurrent: Boolean,
     onClick: () -> Unit,
+    // ── ROUND 101 (WS-E): the player list's customization inputs (defaults
+    // preserve the exact pre-round rendering when the prefs are absent). ──
+    isWatched: Boolean = false,
+    rowStyle: String = "DETAILED",
+    showSynopsis: Boolean = true,
+    showDatePill: Boolean = true,
+    dimWatched: Boolean = true,
 ) {
     val displayTitle = metadata?.title
         ?: com.confused.anikuta.core.common.EpisodeTitleParser
             .getDisplayTitle(episode.name, episode.episodeNumber)
     val epNumText = com.confused.anikuta.core.common.EpisodeTitleParser
         .formatEpisodeNumber(episode.episodeNumber)
-    val thumbnailUrl = metadata?.thumbnailUrl
-    val description = metadata?.description
-    val dateText = if (metadata != null && metadata.airDateMillis > 0) {
+    // ROUND 101 (WS-E): the style frame — COMPACT shrinks the thumbnail +
+    // never renders the synopsis; MINIMAL drops the thumbnail + date pill
+    // entirely (number + title only, the fast-switching shape).
+    val compact = rowStyle == "COMPACT"
+    val minimal = rowStyle == "MINIMAL"
+    val thumbnailUrl = if (minimal) null else metadata?.thumbnailUrl
+    val description = if (compact || minimal || !showSynopsis) null else metadata?.description
+    val dateText = if (!minimal && showDatePill && metadata != null && metadata.airDateMillis > 0) {
         formatDate(metadata.airDateMillis)
     } else null
     val audio = parseAudioAvailability(metadata?.scanlator, episode.name)
+    // ROUND 101 (WS-E): the watched dim — alpha toward the background (the
+    // details page's D-554 treatment); the current-episode highlight always
+    // wins over the dim.
+    val rowAlpha = if (isWatched && dimWatched && !isCurrent) 0.5f else 1f
 
     Surface(
         color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
@@ -2135,6 +2318,7 @@ private fun EpisodeListRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 3.dp)
+            .alpha(rowAlpha)
             .clickable(onClick = onClick),
     ) {
         Column(
@@ -2147,7 +2331,8 @@ private fun EpisodeListRow(
                 // ── Thumbnail with EP tag overlay ──
                 if (thumbnailUrl != null) {
                     Box(
-                        modifier = Modifier.size(width = 120.dp, height = 68.dp),
+                        modifier = if (compact) Modifier.size(width = 84.dp, height = 48.dp)
+                        else Modifier.size(width = 120.dp, height = 68.dp),
                     ) {
                         coil3.compose.AsyncImage(
                             model = thumbnailUrl,

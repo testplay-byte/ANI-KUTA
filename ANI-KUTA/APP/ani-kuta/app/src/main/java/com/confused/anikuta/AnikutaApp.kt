@@ -438,6 +438,9 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             single { PlayerPreferences(get()) }
             // D-230: Episode list customization (filters, sort, grouping, thumbnail fallback).
             single { com.confused.anikuta.core.preferences.EpisodeListPreferences(get()) }
+            // Round 101 (WS-E): the PLAYER page's episode-list customization —
+            // deliberately SEPARATE from the details page's set above.
+            single { com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences(get()) }
             single { ThemePreferences(get()) }
             single { com.confused.anikuta.core.preferences.NotificationPreferences(get()) }
             // D-192: SettingsRepository for backup/restore (mirrors PreferenceStore to app_settings table)

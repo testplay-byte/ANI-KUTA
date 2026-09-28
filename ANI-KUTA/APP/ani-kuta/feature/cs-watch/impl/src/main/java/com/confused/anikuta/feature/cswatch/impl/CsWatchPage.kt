@@ -41,6 +41,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -141,8 +145,69 @@ internal fun CsWatchPage(
     } else displayEpisodes
     // Task 56: render copies — tag stripped from every name (the switcher /
     // pills / stream chips carry the flavor; stripTag is a no-op untagged).
-    val renderRows = remember(episodeRows) {
+    val renderRowsBase = remember(episodeRows) {
         episodeRows.map { it.copy(name = CsSubDubSiblings.stripTag(it.name)) }
+    }
+
+    // ── ROUND 101 (WS-E): the PLAYER episode-list customization (the CS twin
+    // of the MPV stack's treatment) — the SAME shared PlayerEpisodeListPreferences
+    // drive both player pages, applied through the same pipeline: watched
+    // filter → search → sort. The gear + the magnifier live on the Episodes
+    // header below. ──
+    val playerListPrefs = koinInject<com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences>()
+    val csRowStyle by playerListPrefs.rowStyle.changes.collectAsState(initial = playerListPrefs.rowStyle.get())
+    val csShowSynopsis by playerListPrefs.showSynopsis.changes.collectAsState(initial = playerListPrefs.showSynopsis.get())
+    val csShowDatePill by playerListPrefs.showDatePill.changes.collectAsState(initial = playerListPrefs.showDatePill.get())
+    val csDimWatched by playerListPrefs.dimWatched.changes.collectAsState(initial = playerListPrefs.dimWatched.get())
+    val csWatchedFilter by playerListPrefs.watchedFilter.changes.collectAsState(initial = playerListPrefs.watchedFilter.get())
+    val csSortMode by playerListPrefs.sortMode.changes.collectAsState(initial = playerListPrefs.sortMode.get())
+    val csSortDescending by playerListPrefs.sortDescending.changes.collectAsState(initial = playerListPrefs.sortDescending.get())
+    var showListSettings by remember { mutableStateOf(false) }
+    var searchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    val renderRows = remember(
+        renderRowsBase, csWatchedFilter, csSortMode, csSortDescending, searchActive, searchQuery,
+        uiState.episodeMetadata, progressByEpisodeKey,
+    ) {
+        // Watched filter — the ordinal-aware progress identity (Task 57 P1).
+        var rows = when (csWatchedFilter) {
+            "SHOW" -> renderRowsBase.filter { ep ->
+                val key = if (mainId.isNotBlank()) {
+                    CsWatchViewModel.episodeKey(
+                        mainId,
+                        flavorOrdinals[ep.data]?.toFloat() ?: ep.episodeNumber,
+                    )
+                } else null
+                key?.let { progressByEpisodeKey[it]?.isWatched == true } ?: false
+            }
+            "HIDE" -> renderRowsBase.filterNot { ep ->
+                val key = if (mainId.isNotBlank()) {
+                    CsWatchViewModel.episodeKey(
+                        mainId,
+                        flavorOrdinals[ep.data]?.toFloat() ?: ep.episodeNumber,
+                    )
+                } else null
+                key?.let { progressByEpisodeKey[it]?.isWatched == true } ?: false
+            }
+            else -> renderRowsBase
+        }
+        if (searchActive && searchQuery.isNotBlank()) {
+            val q = searchQuery.trim().lowercase()
+            rows = rows.filter { ep ->
+                val meta = uiState.episodeMetadata[ep.episodeNumber.toInt()]
+                val title = meta?.title ?: ep.name
+                ep.episodeNumber.toInt().toString() == q || title.lowercase().contains(q)
+            }
+        }
+        rows = when (csSortMode) {
+            "UPLOAD_DATE" -> rows.sortedBy { uiState.episodeMetadata[it.episodeNumber.toInt()]?.airDateMillis ?: 0L }
+            "ALPHABETICAL" -> rows.sortedBy {
+                (uiState.episodeMetadata[it.episodeNumber.toInt()]?.title ?: it.name).lowercase()
+            }
+            else -> rows.sortedBy { it.episodeNumber }
+        }
+        if (csSortDescending) rows.asReversed() else rows
     }
 
     // Task 57 (P1): the CURRENT episode's rating/progress identity — the
@@ -328,7 +393,7 @@ internal fun CsWatchPage(
                                     shape = RoundedCornerShape(50),
                                 ) {
                                     Text(
-                                        text = "${episodeRows.size}",
+                                        text = "${renderRows.size}",
                                         fontFamily = RobotoFamily,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.ExtraBold,
@@ -336,7 +401,84 @@ internal fun CsWatchPage(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                     )
                                 }
+                                Spacer(Modifier.weight(1f))
+                                // ROUND 101 (WS-E): the search magnifier + the
+                                // customization gear (the MPV page's twin).
+                                Surface(
+                                    color = if (searchActive) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(50),
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .clickable {
+                                            searchActive = !searchActive
+                                            if (!searchActive) searchQuery = ""
+                                        },
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Search,
+                                            contentDescription = "Search episodes",
+                                            tint = if (searchActive) MaterialTheme.colorScheme.onPrimary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(50),
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .clickable { showListSettings = true },
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Tune,
+                                            contentDescription = "Episode list settings",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
                             }
+                        }
+                    }
+                    // ROUND 101 (WS-E): the in-list search field.
+                    if (searchActive) {
+                        item(key = "cs-episode-search") {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                placeholder = {
+                                    Text(
+                                        "Search episode number or title…",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                    )
+                                },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                    // ROUND 101 (WS-E): the filtered-empty state.
+                    if (renderRows.isEmpty()) {
+                        item(key = "cs-episode-list-empty") {
+                            Text(
+                                text = "No episodes match" +
+                                    if (searchQuery.isNotBlank()) " — try a different search." else ".",
+                                fontFamily = RobotoFamily,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 20.dp),
+                            )
                         }
                     }
                     // Task 55: the Sub/Dub switcher chips (SEPARATE mode, both
@@ -400,12 +542,25 @@ internal fun CsWatchPage(
                             flavors = ep.flavors,
                             isWatched = rowProgress?.isWatched ?: false,
                             progressFraction = rowProgress?.progressFraction ?: 0f,
+                            // ROUND 101 (WS-E): the shared player-list style inputs.
+                            rowStyle = csRowStyle,
+                            showSynopsis = csShowSynopsis,
+                            showDatePill = csShowDatePill,
+                            dimWatched = csDimWatched,
                             onClick = {
                                 if (!isCurrent) onEpisodeSwitch(ep)
                             },
                         )
                     }
                 }
+            }
+
+            // ROUND 101 (WS-E): the CS player episode-list settings sheet
+            // (OUTSIDE the LazyColumn — a composable, not a list item).
+            if (showListSettings) {
+                CsPlayerEpisodeListSettingsSheet(
+                    onDismiss = { showListSettings = false },
+                )
             }
 
             // ScrollBlurOverlay — the gradient where content meets the player
@@ -589,15 +744,26 @@ private fun CsEpisodeListRow(
     isWatched: Boolean = false,
     /** Task 57 (P1): 0..1 watch fraction — renders the thin bar below. */
     progressFraction: Float = 0f,
+    // ── ROUND 101 (WS-E): the shared player-list style inputs (defaults
+    // preserve the exact pre-round rendering). ──
+    rowStyle: String = "DETAILED",
+    showSynopsis: Boolean = true,
+    showDatePill: Boolean = true,
+    dimWatched: Boolean = true,
 ) {
     val displayTitle = metadata?.title
         ?: com.confused.anikuta.core.common.EpisodeTitleParser
             .getDisplayTitle(episode.name, displayNumber)
     val epNumText = com.confused.anikuta.core.common.EpisodeTitleParser
         .formatEpisodeNumber(displayNumber)
-    val thumbnailUrl = metadata?.thumbnailUrl
-    val description = metadata?.description
-    val dateText = if (metadata != null && metadata.airDateMillis > 0) {
+    // ROUND 101 (WS-E): the style frame (the MPV row's twin) — COMPACT
+    // shrinks the thumbnail + never renders the synopsis; MINIMAL drops the
+    // thumbnail + date pill entirely.
+    val compact = rowStyle == "COMPACT"
+    val minimal = rowStyle == "MINIMAL"
+    val thumbnailUrl = if (minimal) null else metadata?.thumbnailUrl
+    val description = if (compact || minimal || !showSynopsis) null else metadata?.description
+    val dateText = if (!minimal && showDatePill && metadata != null && metadata.airDateMillis > 0) {
         formatDate(metadata.airDateMillis)
     } else null
     val subDub = metadata?.scanlator?.takeIf { it.isNotBlank() }
@@ -606,8 +772,9 @@ private fun CsEpisodeListRow(
         color = when {
             isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
             // Task 57 (P1): watched rows dim (the aniyomi EpisodeRow language —
-            // current-row tint always wins).
-            isWatched -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+            // current-row tint always wins). ROUND 101 (WS-E): the dim is now
+            // gated by the player pref (off = the normal row color).
+            isWatched && dimWatched -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
             else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
         },
         shape = RoundedCornerShape(12.dp),
@@ -627,7 +794,8 @@ private fun CsEpisodeListRow(
                 // ── Thumbnail with EP tag overlay ──
                 if (thumbnailUrl != null) {
                     Box(
-                        modifier = Modifier.size(width = 120.dp, height = 68.dp),
+                        modifier = if (compact) Modifier.size(width = 84.dp, height = 48.dp)
+                        else Modifier.size(width = 120.dp, height = 68.dp),
                     ) {
                         AsyncImage(
                             model = thumbnailUrl,
