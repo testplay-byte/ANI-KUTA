@@ -2081,14 +2081,14 @@ private fun AvailableExtensionRow(
             // extensions scroll surface: a network icon loaded with NO
             // fallback (a 404 / offline rendered a blank box — the Task-61
             // doctrine fixed this for CS icons in round 98 but this aniyomi
-            // site kept the bare call) and with the app-wide crossfade +
-            // header-respecting cache (raw.githubusercontent's max-age=300
-            // refetches every icon older than 5 minutes on its next view —
-            // the disk-expiry refetch storm behind "reaching the last
-            // sections jitters"). Now the same treatment as CsPluginIcon:
-            // the colorful letter tile stays composed until Coil reports
-            // Success, and the request rides [buildListIconRequest]
-            // (crossfade OFF, respectCacheHeaders OFF — immutable assets).
+            // site kept the bare call) and with the app-wide crossfade
+            // (a 200ms painter animation per non-memory-cache icon load —
+            // a storm of overlapping animated painters at fling speed).
+            // Now the same treatment as CsPluginIcon: the colorful letter
+            // tile stays composed until Coil reports Success, and the
+            // request rides [buildListIconRequest] (crossfade OFF). No
+            // cache options needed — the pinned Coil 3.0.4 serves
+            // disk-cached icons indefinitely by default.
             var iconLoaded by remember(extension.iconUrl) { mutableStateOf(false) }
             Box(modifier = Modifier.size(40.dp)) {
                 if (!iconLoaded) {

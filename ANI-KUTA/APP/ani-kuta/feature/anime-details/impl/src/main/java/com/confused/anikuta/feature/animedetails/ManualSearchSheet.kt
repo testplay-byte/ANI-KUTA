@@ -92,6 +92,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsCompat
 import coil3.compose.AsyncImage
 import coil3.compose.SubcomposeAsyncImage
+import coil3.request.crossfade
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.data.cloudstream.content.CloudstreamContentRepository
@@ -1205,13 +1206,11 @@ private fun WheelSourceIcon(
         // scroll surface. The drum wheel keeps up to ~10 rows composed and
         // re-composes them as it spins; SubcomposeAsyncImage ran a real
         // subcomposition per icon per composition, and the app-wide
-        // crossfade + header-respecting cache (raw.githubusercontent's
-        // max-age=300 → every icon >5min old refetches on its next view)
-        // added a fade animation + network decode to each spin. The plain
-        // AsyncImage + an onState-tracked tile behind it delivers the
-        // IDENTICAL visuals (the tile composable IS the loading AND the
-        // error slot — the same fallback lambdas it used before) with zero
-        // subcomposition, no crossfade, and no cache-header expiry. (The
+        // crossfade wrapped every non-memory-cache icon load in a 200ms
+        // painter animation. The plain AsyncImage + an onState-tracked tile
+        // behind it delivers the IDENTICAL visuals (the tile composable IS
+        // the loading AND the error slot — the same fallback lambdas it
+        // used before) with zero subcomposition and no crossfade. (The
         // one-shot LinkedContentCard cover keeps its SubcomposeAsyncImage
         // — not a scroll surface, and a round-92-approved one-shot.)
         icon.csIconUrl != null -> {
@@ -1242,11 +1241,13 @@ private fun WheelSourceIcon(
 /**
  * ROUND 99 (D-678): the wheel-icon request — the D-676 list-icon policy,
  * local to this module (the shared [buildListIconRequest] helper lives in
- * the extensions-settings module and is module-internal). No crossfade (a
- * storm of overlapping painter animations while the wheel spins) and no
- * cache-header revalidation (the icon hosts' max-age=300 expired every
- * static icon into a network refetch on its next view) — the immutable-
- * asset policy for scroll-surface icons.
+ * the extensions-settings module and is module-internal). No crossfade: a
+ * storm of overlapping 200ms painter animations while the wheel spins
+ * (crossfade is an EXTENSION function — coil3.request.crossfade, imported
+ * above). No cache options: the pinned Coil 3.0.4 serves disk-cache
+ * entries indefinitely by default (DefaultCacheStrategy — verified against
+ * the 3.0.4 sources; the header-respecting behavior is the separate
+ * coil-network-cache-control artifact this app does not depend on).
  */
 @Composable
 private fun rememberWheelIconRequest(url: String): coil3.request.ImageRequest {
@@ -1255,7 +1256,6 @@ private fun rememberWheelIconRequest(url: String): coil3.request.ImageRequest {
         coil3.request.ImageRequest.Builder(context)
             .data(url)
             .crossfade(false)
-            .respectCacheHeaders(false)
             .build()
     }
 }

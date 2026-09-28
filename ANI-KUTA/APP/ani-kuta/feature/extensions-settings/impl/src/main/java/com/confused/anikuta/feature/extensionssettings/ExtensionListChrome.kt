@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.request.crossfade
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.providerapi.InstallStep
@@ -510,22 +511,17 @@ internal fun ActionIconButton(
  * tile on error — with ZERO subcomposition and a single recomposition per
  * icon when the load resolves.
  *
- * ROUND 99 (D-676) — THE LIST-ICON REQUEST POLICY. Two per-request
- * overrides on the shared [buildListIconRequest]:
- *  • `crossfade(false)` — the app-wide ImageLoader enables crossfade, which
- *    is right for hero covers but runs a fresh ~100ms fade animation for
- *    EVERY list icon that resolves during a scroll (a storm of overlapping
- *    painter animations at fling speed).
- *  • `respectCacheHeaders(false)` — the icon hosts (raw.githubusercontent
- *    & friends) serve `cache-control: max-age=300`, so with the default
- *    header-respecting policy EVERY icon older than 5 minutes REFETCHES
- *    from the network on its next view: scrolling a long catalog minutes
- *    after the last visit re-downloads + re-decodes + re-animates every
- *    icon it crosses — the v1.1.55 report's "as soon as I reach the very
- *    last thing it starts to jitter". Plugin/extension icons are immutable
- *    per-URL static assets; the 500 MB disk cache may serve them
- *    indefinitely. (Memory-cache hits were never affected — this targets
- *    the disk-expiry refetch path only.)
+ * ROUND 99 (D-676) — THE LIST-ICON REQUEST POLICY: `crossfade(false)`. The
+ * app-wide ImageLoader enables crossfade (200ms), which is right for hero
+ * covers but wraps EVERY list-icon load that is not a memory-cache hit in
+ * a 200ms alpha animation — at fling speed through a long catalog that is
+ * a storm of overlapping animated painters resolving row by row. The
+ * per-request override kills it; icons appear instantly over the tile.
+ * (Cache behavior needs NO override in the pinned Coil 3.0.4: its
+ * DefaultCacheStrategy.read ALWAYS returns the disk-cache response —
+ * verified against the 3.0.4 sources; the header-respecting behavior is
+ * the separate coil-network-cache-control artifact, which this app does
+ * NOT depend on — so disk-cached icons are already served indefinitely.)
  */
 @Composable
 internal fun CsPluginIcon(iconUrl: String?, name: String, size: Dp = 40.dp) {
@@ -553,11 +549,12 @@ internal fun CsPluginIcon(iconUrl: String?, name: String, size: Dp = 40.dp) {
 }
 
 /**
- * ROUND 99 (D-676): the shared ImageRequest for LIST ICONS — the immutable-
- * asset policy (no crossfade, cache headers ignored so the disk cache never
- * expires a static icon). Every scroll-surface icon site builds its request
- * through here so the policy lives in ONE place; one-shot hero/detail images
- * keep the loader defaults (crossfade on).
+ * ROUND 99 (D-676): the shared ImageRequest for LIST ICONS — the no-
+ * crossfade policy. Every scroll-surface icon site builds its request
+ * through here so the policy lives in ONE place; one-shot hero/detail
+ * images keep the loader defaults (crossfade on). No cache options: the
+ * pinned Coil 3.0.4 serves disk-cache entries indefinitely by default
+ * (DefaultCacheStrategy — see the CsPluginIcon header).
  */
 @Composable
 internal fun buildListIconRequest(url: String): coil3.request.ImageRequest {
@@ -565,12 +562,10 @@ internal fun buildListIconRequest(url: String): coil3.request.ImageRequest {
     return remember(url) {
         coil3.request.ImageRequest.Builder(context)
             .data(url)
-            // No per-icon fade animation during scrolls (see the header).
+            // No per-icon 200ms painter animation during scrolls (see the
+            // header) — crossfade is an EXTENSION function on the builder
+            // (coil3.request.crossfade), imported above.
             .crossfade(false)
-            // Immutable static assets — serve from the disk cache without
-            // header revalidation (raw.githubusercontent's max-age=300 used
-            // to expire every icon >5min old into a refetch storm).
-            .respectCacheHeaders(false)
             .build()
     }
 }

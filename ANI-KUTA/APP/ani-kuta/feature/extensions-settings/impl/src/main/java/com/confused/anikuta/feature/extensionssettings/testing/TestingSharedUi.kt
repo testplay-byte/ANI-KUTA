@@ -247,8 +247,9 @@ internal fun ProportionBar(
  * icon. The plain AsyncImage + an onState-tracked tile behind it delivers the
  * identical visuals (tile while loading, tile on error) with zero
  * subcomposition, and the request rides [buildListIconRequest] — the D-676
- * list-icon policy (no crossfade, no cache-header expiry: raw.githubusercontent's
- * max-age=300 used to refetch every icon >5min old on its next view).
+ * list-icon policy (crossfade OFF: no 200ms painter animation per
+ * non-memory-cache icon load while the list scrolls; no cache options —
+ * the pinned Coil 3.0.4 serves disk-cached icons indefinitely by default).
  */
 @Composable
 internal fun TargetIconView(target: TestableTarget, size: Dp = 40.dp) {
