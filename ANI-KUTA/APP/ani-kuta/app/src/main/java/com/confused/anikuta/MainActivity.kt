@@ -1057,15 +1057,15 @@ fun AppRoot() {
                     is AnimeDetailsKey.AniList -> DetailsScreen(
                         detailsKey = currentKey,
                         onBack = pop,
-                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
-                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
+                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta, coverAccent ->
+                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta, coverAccentArgb = coverAccent))
                         },
                         // Task 52: CloudStream episodes → the resolve sheet
                         // (Task 53 / RC-6): the details page stays visible under
                         // an AnymeX-style bottom sheet; the selected stream + the
                         // full pre-resolved list hand off to the CS watch screen.
                         // The aniyomi watch stack is untouched by this branch.
-                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent ->
                             csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                 providerName = providerName,
                                 animeTitle = animeTitle,
@@ -1076,6 +1076,8 @@ fun AppRoot() {
                                 mainId = mainId,
                                 sourceId = sourceId,
                                 episodeMetadataSerialized = epMeta,
+                                // ROUND 101 (WS-D): the details accent rides the key.
+                                coverAccentArgb = coverAccent,
                             )
                         },
                         // D-539 (D-548): a downloaded DASH episode plays through
@@ -1086,7 +1088,7 @@ fun AppRoot() {
                         // (NOT csResolveRequest: that opens the resolve sheet,
                         // which would re-resolve an already-downloaded episode
                         // online and dead-end it).
-                        onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                        onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent ->
                             backstack.add(
                                 com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                     providerName = providerName,
@@ -1099,6 +1101,8 @@ fun AppRoot() {
                                     sourceId = sourceId,
                                     episodeMetadataSerialized = epMeta,
                                     offlineMediaUri = offlineMediaUri,
+                                    // ROUND 101 (WS-D): the details accent rides the key.
+                                    coverAccentArgb = coverAccent,
                                 ),
                             )
                         },
@@ -1158,12 +1162,12 @@ fun AppRoot() {
                     is AnimeDetailsKey.Extension -> DetailsScreen(
                         detailsKey = currentKey,
                         onBack = pop,
-                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
-                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
+                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta, coverAccent ->
+                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta, coverAccentArgb = coverAccent))
                         },
                         // Task 52: CloudStream episodes → the resolve sheet
                         // (Task 53 / RC-6, AnymeX entry pattern).
-                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent ->
                             csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                 providerName = providerName,
                                 animeTitle = animeTitle,
@@ -1174,6 +1178,8 @@ fun AppRoot() {
                                 mainId = mainId,
                                 sourceId = sourceId,
                                 episodeMetadataSerialized = epMeta,
+                                // ROUND 101 (WS-D): the details accent rides the key.
+                                coverAccentArgb = coverAccent,
                             )
                         },
                         // D-539 (D-548): a downloaded DASH episode plays through
@@ -1184,7 +1190,7 @@ fun AppRoot() {
                         // (NOT csResolveRequest: that opens the resolve sheet,
                         // which would re-resolve an already-downloaded episode
                         // online and dead-end it).
-                        onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                        onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent ->
                             backstack.add(
                                 com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                     providerName = providerName,
@@ -1197,6 +1203,8 @@ fun AppRoot() {
                                     sourceId = sourceId,
                                     episodeMetadataSerialized = epMeta,
                                     offlineMediaUri = offlineMediaUri,
+                                    // ROUND 101 (WS-D): the details accent rides the key.
+                                    coverAccentArgb = coverAccent,
                                 ),
                             )
                         },
@@ -1785,17 +1793,32 @@ fun AppRoot() {
                     navigateToDetails(AnimeDetailsKey.AniList(anilistId))
                 },
             )
-            is WatchKey -> WatchScreen(
-                watchKey = currentKey,
-                onBack = pop,
-            )
+            // ROUND 101 (WS-D): BOTH player screens wrap in the adaptive accent
+            // carried by their keys — the details page's per-content theme now
+            // covers the WHOLE player page (the video surface, the controls,
+            // fullscreen, and every sheet: subtitles, qualities/servers, speed,
+            // the episode list). A 0/null accent (keys built outside a details
+            // context, e.g. downloaded-episode plays) passes the app theme
+            // through unchanged.
+            is WatchKey -> com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
+                accentArgb = currentKey.coverAccentArgb,
+            ) {
+                WatchScreen(
+                    watchKey = currentKey,
+                    onBack = pop,
+                )
+            }
             // Task 52 (round 12): the DEDICATED CloudStream watch screen — loadLinks
             // resolution + Media3 ExoPlayer, fully parallel to the MPV watch stack
             // above (zero shared code; same WatchProgressStore contract).
-            is CsWatchKey -> com.confused.anikuta.feature.cswatch.impl.CsWatchScreen(
-                key = currentKey,
-                onBack = pop,
-            )
+            is CsWatchKey -> com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
+                accentArgb = currentKey.coverAccentArgb,
+            ) {
+                com.confused.anikuta.feature.cswatch.impl.CsWatchScreen(
+                    key = currentKey,
+                    onBack = pop,
+                )
+            }
             is com.confused.anikuta.feature.updates.UpdatesKey -> {
                 com.confused.anikuta.feature.updates.UpdatesScreen(
                     onBack = pop,

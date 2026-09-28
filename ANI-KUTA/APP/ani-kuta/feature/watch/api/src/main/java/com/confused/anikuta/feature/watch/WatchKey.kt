@@ -83,6 +83,20 @@ data class WatchKey(
      *  after FILE_LOADED (only on the initial load, not on quality/episode switch).
      *  Phase WP-B3: enables "click same episode → plays from where you left off". */
     val startPosition: Long = 0L,
+
+    /**
+     * ROUND 101 (WS-D): the details page's cover-derived accent (ARGB as a
+     * Long; 0 = none). The watch screen wraps itself + every sheet in
+     * AdaptiveAccentTheme with this value so the player page carries the
+     * same per-content theme as the details page it was opened from —
+     * the user's call-out: the accent "does not get transferred to the player
+     * page… it should be applied properly and thoroughly to everything and
+     * every place on the player page". Defaulted (0L) so every existing
+     * WatchKey constructor keeps compiling + deserializing unchanged; keys
+     * built outside a details-page context (downloaded-episode plays) simply
+     * keep the app's global accent.
+     */
+    val coverAccentArgb: Long = 0L,
 ) : NavKey {
 
     /**

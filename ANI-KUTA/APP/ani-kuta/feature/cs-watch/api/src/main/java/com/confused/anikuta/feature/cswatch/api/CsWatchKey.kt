@@ -55,6 +55,16 @@ data class CsWatchKey(
      * [providerName]. Null = a normal online playback entry.
      */
     val offlineMediaUri: String? = null,
+
+    /**
+     * ROUND 101 (WS-D): the details page's cover-derived accent (ARGB as a
+     * Long; 0 = none) — the CS watch screen's twin of WatchKey's field. The
+     * whole player page (controls, sheets, fullscreen) wraps in
+     * AdaptiveAccentTheme with it, so the per-content theme follows the user
+     * from the details page into playback. Defaulted so existing
+     * constructors + persisted keys keep working unchanged.
+     */
+    val coverAccentArgb: Long = 0L,
 ) : NavKey {
 
     /** Parses [episodeListSerialized] into lightweight rows for the episodes sheet. */

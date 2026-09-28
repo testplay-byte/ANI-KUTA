@@ -136,7 +136,7 @@ import androidx.compose.material.icons.filled.StarBorder  // Phase 4
 fun DetailsScreen(
     detailsKey: AnimeDetailsKey,
     onBack: () -> Unit,
-    onNavigateToWatch: (mainId: String, videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
+    onNavigateToWatch: (mainId: String, videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String, coverAccentArgb: Long) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     // Task 52 (round 12 — the playback port): CloudStream episode taps route
     // here INSTEAD of the classic resolver/watch pipeline. Primitives (not
     // CsWatchKey) to keep :feature:anime-details free of feature-to-feature
@@ -145,7 +145,7 @@ fun DetailsScreen(
     // episodeListSerialized, mainId, sourceId, episodeMetadataSerialized
     // (task 54 / round 14 — the CS watch page's per-episode metadata, same
     // wire format as the aniyomi watch key's field).
-    onNavigateToCsWatch: (String, String, String, Float, String, String, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
+    onNavigateToCsWatch: (String, String, String, Float, String, String, String, Long, String, Long) -> Unit = { _, _, _, _, _, _, _, _, _, _ -> },
     // Task 58 (round 18 — downloads): the CS download entry. SAME 9-arg
     // context as [onNavigateToCsWatch] (provider/title/handle/number/name/
     // list/mainId/sourceId/metadata) — the host opens the CS resolve sheet in
@@ -158,7 +158,7 @@ fun DetailsScreen(
     // episodeTitle, episodeListSerialized, mainId, sourceId, epMeta — the host
     // builds the CsWatchKey with offlineMediaUri set (the csdash: payload —
     // a legacy manifest URL or a D-548 .dashmeta sidecar uri).
-    onNavigateToCsOfflineWatch: (String, String, String, String, Float, String, String, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _, _ -> },
+    onNavigateToCsOfflineWatch: (String, String, String, String, Float, String, String, String, Long, String, Long) -> Unit = { _, _, _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
     // D-209: Cloudflare manual solver — launched from the episode error card.
@@ -580,6 +580,8 @@ fun DetailsScreen(
                                 subTracksStr,
                                 audioTracksStr,
                                 epMetaStr,
+                                // ROUND 101 (WS-D): the details accent rides the nav.
+                                coverAccent?.toLong() ?: 0L,
                             )
                             viewModel.clearResolver()
                         }
@@ -692,20 +694,11 @@ fun DetailsScreen(
 
     // D-223: When a cover accent is available, compute a derived ColorScheme
     // with the primary family overridden for this anime.
-    val adaptiveAccent = coverAccent?.let { androidx.compose.ui.graphics.Color(it) }
-    val adaptiveColorScheme = adaptiveAccent?.let { accent ->
-        val accentColors = com.confused.anikuta.core.designsystem.theme.AccentColors.from(accent)
-        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-        MaterialTheme.colorScheme.copy(
-            primary = if (isDark) accentColors.darkPrimary else accentColors.lightPrimary,
-            onPrimary = if (isDark) accentColors.darkOnPrimary else accentColors.lightOnPrimary,
-            primaryContainer = if (isDark) accentColors.darkPrimaryContainer else accentColors.lightPrimaryContainer,
-            onPrimaryContainer = if (isDark) accentColors.darkOnPrimaryContainer else accentColors.lightOnPrimaryContainer,
-        )
-    }
-
-    // D-223: Wrap the Box in the adaptive color scheme (or use the default if null).
-    val effectiveColorScheme = adaptiveColorScheme ?: MaterialTheme.colorScheme
+    // ROUND 101 (WS-D): the inline derivation is now the shared
+    // rememberAdaptiveColorScheme helper (the ONE place the quartet math lives;
+    // the sheet copies were already migrated to AdaptiveAccentTheme).
+    val adaptiveColorScheme = com.confused.anikuta.core.designsystem.theme
+        .rememberAdaptiveColorScheme(coverAccent?.toLong())
 
     // D-230: Hoist onEpisodeClick to screen level so both the Success branch's
     // items() AND the EpisodeSearchSheet (outside MaterialTheme) can use it.
@@ -759,6 +752,8 @@ fun DetailsScreen(
                                 mainId,
                                 effectiveLinkedSource?.sourceId ?: 0L,
                                 epMetaStr,
+                                // ROUND 101 (WS-D): the details accent rides the nav.
+                                coverAccent?.toLong() ?: 0L,
                             )
                             return@onEpisodeClick
                         }
@@ -817,6 +812,8 @@ fun DetailsScreen(
                             subtitleTracksStr, // D-407: the downloaded subs, serialized
                             "", // no audio tracks
                             epMetaStr,
+                            // ROUND 101 (WS-D): the details accent rides the nav.
+                            coverAccent?.toLong() ?: 0L,
                         )
                     }
                     return@onEpisodeClick
@@ -864,6 +861,8 @@ fun DetailsScreen(
                 viewModel.currentMainId ?: "",
                 effectiveLinkedSource?.sourceId ?: 0L,
                 csMetaStr,
+                // ROUND 101 (WS-D): the details accent rides the nav.
+                coverAccent?.toLong() ?: 0L,
             )
             return@onEpisodeClick
         }
@@ -935,7 +934,8 @@ fun DetailsScreen(
         }
     }
 
-    MaterialTheme(colorScheme = effectiveColorScheme) {
+    // D-223: wrap the body in the adaptive scheme (null → the app's global).
+    MaterialTheme(colorScheme = adaptiveColorScheme ?: MaterialTheme.colorScheme) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1523,7 +1523,13 @@ fun DetailsScreen(
     } // end MaterialTheme(colorScheme = effectiveColorScheme) { ... }
 
     // ── Manual search sheet (source selection) ──
+    // ROUND 101 (WS-D): accent-wrapped — the link-sources sheet now inherits
+    // the per-content adaptive accent (the user's call-out: it used the
+    // default app accent while the rest of the page was themed).
     if (showManualSearch) {
+        com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
+            accentArgb = coverAccent?.toLong(),
+        ) {
         ManualSearchSheet(
             availableSources = availableSources,
             manualSearchState = manualSearchState,
@@ -1582,10 +1588,17 @@ fun DetailsScreen(
                 viewModel.clearManualSearch()
             },
         )
+        }
     }
 
     // ── Resolver sheet (video list) ──
+    // ROUND 101 (WS-D): accent-wrapped — the resolved-episode-streams sheet
+    // now inherits the per-content adaptive accent (the user's call-out:
+    // "that whole section, the bottom-up menu, is not theme colored").
     if (showResolverSheet) {
+        com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
+            accentArgb = coverAccent?.toLong(),
+        ) {
         ResolverSheet(
             resolverState = resolverState,
             episodeNumber = currentEpisode?.episode_number ?: 0f,
@@ -1673,6 +1686,8 @@ fun DetailsScreen(
                         subTracksStr,
                         audioTracksStr,
                         epMetaStr,
+                        // ROUND 101 (WS-D): the details accent rides the nav.
+                        coverAccent?.toLong() ?: 0L,
                     )
                 }
                 showResolverSheet = false
@@ -1683,18 +1698,23 @@ fun DetailsScreen(
                 viewModel.clearResolver()
             },
         )
+        }
     }
 
     // ── ROUND 101 (WS-C): the DetailsActionSheet — the three-dot menu's
     // replacement (icon-rowed bottom sheet: data source / Refresh / Share /
     // View in WebView / Tracking / link-unlink). Every action that existed
-    // in the old DropdownMenu keeps its exact behavior.
+    // in the old DropdownMenu keeps its exact behavior. ROUND 101 (WS-D):
+    // accent-wrapped like every other details sheet.
     if (showActionSheet) {
         // Computed once per open — the source lookup is a map read, but the
         // sheet's lifetime is one interaction; re-reading on every sheet
         // recomposition would be noise.
         val webViewUrl = remember(showActionSheet) { viewModel.buildWebViewUrl() }
         val currentAnime = (state as? DetailsState.Success)?.anime
+        com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
+            accentArgb = coverAccent?.toLong(),
+        ) {
         DetailsActionSheet(
             onDismiss = { showActionSheet = false },
             contentTitle = currentAnime?.displayName ?: "",
@@ -1722,9 +1742,11 @@ fun DetailsScreen(
             onLinkAniList = { viewModel.openManualLinkSheet() },
             onUnlinkAniList = { viewModel.unlinkAniList() },
         )
+        }
     }
 
     // ── ROUND 101 (WS-C): the share sheet — :core:share's three targets ──
+    // (WS-D: accent-wrapped, the details-page parity.)
     if (showShareSheet) {
         val shareContent = remember(showShareSheet) { viewModel.buildShareContent() }
         val shareLinks = remember(shareContent) {
@@ -1732,16 +1754,24 @@ fun DetailsScreen(
                 com.confused.anikuta.core.share.ContentShareLinkFactory.build(it)
             } ?: emptyList()
         }
+        com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
+            accentArgb = coverAccent?.toLong(),
+        ) {
         ShareContentSheet(
             onDismiss = { showShareSheet = false },
             contentTitle = shareContent?.title
                 ?: (state as? DetailsState.Success)?.anime?.displayName ?: "",
             links = shareLinks,
         )
+        }
     }
 
     // ── Phase B: Manual link sheet (AniList linking for extension entries) ──
+    // ROUND 101 (WS-D): accent-wrapped (the link-sources sheet parity).
     if (showManualLinkSheet) {
+        com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
+            accentArgb = coverAccent?.toLong(),
+        ) {
         ManualLinkSheet(
             anilistSearchState = anilistSearchState,
             initialQuery = (state as? DetailsState.Success)?.anime?.displayName ?: "",
@@ -1753,6 +1783,7 @@ fun DetailsScreen(
             onSkip = { viewModel.skipAniListLink() },
             onDismiss = { viewModel.dismissManualLinkSheet() },
         )
+        }
     }
 
     // ── Phase C: Category picker sheet (long-press bookmark) ──
@@ -1769,19 +1800,12 @@ fun DetailsScreen(
     // D-230: Episode list settings bottom sheet (tap "Episodes" text).
     // D-231: Wrapped in the adaptive accent color scheme so the sheet inherits
     // the per-anime dynamic theming (matches the rest of the details page).
+    // ROUND 101 (WS-D): the inline copy-pasted scheme block is now the shared
+    // AdaptiveAccentTheme helper (the third copy was one too many).
     if (showEpisodeSettingsSheet) {
-        val accentColorScheme = coverAccent?.let { argb ->
-            val accent = androidx.compose.ui.graphics.Color(argb)
-            val accentColors = com.confused.anikuta.core.designsystem.theme.AccentColors.from(accent)
-            val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-            MaterialTheme.colorScheme.copy(
-                primary = if (isDark) accentColors.darkPrimary else accentColors.lightPrimary,
-                onPrimary = if (isDark) accentColors.darkOnPrimary else accentColors.lightOnPrimary,
-                primaryContainer = if (isDark) accentColors.darkPrimaryContainer else accentColors.lightPrimaryContainer,
-                onPrimaryContainer = if (isDark) accentColors.darkOnPrimaryContainer else accentColors.lightOnPrimaryContainer,
-            )
-        } ?: MaterialTheme.colorScheme
-        MaterialTheme(colorScheme = accentColorScheme) {
+        com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
+            accentArgb = coverAccent?.toLong(),
+        ) {
             EpisodeListSettingsSheet(
                 onDismiss = { showEpisodeSettingsSheet = false },
                 // D-307: structural flag (independent of the organizeMode
@@ -1813,7 +1837,11 @@ fun DetailsScreen(
     }
 
     // D-242: TrackSheet — AniList tracking management.
+    // ROUND 101 (WS-D): accent-wrapped (the details-page parity).
     if (showTrackSheet) {
+        com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
+            accentArgb = coverAccent?.toLong(),
+        ) {
         TrackSheet(
             trackEntry = trackEntry,
             isLoggedIn = isTrackerLoggedIn,
@@ -1827,6 +1855,7 @@ fun DetailsScreen(
             onRemove = viewModel::removeTrackEntry,
             onDismiss = viewModel::dismissTrackSheet,
         )
+        }
     }
 
     // D-242: "Mark all previous episodes as watched" — bottom-anchored snackbar
