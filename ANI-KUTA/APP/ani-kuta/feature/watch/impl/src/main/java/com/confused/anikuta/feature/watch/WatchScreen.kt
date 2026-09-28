@@ -1706,14 +1706,15 @@ private fun MinimizedMode(
     // ROUND 102 (WS-F): the current episode's position in the DISPLAY list —
     // -1 means it is filtered out (the watched filter can exclude it), which
     // hides the header's "Scroll to Current" action (nothing to scroll to).
-    // The lazy-index offset accounts for the Episodes header item that sits
-    // above the rows (the round-101 search field item is gone with the
-    // search; the empty-state item only exists when the list is empty — and
-    // then there is no current to scroll to anyway).
+    // SA2-F3 fix: the lazy-index offset counts EVERY item above the rows —
+    // the "Currently playing" card (item 0) + the Episodes header (item 1).
+    // The round-101 search field item is gone with the search; the
+    // empty-state item only exists when the list is empty (and then there is
+    // no current to scroll to anyway).
     val currentEpisodeIndexInDisplay = remember(displayEpisodes, currentEpisodeUrl) {
         displayEpisodes.indexOfFirst { it.url == currentEpisodeUrl }
     }
-    val episodeListHeaderOffset = 1
+    val episodeListHeaderOffset = 2
 
     // Wrap in derivedStateOf to prevent excessive recompositions.
     val collapsed by remember {

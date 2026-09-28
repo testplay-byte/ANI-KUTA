@@ -106,6 +106,8 @@ fun TrackSheet(
     // ── ROUND 102 (WS-E): the contract's state + error surface ──
     isTracked: Boolean,
     error: String?,
+    // SA2-F2: the Save button's in-flight state (buttons disable, "Saving…").
+    isSaving: Boolean = false,
     onSave: (TrackEntry) -> Unit,
     onRemoveTracking: () -> Unit,
     onDeleteFromAniList: () -> Unit,
@@ -301,7 +303,8 @@ fun TrackSheet(
 
             // ── ROUND 102 (WS-E): the TWO-BUTTON bar — LEFT Remove from
             // Tracking (quiet), RIGHT Save (the theme-colored primary; the
-            // ONLY way changes persist). ──
+            // ONLY way changes persist). SA2-F2: both disable while the Save
+            // sync is in flight (the sheet stays open until it resolves). ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -310,7 +313,7 @@ fun TrackSheet(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(14.dp))
-                        .clickable { showRemoveConfirm = true },
+                        .clickable(enabled = !isSaving) { showRemoveConfirm = true },
                     color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
                 ) {
                     Row(
@@ -331,7 +334,7 @@ fun TrackSheet(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(14.dp))
-                        .clickable { onSave(draft) },
+                        .clickable(enabled = !isSaving) { onSave(draft) },
                     color = MaterialTheme.colorScheme.primary,
                 ) {
                     Row(
@@ -339,8 +342,16 @@ fun TrackSheet(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        if (isSaving) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
                         Text(
-                            "Save",
+                            if (isSaving) "Saving…" else "Save",
                             color = MaterialTheme.colorScheme.onPrimary,
                             fontWeight = FontWeight.ExtraBold,
                             style = MaterialTheme.typography.bodyMedium,

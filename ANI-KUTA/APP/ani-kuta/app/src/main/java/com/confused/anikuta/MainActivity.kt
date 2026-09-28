@@ -809,28 +809,44 @@ fun AppRoot() {
             // IS the user's explicit destination); either way it's the same
             // resolver + the same navigation.
             val targetMainId = request.shareMainId ?: request.notificationMainId
-            if (!targetMainId.isNullOrBlank() &&
-                backstack.lastOrNull() !is AnimeDetailsKey
-            ) {
+            if (!targetMainId.isNullOrBlank()) {
                 // Look up the content to determine whether it has an AniList
                 // ID or is extension-only (D-198: getAniListDetail →
-                // getContentDetails).
+                // getContentDetails), then resolve the target nav key.
                 val content = contentRepository.getMainEntryByMainId(targetMainId)
                 val details = content?.let { contentRepository.getContentDetails(it.mainId) }
                 val anilistId = details?.anilistId
-                if (anilistId != null) {
-                    backstack.add(AnimeDetailsKey.AniList(anilistId))
-                } else if (content != null) {
-                    val sid = content.sourceId
-                    val url = content.animeUrl
-                    if (sid != null && url != null) {
-                        backstack.add(
+                val targetKey: com.confused.anikuta.core.navigation.NavKey? = when {
+                    anilistId != null -> AnimeDetailsKey.AniList(anilistId)
+                    content != null -> {
+                        val sid = content.sourceId
+                        val url = content.animeUrl
+                        if (sid != null && url != null) {
                             AnimeDetailsKey.Extension(
                                 sourceId = sid,
                                 animeUrl = url,
                                 title = content.title,
-                            ),
-                        )
+                            )
+                        } else {
+                            null
+                        }
+                    }
+                    else -> null
+                }
+                if (targetKey != null) {
+                    val top = backstack.lastOrNull()
+                    when {
+                        // Already viewing THIS content — nothing to do (the
+                        // double-delivery / double-tap protection).
+                        top == targetKey -> {}
+                        // A DIFFERENT content's details page is on top — the
+                        // new delivery REPLACES it (a link/notification tap is
+                        // an explicit destination change, not a stack layer).
+                        top is AnimeDetailsKey -> {
+                            backstack[backstack.lastIndex] = targetKey
+                        }
+                        // Anything else — push on top.
+                        else -> backstack.add(targetKey)
                     }
                 } else if (request.shareMainId != null) {
                     // The share deep link is the app's OWN artifact — an

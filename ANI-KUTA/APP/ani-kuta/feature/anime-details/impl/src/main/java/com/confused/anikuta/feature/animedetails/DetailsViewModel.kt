@@ -644,7 +644,7 @@ class DetailsViewModel(
     }
 
     /**
-     * ROUND 102 (WS-E — the tracking contract): the TrackSheet's one-shot
+     * ROUND 102 (WS-E): the TrackSheet's one-shot
      * error surface. Every failure path (Save's remote sync, the trash-can's
      * remote delete, a failed stop) lands here — the user's round-102 order:
      * "It should properly give the user the error message." The sheet renders
@@ -652,6 +652,17 @@ class DetailsViewModel(
      */
     private val _trackSheetError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val trackSheetError: kotlinx.coroutines.flow.StateFlow<String?> = _trackSheetError.asStateFlow()
+
+    /**
+     * ROUND 102 (SA2-F2 fix): the Save button's in-flight state — the sheet
+     * STAYS OPEN (buttons disabled, "Saving…") until the remote sync
+     * resolves: success closes it, failure shows the inline error. (The
+     * first draft closed the sheet immediately — a failed sync's error had
+     * no surface left to render on, breaking the round's "properly give the
+     * user the error message" order on exactly the Save path.)
+     */
+    private val _trackSheetSaving = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val trackSheetSaving: kotlinx.coroutines.flow.StateFlow<Boolean> = _trackSheetSaving.asStateFlow()
 
     /** Clears the TrackSheet's error surface (sheet re-open / retry). */
     fun clearTrackSheetError() {
@@ -690,43 +701,49 @@ class DetailsViewModel(
         // Capture the OLD progress BEFORE the optimistic write below — the
         // local watch-progress follow ranges from it (the D-242-fix5 math).
         val oldProgress = _trackEntry.value?.progress ?: 0
-        // The sheet closes on Save (the draft is committed; the outcome
-        // surfaces through the error channel if anything fails).
-        _showTrackSheet.value = false
-        _trackSheet.value = updated
+        // SA2-F2: the sheet STAYS OPEN (Saving…) until the sync resolves —
+        // success closes it, failure renders the error inline. A double-tap
+        // is blocked by the saving flag (the buttons disable).
+        _trackSheetSaving.value = true
+        _trackEntry.value = updated
 
         viewModelScope.launch {
-            // 1. THE OPT-IN — the contract.
-            runCatching { trackingStateRepository?.setTracked(mid, true) }
-                .onFailure { e ->
-                    Logger.e(TAG, e) { "saveTrackEntry — tracking opt-in failed: ${e.message}" }
-                }
-
-            // 2. The local watch-progress follow (the D-242-fix5 ranges, on
-            //    the identity numbers — CS sub/dub pairs collapse to one).
-            runCatching { applyTrackProgressToLocal(mid, oldProgress, updated.progress) }
-                .onFailure { e ->
-                    Logger.w(TAG) { "saveTrackEntry — local progress follow failed (non-fatal): ${e.message}" }
-                }
-
-            // 3. The remote sync (+ the confirmed cache on success).
-            if (tracker.isLoggedIn()) {
-                val success = runCatching { tracker.syncEntry(updated) }
+            try {
+                // 1. THE OPT-IN — the contract.
+                runCatching { trackingStateRepository?.setTracked(mid, true) }
                     .onFailure { e ->
-                        Logger.w(TAG) { "saveTrackEntry — sync failed: ${e.message}" }
+                        Logger.e(TAG, e) { "saveTrackEntry — tracking opt-in failed: ${e.message}" }
                     }
-                    .getOrDefault(false)
-                if (success) {
-                    repo.upsert(updated)
-                    _trackSheetError.value = null
-                    Logger.i(TAG) { "saveTrackEntry — synced + cached: $updated" }
+
+                // 2. The local watch-progress follow (the D-242-fix5 ranges, on
+                //    the identity numbers — CS sub/dub pairs collapse to one).
+                runCatching { applyTrackProgressToLocal(mid, oldProgress, updated.progress) }
+                    .onFailure { e ->
+                        Logger.w(TAG) { "saveTrackEntry — local progress follow failed (non-fatal): ${e.message}" }
+                    }
+
+                // 3. The remote sync (+ the confirmed cache on success).
+                if (tracker.isLoggedIn()) {
+                    val success = runCatching { tracker.syncEntry(updated) }
+                        .onFailure { e ->
+                            Logger.w(TAG) { "saveTrackEntry — sync failed: ${e.message}" }
+                        }
+                        .getOrDefault(false)
+                    if (success) {
+                        repo.upsert(updated)
+                        _trackSheetError.value = null
+                        _showTrackSheet.value = false
+                        Logger.i(TAG) { "saveTrackEntry — synced + cached: $updated" }
+                    } else {
+                        _trackSheetError.value =
+                            "Couldn't reach AniList — tracking is on, but this change didn't sync. Try saving again."
+                    }
                 } else {
                     _trackSheetError.value =
-                        "Couldn't reach AniList — tracking is on, but this change didn't sync. Try saving again."
+                        "Not connected to AniList — connect in Settings → Trackers to sync."
                 }
-            } else {
-                _trackSheetError.value =
-                    "Not connected to AniList — connect in Settings → Trackers to sync."
+            } finally {
+                _trackSheetSaving.value = false
             }
         }
     }

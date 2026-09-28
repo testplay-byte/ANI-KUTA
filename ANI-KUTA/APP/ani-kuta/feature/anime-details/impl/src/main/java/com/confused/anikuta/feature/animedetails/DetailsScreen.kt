@@ -1865,6 +1865,7 @@ fun DetailsScreen(
     // two-button bar + the trash-can delete + the inline error surface.
     if (showTrackSheet) {
         val trackSheetError by viewModel.trackSheetError.collectAsState()
+        val trackSheetSaving by viewModel.trackSheetSaving.collectAsState()
         com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
             accentArgb = coverAccent?.toLong(),
         ) {
@@ -1877,6 +1878,7 @@ fun DetailsScreen(
             // ROUND 102 (WS-E): the two-state answer + the error surface.
             isTracked = isContentTracked,
             error = trackSheetError,
+            isSaving = trackSheetSaving,
             onSave = viewModel::saveTrackEntry,
             onRemoveTracking = viewModel::removeTracking,
             onDeleteFromAniList = viewModel::deleteFromAniList,

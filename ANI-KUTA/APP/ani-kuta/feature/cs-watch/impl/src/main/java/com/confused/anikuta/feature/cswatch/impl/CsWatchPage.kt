@@ -417,9 +417,11 @@ internal fun CsWatchPage(
                                                 csScrollScope.launch {
                                                     listState.animateScrollToItem(
                                                         csCurrentEpisodeIndex +
-                                                            // The lazy items above the rows: the
-                                                            // header (1) + the sub/dub switcher (0/1).
-                                                            1 + if (showSubDubSwitcher) 1 else 0,
+                                                            // SA2-F3 fix: EVERY item above the rows —
+                                                            // the "Currently playing" card (0) + the
+                                                            // Episodes header (1) + the sub/dub
+                                                            // switcher when it shows (0/1).
+                                                            2 + if (showSubDubSwitcher) 1 else 0,
                                                     )
                                                 }
                                             }

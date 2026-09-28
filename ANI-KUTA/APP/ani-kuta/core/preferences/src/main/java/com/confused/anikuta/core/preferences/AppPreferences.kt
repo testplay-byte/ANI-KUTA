@@ -104,13 +104,15 @@ class AppPreferences(private val store: PreferenceStore) {
 
     // ── ROUND 94 (D-650): the extensions-page NSFW TRI-STATE ──
     // "off" (the default) | "on" | "only" — one shared state for BOTH
-    // extension tabs (Aniyomi + CloudStream) AND the search screen's
-    // CloudStream source picker (the gate the old Task-41/G4 boolean
-    // `cloudstreamShowNsfw` used to carry — that boolean is retired with
-    // this). Read on every entry to the extensions page and written on
-    // every cycle of the filters pill, so the page always reopens exactly
-    // where the user left it ("every single time the user enters the
-    // extensions page, then it will remember the last state it was on").
+    // extension tabs (Aniyomi + CloudStream). Read on every entry to the
+    // extensions page and written on every cycle of the filters pill, so the
+    // page always reopens exactly where the user left it ("every single time
+    // the user enters the extensions page, then it will remember the last
+    // state it was on").
+    // ROUND 102 (WS-A — the filter scope): this state applies to the
+    // EXTENSIONS PAGE ONLY. The search screen's source picker no longer
+    // reads it (the v1.1.58 leak — the picker lists every trusted source
+    // independently; see SearchViewModel.csSources).
     var extensionsNsfwMode: String
         get() = store.getString(KEY_EXTENSIONS_NSFW_MODE, "off")
         set(value) = store.putString(KEY_EXTENSIONS_NSFW_MODE, value)
