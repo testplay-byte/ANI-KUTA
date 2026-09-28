@@ -200,6 +200,14 @@ class MainActivity : com.lagradost.cloudstream3.MainActivity() {
         // D-220: Handle AniList OAuth redirect (anikuta://anilist-auth#access_token=...).
         // The token is in the URL fragment (not query). Parse + pass to AniListTracker.
         handleAniListOAuthRedirect(intent)
+        // ROUND 102 (WS-D): the unified pending-navigation intake — the COLD
+        // half. Every navigation-bearing delivery (the share deep link, the
+        // notification extras) funnels through the reactive PendingNavigation
+        // channel, which AppRoot collects (the WARM half lives in onNewIntent —
+        // singleTask routes warm deliveries there). Strips the intent as it
+        // parses; runs AFTER the OAuth handler so the redirect's data URI is
+        // read first (the intake leaves it untouched — see PendingNavigation).
+        PendingNavigation.offerFromIntent(intent)
         setContent {
             val prefs = koinInject<ThemePreferences>()
             val themeMode = prefs.themeMode.value
@@ -232,10 +240,16 @@ class MainActivity : com.lagradost.cloudstream3.MainActivity() {
     }
 
     // D-220: Handle AniList OAuth redirect when the activity is already running.
+    // ROUND 102 (WS-D): singleTask makes this the ONLY warm-delivery path —
+    // deep links, notification taps, and the OAuth redirect all arrive here
+    // now (no more stacked duplicate activities). The OAuth handler runs
+    // first (it reads the redirect's data URI); the unified intake parses
+    // + records every navigation-bearing marker reactively.
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleAniListOAuthRedirect(intent)
+        PendingNavigation.offerFromIntent(intent)
     }
 
     // CloudStream V2: clear the compat-layer activity holder on destroy so
@@ -764,90 +778,69 @@ fun AppRoot() {
         onDispose { csPluginNavLifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // D-193 Phase 7: Handle notification tap deep-link — if the app was opened
-    // from a notification, navigate to the details page for the tapped anime.
-    // D-388 (round 25): the check-RESULTS notification deep-links to the update
-    // check history page instead (its "open_update_history" extra).
+    // ── ROUND 102 (WS-D): the UNIFIED pending-navigation collector ──
+    // The round-101/earlier intake was a remember{} read of the activity's
+    // COLD-START intent — a WARM link/notification delivery arrived through
+    // onNewIntent and was never re-read ("the app did not even detect its own
+    // links"). Now MainActivity (onCreate AND onNewIntent, the only two entry
+    // paths of a singleTask activity) funnels every delivery into the
+    // reactive PendingNavigation channel; THIS collector performs the
+    // navigation exactly once + consumes the request. The deep-link share
+    // taps and the notification taps resolve through the SAME content-record
+    // lookup (an AniList-linked record → the AniList details key; an extension
+    // record → the extension key), and now navigate from ANYWHERE (the old
+    // backstack.size == 1 gate silently dropped them when the user was deep
+    // in the app — the details key simply pushes on top).
     val context = androidx.compose.ui.platform.LocalContext.current
-    val notifMainId = remember {
-        val intent = (context as? android.app.Activity)?.intent
-        intent?.getStringExtra("notification_main_id")
-    }
-    val notifOpenHistory = remember {
-        val intent = (context as? android.app.Activity)?.intent
-        intent?.getBooleanExtra("open_update_history", false) == true
-    }
-    LaunchedEffect(notifMainId, notifOpenHistory) {
-        if (notifOpenHistory && backstack.size == 1) {
-            backstack.add(UpdateCheckLogKey)
-            (context as? android.app.Activity)?.intent?.removeExtra("open_update_history")
-        }
-        if (!notifMainId.isNullOrBlank() && backstack.size == 1) {
-            // Look up the content to determine whether it has an AniList ID or is extension-only.
-            val content = contentRepository.getMainEntryByMainId(notifMainId)
-            // D-198: getAniListDetail → getContentDetails.
-            val details = content?.let { contentRepository.getContentDetails(it.mainId) }
-            val anilistId = details?.anilistId
-            if (anilistId != null) {
-                backstack.add(AnimeDetailsKey.AniList(anilistId))
-            } else if (content != null) {
-                val sid = content.sourceId
-                val url = content.animeUrl
-                if (sid != null && url != null) {
-                    backstack.add(
-                        AnimeDetailsKey.Extension(
-                            sourceId = sid,
-                            animeUrl = url,
-                            title = content.title,
-                        ),
-                    )
+    val pendingNav by com.confused.anikuta.PendingNavigation.pending.collectAsState()
+    LaunchedEffect(pendingNav) {
+        val request = pendingNav ?: return@LaunchedEffect
+        try {
+            if (request.openUpdateHistory && backstack.lastOrNull() !is UpdateCheckLogKey) {
+                backstack.add(UpdateCheckLogKey)
+            }
+            // The deep link wins when both markers are present (a share link
+            // IS the user's explicit destination); either way it's the same
+            // resolver + the same navigation.
+            val targetMainId = request.shareMainId ?: request.notificationMainId
+            if (!targetMainId.isNullOrBlank() &&
+                backstack.lastOrNull() !is AnimeDetailsKey
+            ) {
+                // Look up the content to determine whether it has an AniList
+                // ID or is extension-only (D-198: getAniListDetail →
+                // getContentDetails).
+                val content = contentRepository.getMainEntryByMainId(targetMainId)
+                val details = content?.let { contentRepository.getContentDetails(it.mainId) }
+                val anilistId = details?.anilistId
+                if (anilistId != null) {
+                    backstack.add(AnimeDetailsKey.AniList(anilistId))
+                } else if (content != null) {
+                    val sid = content.sourceId
+                    val url = content.animeUrl
+                    if (sid != null && url != null) {
+                        backstack.add(
+                            AnimeDetailsKey.Extension(
+                                sourceId = sid,
+                                animeUrl = url,
+                                title = content.title,
+                            ),
+                        )
+                    }
+                } else if (request.shareMainId != null) {
+                    // The share deep link is the app's OWN artifact — an
+                    // unknown mainId there deserves the honest toast (a
+                    // notification for a removed content stays silent).
+                    android.widget.Toast.makeText(
+                        context,
+                        "This content is not available on this device",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
                 }
             }
-            // Clear the extra so we don't re-navigate on recomposition.
-            (context as? android.app.Activity)?.intent?.removeExtra("notification_main_id")
-        }
-    }
-
-    // ── ROUND 101 (WS-C): the app's OWN share deep-link intake ──
-    // anikuta://content/{mainId} (the :core:share ContentShareLinkFactory's
-    // APP_DEEP_LINK target) resolves through the SAME content-record lookup
-    // the notification tap uses — an AniList-linked record opens the AniList
-    // details key, an extension record opens the extension key. V1 is
-    // deliberately limited to exactly this (the user's spec: "for now, this
-    // functionality is going to be a bit limited"); the intent's data is
-    // consumed after handling so a recomposition never re-navigates.
-    val shareDeepLinkMainId = remember {
-        val activityIntent = (context as? android.app.Activity)?.intent
-        com.confused.anikuta.core.share.ContentShareLinkFactory.parseDeepLink(activityIntent?.dataString)
-    }
-    LaunchedEffect(shareDeepLinkMainId) {
-        if (!shareDeepLinkMainId.isNullOrBlank() && backstack.size == 1) {
-            val content = contentRepository.getMainEntryByMainId(shareDeepLinkMainId)
-            val details = content?.let { contentRepository.getContentDetails(it.mainId) }
-            val anilistId = details?.anilistId
-            if (anilistId != null) {
-                backstack.add(AnimeDetailsKey.AniList(anilistId))
-            } else if (content != null) {
-                val sid = content.sourceId
-                val url = content.animeUrl
-                if (sid != null && url != null) {
-                    backstack.add(
-                        AnimeDetailsKey.Extension(
-                            sourceId = sid,
-                            animeUrl = url,
-                            title = content.title,
-                        ),
-                    )
-                }
-            } else {
-                android.widget.Toast.makeText(
-                    context,
-                    "This content is not available on this device",
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
-            }
-            // Consume the URI so a later recomposition never re-navigates.
-            (context as? android.app.Activity)?.intent?.data = null
+        } finally {
+            // Exactly-once: consume whatever was handled (or deliberately
+            // skipped — a duplicate delivery never re-navigates).
+            com.confused.anikuta.PendingNavigation.consume()
         }
     }
 

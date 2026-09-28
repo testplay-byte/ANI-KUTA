@@ -64,9 +64,21 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.ANIKUTA">
+            <!-- ROUND 102 (WS-D): launchMode=singleTask — the deep-link fix's
+                 other half. With the default `standard` mode, a WARM tap on an
+                 anikuta:// link (or a notification, or the AniList OAuth
+                 redirect) stacked a DUPLICATE MainActivity on the old one; the
+                 duplicate read the intent through its own composition, so it
+                 LOOKED like deep links worked cold-only. singleTask routes
+                 every warm delivery to the EXISTING instance via onNewIntent —
+                 which the new unified pending-navigation intake (MainActivity)
+                 handles reactively: the share deep link, the notification
+                 extras, and the OAuth redirect all land in one place, cold AND
+                 warm. Launcher taps bring the task forward unchanged. -->
             <!-- D-562 (round 74 — the REAL launcher-icon switch): the MAIN/
                  LAUNCHER intent-filter moved OFF MainActivity onto the 7
                  activity aliases below (.icons.IconDefault + one per baked
