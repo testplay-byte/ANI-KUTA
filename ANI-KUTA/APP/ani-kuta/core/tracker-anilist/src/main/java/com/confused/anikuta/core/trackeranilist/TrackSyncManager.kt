@@ -21,13 +21,25 @@ import kotlinx.coroutines.launch
  * + caches the result in [trackEntryRepository]. The `trackerId = 0` placeholder
  * is gone — every sync now uses the real AniList anime ID.
  *
+ * ROUND 102 (WS-E — THE TRACKING CONTRACT): every relay is now OPT-IN. A
+ * content syncs ONLY while the user has explicitly tracked it
+ * ([trackingStateRepository] — the content_tracking_state table); linking a
+ * content to AniList (auto or manual) is a data-source decision and NEVER
+ * implies tracking. The user's rule: "Even if the user has connected and
+ * linked an anime to any list, then the tracking should not happen. Tracking
+ * should only and only happen if the user has selected Track this anime."
+ * The opt-in is flipped by the TrackSheet's Save (true) / Remove from
+ * Tracking (false) / trash-can delete (false).
+ *
  * Architecture:
  * ```
  * User marks episode watched / rates / etc.
  *      ↓
- * DetailsViewModel (calls relayWatchEvent / relayRating)
+ * TrackingWatchSyncBridge (the watch_progress table's reactive reconciler)
+ *      |
+ *      +→ DetailsViewModel (the TrackSheet's Save / markSeriesAsWatched)
  *      ↓
- * TrackSyncManager
+ * TrackSyncManager (gated on tracked = 1)
  *      ↓ resolves mainId → anilistId via ContentRepository
  *      ↓ formats TrackEntry for each tracker
  *      ↓ relays to external Tracker
@@ -40,7 +52,7 @@ import kotlinx.coroutines.launch
  * the source of truth. External trackers don't write back to the internal
  * tracker (that would create conflicts). The `fetchEntry` flow (pull from
  * AniList → update local cache) is a separate path triggered by the TrackSheet
- * "refresh" button or the details page "refresh" button.
+ * open / the details page refresh.
  *
  * CORE_RULES §20: Logged with tag "Anikuta:Core:Tracker:SyncManager".
  * CORE_RULES §23: Sync state is reactive (StateFlow).
@@ -49,6 +61,8 @@ class TrackSyncManager(
     private val trackers: List<Tracker>,
     private val contentRepository: ContentRepository,
     private val trackEntryRepository: TrackEntryRepository,
+    // ROUND 102 (WS-E): the opt-in gate — every relay consults it.
+    private val trackingStateRepository: TrackingStateRepository? = null,
 ) {
 
     companion object {
@@ -61,11 +75,26 @@ class TrackSyncManager(
     val pendingSyncs: StateFlow<Map<String, TrackStatus>> = _pendingSyncs.asStateFlow()
 
     /**
+     * ROUND 102 (WS-E): the opt-in gate — true only when the user has
+     * explicitly tracked [contentKey] for [type]. Fails CLOSED: no
+     * tracking-state repository wired = nothing syncs (the contract is
+     * "opt-in only" — an absent gate must never degrade to "always on").
+     * Production wiring always provides the repository.
+     */
+    private suspend fun isTracked(contentKey: String, type: TrackerType): Boolean {
+        val repo = trackingStateRepository ?: return false
+        return repo.isTracked(contentKey, type)
+    }
+
+    /**
      * Relay a watch event to all logged-in external trackers.
      *
      * D-242: Resolves [contentKey] (mainId) → AniList anime ID via
      * [contentRepository.getContentDetails]. If the content has no AniList link,
      * the sync is silently skipped (the user hasn't linked the anime to AniList).
+     *
+     * ROUND 102 (WS-E): also silently skipped when the content is NOT tracked —
+     * the contract's whole point.
      *
      * After a successful sync, the [TrackEntryRepository] cache is updated so
      * the TrackSheet shows fresh data immediately.
@@ -97,6 +126,15 @@ class TrackSyncManager(
             for (tracker in trackers) {
                 if (!tracker.isLoggedIn()) {
                     Logger.d(TAG) { "${tracker.displayName} not logged in — skipping" }
+                    continue
+                }
+
+                // ROUND 102 (WS-E): the opt-in gate.
+                if (!isTracked(contentKey, tracker.type)) {
+                    Logger.d(TAG) {
+                        "relayWatchEvent — mainId=$contentKey is not tracked on " +
+                            "${tracker.displayName}; skipping (the tracking contract)"
+                    }
                     continue
                 }
 
@@ -175,6 +213,15 @@ class TrackSyncManager(
 
             for (tracker in trackers) {
                 if (!tracker.isLoggedIn()) continue
+                // ROUND 102 (WS-E): the opt-in gate — ratings ride the same
+                // contract as watch events.
+                if (!isTracked(contentKey, tracker.type)) {
+                    Logger.d(TAG) {
+                        "relayRating — mainId=$contentKey is not tracked on " +
+                            "${tracker.displayName}; skipping (the tracking contract)"
+                    }
+                    continue
+                }
                 try {
                     val cached = trackEntryRepository.get(contentKey, tracker.type)
                     val entry = (cached ?: TrackEntry(

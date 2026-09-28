@@ -141,6 +141,22 @@ SELECT main_id, MAX(last_watched_at) AS last_watched_at FROM watch_progress
 WHERE main_id IS NOT NULL
 GROUP BY main_id;
 
+-- ROUND 102 (WS-E — the tracking contract): the batched twin of
+-- getHighestWatchedEpisodeNumber, one row PER content. Feeds the
+-- TrackingWatchSyncBridge: the player's 10s saves + the 85% auto-mark write
+-- ONLY to this table, so the bridge observes THIS query (a table read —
+-- SQLDelight re-emits it on every watch_progress write) and reconciles every
+-- TRACKED content's computed progress against its track_entry cache. This is
+-- the root fix for "fully watched episodes update in the app but never reach
+-- AniList": the old relay only fired from details-page taps.
+getAllHighestWatchedNumbers:
+SELECT main_id,
+       COALESCE(MAX(CAST(SUBSTR(episode_key, INSTR(episode_key, '|') + 1) AS INTEGER)), 0) AS highest
+FROM watch_progress
+WHERE main_id IS NOT NULL
+  AND ((completed = 1 AND auto_mark_suppressed = 0) OR user_marked_watched = 1)
+GROUP BY main_id;
+
 -- Phase WP: Clear all progress for an anime (for library-remove — S3).
 clearByMainId:
 DELETE FROM watch_progress WHERE main_id = ?;

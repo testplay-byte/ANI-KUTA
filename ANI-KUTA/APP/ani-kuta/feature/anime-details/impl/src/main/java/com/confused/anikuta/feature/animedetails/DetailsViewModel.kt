@@ -383,8 +383,11 @@ class DetailsViewModel(
                 val newWatched = watchProgressStore.toggleWatched(episodeKey)
                 Logger.i(TAG) { "toggleWatched: episodeKey=$episodeKey → watched=$newWatched" }
 
-                // D-242: relay to AniList if linked.
-                relayWatchProgressIfNeeded(episodeKey, newWatched)
+                // ROUND 102 (WS-E): the AniList relay is no longer fired from
+                // HERE — the TrackingWatchSyncBridge observes the watch_progress
+                // table (this write re-emits it) and reconciles every TRACKED
+                // content against its confirmed cache. One sync path for the
+                // player's completions, these toggles, and the mark-all paths.
 
                 // D-242: if the user just marked an episode as watched, check if
                 // previous episodes need the "mark all previous" prompt.
@@ -455,54 +458,14 @@ class DetailsViewModel(
         }
     }
 
-    /**
-     * D-242: Relays the current watch progress to AniList (if the anime is linked
-     * + the user is logged in). Called after [toggleWatched] + after [markAllPreviousWatched].
-     *
-     * AniList's `progress` = the episode number the user has watched up to.
-     * If the user marks episode N as watched, progress = N (AniList assumes 1..N
-     * are all watched — this matches the user's spec: "still it will mark the
-     * previous episodes up until episode 5 as watched in any list").
-     *
-     * If the user unmarks episode N, progress = the highest remaining watched
-     * episode number (or 0 if none).
-     *
-     * If progress == total episodes + the series is FINISHED → status = COMPLETED.
-     */
-    private suspend fun relayWatchProgressIfNeeded(episodeKey: String, newWatched: Boolean) {
-        val mid = currentMainId ?: return
-        val tracker = aniListTracker ?: return
-        val syncMgr = trackSyncManager ?: return
-        val details = contentRepository.getContentDetails(mid)
-        val anilistId = details?.anilistId ?: return
-
-        if (!tracker.isLoggedIn()) return
-
-        // D-242-fix: query the DB DIRECTLY for the highest watched episode number.
-        // AniList progress = the episode number the user has watched up to (NOT count).
-        // If the user marks episode 5 (skipping 3, 4), progress should be 5 — AniList
-        // assumes 1..N are all watched.
-        val highestWatched = watchProgressStore.getHighestWatchedEpisodeNumber(mid)
-
-        // Also get the episode list to determine totalEps + isFinished.
-        val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes
-        val totalEps = details.dataEpisodes?.toInt() ?: episodes?.size ?: 0
-        val anime = (state.value as? DetailsState.Success)?.anime
-        val isFinished = anime?.status == "FINISHED"
-        val newStatus = if (highestWatched >= totalEps && totalEps > 0 && isFinished) {
-            com.confused.anikuta.core.trackerapi.TrackStatus.COMPLETED
-        } else if (highestWatched > 0) {
-            com.confused.anikuta.core.trackerapi.TrackStatus.WATCHING
-        } else {
-            com.confused.anikuta.core.trackerapi.TrackStatus.PLAN_TO_WATCH
-        }
-
-        syncMgr.relayWatchEvent(
-            contentKey = mid,
-            episodeNumber = highestWatched.toDouble(),
-            status = newStatus,
-        )
-    }
+    // ROUND 102 (WS-E): relayWatchProgressIfNeeded is DELETED — its two call
+    // sites (toggleWatched + markAllPreviousWatched) are covered by the
+    // TrackingWatchSyncBridge, which observes the watch_progress table and
+    // relays for TRACKED contents with the same progress/status math
+    // (highest-watched as the AniList progress; COMPLETED when it reaches the
+    // total on a FINISHED series). One sync path, one set of semantics — and
+    // the player's episode completions (which the old per-call relay NEVER
+    // covered) ride it too.
 
     // ── Phase 4: Per-anime user rating ──
     // Reactive: observes the user_rating table for the current anime.
@@ -593,13 +556,20 @@ class DetailsViewModel(
         // When both are ready, apply the sync (mark local episodes as watched
         // based on the remote AniList track entry). This fixes the race condition
         // where refreshTracking runs before the episode list has loaded.
+        // ROUND 102 (WS-E): the reverse pull only applies to TRACKED contents —
+        // an untracked content's AniList state never overwrites local progress
+        // (the tracking contract cuts BOTH ways).
         viewModelScope.launch {
             kotlinx.coroutines.flow.combine(
                 episodeState,
                 _pendingRemoteTrackEntry,
-            ) { epState, entry ->
-                if (entry != null && epState is EpisodeState.Loaded) entry to epState.episodes
-                else null
+                isTracked,
+            ) { epState, entry, tracked ->
+                if (entry != null && tracked && epState is EpisodeState.Loaded) {
+                    entry to epState.episodes
+                } else {
+                    null
+                }
             }.filterNotNull().collect { (entry, episodes) ->
                 _pendingRemoteTrackEntry.value = null // consume
                 runCatching { syncLocalProgressFromTracker(entry, episodes) }
@@ -639,6 +609,9 @@ class DetailsViewModel(
         }
 
         _showTrackSheet.value = true
+        // ROUND 102 (WS-E): every open starts with a clean error surface
+        // (the previous session's outcome message doesn't linger).
+        _trackSheetError.value = null
 
         viewModelScope.launch {
             // 1. Load the cached entry (instant).
@@ -671,203 +644,190 @@ class DetailsViewModel(
     }
 
     /**
-     * D-242: Updates the track status (WATCHING / COMPLETED / PAUSED / etc.)
-     * + syncs to AniList. Updates the local cache immediately (optimistic).
+     * ROUND 102 (WS-E — the tracking contract): the TrackSheet's one-shot
+     * error surface. Every failure path (Save's remote sync, the trash-can's
+     * remote delete, a failed stop) lands here — the user's round-102 order:
+     * "It should properly give the user the error message." The sheet renders
+     * it inline; opening the sheet again clears it.
      */
-    fun updateTrackStatus(status: com.confused.anikuta.core.trackerapi.TrackStatus) {
-        val mid = currentMainId ?: return
-        val tracker = aniListTracker ?: return
-        val repo = trackEntryRepository ?: return
-        val anime = (state.value as? DetailsState.Success)?.anime ?: return
-        val anilistId = anime.anilistId ?: return
+    private val _trackSheetError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val trackSheetError: kotlinx.coroutines.flow.StateFlow<String?> = _trackSheetError.asStateFlow()
 
-        val current = _trackEntry.value ?: com.confused.anikuta.core.trackerapi.TrackEntry(
-            contentKey = mid,
-            trackerId = anilistId,
-        )
-        val updated = current.copy(status = status, updatedAt = System.currentTimeMillis())
-        _trackEntry.value = updated // optimistic
-
-        viewModelScope.launch {
-            repo.upsert(updated)
-            if (tracker.isLoggedIn()) {
-                val success = tracker.syncEntry(updated)
-                if (!success) {
-                    Logger.w(TAG) { "updateTrackStatus — sync failed (cache updated anyway)" }
-                }
-            }
-        }
+    /** Clears the TrackSheet's error surface (sheet re-open / retry). */
+    fun clearTrackSheetError() {
+        _trackSheetError.value = null
     }
 
     /**
-     * D-242: Updates the track progress (episodes watched) + syncs to AniList.
+     * ROUND 102 (WS-E — the tracking contract): THE SAVE BUTTON.
+     *
+     * The TrackSheet's draft lands here — the ONLY way tracking changes
+     * persist (closing the sheet without saving discards them, per the
+     * user's spec). Saving means:
+     *  1. THE OPT-IN flips ON — configuring + saving tracking IS "track this
+     *     anime" (the contract's whole point: linking alone never tracks).
+     *  2. The draft's PROGRESS drives the local watch_progress follow (the
+     *     D-242-fix5 semantics, moved from the old per-picker immediate
+     *     save: decreasing unmarks the trailing episodes, increasing marks
+     *     the new ones).
+     *  3. The remote sync — on success the cache (the confirmed truth) is
+     *     updated; on failure the ERROR surfaces and the cache keeps the
+     *     last confirmed state (no false "AniList has it" positives — the
+     *     next Save or the bridge's progress reconciliation retries).
      */
-    fun updateTrackProgress(progress: Int) {
+    fun saveTrackEntry(entry: com.confused.anikuta.core.trackerapi.TrackEntry) {
         val mid = currentMainId ?: return
         val tracker = aniListTracker ?: return
         val repo = trackEntryRepository ?: return
         val anime = (state.value as? DetailsState.Success)?.anime ?: return
         val anilistId = anime.anilistId ?: return
 
-        val clampedProgress = progress.coerceAtLeast(0)
-        val current = _trackEntry.value ?: com.confused.anikuta.core.trackerapi.TrackEntry(
+        val updated = entry.copy(
             contentKey = mid,
             trackerId = anilistId,
-        )
-        val updated = current.copy(progress = clampedProgress, updatedAt = System.currentTimeMillis())
-        _trackEntry.value = updated
-
-        viewModelScope.launch {
-            repo.upsert(updated)
-            if (tracker.isLoggedIn()) {
-                tracker.syncEntry(updated)
-            }
-
-            // D-242-fix5: Sync the progress change back to local watch_progress.
-            // If the user decreased the progress (e.g., from 6 to 1), episodes
-            // 2..6 should be unmarked as watched locally. If they increased it,
-            // episodes 1..newProgress should be marked as watched.
-            runCatching {
-                val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes
-                if (!episodes.isNullOrEmpty()) {
-                    // Task 57 (P1): the unmark/mark ranges run on the IDENTITY
-                    // number — CS sub/dub lists collapse sub+dub rows to the
-                    // shared ordinal (ONE key per episode).
-                    val identities = csEpisodeIdentities(mid, episodes)
-                    val oldProgress = current.progress
-                    if (clampedProgress < oldProgress) {
-                        // Progress decreased — unmark episodes (clampedProgress+1)..oldProgress.
-                        // We do this by deleting watch progress for those episodes.
-                        identities
-                            .filter { it.first in (clampedProgress + 1)..oldProgress }
-                            .map { it.second }
-                            .distinct()
-                            .forEach { key -> watchProgressStore.delete(key) }
-                        Logger.i(TAG) { "updateTrackProgress — unmarked episodes ${clampedProgress + 1}..$oldProgress" }
-                    } else if (clampedProgress > oldProgress) {
-                        // Progress increased — mark episodes (oldProgress+1)..clampedProgress as watched.
-                        val keysToMark = identities
-                            .filter { it.first in (oldProgress + 1)..clampedProgress }
-                            .map { it.second }
-                            .distinct()
-                        if (keysToMark.isNotEmpty()) {
-                            watchProgressStore.markAllWatched(mid, keysToMark)
-                            Logger.i(TAG) { "updateTrackProgress — marked episodes ${oldProgress + 1}..$clampedProgress" }
-                        }
-                    }
-                }
-            }.onFailure { e ->
-                Logger.w(TAG) { "updateTrackProgress — local sync failed (non-fatal): ${e.message}" }
-            }
-        }
-    }
-
-    /**
-     * D-242: Updates the track score (0-100) + syncs to AniList.
-     * Also updates the local `user_rating` table so the star bar stays in sync.
-     */
-    fun updateTrackScore(score: Int) {
-        val mid = currentMainId ?: return
-        val tracker = aniListTracker ?: return
-        val repo = trackEntryRepository ?: return
-        val anime = (state.value as? DetailsState.Success)?.anime ?: return
-        val anilistId = anime.anilistId ?: return
-
-        val current = _trackEntry.value ?: com.confused.anikuta.core.trackerapi.TrackEntry(
-            contentKey = mid,
-            trackerId = anilistId,
-        )
-        val updated = current.copy(score = score, updatedAt = System.currentTimeMillis())
-        _trackEntry.value = updated
-
-        viewModelScope.launch {
-            repo.upsert(updated)
-            // Also update the local rating (keeps the star bar in sync).
-            ratingStore.setAnimeRating(mid, score)
-            if (tracker.isLoggedIn()) {
-                tracker.syncEntry(updated)
-            }
-        }
-    }
-
-    /**
-     * D-242: Updates the start/finish dates + syncs to AniList.
-     */
-    fun updateTrackDates(startedAt: Long?, completedAt: Long?) {
-        val mid = currentMainId ?: return
-        val tracker = aniListTracker ?: return
-        val repo = trackEntryRepository ?: return
-        val anime = (state.value as? DetailsState.Success)?.anime ?: return
-        val anilistId = anime.anilistId ?: return
-
-        val current = _trackEntry.value ?: com.confused.anikuta.core.trackerapi.TrackEntry(
-            contentKey = mid,
-            trackerId = anilistId,
-        )
-        val updated = current.copy(
-            startedAt = startedAt,
-            completedAt = completedAt,
             updatedAt = System.currentTimeMillis(),
         )
-        _trackEntry.value = updated
+        // Capture the OLD progress BEFORE the optimistic write below — the
+        // local watch-progress follow ranges from it (the D-242-fix5 math).
+        val oldProgress = _trackEntry.value?.progress ?: 0
+        // The sheet closes on Save (the draft is committed; the outcome
+        // surfaces through the error channel if anything fails).
+        _showTrackSheet.value = false
+        _trackSheet.value = updated
 
         viewModelScope.launch {
-            repo.upsert(updated)
+            // 1. THE OPT-IN — the contract.
+            runCatching { trackingStateRepository?.setTracked(mid, true) }
+                .onFailure { e ->
+                    Logger.e(TAG, e) { "saveTrackEntry — tracking opt-in failed: ${e.message}" }
+                }
+
+            // 2. The local watch-progress follow (the D-242-fix5 ranges, on
+            //    the identity numbers — CS sub/dub pairs collapse to one).
+            runCatching { applyTrackProgressToLocal(mid, oldProgress, updated.progress) }
+                .onFailure { e ->
+                    Logger.w(TAG) { "saveTrackEntry — local progress follow failed (non-fatal): ${e.message}" }
+                }
+
+            // 3. The remote sync (+ the confirmed cache on success).
             if (tracker.isLoggedIn()) {
-                tracker.syncEntry(updated)
+                val success = runCatching { tracker.syncEntry(updated) }
+                    .onFailure { e ->
+                        Logger.w(TAG) { "saveTrackEntry — sync failed: ${e.message}" }
+                    }
+                    .getOrDefault(false)
+                if (success) {
+                    repo.upsert(updated)
+                    _trackSheetError.value = null
+                    Logger.i(TAG) { "saveTrackEntry — synced + cached: $updated" }
+                } else {
+                    _trackSheetError.value =
+                        "Couldn't reach AniList — tracking is on, but this change didn't sync. Try saving again."
+                }
+            } else {
+                _trackSheetError.value =
+                    "Not connected to AniList — connect in Settings → Trackers to sync."
             }
         }
     }
 
     /**
-     * D-242: Removes the track entry for the current anime — both locally
-     * (deletes the `track_entry` cache row) + remotely (calls AniList's
-     * `DeleteMediaListEntry` mutation).
-     *
-     * Called when the user taps "Remove from tracking" in the TrackSheet +
-     * confirms the dialog.
+     * The D-242-fix5 local follow (moved from the old updateTrackProgress's
+     * immediate-save body): a progress decrease unmarks the trailing
+     * episodes' watch progress; an increase marks the new range.
      */
-    fun removeTrackEntry() {
+    private suspend fun applyTrackProgressToLocal(mid: String, oldProgress: Int, newProgress: Int) {
+        if (oldProgress == newProgress) return
+        val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes ?: return
+        if (episodes.isEmpty()) return
+        val identities = csEpisodeIdentities(mid, episodes)
+        if (newProgress < oldProgress) {
+            identities
+                .filter { it.first in (newProgress + 1)..oldProgress }
+                .map { it.second }
+                .distinct()
+                .forEach { key -> watchProgressStore.delete(key) }
+            Logger.i(TAG) { "applyTrackProgressToLocal — unmarked episodes ${newProgress + 1}..$oldProgress" }
+        } else {
+            val keysToMark = identities
+                .filter { it.first in (oldProgress + 1)..newProgress }
+                .map { it.second }
+                .distinct()
+            if (keysToMark.isNotEmpty()) {
+                watchProgressStore.markAllWatched(mid, keysToMark)
+                Logger.i(TAG) { "applyTrackProgressToLocal — marked episodes ${oldProgress + 1}..$newProgress" }
+            }
+        }
+    }
+
+    /**
+     * ROUND 102 (WS-E): REMOVE FROM TRACKING — the LEFT button.
+     *
+     * The user's semantics: "it should unlink the tracking between the
+     * AniList and the app itself… it should not remove the tracking
+     * completely from AniList itself." So this ONLY flips the opt-in OFF —
+     * the app stops syncing this content. KEPT: the AniList LINK (that is a
+     * data-source decision), the remote AniList entry (untouched), the local
+     * watch progress, the rating, and the cached entry.
+     *
+     * (The old removeTrackEntry — remote delete + local watch-progress and
+     * rating clearing — is REPLACED by this + [deleteFromAniList]; the
+     * destructive remote delete moved to the trash can, and the local-data
+     * clearing was simply wrong under the new contract.)
+     */
+    fun removeTracking() {
+        val mid = currentMainId ?: return
+
+        viewModelScope.launch {
+            runCatching {
+                trackingStateRepository?.setTracked(mid, false)
+                Logger.i(TAG) { "removeTracking — tracking unlinked for mainId=$mid (AniList entry + local data kept)" }
+                _showTrackSheet.value = false
+            }.onFailure { e ->
+                Logger.e(TAG, e) { "removeTracking failed: ${e.message}" }
+                _trackSheetError.value = "Couldn't stop the tracking: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * ROUND 102 (WS-E): DELETE FROM ANILIST — the TRASH CAN (the sheet's
+     * top-right icon, behind a "Do you want to delete it from AniList?"
+     * confirmation). This is the REAL remote deletion: AniList's
+     * DeleteMediaListEntry + the local cache row + the opt-in OFF. Local
+     * watch progress and the rating are KEPT (they are the app's own data —
+     * the deletion is the tracker's business, not the library's).
+     */
+    fun deleteFromAniList() {
         val mid = currentMainId ?: return
         val tracker = aniListTracker ?: return
         val repo = trackEntryRepository ?: return
         val anime = (state.value as? DetailsState.Success)?.anime ?: return
         val anilistId = anime.anilistId ?: return
 
-        _showTrackSheet.value = false
-        _trackEntry.value = null
-        _pendingRemoteTrackEntry.value = null
-
         viewModelScope.launch {
-            // 1. Delete from AniList (remote).
-            runCatching {
-                if (tracker.isLoggedIn()) {
-                    tracker.deleteEntry(anilistId)
+            // The opt-in goes first: a deleted entry must never re-sync.
+            runCatching { trackingStateRepository?.setTracked(mid, false) }
+
+            if (!tracker.isLoggedIn()) {
+                _trackSheetError.value = "Not connected to AniList — connect in Settings → Trackers first."
+                return@launch
+            }
+            val deleted = runCatching { tracker.deleteEntry(anilistId) }
+                .onFailure { e ->
+                    Logger.w(TAG) { "deleteFromAniList — remote delete failed: ${e.message}" }
                 }
-            }.onFailure { e ->
-                Logger.w(TAG) { "removeTrackEntry — remote delete failed (non-fatal): ${e.message}" }
-            }
-            // 2. Delete from local cache.
-            runCatching {
-                repo.delete(mid)
-                Logger.i(TAG) { "removeTrackEntry — removed local cache for mainId=$mid" }
-            }.onFailure { e ->
-                Logger.e(TAG, e) { "removeTrackEntry — local delete failed: ${e.message}" }
-            }
-            // 3. D-242-fix7: Clear all local watch progress for this anime.
-            // When the user removes tracking, all episodes should be unmarked as watched.
-            runCatching {
-                watchProgressStore.clearByMainId(mid)
-                Logger.i(TAG) { "removeTrackEntry — cleared watch progress for mainId=$mid" }
-            }.onFailure { e ->
-                Logger.w(TAG) { "removeTrackEntry — clear watch progress failed (non-fatal): ${e.message}" }
-            }
-            // 4. D-242-fix7: Reset the rating.
-            runCatching {
-                ratingStore.deleteAnimeRating(mid)
-                Logger.i(TAG) { "removeTrackEntry — reset rating for mainId=$mid" }
-            }.onFailure { e ->
-                Logger.w(TAG) { "removeTrackEntry — reset rating failed (non-fatal): ${e.message}" }
+                .getOrDefault(false)
+            if (deleted) {
+                runCatching { repo.delete(mid) }
+                _trackEntry.value = null
+                _pendingRemoteTrackEntry.value = null
+                _showTrackSheet.value = false
+                Logger.i(TAG) { "deleteFromAniList — deleted from AniList + cache cleared for mainId=$mid" }
+            } else {
+                // An honest failure keeps EVERYTHING — the entry stays on
+                // AniList, the sheet stays open with the error visible.
+                _trackSheetError.value = "Couldn't delete it from AniList — check your connection and try again."
             }
         }
     }
@@ -912,8 +872,9 @@ class DetailsViewModel(
                 watchProgressStore.markAllWatched(mid, keysToMark)
                 Logger.i(TAG) { "markAllPreviousWatched — marked ${keysToMark.size} episodes (1..$upToEpisode)" }
 
-                // Relay to AniList.
-                relayWatchProgressIfNeeded("", true)
+                // ROUND 102 (WS-E): the relay is the TrackingWatchSyncBridge's
+                // job now — this write re-emits its watch_progress signal, and
+                // the bridge reconciles TRACKED contents with the same math.
             }.onFailure { e ->
                 Logger.e(TAG, e) { "markAllPreviousWatched failed: ${e.message}" }
             }
@@ -1868,6 +1829,14 @@ class DetailsViewModel(
         val anilistId = anime.anilistId ?: return
 
         if (!tracker.isLoggedIn()) return
+
+        // ROUND 102 (WS-E): only TRACKED contents pull their remote state into
+        // the local cache + watch progress (the tracking contract cuts both
+        // ways — no push without the opt-in, and no pull either).
+        if (trackingStateRepository?.isTracked(mid) != true) {
+            Logger.d(TAG) { "refreshTracking — mainId=$mid is not tracked; skipping the remote pull" }
+            return
+        }
 
         runCatching {
             val remote = tracker.fetchEntry(anilistId)

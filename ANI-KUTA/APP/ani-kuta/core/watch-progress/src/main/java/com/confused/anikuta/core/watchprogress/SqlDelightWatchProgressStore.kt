@@ -247,6 +247,23 @@ class SqlDelightWatchProgressStore(
             .associate { it.main_id to it.watched_count.toInt() }
     }
 
+    // ROUND 102 (WS-E — the tracking contract): the batched highest-watched
+    // per content + its reactive twin. The expression mirrors
+    // getHighestWatchedEpisodeNumber exactly (the episode_key's numeric tail,
+    // gated on completed-and-not-suppressed OR explicitly user-marked) so the
+    // bridge's computed progress always equals what the per-content reader
+    // would return.
+    override suspend fun getAllHighestWatchedNumbers(): Map<String, Int> = withContext(dispatchers) {
+        database.watchQueries.getAllHighestWatchedNumbers().executeAsList()
+            .associate { it.main_id to it.highest.toInt() }
+    }
+
+    override fun observeAllHighestWatchedNumbers(): Flow<Map<String, Int>> =
+        database.watchQueries.getAllHighestWatchedNumbers()
+            .asFlow()
+            .mapToList(Dispatchers.IO)
+            .map { rows -> rows.associate { it.main_id to it.highest.toInt() } }
+
     // D-285: one GROUP BY for the whole table — the Library's batch loader
     // replaces N per-entry getLastWatchedAt calls with this single read.
     // Rows only exist for main_ids with at least one watched episode. A NULL

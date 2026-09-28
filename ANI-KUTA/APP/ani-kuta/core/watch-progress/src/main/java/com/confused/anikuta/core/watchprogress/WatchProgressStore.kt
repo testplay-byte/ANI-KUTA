@@ -122,6 +122,25 @@ interface WatchProgressStore {
     suspend fun getAllWatchedCounts(): Map<String, Int>
 
     /**
+     * ROUND 102 (WS-E — the tracking contract): the batched twin of
+     * [getHighestWatchedEpisodeNumber] — one GROUP BY returns the highest
+     * watched episode number for EVERY anime at once (the AniList-progress
+     * math the bridge relays). Only main_ids with at least one watched
+     * episode appear in the map.
+     */
+    suspend fun getAllHighestWatchedNumbers(): Map<String, Int>
+
+    /**
+     * ROUND 102 (WS-E — the tracking contract): the REACTIVE table-wide
+     * signal — a Flow over the same aggregation as
+     * [getAllHighestWatchedNumbers]. SQLDelight re-emits it on EVERY
+     * watch_progress write (the player's 10s saves, the 85% auto-mark, the
+     * details-page toggles, the mark-all paths), making it the single change
+     * notification the TrackingWatchSyncBridge subscribes to.
+     */
+    fun observeAllHighestWatchedNumbers(): Flow<Map<String, Int>>
+
+    /**
      * D-285: BATCH variant of [getLastWatchedAt] — one GROUP BY query returns
      * the most recent last_watched_at for EVERY anime at once (for the Library's
      * batch loader + the LAST_WATCHED sort).

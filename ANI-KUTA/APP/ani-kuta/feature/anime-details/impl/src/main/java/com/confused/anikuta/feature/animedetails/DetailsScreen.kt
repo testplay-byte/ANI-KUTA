@@ -1861,7 +1861,10 @@ fun DetailsScreen(
 
     // D-242: TrackSheet — AniList tracking management.
     // ROUND 101 (WS-D): accent-wrapped (the details-page parity).
+    // ROUND 102 (WS-E): the tracking contract's UI — a DRAFT + Save/Remove
+    // two-button bar + the trash-can delete + the inline error surface.
     if (showTrackSheet) {
+        val trackSheetError by viewModel.trackSheetError.collectAsState()
         com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
             accentArgb = coverAccent?.toLong(),
         ) {
@@ -1871,11 +1874,12 @@ fun DetailsScreen(
             totalEpisodes = (state as? DetailsState.Success)?.anime?.episodes
                 ?: (episodeState as? EpisodeState.Loaded)?.episodes?.size,
             seriesTitle = (state as? DetailsState.Success)?.anime?.displayName ?: "Tracking",
-            onStatusChange = viewModel::updateTrackStatus,
-            onProgressChange = viewModel::updateTrackProgress,
-            onScoreChange = viewModel::updateTrackScore,
-            onDatesChange = viewModel::updateTrackDates,
-            onRemove = viewModel::removeTrackEntry,
+            // ROUND 102 (WS-E): the two-state answer + the error surface.
+            isTracked = isContentTracked,
+            error = trackSheetError,
+            onSave = viewModel::saveTrackEntry,
+            onRemoveTracking = viewModel::removeTracking,
+            onDeleteFromAniList = viewModel::deleteFromAniList,
             onDismiss = viewModel::dismissTrackSheet,
         )
         }

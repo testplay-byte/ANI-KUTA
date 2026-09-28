@@ -26,9 +26,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -51,12 +50,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.trackerapi.TrackEntry
 import com.confused.anikuta.core.trackerapi.TrackStatus
@@ -65,17 +66,35 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * D-242: TrackSheet — tap-to-expand with smooth animations.
+ * ══════════════════════════════════════════════════════════════════════════
+ *  ROUND 102 (WS-E): TrackSheet — the tracking contract's configuration UI
+ * ══════════════════════════════════════════════════════════════════════════
  *
- * Layout:
- *  - Header: series name + close
- *  - Top section: Status | Progress | Score (3 cells, always visible)
- *    - Tap any → expands a vertical scrollable picker with smooth animation
- *  - Separator line
- *  - Bottom section: dates + remove
+ *  The v1.1.58 device round's spec, implemented as a DRAFT + explicit commit:
  *
- * Pickers use a "wheel" feel: items fade + shrink at the edges, center is selected.
- * Animations use tween(300) for smooth transitions.
+ *  • THE DRAFT — every picker edit lands in a LOCAL draft; NOTHING syncs per
+ *    tap anymore. "If the user does not save it and just directly closes the
+ *    menu, then those changes will not be saved" — a dismiss (swipe, outside
+ *    tap, navigate) discards the draft with it.
+ *
+ *  • TWO BUTTONS at the bottom — LEFT "Remove from Tracking" (the quiet
+ *    style): unlinks the tracking between AniList and the app (the remote
+ *    entry is KEPT — the destructive delete lives behind the trash can).
+ *    RIGHT "Save" (the theme-colored primary): the ONLY way changes persist;
+ *    saving also flips the tracking opt-in ON (configuring + saving IS
+ *    "track this anime").
+ *
+ *  • THE TRASH CAN replaces the old X close (top-right) — "Do you want to
+ *    delete it from AniList?" — the REAL remote deletion (AniList's
+ *    DeleteMediaListEntry + the local cache row + the opt-in off). Local
+ *    watch progress and the rating are the app's own data and stay.
+ *
+ *  • ERRORS SURFACE — the sheet renders the ViewModel's one-shot error
+ *    message inline (Save/Delete/Stop failures), per the user's "it should
+ *    properly give the user the error message."
+ *
+ *  The wheel pickers, the three-cell top section, and the date rows keep the
+ *  D-242 anatomy; dragHandle stays null (the app's no-grab-area rule).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,18 +103,33 @@ fun TrackSheet(
     isLoggedIn: Boolean,
     totalEpisodes: Int?,
     seriesTitle: String,
-    onStatusChange: (TrackStatus) -> Unit,
-    onProgressChange: (Int) -> Unit,
-    onScoreChange: (Int) -> Unit,
-    onDatesChange: (startedAt: Long?, completedAt: Long?) -> Unit,
-    onRemove: () -> Unit,
+    // ── ROUND 102 (WS-E): the contract's state + error surface ──
+    isTracked: Boolean,
+    error: String?,
+    onSave: (TrackEntry) -> Unit,
+    onRemoveTracking: () -> Unit,
+    onDeleteFromAniList: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = screenHeight * 0.85f
-    var showRemoveConfirm by remember { mutableStateOf(false) }
     var expandedPicker by remember { mutableStateOf<ExpandedPicker?>(null) }
+    var showRemoveConfirm by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    // ── THE DRAFT: seeded from the (cached → remote-fetched) entry; re-seeds
+    // when the open's background fetch lands. Every picker below edits THIS —
+    // nothing persists until Save. ──
+    var draft by remember(trackEntry) {
+        mutableStateOf(
+            trackEntry ?: TrackEntry(
+                contentKey = "",
+                trackerId = 0,
+                status = TrackStatus.WATCHING,
+            ),
+        )
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -111,23 +145,41 @@ fun TrackSheet(
                 .padding(horizontal = 20.dp)
                 .navigationBarsPadding(),
         ) {
-            // Header
+            // ── Header: the tracking-state chip + the TRASH CAN ──
+            // (ROUND 102: the X is gone — the trash can behind a confirm is
+            // the real delete-from-AniList; closing the sheet is the swipe /
+            // outside tap, which discards the draft.)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    seriesTitle,
-                    modifier = Modifier.weight(1f),
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontFamily = RobotoFamily,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        seriesTitle,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontFamily = RobotoFamily,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        // The two-state answer, live off the opt-in table.
+                        text = if (isTracked) "Tracking now" else "Not tracking",
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (isTracked) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                IconButton(onClick = { showDeleteConfirm = true }) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        "Delete from AniList",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -138,11 +190,10 @@ fun TrackSheet(
                 return@ModalBottomSheet
             }
 
-            // Top section: always show all 3 cells
-            // D-242-fix7: when totalEpisodes is null (rare — DetailsScreen now
-            // passes episode list size as fallback), use a large default so the
-            // picker shows enough episodes.
-            val effectiveTotal = totalEpisodes ?: (trackEntry?.progress ?: 0).coerceAtLeast(100)
+            // D-242-fix7: when totalEpisodes is null (rare — the details
+            // state passes episode list size as fallback), use a large default
+            // so the picker shows enough episodes.
+            val effectiveTotal = totalEpisodes ?: (draft.progress.coerceAtLeast(100))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -150,7 +201,7 @@ fun TrackSheet(
             ) {
                 PickerCell(
                     label = "Status",
-                    value = (trackEntry?.status ?: TrackStatus.WATCHING).displayLabel(),
+                    value = draft.status.displayLabel(),
                     isExpanded = expandedPicker == ExpandedPicker.STATUS,
                     onClick = {
                         expandedPicker = if (expandedPicker == ExpandedPicker.STATUS) null else ExpandedPicker.STATUS
@@ -159,8 +210,8 @@ fun TrackSheet(
                 )
                 PickerCell(
                     label = "Progress",
-                    value = if (totalEpisodes != null) "${trackEntry?.progress ?: 0}/$totalEpisodes"
-                            else "${trackEntry?.progress ?: 0}",
+                    value = if (totalEpisodes != null) "${draft.progress}/$totalEpisodes"
+                    else "${draft.progress}",
                     isExpanded = expandedPicker == ExpandedPicker.PROGRESS,
                     onClick = {
                         expandedPicker = if (expandedPicker == ExpandedPicker.PROGRESS) null else ExpandedPicker.PROGRESS
@@ -169,7 +220,7 @@ fun TrackSheet(
                 )
                 PickerCell(
                     label = "Score",
-                    value = trackEntry?.score?.let { String.format("%.1f", it / 10.0) } ?: "—",
+                    value = draft.score?.let { String.format("%.1f", it / 10.0) } ?: "—",
                     isExpanded = expandedPicker == ExpandedPicker.SCORE,
                     onClick = {
                         expandedPicker = if (expandedPicker == ExpandedPicker.SCORE) null else ExpandedPicker.SCORE
@@ -178,7 +229,7 @@ fun TrackSheet(
                 )
             }
 
-            // Expanded picker — smooth animation
+            // Expanded picker — smooth animation (D-242), now editing the DRAFT.
             AnimatedVisibility(
                 visible = expandedPicker != null,
                 enter = expandVertically(tween(300)) + fadeIn(tween(300)),
@@ -188,23 +239,23 @@ fun TrackSheet(
                     when (expandedPicker) {
                         ExpandedPicker.STATUS -> WheelPicker(
                             items = TrackStatus.entries.map { it.displayLabel() },
-                            selectedIndex = TrackStatus.entries.indexOf(trackEntry?.status ?: TrackStatus.WATCHING),
+                            selectedIndex = TrackStatus.entries.indexOf(draft.status),
                             onItemClick = { index ->
-                                onStatusChange(TrackStatus.entries[index])
+                                draft = draft.copy(status = TrackStatus.entries[index])
                             },
                         )
                         ExpandedPicker.PROGRESS -> WheelPicker(
                             items = (0..effectiveTotal).map { if (it == 0) "Not started" else it.toString() },
-                            selectedIndex = (trackEntry?.progress ?: 0).coerceIn(0, effectiveTotal),
+                            selectedIndex = draft.progress.coerceIn(0, effectiveTotal),
                             onItemClick = { index ->
-                                onProgressChange(index)
+                                draft = draft.copy(progress = index)
                             },
                         )
                         ExpandedPicker.SCORE -> WheelPicker(
                             items = (0..100).map { if (it == 0) "—" else String.format("%.1f", it / 10.0) },
-                            selectedIndex = (trackEntry?.score ?: 0).coerceIn(0, 100),
+                            selectedIndex = (draft.score ?: 0).coerceIn(0, 100),
                             onItemClick = { index ->
-                                onScoreChange(index)
+                                draft = draft.copy(score = if (index == 0) null else index)
                             },
                         )
                         null -> {}
@@ -218,38 +269,134 @@ fun TrackSheet(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
             )
 
-            // Bottom section: dates + remove
-            DateRow("Started", trackEntry?.startedAt) { onDatesChange(it, trackEntry?.completedAt) }
+            // Bottom section: dates (draft edits) — no remove button here
+            // anymore (the two-button bar below owns the actions).
+            DateRow("Started", draft.startedAt) {
+                draft = draft.copy(startedAt = it)
+            }
             Spacer(Modifier.height(8.dp))
-            DateRow("Finished", trackEntry?.completedAt) { onDatesChange(trackEntry?.startedAt, it) }
-            Spacer(Modifier.height(20.dp))
+            DateRow("Finished", draft.completedAt) {
+                draft = draft.copy(completedAt = it)
+            }
+            Spacer(Modifier.height(16.dp))
 
-            // Remove button
-            Surface(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { showRemoveConfirm = true },
-                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
+            // ── ROUND 102 (WS-E): the ERROR surface — the ViewModel's one-shot
+            // message, rendered inline above the buttons. ──
+            if (!error.isNullOrBlank()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Outlined.Delete, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Remove from Tracking", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = error,
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.5.sp,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            // ── ROUND 102 (WS-E): the TWO-BUTTON bar — LEFT Remove from
+            // Tracking (quiet), RIGHT Save (the theme-colored primary; the
+            // ONLY way changes persist). ──
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { showRemoveConfirm = true },
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Remove from Tracking",
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Medium,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onSave(draft) },
+                    color = MaterialTheme.colorScheme.primary,
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Save",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontWeight = FontWeight.ExtraBold,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(24.dp))
         }
     }
 
+    // ── Remove from Tracking confirm — the unlink semantics, spelled out. ──
     if (showRemoveConfirm) {
         AlertDialog(
             onDismissRequest = { showRemoveConfirm = false },
-            confirmButton = { TextButton(onClick = { showRemoveConfirm = false; onRemove() }) { Text("Remove", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { showRemoveConfirm = false }) { Text("Cancel") } },
-            title = { Text("Remove from tracking?") },
-            text = { Text("This will remove the series from your AniList tracking. Local watch progress is kept.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRemoveConfirm = false
+                    onRemoveTracking()
+                }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveConfirm = false }) { Text("Cancel") }
+            },
+            title = { Text("Stop tracking this?") },
+            text = {
+                Text(
+                    "This unlinks the tracking between AniList and ANI-KUTA — the app " +
+                        "stops syncing this content. Your AniList entry, watch progress " +
+                        "and rating are kept.",
+                )
+            },
+        )
+    }
+
+    // ── The trash-can confirm — the REAL delete from AniList. ──
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    onDeleteFromAniList()
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            },
+            title = { Text("Do you want to delete it from AniList?") },
+            text = {
+                Text(
+                    "The entry is removed from your AniList list. Your watch progress " +
+                        "and rating in ANI-KUTA are kept.",
+                )
+            },
         )
     }
 }
@@ -472,7 +619,12 @@ fun MarkPreviousEpisodesSnackbar(
                 shape = CircleShape,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.Close, "Cancel", tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
+                    Icon(
+                        androidx.compose.material.icons.Icons.Filled.Close,
+                        "Cancel",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
             Spacer(Modifier.width(8.dp))
@@ -512,7 +664,12 @@ fun MarkSeriesWatchedSnackbar(
                 shape = CircleShape,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.Close, "Cancel", tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
+                    Icon(
+                        androidx.compose.material.icons.Icons.Filled.Close,
+                        "Cancel",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
             Spacer(Modifier.width(8.dp))

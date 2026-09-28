@@ -26,5 +26,21 @@ val trackerAniListModule = module {
         )
     }
 
-    single { TrackSyncManager(get(named("trackers")), get(), get()) }
+    single { TrackSyncManager(get(named("trackers")), get(), get(), get()) }
+
+    // ROUND 102 (WS-E — the tracking contract): the watch_progress table's
+    // reactive reconciler — the player's episode completions (and every other
+    // watch-progress write) now reach the tracker for TRACKED contents.
+    // createdAtStart: nothing DEPENDS on it (it is a self-starting observer),
+    // so Koin must create it eagerly or the bridge would never begin
+    // collecting.
+    single(createdAtStart = true) {
+        TrackingWatchSyncBridge(
+            watchProgressStore = get(),
+            contentRepository = get(),
+            trackEntryRepository = get(),
+            trackers = get(named("trackers")),
+            trackingStateRepository = get(),
+        )
+    }
 }
