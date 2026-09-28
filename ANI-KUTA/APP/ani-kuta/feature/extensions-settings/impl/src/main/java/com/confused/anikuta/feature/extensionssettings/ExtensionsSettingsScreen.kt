@@ -236,6 +236,24 @@ fun ExtensionsSettingsScreen(
 
     var langFilter by remember { mutableStateOf<String?>(null) }
 
+    // ── ROUND 101 (WS-A): the filter-clearing helper + the active-flag — feeds
+    // the "No results. Try removing the filters." empty state on the aniyomi
+    // tab (the CS tab computes its own twin from the same three inputs it
+    // receives as parameters). Clearing resets EVERY filter at once: the
+    // search text, the language, and the NSFW mode back to its persisted
+    // default OFF (the mode itself is untouched policy — only the user's
+    // active selection resets, exactly like the language pill's "All
+    // languages" entry). ──
+    val filtersActive = searchQuery.isNotBlank() || langFilter != null || nsfwMode != NsfwFilterMode.OFF
+    fun clearAllFilters() {
+        searchQuery = ""
+        langFilter = null
+        if (nsfwMode != NsfwFilterMode.OFF) {
+            nsfwMode = NsfwFilterMode.OFF
+            appPreferences.extensionsNsfwMode = NsfwFilterMode.OFF.raw
+        }
+    }
+
     // ROUND 96 (D-660): hoisted above the test-status block (the store
     // load needs it) — the same local the selection block used to declare.
     val context = LocalContext.current
@@ -449,15 +467,43 @@ fun ExtensionsSettingsScreen(
     val installedPkgs = remember(installedExtensions) { installedExtensions.map { it.pkgName }.toSet() }
     val untrustedPkgs = remember(untrustedExtensions) { untrustedExtensions.map { it.pkgName }.toSet() }
 
+    // ── ROUND 101 (WS-A): untrusted rows enriched from the repo catalog ──
+    // The loader now parses lang/nsfw from the APK itself (package-name
+    // convention + manifest metadata), but when the package is listed in a
+    // configured repository the catalog entry is the AUTHORITATIVE source —
+    // it's the exact data the Available/Installed rows render, so the
+    // untrusted section joins it: same language tag, same NSFW flag. This is
+    // what makes the shared language filter behave identically across all
+    // three sections (the user's "filters never get applied to the untrusted
+    // ones" report). isNsfw ORs (either source flagging NSFW wins — the
+    // conservative direction for a filter); lang prefers the catalog and
+    // keeps the loader's parse as the offline fallback.
+    val catalogByPkg = remember(availableExtensions) {
+        availableExtensions.associateBy { it.pkgName }
+    }
+    val enrichedUntrusted = remember(untrustedExtensions, catalogByPkg) {
+        untrustedExtensions.map { ext ->
+            val catalog = catalogByPkg[ext.pkgName]
+            if (catalog != null && (catalog.lang != null || catalog.isNsfw)) {
+                ext.copy(
+                    lang = catalog.lang ?: ext.lang,
+                    isNsfw = ext.isNsfw || catalog.isNsfw,
+                )
+            } else {
+                ext
+            }
+        }
+    }
+
     // D-298: language filter — the distinct set of languages across ALL sections
     // of BOTH tabs (session 2: the shared filters bar serves aniyomi + CloudStream,
     // so the dropdown must cover both ecosystems' languages).
     val allLanguages = remember(
-        installedExtensions, untrustedExtensions, erroredExtensions, availableExtensions,
+        installedExtensions, enrichedUntrusted, erroredExtensions, availableExtensions,
         csInstalled, csErrored, csAvailable,
     ) {
         (installedExtensions.mapNotNull { it.lang } +
-            untrustedExtensions.mapNotNull { it.lang } +
+            enrichedUntrusted.mapNotNull { it.lang } +
             erroredExtensions.mapNotNull { it.lang } +
             availableExtensions.mapNotNull { it.lang } +
             csInstalled.mapNotNull { it.language } +
@@ -493,8 +539,8 @@ fun ExtensionsSettingsScreen(
         }.sortedBy { it.name.lowercase() }
     }
 
-    val filteredUntrusted = remember(untrustedExtensions, searchQuery, nsfwMode, langFilter) {
-        untrustedExtensions.filter { ext ->
+    val filteredUntrusted = remember(enrichedUntrusted, searchQuery, nsfwMode, langFilter) {
+        enrichedUntrusted.filter { ext ->
             matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
                 nsfwMode.passes(ext.isNsfw) &&
                 (langFilter == null || ext.lang == langFilter)
@@ -813,6 +859,9 @@ fun ExtensionsSettingsScreen(
                     // ROUND 96 (D-660): the trusted CS rows' test-verdict
                     // dots (internalName → verdict; empty = hidden).
                     testVerdicts = csVerdicts,
+                    // ROUND 101 (WS-A): the filtered-empty state's Clear pill
+                    // routes through the parent (it owns the filter state).
+                    onClearFilters = ::clearAllFilters,
                 )
             } else {
             Box(modifier = Modifier.fillMaxSize()) {
@@ -836,6 +885,23 @@ fun ExtensionsSettingsScreen(
                     // own item (keys + contentType) — the Available section (80+ rows
                     // from a full repo) previously composed ALL rows inside a single
                     // non-virtualized item.
+
+                    // ── ROUND 101 (WS-A): THE FILTERED-EMPTY STATE ──
+                    // Filters active + every section filtered to zero → ONE
+                    // clear message with the way out, instead of a stack of
+                    // "(0)" headers each carrying their own empty text (the
+                    // user's exact spec: "it should say No results. Try
+                    // removing the filters"). Skipped while the repo update
+                    // check is still running (the emptiness may be transient).
+                    val aniyomiAllFilteredEmpty = filteredInstalled.isEmpty() &&
+                        filteredErrored.isEmpty() &&
+                        filteredUntrusted.isEmpty() &&
+                        filteredAvailable.isEmpty()
+                    if (filtersActive && aniyomiAllFilteredEmpty && !isCheckingUpdates) {
+                        item(key = "filtered-empty", contentType = "filteredEmpty") {
+                            FilteredEmptyState(onClearFilters = ::clearAllFilters)
+                        }
+                    } else {
 
                     // ── Trusted Sources ──
                     item(key = "header-installed", contentType = "sectionHeader") {
@@ -999,6 +1065,8 @@ fun ExtensionsSettingsScreen(
                             )
                         }
                     }
+
+                    } // end ROUND 101 filtered-empty else-branch
                 }
 
                 // Phase 3: scroll blur overlay inside the Box (below the header, on top of the list).

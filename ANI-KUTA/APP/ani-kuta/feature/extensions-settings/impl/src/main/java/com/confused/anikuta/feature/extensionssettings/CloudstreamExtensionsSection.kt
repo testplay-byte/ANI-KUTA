@@ -116,6 +116,10 @@ internal fun CloudstreamExtensionsSection(
     // verdict), computed by the parent screen from the testing store while
     // "Show Status on Extensions" is ON; empty map = the dots are hidden.
     testVerdicts: Map<String, ExtensionTestVerdict> = emptyMap(),
+    // ROUND 101 (WS-A): clears the shared filters bar (search + language +
+    // NSFW → OFF) — the parent owns that state; the CS tab's filtered-empty
+    // state uses this for its "Clear filters" pill (the aniyomi tab's twin).
+    onClearFilters: () -> Unit = {},
 ) {
     val installed by csManager.installed.collectAsState()
     val untrusted by csManager.untrusted.collectAsState()
@@ -164,6 +168,31 @@ internal fun CloudstreamExtensionsSection(
     val listState = rememberLazyListState()
     val isChecking = updateCheckState is CloudstreamPluginManager.UpdateCheckState.Checking
 
+    // ── ROUND 101 (WS-A): untrusted rows enriched from the repo catalog (the
+    // aniyomi tab's twin). A sideloaded .cs3 whose persisted record carries a
+    // null language (installed from a file, no repo match yet) fails the
+    // language filter the same way the aniyomi untrusted rows did — "the
+    // filters never get applied to the untrusted ones". When a configured
+    // repo's plugins.json catalogs the plugin under the SAME internalName,
+    // its language/nsfw (the exact data the Available rows render) is
+    // authoritative; isNsfw ORs (the conservative direction for a filter). ──
+    val csCatalogByName = remember(available) {
+        available.associateBy { it.plugin.internalName }
+    }
+    val enrichedCsUntrusted = remember(untrusted, csCatalogByName) {
+        untrusted.map { ext ->
+            val catalog = csCatalogByName[ext.internalName]
+            if (catalog != null && (catalog.plugin.language != null || catalog.isNsfw)) {
+                ext.copy(
+                    language = catalog.plugin.language ?: ext.language,
+                    isNsfw = ext.isNsfw || catalog.isNsfw,
+                )
+            } else {
+                ext
+            }
+        }
+    }
+
     // ── Filtering (ROUND 93, D-644: ALPHABETICAL EVERYWHERE; ROUND 94
     // D-650: the shared NSFW tri-state; D-651: the multi-field search —
     // name + language + version; ROUND 95, D-658 — the passes are MEMOIZED
@@ -178,8 +207,8 @@ internal fun CloudstreamExtensionsSection(
             .sortedBy { it.name.lowercase() }
     }
 
-    val filteredUntrusted = remember(untrusted, searchQuery, nsfwMode, langFilter) {
-        untrusted
+    val filteredUntrusted = remember(enrichedCsUntrusted, searchQuery, nsfwMode, langFilter) {
+        enrichedCsUntrusted
             .filter {
                 matchesExtensionSearch(searchQuery, it.name, it.language, it.version.toString()) &&
                     nsfwMode.passes(it.isNsfw) &&
@@ -291,6 +320,21 @@ internal fun CloudstreamExtensionsSection(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             // D-299 pattern: every section header + row is its own virtualized item.
+
+            // ── ROUND 101 (WS-A): THE FILTERED-EMPTY STATE (the aniyomi tab's
+            // twin) — filters active + every section filtered to zero → ONE
+            // clear message with the way out. Skipped while the update check
+            // is still running (the emptiness may be transient). ──
+            val csFiltersActive = searchQuery.isNotBlank() || langFilter != null || nsfwMode != NsfwFilterMode.OFF
+            val csAllFilteredEmpty = filteredInstalled.isEmpty() &&
+                filteredErrored.isEmpty() &&
+                filteredUntrusted.isEmpty() &&
+                filteredAvailable.isEmpty()
+            if (csFiltersActive && csAllFilteredEmpty && !isChecking) {
+                item(key = "cs-filtered-empty", contentType = "csFilteredEmpty") {
+                    FilteredEmptyState(onClearFilters = onClearFilters)
+                }
+            } else {
 
             // ── Trusted Sources ──
             item(key = "cs-header-installed", contentType = "csSectionHeader") {
@@ -444,6 +488,8 @@ internal fun CloudstreamExtensionsSection(
                     )
                 }
             }
+
+            } // end ROUND 101 filtered-empty else-branch
         }
 
         ScrollBlurOverlay(

@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -145,6 +146,66 @@ internal fun EmptySectionBody(message: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
     )
+}
+
+/**
+ * ROUND 101 (WS-A): the FILTERED-EMPTY state — "No results. Try removing the
+ * filters."
+ *
+ * The user's spec: when filters are active (search / language / NSFW) and
+ * NOTHING matches, the page must say so and offer the way out — not a stack
+ * of per-section "(0)" headers with their own empty messages. Rendered as the
+ * SINGLE content of the list (both tabs); the pill button clears every filter
+ * at once (search text, language, NSFW mode → OFF — the persisted default).
+ */
+@Composable
+internal fun FilteredEmptyState(
+    onClearFilters: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 56.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.SearchOff,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.size(40.dp),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = "No results",
+            fontFamily = RobotoFamily,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Try removing the filters.",
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(18.dp))
+        Surface(
+            onClick = onClearFilters,
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ) {
+            Text(
+                text = "Clear filters",
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp),
+            )
+        }
+    }
 }
 
 // ── D-309/D-311: install-progress controls ──────────────────────────────────

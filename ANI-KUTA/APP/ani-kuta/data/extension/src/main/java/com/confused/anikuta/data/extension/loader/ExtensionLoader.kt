@@ -148,6 +148,19 @@ class ExtensionLoader(
             return LoadResult.Error(pkgName, "Package not signed")
         }
 
+        // ── ROUND 101 (WS-A): manifest metadata is read BEFORE the trust gate ──
+        // The nsfw/torrent flags live in the APK manifest (no class loading
+        // needed), so UNTRUSTED rows can carry them too. Before this change the
+        // Untrusted model defaulted to isNsfw=false / lang=null, which made the
+        // extensions screen's language filter EMPTY the whole untrusted section
+        // (every row failed `ext.lang == langFilter` on a null lang) instead of
+        // filtering it — the user's "the filters never get applied to the
+        // untrusted ones" report. The lang itself comes from the package-name
+        // convention (see [parseLangFromPackageName]); the screen additionally
+        // enriches untrusted rows from the repo catalog when one matches.
+        val isNsfw = appInfo.metaData?.getInt(METADATA_NSFW, 0) == 1
+        val isTorrent = appInfo.metaData?.getInt(METADATA_TORRENT, 0) == 1
+
         // Phase 3: Check trust PER-PACKAGE (not per-signer). The old by-signer model
         // caused auto-propagation: trusting one extension auto-trusted ALL same-signer
         // extensions. Now trust is stored by pkgName — each extension is trusted independently.
@@ -163,6 +176,11 @@ class ExtensionLoader(
                     libVersion = libVersion,
                     signatureHash = signatureFingerprint,
                     icon = icon,
+                    // ROUND 101 (WS-A): the untrusted row now participates in the
+                    // language + NSFW filters exactly like trusted/available rows.
+                    lang = parseLangFromPackageName(pkgName),
+                    isNsfw = isNsfw,
+                    isTorrent = isTorrent,
                 )
             )
         }
@@ -179,9 +197,8 @@ class ExtensionLoader(
             }
         }
 
-        // Read metadata.
-        val isNsfw = appInfo.metaData?.getInt(METADATA_NSFW, 0) == 1
-        val isTorrent = appInfo.metaData?.getInt(METADATA_TORRENT, 0) == 1
+        // Read the source class list (trusted path — the untrusted early-return
+        // above never needs it; classes are NOT loaded for untrusted packages).
         val sourceClassName = appInfo.metaData?.getString(METADATA_SOURCE_CLASS)
             ?: run {
                 Logger.w(TAG) { "No source class metadata for $pkgName" }
@@ -256,6 +273,45 @@ class ExtensionLoader(
     private fun isPackageAnExtension(pkgInfo: PackageInfo): Boolean {
         return pkgInfo.reqFeatures.orEmpty().any { it.name == EXTENSION_FEATURE }
     }
+
+    /**
+     * ROUND 101 (WS-A): best-effort language parse from the extension's package
+     * name — the ONLY local source of an untrusted extension's language (its
+     * classes are never loaded, so `AnimeSource.lang` is unreachable by design).
+     *
+     * Two conventions are handled:
+     * 1. The upstream Aniyomi scheme: `eu.kanade.tachiyomi.animeextension.<lang>.<id>`
+     *    (multi-language extensions use the reserved `all` tag).
+     * 2. The short custom-repo scheme used by the sb-extensions family:
+     *    `aniyomi-<lang>.<name>` (e.g. `aniyomi-en.anikoto`).
+     *
+     * Returns null when neither matches — the caller (the extensions screen)
+     * then falls back to a repo-catalog join, which is the authoritative source
+     * whenever the package is listed in a configured repository.
+     */
+    private fun parseLangFromPackageName(pkgName: String): String? {
+        val parts = pkgName.split('.')
+        // Convention 1: the segment after the extension marker (which must NOT be
+        // the last segment — a language is always followed by the extension id).
+        val marker = parts.indexOfLast {
+            it == "animeextension" || it == "animeextensions" || it == "animiruextension"
+        }
+        if (marker in 0 until parts.size - 2) {
+            parts[marker + 1].takeIf(::isPlausibleLanguageTag)?.let { return it }
+        }
+        // Convention 2: the first segment carries "aniyomi-<lang>" / "animiru-<lang>".
+        val first = parts.firstOrNull() ?: return null
+        for (prefix in listOf("aniyomi-", "animiru-")) {
+            if (first.startsWith(prefix, ignoreCase = true)) {
+                first.removePrefix(prefix).takeIf(::isPlausibleLanguageTag)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /** A plausible IETF-ish tag: short, ASCII letters only ("en", "all", "ptBR"). */
+    private fun isPlausibleLanguageTag(candidate: String): Boolean =
+        candidate.isNotEmpty() && candidate.length <= 8 && candidate.all { it.isLetter() }
 
     /** Result of instantiating one declared source class. */
     private sealed interface SourceInstantiation {
