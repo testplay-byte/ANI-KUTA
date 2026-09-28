@@ -93,7 +93,9 @@ A shared `buildListIconRequest(url)` in ExtensionListChrome.kt builds the per-re
 
 ## 9. The release
 
-v1.1.56/10156 per the standing D-565 loop: `release/1.1.56` cut from the green head, the bump rides the branch (D-430), tag `v1.1.56` → Release APK run → LIVE (the facts land here after publication).
+v1.1.56/10156 per the standing D-565 loop: `release/1.1.56` cut from the green head (95c2b0bd — the implementation 87816700 + the CI fix), the bump 8c4fa378 rides the branch (D-430), tag `v1.1.56` → **Release APK run 36364501952 GREEN** → **LIVE** (published 2026-09-28T01:09:06Z, stable latest; **arm64-v8a debug APK 59.7 MB** + SHA256SUMS.txt — verified via the API: tag, latest flag, assets, body).
+
+**The size bonus (−11.2 MB vs v1.1.55's 70.9 MB):** making the debug line non-debuggable moved it onto the release-style D8 dex pipeline (debuggable builds preserve extra debug info in the dex) — the APK shrank with zero content change.
 
 ## 10. The device-round checklist (v1.1.56)
 
