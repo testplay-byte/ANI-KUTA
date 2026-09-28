@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AppShortcut
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -41,6 +42,8 @@ import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
  * @param onOpenGeneral Navigates to the General appearance screen.
  * @param onOpenDetailsPage Navigates to the Details page appearance screen.
  * @param onOpenEpisodeSettings Navigates to the Episode-list appearance page.
+ * @param onOpenPlayerEpisodeSettings Navigates to the PLAYER page's
+ *   episode-list page (ROUND 102 WS-G — the details page's twin).
  * @param onOpenAppIcon Navigates to the App Icon page (D-432).
  * @param onBack Pops this screen.
  */
@@ -49,6 +52,7 @@ fun AppearanceScreen(
     onOpenGeneral: () -> Unit,
     onOpenDetailsPage: () -> Unit,
     onOpenEpisodeSettings: () -> Unit,
+    onOpenPlayerEpisodeSettings: () -> Unit = {},
     onOpenAppIcon: () -> Unit,
     onBack: () -> Unit,
     /** D-558: the search-landing anchor (see SettingsSearchNavigator). */
@@ -104,6 +108,17 @@ fun AppearanceScreen(
                                 title = "Episode list",
                                 subtitle = "Layout, elements, and live preview",
                                 onClick = onOpenEpisodeSettings,
+                            )
+                        }
+                        // ROUND 102 (WS-G): the PLAYER page's twin — the same
+                        // dedicated-page experience for the player's episode
+                        // list (the round-101 in-player sheet's replacement).
+                        SettingsHighlightTarget(anchorId = "player_episode_list", activeAnchor = highlightAnchor) {
+                            MoreListRow(
+                                icon = Icons.Filled.PlayCircle,
+                                title = "Player episode list",
+                                subtitle = "Row style, filter, and sort for the player",
+                                onClick = onOpenPlayerEpisodeSettings,
                             )
                         }
                     }

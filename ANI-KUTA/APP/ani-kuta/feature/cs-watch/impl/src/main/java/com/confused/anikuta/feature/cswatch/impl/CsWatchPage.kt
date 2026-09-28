@@ -41,9 +41,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -149,11 +146,12 @@ internal fun CsWatchPage(
         episodeRows.map { it.copy(name = CsSubDubSiblings.stripTag(it.name)) }
     }
 
-    // ── ROUND 101 (WS-E): the PLAYER episode-list customization (the CS twin
-    // of the MPV stack's treatment) — the SAME shared PlayerEpisodeListPreferences
-    // drive both player pages, applied through the same pipeline: watched
-    // filter → search → sort. The gear + the magnifier live on the Episodes
-    // header below. ──
+    // ── ROUND 102 (WS-F): the PLAYER episode-list customization's new home ──
+    // The in-player gear + search are RETIRED (the user's round-102 order —
+    // same as the MPV stack's twin): the customization lives in the dedicated
+    // Settings page now (Appearance → "Player episode list"), the SAME shared
+    // PlayerEpisodeListPreferences driving both player pages, applied here
+    // through the same pipeline (watched filter → sort).
     val playerListPrefs = koinInject<com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences>()
     val csRowStyle by playerListPrefs.rowStyle.changes.collectAsState(initial = playerListPrefs.rowStyle.get())
     val csShowSynopsis by playerListPrefs.showSynopsis.changes.collectAsState(initial = playerListPrefs.showSynopsis.get())
@@ -162,12 +160,9 @@ internal fun CsWatchPage(
     val csWatchedFilter by playerListPrefs.watchedFilter.changes.collectAsState(initial = playerListPrefs.watchedFilter.get())
     val csSortMode by playerListPrefs.sortMode.changes.collectAsState(initial = playerListPrefs.sortMode.get())
     val csSortDescending by playerListPrefs.sortDescending.changes.collectAsState(initial = playerListPrefs.sortDescending.get())
-    var showListSettings by remember { mutableStateOf(false) }
-    var searchActive by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
 
     val renderRows = remember(
-        renderRowsBase, csWatchedFilter, csSortMode, csSortDescending, searchActive, searchQuery,
+        renderRowsBase, csWatchedFilter, csSortMode, csSortDescending,
         uiState.episodeMetadata, progressByEpisodeKey,
     ) {
         // Watched filter — the ordinal-aware progress identity (Task 57 P1).
@@ -192,14 +187,6 @@ internal fun CsWatchPage(
             }
             else -> renderRowsBase
         }
-        if (searchActive && searchQuery.isNotBlank()) {
-            val q = searchQuery.trim().lowercase()
-            rows = rows.filter { ep ->
-                val meta = uiState.episodeMetadata[ep.episodeNumber.toInt()]
-                val title = meta?.title ?: ep.name
-                ep.episodeNumber.toInt().toString() == q || title.lowercase().contains(q)
-            }
-        }
         rows = when (csSortMode) {
             "UPLOAD_DATE" -> rows.sortedBy { uiState.episodeMetadata[it.episodeNumber.toInt()]?.airDateMillis ?: 0L }
             "ALPHABETICAL" -> rows.sortedBy {
@@ -208,6 +195,15 @@ internal fun CsWatchPage(
             else -> rows.sortedBy { it.episodeNumber }
         }
         if (csSortDescending) rows.asReversed() else rows
+    }
+
+    // ROUND 102 (WS-F): the current episode's position in the DISPLAY list —
+    // -1 means it is filtered out (the watched filter / the sub-dub switcher
+    // can exclude it), which hides the header's "Scroll to Current" action.
+    // The lazy-index offset accounts for the items above the rows (the
+    // Episodes header + the sub/dub switcher when it shows).
+    val csCurrentEpisodeIndex = remember(renderRows, currentEpisodeData) {
+        renderRows.indexOfFirst { it.data == currentEpisodeData }
     }
 
     // Task 57 (P1): the CURRENT episode's rating/progress identity — the
@@ -402,78 +398,44 @@ internal fun CsWatchPage(
                                     )
                                 }
                                 Spacer(Modifier.weight(1f))
-                                // ROUND 101 (WS-E): the search magnifier + the
-                                // customization gear (the MPV page's twin).
-                                Surface(
-                                    color = if (searchActive) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(50),
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(RoundedCornerShape(50))
-                                        .clickable {
-                                            searchActive = !searchActive
-                                            if (!searchActive) searchQuery = ""
-                                        },
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Search,
-                                            contentDescription = "Search episodes",
-                                            tint = if (searchActive) MaterialTheme.colorScheme.onPrimary
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                    }
-                                }
-                                Spacer(Modifier.width(6.dp))
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(50),
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(RoundedCornerShape(50))
-                                        .clickable { showListSettings = true },
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Tune,
-                                            contentDescription = "Episode list settings",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                    }
+                                // ROUND 102 (WS-F): "Scroll to Current" — the
+                                // MPV stack's twin (the round-101 magnifier +
+                                // gear are retired per the user's order). A
+                                // TEXT action in the primary color; hidden
+                                // while the current episode is filtered out.
+                                if (csCurrentEpisodeIndex >= 0) {
+                                    val csScrollScope = rememberCoroutineScope()
+                                    Text(
+                                        text = "Scroll to Current",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable {
+                                                csScrollScope.launch {
+                                                    listState.animateScrollToItem(
+                                                        csCurrentEpisodeIndex +
+                                                            // The lazy items above the rows: the
+                                                            // header (1) + the sub/dub switcher (0/1).
+                                                            1 + if (showSubDubSwitcher) 1 else 0,
+                                                    )
+                                                }
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    )
                                 }
                             }
                         }
                     }
-                    // ROUND 101 (WS-E): the in-list search field.
-                    if (searchActive) {
-                        item(key = "cs-episode-search") {
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                placeholder = {
-                                    Text(
-                                        "Search episode number or title…",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 13.sp,
-                                    )
-                                },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
+                    // ROUND 102 (WS-F): the in-list search field is RETIRED with
+                    // the in-player search (the MPV page's twin).
                     // ROUND 101 (WS-E): the filtered-empty state.
                     if (renderRows.isEmpty()) {
                         item(key = "cs-episode-list-empty") {
                             Text(
-                                text = "No episodes match" +
-                                    if (searchQuery.isNotBlank()) " — try a different search." else ".",
+                                text = "No episodes match your filter.",
                                 fontFamily = RobotoFamily,
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -555,13 +517,10 @@ internal fun CsWatchPage(
                 }
             }
 
-            // ROUND 101 (WS-E): the CS player episode-list settings sheet
-            // (OUTSIDE the LazyColumn — a composable, not a list item).
-            if (showListSettings) {
-                CsPlayerEpisodeListSettingsSheet(
-                    onDismiss = { showListSettings = false },
-                )
-            }
+            // ROUND 102 (WS-F): the in-player episode-list settings sheet is
+            // RETIRED — the customization moved to the dedicated Settings page
+            // (Appearance → "Player episode list"; the shared
+            // PlayerEpisodeListPreferences drive BOTH player stacks).
 
             // ScrollBlurOverlay — the gradient where content meets the player
             // (shared design-system component, same as the aniyomi page).

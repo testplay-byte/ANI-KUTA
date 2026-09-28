@@ -368,6 +368,12 @@ object DetailsPageSettingsKey : NavKey
 @Serializable
 object EpisodeSettingsKey : NavKey
 
+// ROUND 102 (WS-G): the PLAYER page's episode-list customization page
+// (Settings → Appearance → "Player episode list") — the details page's
+// EpisodeSettingsKey twin, backed by the shared PlayerEpisodeListPreferences.
+@Serializable
+object PlayerEpisodeSettingsKey : NavKey
+
 @Serializable
 object PlayerSettingsKey : NavKey
 
@@ -1719,6 +1725,8 @@ fun AppRoot() {
                 onOpenGeneral = { backstack.add(AppearanceGeneralKey) },
                 onOpenDetailsPage = { backstack.add(DetailsPageSettingsKey) },
                 onOpenEpisodeSettings = { backstack.add(EpisodeSettingsKey) },
+                // ROUND 102 (WS-G): the player page's episode-list page.
+                onOpenPlayerEpisodeSettings = { backstack.add(PlayerEpisodeSettingsKey) },
                 onOpenAppIcon = { backstack.add(AppIconKey) },
                 onBack = pop,
                 // D-558: the search-landing anchor.
@@ -1759,6 +1767,13 @@ fun AppRoot() {
                         SettingsSearchNavigator.takeAnchor(SettingsSearchPage.EPISODE_LIST)
                     },
                 )
+            // ROUND 102 (WS-G): the player page's episode-list page — the
+            // details page's twin (the same live-preview anatomy), writing
+            // the shared PlayerEpisodeListPreferences that drive BOTH player
+            // stacks.
+            is PlayerEpisodeSettingsKey -> PlayerEpisodeListSettingsScreen(
+                onBack = pop,
+            )
             is PlayerSettingsKey -> PlayerSettingsScreen(
                 onBack = pop,
                 // D-558: the search-landing anchor.

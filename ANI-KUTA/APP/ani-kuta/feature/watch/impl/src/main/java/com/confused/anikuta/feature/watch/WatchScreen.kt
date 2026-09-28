@@ -1650,12 +1650,14 @@ private fun MinimizedMode(
         }
     }
 
-    // ── ROUND 101 (WS-E): the PLAYER episode-list customization ──────────────
-    // The dedicated settings (gear on the Episodes header) + search (the
-    // magnifier) + the sort/filter/style application — the details page's
-    // D-230/D-554 treatment, backed by the SEPARATE PlayerEpisodeListPreferences
-    // so the two surfaces stay independently tunable (the user's "separately
-    // customize the episode list of the player page" order).
+    // ── ROUND 102 (WS-F): the PLAYER episode-list customization's new home ──
+    // The in-player gear + search are RETIRED (the user's round-102 order:
+    // "I don't want you to give the search option there, or even give the
+    // settings option there at all"). The customization itself lives in the
+    // dedicated Settings page now (Appearance → "Player episode list") — the
+    // SAME PlayerEpisodeListPreferences keys, read here exactly as before,
+    // so the list stays fully styleable/sortable/filterable — just from the
+    // settings surface instead of mid-playback.
     val playerListPrefs = koinInject<com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences>()
     val rowStyle by playerListPrefs.rowStyle.changes.collectAsState(initial = playerListPrefs.rowStyle.get())
     val showSynopsis by playerListPrefs.showSynopsis.changes.collectAsState(initial = playerListPrefs.showSynopsis.get())
@@ -1664,9 +1666,6 @@ private fun MinimizedMode(
     val watchedFilter by playerListPrefs.watchedFilter.changes.collectAsState(initial = playerListPrefs.watchedFilter.get())
     val sortMode by playerListPrefs.sortMode.changes.collectAsState(initial = playerListPrefs.sortMode.get())
     val sortDescending by playerListPrefs.sortDescending.changes.collectAsState(initial = playerListPrefs.sortDescending.get())
-    var showListSettings by remember { mutableStateOf(false) }
-    var searchActive by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
 
     // The watched set (live — the store emits as the player saves progress).
     val watchProgressStore = koinInject<WatchProgressStore>()
@@ -1681,10 +1680,11 @@ private fun MinimizedMode(
         progressList.filter { it.isWatched }.map { it.episodeKey }.toSet()
     }
 
-    // The display list: watched filter → search → sort (the details page's
-    // EpisodeListProcessor pipeline, player-scoped).
+    // The display list: watched filter → sort (ROUND 102: the search stage is
+    // RETIRED with the in-player search — the details page's EpisodeSearchSheet
+    // remains the searching surface for episode lists).
     val displayEpisodes = remember(
-        episodeList, watchedFilter, watchedKeys, searchActive, searchQuery, sortMode, sortDescending,
+        episodeList, watchedFilter, watchedKeys, sortMode, sortDescending,
     ) {
         fun isWatchedEp(ep: SimpleEpisode) =
             watchKey.mainId.isNotBlank() && watchedKeys.contains(buildEpisodeKey(watchKey.mainId, ep.episodeNumber))
@@ -1692,15 +1692,6 @@ private fun MinimizedMode(
             "SHOW" -> episodeList.filter(::isWatchedEp)
             "HIDE" -> episodeList.filterNot(::isWatchedEp)
             else -> episodeList
-        }
-        if (searchActive && searchQuery.isNotBlank()) {
-            val q = searchQuery.trim().lowercase()
-            list = list.filter { ep ->
-                val title = episodeMetadata[ep.episodeNumber.toInt()]?.title ?: ep.name
-                ep.episodeNumber.toInt().toString() == q ||
-                    title.lowercase().contains(q) ||
-                    ep.name.lowercase().contains(q)
-            }
         }
         list = when (sortMode) {
             "UPLOAD_DATE" -> list.sortedBy { episodeMetadata[it.episodeNumber.toInt()]?.airDateMillis ?: 0L }
@@ -1711,6 +1702,18 @@ private fun MinimizedMode(
         }
         if (sortDescending) list.asReversed() else list
     }
+
+    // ROUND 102 (WS-F): the current episode's position in the DISPLAY list —
+    // -1 means it is filtered out (the watched filter can exclude it), which
+    // hides the header's "Scroll to Current" action (nothing to scroll to).
+    // The lazy-index offset accounts for the Episodes header item that sits
+    // above the rows (the round-101 search field item is gone with the
+    // search; the empty-state item only exists when the list is empty — and
+    // then there is no current to scroll to anyway).
+    val currentEpisodeIndexInDisplay = remember(displayEpisodes, currentEpisodeUrl) {
+        displayEpisodes.indexOfFirst { it.url == currentEpisodeUrl }
+    }
+    val episodeListHeaderOffset = 1
 
     // Wrap in derivedStateOf to prevent excessive recompositions.
     val collapsed by remember {
@@ -2042,84 +2045,48 @@ private fun MinimizedMode(
                                 )
                             }
                             Spacer(Modifier.weight(1f))
-                            // ROUND 101 (WS-E): search — toggles the in-list
-                            // search field (number or title, like the details
-                            // page's episode search).
-                            Surface(
-                                color = if (searchActive) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(50),
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(RoundedCornerShape(50))
-                                    .clickable {
-                                        searchActive = !searchActive
-                                        if (!searchActive) searchQuery = ""
-                                    },
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    androidx.compose.material3.Icon(
-                                        imageVector = androidx.compose.material.icons.Icons.Filled.Search,
-                                        contentDescription = "Search episodes",
-                                        tint = if (searchActive) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(6.dp))
-                            // ROUND 101 (WS-E): the customization gear — opens
-                            // PlayerEpisodeListSettingsSheet.
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(50),
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(RoundedCornerShape(50))
-                                    .clickable { showListSettings = true },
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    androidx.compose.material3.Icon(
-                                        imageVector = androidx.compose.material.icons.Icons.Filled.Tune,
-                                        contentDescription = "Episode list settings",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
+                            // ROUND 102 (WS-F): "Scroll to Current" — the
+                            // header's right-side action (replacing the
+                            // round-101 search magnifier + settings gear,
+                            // both retired per the user's order). A TEXT
+                            // action in the primary color; tapping it
+                            // animatedly scrolls the episode list to the
+                            // currently playing episode. Hidden while the
+                            // current episode is filtered out of the visible
+                            // list (the watched filter can exclude it —
+                            // there is nothing to scroll to).
+                            if (currentEpisodeIndexInDisplay >= 0) {
+                                val scrollScope = rememberCoroutineScope()
+                                Text(
+                                    text = "Scroll to Current",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            scrollScope.launch {
+                                                listState.animateScrollToItem(
+                                                    currentEpisodeIndexInDisplay + episodeListHeaderOffset,
+                                                )
+                                            }
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                )
                             }
                         }
                     }
                 }
-                // ROUND 101 (WS-E): the in-list search field — appears under
-                // the header while active, filters by number or title.
-                if (searchActive) {
-                    item(key = "episode-search") {
-                        androidx.compose.material3.OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = {
-                                androidx.compose.material3.Text(
-                                    "Search episode number or title…",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 13.sp,
-                                )
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 4.dp, vertical = 2.dp),
-                        )
-                    }
-                }
-                // ROUND 101 (WS-E): the filtered-empty state — a filter/search
-                // that matches nothing says so (the extensions screen's twin
-                // message discipline).
+                // ROUND 102 (WS-F): the in-list search field is RETIRED with
+                // the in-player search (see the header comment above).
+                // ROUND 101 (WS-E): the filtered-empty state — a watched
+                // filter that matches nothing says so (the extensions
+                // screen's twin message discipline).
                 if (displayEpisodes.isEmpty()) {
                     item(key = "episode-list-empty") {
                         Text(
-                            text = "No episodes match" +
-                                if (searchQuery.isNotBlank()) " — try a different search." else ".",
+                            text = "No episodes match your filter.",
                             fontFamily = RobotoFamily,
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2154,12 +2121,9 @@ private fun MinimizedMode(
             }
             } // end LazyColumn
 
-            // ROUND 101 (WS-E): the player episode-list settings sheet.
-            if (showListSettings) {
-                com.confused.anikuta.feature.watch.sheets.PlayerEpisodeListSettingsSheet(
-                    onDismiss = { showListSettings = false },
-                )
-            }
+            // ROUND 102 (WS-F): the in-player episode-list settings sheet is
+            // RETIRED — the customization moved to the dedicated Settings page
+            // (Appearance → "Player episode list").
 
             // ScrollBlurOverlay — gradient at the top edge of the scrollable content,
             // creating a smooth fade where content meets the player.
