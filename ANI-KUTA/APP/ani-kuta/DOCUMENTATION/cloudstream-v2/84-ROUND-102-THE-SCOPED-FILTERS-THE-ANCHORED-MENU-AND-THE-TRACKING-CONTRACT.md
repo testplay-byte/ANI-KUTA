@@ -172,13 +172,144 @@ ecosystems; the extensions-page filters stay extensions-page-only.
   user stay byte-identical.
 
 ## 4. EXECUTION RECORD
-(filled as phases land)
+
+**Commits (mainline `feature/round-57-cloudstream-downloads`):**
+- `3a046329` — WS-A: the scoped filters (the search picker independent again).
+- `a9904145` — WS-B+WS-D-UI: the anchored menu, the direct share, the tracking-state
+  table/repo/isTracked (the menu label's dependency).
+- `4267889d` — WS-C: the details switch contract (persistence, auto-refresh, library
+  reflection, the PTR min-duration).
+- `bd00d208` — WS-D-deeplink: singleTask + the unified reactive intake.
+- `10484a04` — WS-E: the tracking contract (opt-in gating, the bridge, the sheet).
+- `c516aee7` — WS-F+WS-G: the player header + the dedicated settings page.
+- `f1f60a56` — the self-review hardening (4 findings).
+- `177d685f` — the verified sub-agent findings (1 compile break + 4 hardening fixes).
+- `fa5c9e72` / `9d4b7302` / `d827f268` — the CI fixes (see §4.1).
+
+**Files touched:** 27 (5 new: DetailsActionMenu.kt, PendingNavigation.kt,
+TrackingStateRepository.kt, TrackingWatchSyncBridge.kt,
+PlayerEpisodeListSettingsScreen.kt; 3 deleted: DetailsActionSheet.kt,
+PlayerEpisodeListSettingsSheet.kt, CsPlayerEpisodeListSettingsSheet.kt; plus
+SearchViewModel, DetailsViewModel, DetailsScreen, TrackSheet, DetailBanner(in
+DetailsScreen), LibraryViewModel, WatchScreen, CsWatchPage, MainActivity,
+AnikutaApp, AppearanceScreen, AndroidManifest, AppPreferences, WatchProgressStore,
+SqlDelightWatchProgressStore, TrackerAniListModule, TrackSyncManager, DetailsModule,
+track.sq, watch.sq, DatabaseDriverFactory, and the tracker-anilist build file).
+
+**The sub-agent testing (the user's standing order, ≥2 guided agents, findings
+lead-verified):**
+- SUB-AGENT 1 (R102-SA1 — filters/switch/library/PTR/deep links): 12 scenarios, ALL
+  PASS. Four lead-attention items: the transient single-base priority label
+  (pre-existing shape — NOT applied, documented), the stale AppPreferences KDoc
+  (APPLIED), the details-on-top swallowing of deliveries (APPLIED — the
+  replace-vs-skip rework), the same-frame last-wins conflation (inherent, harmless).
+- SUB-AGENT 2 (R102-SA2 — the tracking contract): 14 scenarios, 11 PASS. **F1
+  (FAIL-MAJOR): `_trackSheet.value` — an undeclared-symbol typo (a hard compile
+  error) in saveTrackEntry** — VERIFIED + FIXED. **F2 (MAJOR): the Save path closed
+  the sheet before the async sync resolved, leaving a failed sync's error message
+  with no surface** — VERIFIED + FIXED (the Saving… state; success closes, failure
+  renders inline). **F3 (MINOR): both player stacks' Scroll to Current offsets
+  forgot the always-composed Currently-Playing card at LazyColumn index 0** —
+  VERIFIED + FIXED (MPV: 2; CS: 2 + switcher). The minor edge notes (delete-failure
+  leaves tracking off — deliberate; the draft re-seed clobbering ultra-fast edits
+  during the open fetch; the pre-existing episodes.size progress overshoot on CS
+  sub/dub lists) — documented, not applied.
+
+### 4.1 CI history (the honest count: 4 runs — 2 over the D-472 budget, disclosed)
+- Run 1 (`36460088747` on `177d685f`): FAILED — `:core:tracker-anilist` could not
+  resolve `WatchProgressStore`: the module lacked the `:core:watch-progress`
+  dependency (the bridge's new import). Fixed in `fa5c9e72`.
+- Run 2 (`36460561300`): FAILED — the rewritten TrackSheet's snackbar helpers
+  referenced `Icons.Filled.Close` fully-qualified, but extension properties resolve
+  through IMPORTS, not receiver qualification — the import was missing. Fixed in
+  `9d4b7302`.
+- Run 3 (`36460980218`): FAILED — :app only (every other module green): the unified
+  collector's `collectAsState` (MainActivity's first StateFlow collectAsState —
+  never imported before) + the new `PlayerEpisodeListSettingsScreen` import. Fixed
+  in `d827f268`.
+- Run 4 (`36461645067` on `d827f268`): **GREEN**.
 
 ## 5. WHAT SHIPS (the user-visible round-102 changes)
-(filled at ledger time)
+1. **Filters scoped:** the extensions page's filters (incl. the NSFW tri-state)
+   apply ONLY there — the Search page's "Pick a Source" lists every trusted source
+   of both ecosystems, unfiltered and consistent.
+2. **The three-dot menu:** an anchored DropdownMenu expanding smoothly from the
+   button itself — icon rows, no descriptions, no Refresh item, no grab area.
+   Share is a submenu at the same anchor whose targets fire the DEVICE's share
+   chooser directly (no bottom sheet, no copy buttons). The Tracking row reads
+   "Tracking now" / "Not tracking" live.
+3. **The switch contract:** picking a data source persists (main_entry.
+   display_source + the title) — reopening respects it, the LIBRARY's cover and
+   name follow it, and the switch auto-refreshes the target axis (failure keeps
+   the local data — no false availability). The library's stuck pull-to-refresh
+   spinner is fixed (the M3 indicator race workaround).
+4. **Deep links detected:** anikuta:// links (and notification taps) work cold AND
+   warm — singleTask + the unified reactive intake; navigating from anywhere,
+   replacing a different content's details page when one is on top.
+5. **The tracking contract:** tracking is OPT-IN (linking alone never syncs); the
+   TrackSheet is a draft + Save/Remove bar (Save = the only persistence path AND
+   the opt-in; Remove = unlink the sync, keeping everything; the trash can =
+   "Do you want to delete it from AniList?" — the real remote deletion) with
+   inline errors; and the player's episode completions finally reach AniList (the
+   reactive watch_progress bridge with the startup self-heal sweep).
+6. **The player list:** search + the settings gear retired; "Scroll to Current"
+   scrolls to the playing episode (hidden when filtered out). The customization
+   moved to a DEDICATED settings page — Settings → Appearance → "Player episode
+   list" (the details page's live-preview architecture), driving both player
+   stacks.
 
 ## 9. JUDGMENT CALLS (disclosed)
-(filled at ledger time)
+1. **The DB changes are two, both deliberate:** the `content_tracking_state`
+   table (the opt-in intent — deliberately separate from the track_entry cache,
+   whose row presence has never meant user intent) + the
+   `getAllHighestWatchedNumbers` batch query. The switch persistence rides the
+   EXISTING display_source column (zero churn). Debug line = schema freedom (§30).
+2. **The old removeTrackEntry's local watch-progress/rating clearing is REMOVED**
+   — under the new contract Remove = unlink the sync only; the destructive delete
+   moved to the trash can; local data is the app's own and always kept.
+3. **Derived-state reconciliation instead of a retry queue** for the bridge: the
+   computed-vs-confirmed-cache comparison self-heals on the next write AND at
+   startup — no queue table, no replay complexity. Disclosed limitation: a failed
+   score/status sync needs a re-Save (the bridge only reconciles progress).
+4. **Save keeps the sheet open until the sync resolves** (the SA2-F2 fix) — the
+   error must have a surface to render on. The double-tap is guarded by the
+   saving flag.
+5. **The PTR min-duration (800ms) is a workaround, not a cure** — the M3
+   PullToRefreshBox indicator race is upstream; the floor guarantees the dismiss
+   transition lands. Disclosed as such in the code.
+6. **The player settings page approximates the details page's collapse** (the
+   scroll-linked slide, not the D-557 two-phase gesture machinery) — the player's
+   options list is four cards; the full machinery is disproportionate there.
+7. **Run-count honesty:** 4 CI runs (2 over the D-472 budget of 2/cycle) — one
+   missing module dependency, one extension-import trap, one first-ever-import
+   gap. All three were new-code-only errors; the sub-agent-caught F1 typo would
+   have been a FOURTH error class had it reached CI.
+8. **The dead AutoLinkPopup.kt** remains (zero call sites — the standing cleanup
+   candidate, unchanged from round 101).
 
 ## 10. THE DEVICE CHECKLIST (round 103's input)
-(filled at ledger time)
+1. **Filters:** set the NSFW pill (and any language filter) on the Extensions
+   page → go to Search → "Pick a Source" — the lists show EVERY trusted source
+   regardless of the extensions filters. The extensions page itself still filters.
+2. **Three-dot menu:** tap the three dots — the menu expands FROM the button.
+   Icons, no descriptions, no Refresh. Share → the three targets → picking one
+   opens the DEVICE share sheet directly.
+3. **Switch persistence:** on a linked entry switch to Extension → exit → reopen
+   — still Extension. The Library cover + name follow the choice. Switching
+   auto-refreshes (no manual Refresh needed).
+4. **Library pull-to-refresh:** pull — the spinner shows briefly and ALWAYS
+   dismisses.
+5. **Deep links:** share an ANI-KUTA link → open it from the other app with
+   ANI-KUTA already running (warm) AND not running (cold) — the app opens on the
+   content both ways. Tapping it while on a DIFFERENT content's details page
+   switches to the linked one.
+6. **Tracking:** a linked-but-never-tracked content — watch episodes → AniList
+   does NOT change (the menu says "Not tracking"). Open Tracking → the menu shows
+   the state; edit fields → close without saving → nothing changed. Save →
+   "Saving…" → tracked ("Tracking now") + AniList updated. Remove from Tracking →
+   the app stops syncing; the AniList entry stays. The trash can → the confirm →
+   the entry is gone from AniList (local progress kept). Kill the app mid-play →
+   reopen → the startup sweep syncs the watched episodes.
+7. **Player list:** no search/gear in the Episodes header; "Scroll to Current"
+   jumps to the playing episode (both stacks). Settings → Appearance → "Player
+   episode list" — the live preview + options apply to both players live.
