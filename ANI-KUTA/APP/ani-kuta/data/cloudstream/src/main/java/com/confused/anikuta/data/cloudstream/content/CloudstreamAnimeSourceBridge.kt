@@ -224,7 +224,10 @@ class CloudstreamAnimeSourceBridge(
                         "'${shelf.name}' (#${index + 1} of the walk) -> ${items.size} " +
                         "entr${if (items.size == 1) "y" else "ies"}"
                 }
-                return AnimesPage(items.map { it.toSAnime() }, response.hasNext)
+                // items non-empty ⇒ response was non-null; the compiler
+                // cannot infer it through the elvis chain, so hasNext is
+                // null-safe with an honest false default.
+                return AnimesPage(items.map { it.toSAnime() }, response?.hasNext ?: false)
             }
             if (response != null) sawOkAnswer = true
         }
