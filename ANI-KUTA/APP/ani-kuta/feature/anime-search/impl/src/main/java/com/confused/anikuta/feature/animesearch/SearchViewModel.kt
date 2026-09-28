@@ -7,8 +7,6 @@ import com.confused.anikuta.core.anilist.api.BrowseCacheCodec
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.datacache.DataCacheRepository
-import com.confused.anikuta.core.preferences.AppPreferences
-import com.confused.anikuta.core.preferences.NsfwFilterMode
 import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.data.cloudstream.content.CloudstreamContentRepository
 import com.confused.anikuta.data.cloudstream.content.CsBrowseDisplay
@@ -59,7 +57,6 @@ class SearchViewModel(
     private val preferenceStore: PreferenceStore,
     private val extensionManager: ExtensionManager,
     private val cloudstreamRepository: CloudstreamContentRepository,
-    private val appPreferences: AppPreferences,
     private val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker,
 ) : ViewModel() {
 
@@ -273,25 +270,26 @@ class SearchViewModel(
     val selectedCsProvider: StateFlow<String?> = _selectedCsProvider.asStateFlow()
 
     /**
-     * The CloudStream sources available in the picker — every provider of every
-     * TRUSTED plugin, filtered by the persisted NSFW gate when it is OFF.
+     * The CloudStream sources available in the picker — EVERY provider of
+     * every TRUSTED plugin, unfiltered.
      *
-     * ROUND 94 (D-650): the gate is the extensions page's NSFW TRI-STATE now
-     * (AppPreferences.extensionsNsfwMode — the old cloudstreamShowNsfw boolean
-     * is retired with it): OFF hides the NSFW sources, ON shows everything,
-     * ONLY keeps just the NSFW ones. The gate is read inside the map: the flow
-     * re-collects on every re-subscription (screen re-entry — the only way the
-     * gate can change is via the Extensions settings screen), so the filter is
-     * always fresh where it matters; no preference-change plumbing needed.
+     * ROUND 102 (WS-A — THE FILTER SCOPE): the extensions page's NSFW
+     * tri-state is NO LONGER applied here. The v1.1.58 device round caught
+     * this leak: setting a filter on the Extensions settings page (e.g. the
+     * NSFW pill) also filtered THIS list, because the old D-650 gate read the
+     * persisted `extensionsNsfwMode` preference — the SAME key the Extensions
+     * page's filter writes. The user's rule: the extensions-page filters
+     * apply to the EXTENSIONS PAGE ONLY — every other screen (this picker
+     * included) lists the app's trusted sources independently. The aniyomi
+     * side ([trustedSources]) was never NSFW-filtered either, so removing the
+     * gate also makes the two picker lists apply ONE consistent rule: all
+     * trusted sources, always.
+     *
+     * (The per-source NSFW flag itself stays untouched — an extension marked
+     * NSFW still shows its flag data wherever a surface chooses to render it;
+     * only the cross-page FILTERING is gone.)
      */
     val csSources: StateFlow<List<CsProviderSource>> = cloudstreamRepository.sources
-        .map { sources ->
-            when (NsfwFilterMode.fromRaw(appPreferences.extensionsNsfwMode)) {
-                NsfwFilterMode.OFF -> sources.filterNot { it.isNsfw }
-                NsfwFilterMode.ON -> sources
-                NsfwFilterMode.ONLY -> sources.filter { it.isNsfw }
-            }
-        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
