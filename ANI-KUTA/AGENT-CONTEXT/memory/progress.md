@@ -1923,4 +1923,4 @@ The user's report: v1.1.57 CONFIRMED GOOD ("almost everything is working properl
 
 **The testing:** SA1 (S1-S12) all PASS (the doc-rot + details-on-top findings applied); SA2 (T1-T14) 11 PASS — F1 the `_trackSheet` typo (a hard compile break), F2 the invisible Save-failure error, F3 the scroll off-by-one — all three lead-verified then fixed in 177d685f. Not applied (documented): the transient single-base label, the delete-failure tracking-off (deliberate), the draft re-seed edge.
 
-**Release:** v1.1.59/10159 per the standing D-565 loop — the cut follows in this session.
+**Release:** v1.1.59/10159 per the standing D-565 loop — `release/1.1.59` cut from the ledger head d8df651a; the bump 765a5564 rides the branch (D-430); the annotated tag v1.1.59 carries the honest seven-stream body; Release APK run **36463060067 GREEN** → **LIVE** (published 2026-09-28T18:12:25Z, stable latest, arm64-v8a debug APK **60.5 MB** + SHA256SUMS.txt — verified via the API: tag, assets, body). The in-app updater picks it up; the NEXT debug slot is v1.1.60/10160.
