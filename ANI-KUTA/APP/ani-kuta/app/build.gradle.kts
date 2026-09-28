@@ -90,6 +90,39 @@ android {
             // cross-installable. The release build keeps the bare id.
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            // ROUND 99 (D-674) — THE NON-DEBUGGABLE DEBUG LINE. Through
+            // v1.1.55 the debug line carried AGP's default
+            // debuggable=true, which costs real runtime performance:
+            // ART runs debuggable apps with the JIT only, disables most
+            // JIT optimizations, and — decisively — background dexopt
+            // NEVER AOT-compiles a debuggable app. On a 56-module Compose
+            // app that is the v1.1.55 device report's "pressing the
+            // buttons was taking some time to register": every first-tap
+            // navigation JIT-compiles a whole screen's composition code.
+            // The industry-standard test-channel build is NON-debuggable:
+            // same signing, same identity, near-release runtime, and it
+            // accrues AOT code paths over the first dexopt cycles.
+            // WHAT STAYS (source-set + identity keyed, not debuggability):
+            // the .debug applicationId + -debug version suffix + lime icon
+            // + "ANI-KUTA Debug" label + the debug keystore; the debug
+            // bubble and its OkHttp/SqlDriver stat wrappers (src/debug
+            // source set); the DEV-REPO updater (re-keyed in
+            // AppUpdateModule on packageName.endsWith(".debug"));
+            // verbose DEBUG-level logs + the Developer-tools settings
+            // section (re-keyed on IS_DEBUG_LINE below).
+            // WHAT IT GIVES UP: attaching a debugger, the layout
+            // inspector, and `adb shell run-as` — none used by this
+            // workflow (the run-as emulator injection path was already
+            // retired with D-445's arm64-only line). Revert = this flag
+            // + the three re-keys (Logger level, dev-tools section,
+            // updater repo).
+            isDebuggable = false
+            // The stable "this is the dev/test line" marker — BuildConfig.DEBUG
+            // is derived from the debuggable flag and would flip to false
+            // above; the two code sites that key on it (AnikutaApp's Logger
+            // level, DebugSettingsScreen's Developer-tools section) re-key
+            // on THIS field instead.
+            buildConfigField("boolean", "IS_DEBUG_LINE", "true")
         }
         release {
             // D-430: only signed when the keystore properties exist (see the
@@ -98,6 +131,10 @@ android {
             if (signingConfigs.findByName("anikutaRelease") != null) {
                 signingConfig = signingConfigs.getByName("anikutaRelease")
             }
+            // ROUND 99 (D-674): the IS_DEBUG_LINE field must exist in BOTH
+            // variants (main-source code reads it; the release value is the
+            // old BuildConfig.DEBUG==false behavior).
+            buildConfigField("boolean", "IS_DEBUG_LINE", "false")
         }
     }
 

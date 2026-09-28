@@ -73,6 +73,9 @@ import coil3.compose.AsyncImage
 import coil3.compose.SubcomposeAsyncImage
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+// ROUND 99 (D-676/D-678): the shared list-icon request policy lives in the
+// parent package's ExtensionListChrome (same Gradle module).
+import com.confused.anikuta.feature.extensionssettings.buildListIconRequest
 import kotlinx.coroutines.delay
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -234,7 +237,19 @@ internal fun ProportionBar(
     }
 }
 
-/** The target's icon — Aniyomi Drawable, CloudStream URL, or the letter tile. */
+/**
+ * The target's icon — Aniyomi Drawable, CloudStream URL, or the letter tile.
+ *
+ * ROUND 99 (D-678): SubcomposeAsyncImage RETIRED from the URL branch — the
+ * D-673 treatment (CsPluginIcon, round 98) extended to the testing list: this
+ * renders once per visible ROW of the targets list (a scroll surface with the
+ * full 90-plugin set), and SubcomposeAsyncImage ran a real subcomposition per
+ * icon. The plain AsyncImage + an onState-tracked tile behind it delivers the
+ * identical visuals (tile while loading, tile on error) with zero
+ * subcomposition, and the request rides [buildListIconRequest] — the D-676
+ * list-icon policy (no crossfade, no cache-header expiry: raw.githubusercontent's
+ * max-age=300 used to refetch every icon >5min old on its next view).
+ */
 @Composable
 internal fun TargetIconView(target: TestableTarget, size: Dp = 40.dp) {
     when {
@@ -243,13 +258,25 @@ internal fun TargetIconView(target: TestableTarget, size: Dp = 40.dp) {
             contentDescription = target.name,
             modifier = Modifier.size(size).clip(RoundedCornerShape(8.dp)),
         )
-        target.iconUrl != null -> SubcomposeAsyncImage(
-            model = target.iconUrl,
-            contentDescription = target.name,
-            modifier = Modifier.size(size).clip(RoundedCornerShape(8.dp)),
-            loading = { TargetLetterTile(target.name, size) },
-            error = { TargetLetterTile(target.name, size) },
-        )
+        target.iconUrl != null -> {
+            var loadSucceeded by remember(target.iconUrl) { mutableStateOf(false) }
+            Box(modifier = Modifier.size(size)) {
+                // The tile stays composed until Coil reports Success — it is
+                // the loading AND the error slot in one (the CsPluginIcon
+                // pattern from ExtensionListChrome).
+                if (!loadSucceeded) {
+                    TargetLetterTile(target.name, size)
+                }
+                AsyncImage(
+                    model = buildListIconRequest(target.iconUrl),
+                    contentDescription = target.name,
+                    modifier = Modifier.size(size).clip(RoundedCornerShape(8.dp)),
+                    onState = { state ->
+                        loadSucceeded = state is coil3.compose.AsyncImagePainter.State.Success
+                    },
+                )
+            }
+        }
         else -> TargetLetterTile(target.name, size)
     }
 }

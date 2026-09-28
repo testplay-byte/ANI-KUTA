@@ -509,6 +509,23 @@ internal fun ActionIconButton(
  * placeholder behind it delivers the identical visuals — tile while loading,
  * tile on error — with ZERO subcomposition and a single recomposition per
  * icon when the load resolves.
+ *
+ * ROUND 99 (D-676) — THE LIST-ICON REQUEST POLICY. Two per-request
+ * overrides on the shared [buildListIconRequest]:
+ *  • `crossfade(false)` — the app-wide ImageLoader enables crossfade, which
+ *    is right for hero covers but runs a fresh ~100ms fade animation for
+ *    EVERY list icon that resolves during a scroll (a storm of overlapping
+ *    painter animations at fling speed).
+ *  • `respectCacheHeaders(false)` — the icon hosts (raw.githubusercontent
+ *    & friends) serve `cache-control: max-age=300`, so with the default
+ *    header-respecting policy EVERY icon older than 5 minutes REFETCHES
+ *    from the network on its next view: scrolling a long catalog minutes
+ *    after the last visit re-downloads + re-decodes + re-animates every
+ *    icon it crosses — the v1.1.55 report's "as soon as I reach the very
+ *    last thing it starts to jitter". Plugin/extension icons are immutable
+ *    per-URL static assets; the 500 MB disk cache may serve them
+ *    indefinitely. (Memory-cache hits were never affected — this targets
+ *    the disk-expiry refetch path only.)
  */
 @Composable
 internal fun CsPluginIcon(iconUrl: String?, name: String, size: Dp = 40.dp) {
@@ -522,7 +539,7 @@ internal fun CsPluginIcon(iconUrl: String?, name: String, size: Dp = 40.dp) {
                 ExtensionIconPlaceholder(name.removeSuffix("Provider"), size)
             }
             AsyncImage(
-                model = resolved,
+                model = buildListIconRequest(resolved),
                 contentDescription = "$name icon",
                 modifier = Modifier.size(size).clip(RoundedCornerShape(8.dp)),
                 onState = { state ->
@@ -532,6 +549,29 @@ internal fun CsPluginIcon(iconUrl: String?, name: String, size: Dp = 40.dp) {
         }
     } else {
         ExtensionIconPlaceholder(name.removeSuffix("Provider"), size)
+    }
+}
+
+/**
+ * ROUND 99 (D-676): the shared ImageRequest for LIST ICONS — the immutable-
+ * asset policy (no crossfade, cache headers ignored so the disk cache never
+ * expires a static icon). Every scroll-surface icon site builds its request
+ * through here so the policy lives in ONE place; one-shot hero/detail images
+ * keep the loader defaults (crossfade on).
+ */
+@Composable
+internal fun buildListIconRequest(url: String): coil3.request.ImageRequest {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    return remember(url) {
+        coil3.request.ImageRequest.Builder(context)
+            .data(url)
+            // No per-icon fade animation during scrolls (see the header).
+            .crossfade(false)
+            // Immutable static assets — serve from the disk cache without
+            // header revalidation (raw.githubusercontent's max-age=300 used
+            // to expire every icon >5min old into a refetch storm).
+            .respectCacheHeaders(false)
+            .build()
     }
 }
 

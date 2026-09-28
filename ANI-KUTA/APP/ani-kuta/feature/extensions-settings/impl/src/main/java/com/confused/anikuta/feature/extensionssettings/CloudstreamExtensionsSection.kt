@@ -307,7 +307,21 @@ internal fun CloudstreamExtensionsSection(
                 contentType = { "csInstalledRow" },
             ) { ext ->
                 CsInstalledRow(
-                    modifier = Modifier.animateItem(),
+                    // ROUND 99 (D-675): PLACEMENT-ONLY animateItem. The default
+                    // spring fadeInSpec fires for EVERY row that scrolls into
+                    // view (the animateItem appearance contract — no
+                    // distinction between "new data" and "scrolled into
+                    // range"), so a long list runs overlapping fade-in
+                    // animations for the whole duration of every scroll —
+                    // measurable frame cost with ~90 CS rows + a long catalog
+                    // below (the v1.1.55 report: reaching the last sections
+                    // "starts to jitter way too much"). The appearance and
+                    // disappearance fades are null now: every enter/exit
+                    // visual on these rows is ALREADY owned by the D-580/D-645
+                    // exit choreography (its own graphicsLayer fade), and the
+                    // gap-closing glide — the D-580 requirement — is the
+                    // PLACEMENT spec, which keeps its default spring.
+                    modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                     extension = ext,
                     installStep = installStates[ext.internalName],
                     // ROUND 96 (D-660): the testing-verdict dot (null while
@@ -355,7 +369,7 @@ internal fun CloudstreamExtensionsSection(
                     contentType = { "csErroredRow" },
                 ) { ext ->
                     CsErroredRow(
-                        modifier = Modifier.animateItem(),
+                        modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                         extension = ext,
                         retrying = ext.internalName in retryingNames,
                         dragSessionActive = dragSession.active,
@@ -381,7 +395,7 @@ internal fun CloudstreamExtensionsSection(
                     contentType = { "csUntrustedRow" },
                 ) { ext ->
                     CsUntrustedRow(
-                        modifier = Modifier.animateItem(),
+                        modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                         extension = ext,
                         dragSessionActive = dragSession.active,
                         selectionMode = selectionMode,
@@ -418,7 +432,7 @@ internal fun CloudstreamExtensionsSection(
                     contentType = { "csAvailableRow" },
                 ) { ext ->
                     CsAvailableRow(
-                        modifier = Modifier.animateItem(),
+                        modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                         extension = ext,
                         installStep = installStates[ext.plugin.internalName],
                         dragSessionActive = dragSession.active,

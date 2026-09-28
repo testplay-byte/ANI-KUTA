@@ -54,14 +54,19 @@ val appUpdateModule = module {
     // provides `get()`; the module-level receiver does not) so the Context
     // resolves against startKoin's androidContext at first use — the standard
     // Koin pattern, no eager module-load-time resolution.
+    // ROUND 99 (D-674): the check is the APPLICATION ID SUFFIX, not the
+    // runtime FLAG_DEBUGGABLE — the debug line ships NON-DEBUGGABLE now (the
+    // performance fix: ART never AOT-compiles debuggable apps, which was the
+    // v1.1.55 report's input latency), so the runtime flag reads false on the
+    // dev line and would have silently pointed the in-app updater at the
+    // PUBLISHED repo. The `.debug` suffix (D-429) is the debug line's stable
+    // identity: every debug build carries it, no release build ever does.
     single<UpdateSource>(named("github")) {
         val appContext = get<android.content.Context>()
         val isDebugBuild = try {
-            appContext.packageManager
-                .getApplicationInfo(appContext.packageName, 0)
-                .flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+            appContext.packageName.endsWith(".debug")
         } catch (_: Exception) {
-            // Unreadable application info (should never happen) — fall back to
+            // Unreadable package name (should never happen) — fall back to
             // the DEV repo: the safe default is the repo we control.
             true
         }

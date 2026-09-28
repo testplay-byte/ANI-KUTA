@@ -1200,18 +1200,63 @@ private fun WheelSourceIcon(
                 .size(size)
                 .clip(RoundedCornerShape(6.dp)),
         )
-        icon.csIconUrl != null -> SubcomposeAsyncImage(
-            model = icon.csIconUrl
+        // ROUND 99 (D-678): SubcomposeAsyncImage RETIRED from the wheel —
+        // the D-673 treatment (CsPluginIcon, round 98) extended to this
+        // scroll surface. The drum wheel keeps up to ~10 rows composed and
+        // re-composes them as it spins; SubcomposeAsyncImage ran a real
+        // subcomposition per icon per composition, and the app-wide
+        // crossfade + header-respecting cache (raw.githubusercontent's
+        // max-age=300 → every icon >5min old refetches on its next view)
+        // added a fade animation + network decode to each spin. The plain
+        // AsyncImage + an onState-tracked tile behind it delivers the
+        // IDENTICAL visuals (the tile composable IS the loading AND the
+        // error slot — the same fallback lambdas it used before) with zero
+        // subcomposition, no crossfade, and no cache-header expiry. (The
+        // one-shot LinkedContentCard cover keeps its SubcomposeAsyncImage
+        // — not a scroll surface, and a round-92-approved one-shot.)
+        icon.csIconUrl != null -> {
+            val resolvedUrl = icon.csIconUrl
                 .replace("%size%", "64")
-                .replace("%exact_size%", "64"),
-            contentDescription = "$name icon",
-            modifier = Modifier
-                .size(size)
-                .clip(RoundedCornerShape(6.dp)),
-            loading = { WheelIconFallback(name, highlighted, size) },
-            error = { WheelIconFallback(name, highlighted, size) },
-        )
+                .replace("%exact_size%", "64")
+            var loadSucceeded by remember(resolvedUrl) { mutableStateOf(false) }
+            Box(modifier = Modifier.size(size)) {
+                if (!loadSucceeded) {
+                    WheelIconFallback(name, highlighted, size)
+                }
+                AsyncImage(
+                    model = rememberWheelIconRequest(resolvedUrl),
+                    contentDescription = "$name icon",
+                    modifier = Modifier
+                        .size(size)
+                        .clip(RoundedCornerShape(6.dp)),
+                    onState = { state ->
+                        loadSucceeded = state is coil3.compose.AsyncImagePainter.State.Success
+                    },
+                )
+            }
+        }
         else -> WheelIconFallback(name, highlighted, size)
+    }
+}
+
+/**
+ * ROUND 99 (D-678): the wheel-icon request — the D-676 list-icon policy,
+ * local to this module (the shared [buildListIconRequest] helper lives in
+ * the extensions-settings module and is module-internal). No crossfade (a
+ * storm of overlapping painter animations while the wheel spins) and no
+ * cache-header revalidation (the icon hosts' max-age=300 expired every
+ * static icon into a network refetch on its next view) — the immutable-
+ * asset policy for scroll-surface icons.
+ */
+@Composable
+private fun rememberWheelIconRequest(url: String): coil3.request.ImageRequest {
+    val context = LocalContext.current
+    return remember(url) {
+        coil3.request.ImageRequest.Builder(context)
+            .data(url)
+            .crossfade(false)
+            .respectCacheHeaders(false)
+            .build()
     }
 }
 

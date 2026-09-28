@@ -854,8 +854,17 @@ fun ExtensionsSettingsScreen(
                         // D-580 (round 84): animateItem gives every row the
                         // add/remove/placement motion — after a delete's exit
                         // choreography the rows below GLIDE up (Downloads parity).
+                        // ROUND 99 (D-675): PLACEMENT-ONLY — fadeInSpec/fadeOutSpec
+                        // are null (the default spring fadeIn fires for EVERY row
+                        // that scrolls into view = overlapping animations for the
+                        // whole duration of every scroll; the enter/exit visuals
+                        // are owned by the D-580/D-645 exit choreography, the
+                        // gap-closing glide is the PLACEMENT spec, which keeps
+                        // its default). The aniyomi tab's twin of the CS rows'
+                        // change — see CloudstreamExtensionsSection for the full
+                        // rationale.
                         InstalledExtensionRow(
-                                        modifier = Modifier.animateItem(),
+                                        modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                                         extension = ext,
                                         // ROUND 93 (D-641): long-press lives on the
                                         // list's drag handler now — the row is
@@ -909,7 +918,7 @@ fun ExtensionsSettingsScreen(
                             contentType = { "erroredRow" },
                         ) { ext ->
                             ErroredExtensionRow(
-                                modifier = Modifier.animateItem(),
+                                modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                                 extension = ext,
                                 dragSessionActive = dragSession.active,
                                 selectionMode = selectionMode,
@@ -935,7 +944,7 @@ fun ExtensionsSettingsScreen(
                             contentType = { "untrustedRow" },
                         ) { ext ->
                             UntrustedExtensionRow(
-                                modifier = Modifier.animateItem(),
+                                modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                                 extension = ext,
                                 dragSessionActive = dragSession.active,
                                 selectionMode = selectionMode,
@@ -973,7 +982,7 @@ fun ExtensionsSettingsScreen(
                         ) { ext ->
                             val installStep = installStates[ext.pkgName]
                             AvailableExtensionRow(
-                                modifier = Modifier.animateItem(),
+                                modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                                 extension = ext,
                                 installStep = installStep,
                                 dragSessionActive = dragSession.active,
@@ -2067,11 +2076,35 @@ private fun AvailableExtensionRow(
                 SelectionCheckBubble(selected = selected)
                 Spacer(Modifier.width(9.dp))
             }
-            AsyncImage(
-                model = extension.iconUrl,
-                contentDescription = extension.name,
-                modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
-            )
+            // ROUND 99 (D-676): the never-blank tile + the list-icon request
+            // policy — this row was the LAST bare AsyncImage on an
+            // extensions scroll surface: a network icon loaded with NO
+            // fallback (a 404 / offline rendered a blank box — the Task-61
+            // doctrine fixed this for CS icons in round 98 but this aniyomi
+            // site kept the bare call) and with the app-wide crossfade +
+            // header-respecting cache (raw.githubusercontent's max-age=300
+            // refetches every icon older than 5 minutes on its next view —
+            // the disk-expiry refetch storm behind "reaching the last
+            // sections jitters"). Now the same treatment as CsPluginIcon:
+            // the colorful letter tile stays composed until Coil reports
+            // Success, and the request rides [buildListIconRequest]
+            // (crossfade OFF, respectCacheHeaders OFF — immutable assets).
+            var iconLoaded by remember(extension.iconUrl) { mutableStateOf(false) }
+            Box(modifier = Modifier.size(40.dp)) {
+                if (!iconLoaded) {
+                    ExtensionIconPlaceholder(extension.name, 40.dp)
+                }
+                if (extension.iconUrl != null) {
+                    AsyncImage(
+                        model = buildListIconRequest(extension.iconUrl),
+                        contentDescription = extension.name,
+                        modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
+                        onState = { state ->
+                            iconLoaded = state is coil3.compose.AsyncImagePainter.State.Success
+                        },
+                    )
+                }
+            }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

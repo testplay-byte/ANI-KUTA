@@ -99,8 +99,12 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
         // the console logs only"). The Logger itself stays (logcat-only now);
         // min level still bounds the overhead: DEBUG lines only in debug
         // builds, INFO+ in release (decision D-362).
+        // ROUND 99 (D-674): the gate is IS_DEBUG_LINE, not BuildConfig.DEBUG
+        // — the debug build is NON-DEBUGGABLE now (the perf fix), which
+        // flips the derived BuildConfig.DEBUG; the verbose DEBUG-level logs
+        // stay a property of the dev/test LINE, not of debuggability.
         Logger.setEnabled(true)
-        Logger.setMinLevel(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.INFO)
+        Logger.setMinLevel(if (BuildConfig.IS_DEBUG_LINE) LogLevel.DEBUG else LogLevel.INFO)
 
         // ── Extension compat setup (BEFORE Koin, BEFORE any extension loads) ──
         // Extensions use Injekt (a service locator) to resolve NetworkHelper,

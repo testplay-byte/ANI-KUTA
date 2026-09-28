@@ -452,14 +452,36 @@ class CloudstreamPluginManager(
             .map { (plugin, repo) -> CloudstreamExtension.Available(plugin, repo.first, repo.second) }
 
         // Update pills + repo kill-switch state on installed entries.
+        // ROUND 99 (D-677): INSTANCE STABILITY — the aniyomi side got this
+        // guard in round 98 (ExtensionManager.updateInstalledStatuses,
+        // D-673) but this CS twin kept the unconditional .copy(): every
+        // rebuild (each repo collector emission — including the initial
+        // one at app start — every update check, every repo add/delete/
+        // hide) minted ~90 FRESH Installed instances and re-emitted the
+        // list, which defeats Compose's skippability and recomposes every
+        // visible extensions row for zero visual change. Rows whose flags
+        // did not move keep their instances now, and the flow only
+        // re-emits when something actually changed.
+        var installedChanged = false
         val installedNow = _installed.value.map { current ->
             val online = recordOnline[current.internalName]?.first
-            current.copy(
-                availableUpdateVersion = online?.takeIf { isUpdate(it.version, current.version) }?.version,
-                isDisabledByRepo = online?.status == PROVIDER_STATUS_DOWN,
-            )
+            val updateVersion = online?.takeIf { isUpdate(it.version, current.version) }?.version
+            val disabledByRepo = online?.status == PROVIDER_STATUS_DOWN
+            if (current.availableUpdateVersion == updateVersion &&
+                current.isDisabledByRepo == disabledByRepo
+            ) {
+                current
+            } else {
+                installedChanged = true
+                current.copy(
+                    availableUpdateVersion = updateVersion,
+                    isDisabledByRepo = disabledByRepo,
+                )
+            }
         }
-        _installed.value = installedNow
+        if (installedChanged) {
+            _installed.value = installedNow
+        }
     }
 
     /** loadAll + rebuildLists — the ONE coherent refresh every mutation ends with. */

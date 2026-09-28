@@ -26,6 +26,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -53,9 +55,11 @@ import org.koin.compose.koinInject
  *   data only when asked for). The SAME flags gate the CloudStream resolve
  *   lists AND the aniyomi entry sheet (ResolverSheet) + in-player QualitySheet.
  * - Developer tools: the debug-bubble visibility toggle. The section is gated
- *   on BuildConfig.DEBUG so release shows no dangling empty header; the
- *   toggle call sits in a plain Column with no extra chrome so even the row
- *   itself renders bare in release.
+ *   on the IS_DEBUG_LINE build flag (ROUND 99, D-674 — the old
+ *   BuildConfig.DEBUG gate flipped when the debug line went
+ *   non-debuggable for performance) so release shows no dangling empty
+ *   header; the toggle call sits in a plain Column with no extra chrome so
+ *   even the row itself renders bare in release.
  */
 @Composable
 fun DebugSettingsScreen(
@@ -75,8 +79,17 @@ fun DebugSettingsScreen(
         .collectAsStateWithLifecycle(initialValue = debugPreferences.resolveCopyButton)
 
     val lazyListState = rememberLazyListState()
-    val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
-        lazyListState.firstVisibleItemIndex > 0
+    // ROUND 99 (D-673 completion): derivedStateOf — this screen was missed in
+    // the round-98 scroll pass; the raw two-state read invalidated the whole
+    // screen body on EVERY scroll frame (each pixel of scroll offset
+    // recomposed everything). The derived wrapper only flips the boolean
+    // when the header actually collapses or expands.
+    val collapsed by remember {
+        derivedStateOf {
+            lazyListState.firstVisibleItemScrollOffset > 20 ||
+                lazyListState.firstVisibleItemIndex > 0
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -179,7 +192,9 @@ fun DebugSettingsScreen(
                     // DebugBubbleToggle renders the real toggle in debug builds
                     // and NOTHING in release (dual source sets) — plain Column,
                     // no Surface chrome, so release shows nothing for this row.
-                    if (com.confused.anikuta.BuildConfig.DEBUG) {
+                    // ROUND 99 (D-674): IS_DEBUG_LINE, not BuildConfig.DEBUG
+                    // (which flipped false with the non-debuggable perf fix).
+                    if (com.confused.anikuta.BuildConfig.IS_DEBUG_LINE) {
                         item {
                             SettingsSectionLabel("Developer tools")
                             Column {
