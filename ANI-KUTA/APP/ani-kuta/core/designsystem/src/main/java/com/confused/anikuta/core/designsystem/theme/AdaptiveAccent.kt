@@ -56,10 +56,16 @@ fun rememberAdaptiveColorScheme(accentArgb: Long?): androidx.compose.ui.graphics
     val accent = accentArgb?.takeIf { it != 0L }?.let { Color(it.toInt()) } ?: return null
     val accentColors = AccentColors.from(accent)
     val isDark = isSystemInDarkTheme()
-    // Recomputed only when the accent actually changes (the extraction lands
-    // once per content; the remember keys it).
-    return androidx.compose.runtime.remember(accent, isDark) {
-        MaterialTheme.colorScheme.copy(
+    // P7-G2 fix (sub-agent-verified): the base scheme is read in the
+    // COMPOSABLE body (reading MaterialTheme.colorScheme inside remember's
+    // calculation lambda is a hard compile error — the calculation parameter
+    // is @DisallowComposableCalls and the colorScheme getter is @Composable).
+    // The remember keys on (accent, isDark) — a dark-mode flip re-reads the
+    // then-current base, so the cached scheme never goes stale against the
+    // app theme.
+    val base = MaterialTheme.colorScheme
+    return androidx.compose.runtime.remember(accent, isDark, base) {
+        base.copy(
             primary = if (isDark) accentColors.darkPrimary else accentColors.lightPrimary,
             onPrimary = if (isDark) accentColors.darkOnPrimary else accentColors.lightOnPrimary,
             primaryContainer = if (isDark) accentColors.darkPrimaryContainer else accentColors.lightPrimaryContainer,

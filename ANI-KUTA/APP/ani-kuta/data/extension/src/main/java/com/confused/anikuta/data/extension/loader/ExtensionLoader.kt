@@ -300,10 +300,14 @@ class ExtensionLoader(
             parts[marker + 1].takeIf(::isPlausibleLanguageTag)?.let { return it }
         }
         // Convention 2: the first segment carries "aniyomi-<lang>" / "animiru-<lang>".
+        // P7-G1 fix (sub-agent-verified): the match is case-insensitive but the
+        // old removePrefix was not — "Aniyomi-EN.x" silently failed. The strip
+        // now uses the matched prefix's LENGTH + lowercases the result so the
+        // parsed tag always matches the catalog's casing.
         val first = parts.firstOrNull() ?: return null
         for (prefix in listOf("aniyomi-", "animiru-")) {
-            if (first.startsWith(prefix, ignoreCase = true)) {
-                first.removePrefix(prefix).takeIf(::isPlausibleLanguageTag)?.let { return it }
+            if (first.length > prefix.length && first.startsWith(prefix, ignoreCase = true)) {
+                first.substring(prefix.length).lowercase().takeIf(::isPlausibleLanguageTag)?.let { return it }
             }
         }
         return null

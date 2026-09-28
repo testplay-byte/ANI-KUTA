@@ -175,9 +175,15 @@ internal fun CloudstreamExtensionsSection(
     // filters never get applied to the untrusted ones". When a configured
     // repo's plugins.json catalogs the plugin under the SAME internalName,
     // its language/nsfw (the exact data the Available rows render) is
-    // authoritative; isNsfw ORs (the conservative direction for a filter). ──
+    // authoritative; isNsfw ORs (the conservative direction for a filter).
+    // P7-G1 fix (sub-agent-verified): distinctBy FIRST — the CS available
+    // list can carry the same internalName from multiple repos, and a bare
+    // associateBy kept the LAST arbitrarily; first-wins is deterministic by
+    // repo order (the aniyomi tab's catalog is already deduped upstream). ──
     val csCatalogByName = remember(available) {
-        available.associateBy { it.plugin.internalName }
+        available
+            .distinctBy { it.plugin.internalName }
+            .associateBy { it.plugin.internalName }
     }
     val enrichedCsUntrusted = remember(untrusted, csCatalogByName) {
         untrusted.map { ext ->

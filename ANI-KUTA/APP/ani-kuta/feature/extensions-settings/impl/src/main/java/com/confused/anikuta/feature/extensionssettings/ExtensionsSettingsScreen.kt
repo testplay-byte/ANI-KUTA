@@ -500,13 +500,18 @@ fun ExtensionsSettingsScreen(
     // so the dropdown must cover both ecosystems' languages).
     val allLanguages = remember(
         installedExtensions, enrichedUntrusted, erroredExtensions, availableExtensions,
-        csInstalled, csErrored, csAvailable,
+        csInstalled, csUntrusted, csErrored, csAvailable,
     ) {
         (installedExtensions.mapNotNull { it.lang } +
             enrichedUntrusted.mapNotNull { it.lang } +
             erroredExtensions.mapNotNull { it.lang } +
             availableExtensions.mapNotNull { it.lang } +
+            // P7-G1 fix (sub-agent-verified): CS UNTRUSTED languages were
+            // missing from the dropdown — the aniyomi tab's untrusted rows
+            // were included but the CS twin wasn't (a sideloaded untrusted
+            // .cs3 with a language couldn't be filtered to).
             csInstalled.mapNotNull { it.language } +
+            csUntrusted.mapNotNull { it.language } +
             csErrored.mapNotNull { it.language } +
             csAvailable.mapNotNull { it.plugin.language })
             .distinct()
@@ -893,9 +898,15 @@ fun ExtensionsSettingsScreen(
                     // user's exact spec: "it should say No results. Try
                     // removing the filters"). Skipped while the repo update
                     // check is still running (the emptiness may be transient).
-                    val aniyomiAllFilteredEmpty = filteredInstalled.isEmpty() &&
-                        filteredErrored.isEmpty() &&
-                        filteredUntrusted.isEmpty() &&
+                    // P7-G1 fix (sub-agent-verified): the emptiness check uses
+                    // the GHOSTED lists — a confirmed-removal ghost bridging a
+                    // row's exit must keep the else-branch alive so the ghost
+                    // renders, plays its exit, and fires onExitDone (a filtered-
+                    // only check stranded the ghost as a zombie that re-appeared
+                    // on the next section render).
+                    val aniyomiAllFilteredEmpty = ghostedInstalled.isEmpty() &&
+                        ghostedErrored.isEmpty() &&
+                        ghostedUntrusted.isEmpty() &&
                         filteredAvailable.isEmpty()
                     if (filtersActive && aniyomiAllFilteredEmpty && !isCheckingUpdates) {
                         item(key = "filtered-empty", contentType = "filteredEmpty") {

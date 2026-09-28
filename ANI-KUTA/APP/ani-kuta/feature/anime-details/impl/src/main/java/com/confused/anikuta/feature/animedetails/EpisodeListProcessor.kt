@@ -31,6 +31,11 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
  * @param audioFilter "BOTH" / "SUB" / "DUB".
  * @param sortMode "EPISODE_NUMBER" / "UPLOAD_DATE" / "ALPHABETICAL".
  * @param sortDescending true = descending.
+ * @param watchIdentityNumberOf P7-G1 fix: the episode's WATCH-IDENTITY number
+ *   (the flavor ORDINAL for CS sub/dub-tagged lists — the number the player
+ *   saves progress under; null = the raw episode number, the plain aniyomi
+ *   behavior). The watched filter keys progress through this resolver so it
+ *   matches what the player actually wrote.
  * @return The filtered + sorted episode list.
  */
 fun applyEpisodeListPreferences(
@@ -44,6 +49,7 @@ fun applyEpisodeListPreferences(
     audioFilter: String,
     sortMode: String,
     sortDescending: Boolean,
+    watchIdentityNumberOf: (SEpisode) -> Int? = { null },
 ): List<SEpisode> {
     // ── 1. Filter ──
     val filtered = episodes.filter { episode ->
@@ -61,7 +67,11 @@ fun applyEpisodeListPreferences(
         }
 
         // Watched filter.
-        val watchKey = if (mainId != null) "$mainId|${String.format("%05d", epNum)}" else null
+        // P7-G1 fix: the key uses the IDENTITY number (the flavor ordinal for
+        // tagged CS lists — what the player saves under), falling back to the
+        // raw number.
+        val identityNum = watchIdentityNumberOf(episode) ?: epNum
+        val watchKey = if (mainId != null) "$mainId|${String.format("%05d", identityNum)}" else null
         val progress = watchKey?.let { watchProgress[it] }
         val isWatched = progress?.isWatched ?: false
         val passesWatchedFilter = when (watchedFilter) {

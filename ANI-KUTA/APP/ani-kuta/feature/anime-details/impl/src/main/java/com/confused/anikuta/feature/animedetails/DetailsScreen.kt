@@ -1073,6 +1073,21 @@ fun DetailsScreen(
                         // EpisodesSection call so the group switcher data is available
                         // for the header (the switcher is inline in the header now).
                         val rawEpisodes = (episodeState as? EpisodeState.Loaded)?.episodes
+                        // P7-G1 fix (sub-agent-verified, B5-secondary): the RAW-list
+                        // ordinals are computed BEFORE the processor so the watched
+                        // FILTER can key progress the SAME way the player saves it
+                        // (the flavor ORDINAL for tagged CS lists, raw number
+                        // otherwise) — the old filter keyed the raw number, so on a
+                        // sub/dub-tagged list the watched filter never matched DUB
+                        // rows (their progress lives under the ordinal). Reused
+                        // below for the row rendering (the same map, one source of
+                        // truth).
+                        val rawSubDubOrdinals = if (
+                            viewModel.isLinkedSourceCloudStream() &&
+                            rawEpisodes.orEmpty().any { subDubEpisodeTag(it) != null }
+                        ) {
+                            subDubFlavorOrdinals(rawEpisodes.orEmpty())
+                        } else emptyMap()
                         val processedEpisodes = if (rawEpisodes != null) {
                             applyEpisodeListPreferences(
                                 episodes = rawEpisodes,
@@ -1085,6 +1100,9 @@ fun DetailsScreen(
                                 audioFilter = audioFilter,
                                 sortMode = sortMode,
                                 sortDescending = sortDescending,
+                                // The ordinal-aware watch identity (null = the raw
+                                // number — the plain aniyomi behavior).
+                                watchIdentityNumberOf = { ep -> rawSubDubOrdinals[ep.url] },
                             )
                         } else null
                         // D-307/D-308: season detection — when the episode names carry
@@ -1169,7 +1187,19 @@ fun DetailsScreen(
                         // untouched, so clicks, downloads and watched-state keys
                         // are byte-identical to the pre-display rows.
                         val subDubOrdinals = if (subDubTagged) {
-                            subDubFlavorOrdinals(episodesToShow.orEmpty())
+                            // P7-G1 fix (sub-agent-verified, pre-existing round-16/17
+                            // bug): the ordinals are the RAW-list map computed above
+                            // — the exact input the CsWatchKey serialization + the
+                            // ViewModel's csEpisodeIdentities use. The old
+                            // `subDubFlavorOrdinals(episodesToShow)` renumbered over
+                            // the FILTERED/sliced view (watched/downloaded/audio
+                            // filters, a selected season, a number group), so any
+                            // active view filter made the row's progress key
+                            // (mainId|%05d-ordinal) point at the WRONG episode —
+                            // watched status displayed wrong + a toggle overwrote
+                            // another episode's progress (the user's "watched and
+                            // unwatched details not shown properly" symptom class).
+                            rawSubDubOrdinals
                         } else emptyMap()
                         val subDubDisplayEpisodes = if (subDubTagged) {
                             displayEpisodes.orEmpty().map { ep ->
@@ -1520,7 +1550,7 @@ fun DetailsScreen(
             )
         }
     }
-    } // end MaterialTheme(colorScheme = effectiveColorScheme) { ... }
+    } // end MaterialTheme(colorScheme = adaptiveColorScheme ?: MaterialTheme.colorScheme) { ... }
 
     // ── Manual search sheet (source selection) ──
     // ROUND 101 (WS-D): accent-wrapped — the link-sources sheet now inherits

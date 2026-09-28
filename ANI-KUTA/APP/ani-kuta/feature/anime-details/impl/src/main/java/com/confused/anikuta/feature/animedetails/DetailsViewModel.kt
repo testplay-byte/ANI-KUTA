@@ -1631,6 +1631,14 @@ class DetailsViewModel(
         // D-313: generation guard — a metadata refresh of anime A landing
         // after anime B opened must not remerge A's bases over B's screen.
         val metaGen = loadGeneration
+        // P7-G2 fix (sub-agent-verified): the mainId is captured at AXIS START,
+        // before the (multi-second) fetch — the old code read currentMainId
+        // AFTER the fetch, so a screen switch mid-refresh wrote anime A's
+        // fresh data into anime B's content_details row (cross-content row
+        // corruption). Capturing up front pins the persist to the CONTENT the
+        // refresh was FOR (still correct to persist when stale — the row is
+        // content-keyed, only the SCREEN is generation-keyed).
+        val persistMainId = currentMainId
         try {
             val fresh = anilistApi.fetchAnimeDetails(anilistId)
                 if (metaGen == loadGeneration) {
@@ -1650,7 +1658,7 @@ class DetailsViewModel(
                 // silent no-op — refreshed data was lost); (b) build the update from
                 // the EXISTING row so fields the fresh fetch doesn't carry (e.g.
                 // dataCoverUrl when AniList omits it) are preserved instead of nulled.
-                val mainId = currentMainId
+                val mainId = persistMainId
                 if (mainId != null) {
                     val existing = contentRepository.getContentDetails(mainId)
                     if (existing == null) {
@@ -1700,6 +1708,10 @@ class DetailsViewModel(
     ) {
         // D-313: generation guard (same as the AniList axis above).
         val metaGen = loadGeneration
+        // P7-G2 fix (sub-agent-verified): capture the persist target at AXIS
+        // START — see refreshAniListAxis (the post-fetch currentMainId read
+        // could cross-content-corrupt the row on a mid-refresh screen switch).
+        val persistMainId = currentMainId
         try {
             val enriched = extensionProvider.fetchFromExtension(
                 sourceId, animeUrl, title, coverUrl,
@@ -1722,7 +1734,7 @@ class DetailsViewModel(
                     // closed. Persist the extension axis now (same merge-with-existing
                     // discipline as the AniList branch: null fetch fields preserve the
                     // stored value instead of wiping it).
-                    val mainId = currentMainId
+                    val mainId = persistMainId
                     if (mainId != null) {
                         val existingExt = contentRepository.getContentDetails(mainId)
                         if (existingExt == null) {
@@ -3011,7 +3023,14 @@ class DetailsViewModel(
             return animeUrl // already absolute
         }
         val source = extensionManager.getSource(sourceId) as? eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
-        val base = source?.baseUrl?.takeIf { it.isNotBlank() } ?: return null
+        // P7-G2 fix (sub-agent-verified): the CS bridge's dead-provider
+        // sentinel ("https://localhost" — a plugin that failed to load) is NOT
+        // a real base; sharing/WebView-opening it would hand the user a dead
+        // localhost URL. Treat it as "no baseUrl" → the share row / WebView
+        // action hide instead.
+        val base = source?.baseUrl
+            ?.takeIf { it.isNotBlank() && it != "https://localhost" }
+            ?: return null
         return base.trimEnd('/') + "/" + animeUrl.trimStart('/')
     }
 
