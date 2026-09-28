@@ -286,6 +286,16 @@ class DatabaseDriverFactory(private val context: Context) {
                         onCreate(db)
                     }
 
+                    // ── ROUND 102 (WS-E — the tracking contract): content_tracking_state ──
+                    // The user's per-content tracking opt-in (separate from the
+                    // track_entry cache — see track.sq's header comment for the
+                    // rationale). Existing installs get the table via onCreate
+                    // (idempotent CREATE TABLE IF NOT EXISTS); fresh installs get
+                    // it from the .sq schema itself.
+                    if (!hasColumn(db, "content_tracking_state", "tracked")) {
+                        onCreate(db)
+                    }
+
                     // ── Video caching session 2: schema additions on existing installs ──
                     // (HLS segment stats + external track lists for tap-to-play.)
                     // New installs get these via CREATE TABLE; existing installs (which

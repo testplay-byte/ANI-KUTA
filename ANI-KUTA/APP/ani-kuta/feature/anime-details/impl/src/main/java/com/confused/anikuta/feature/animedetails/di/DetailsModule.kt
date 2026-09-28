@@ -40,6 +40,8 @@ val detailsModule = module {
             aniListTracker = getOrNull(),
             trackEntryRepository = getOrNull(),
             trackSyncManager = getOrNull(),
+            // ROUND 102 (WS-E — the tracking contract): the opt-in state repo.
+            trackingStateRepository = getOrNull(),
         )
     }
 }

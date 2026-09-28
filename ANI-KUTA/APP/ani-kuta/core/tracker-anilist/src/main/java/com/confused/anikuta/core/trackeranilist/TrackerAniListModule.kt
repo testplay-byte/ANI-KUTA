@@ -14,6 +14,11 @@ val trackerAniListModule = module {
     // mainId + trackerType). Used by the TrackSheet + details page badges.
     single { TrackEntryRepository(get()) }
 
+    // ROUND 102 (WS-E — the tracking contract): the user's per-content
+    // tracking INTENT (the opt-in flag gating every relay). Separate from the
+    // track_entry cache by design — see TrackingStateRepository's KDoc.
+    single { TrackingStateRepository(get()) }
+
     // Multi-binding: List<Tracker> for TrackSyncManager
     single<List<Tracker>>(named("trackers")) {
         listOf(

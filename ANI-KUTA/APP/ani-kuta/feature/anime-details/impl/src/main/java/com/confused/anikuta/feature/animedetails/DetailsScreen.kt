@@ -421,13 +421,18 @@ fun DetailsScreen(
     val showMarkPreviousPrompt by viewModel.showMarkPreviousPrompt.collectAsState()
     val showMarkSeriesPrompt by viewModel.showMarkSeriesPrompt.collectAsState()
 
-    // ── ROUND 101 (WS-C): the three-dot menu is now the DetailsActionSheet ──
-    // (a proper bottom sheet — the app's standard action surface; the old
-    // text-only DropdownMenu's UI was the user's complaint). Share opens the
-    // :core:share system's ShareContentSheet; View in WebView launches the
-    // internal WebView with the content's absolute page URL.
-    var showActionSheet by remember { mutableStateOf(false) }
-    var showShareSheet by remember { mutableStateOf(false) }
+    // ── ROUND 102 (WS-E): the tracking contract's opt-in state — the
+    // three-dot menu's "Tracking now" / "Not tracking" label reads it.
+    // (The full wiring — the content_tracking_state table + the repository
+    // observation — lands with this round's tracking phase; the ViewModel
+    // exposes the reactive property.)
+    val isContentTracked by viewModel.isTracked.collectAsState()
+
+    // ── ROUND 102 (WS-B): the three-dot menu is an ANCHORED DropdownMenu ──
+    // again (expanding from the button itself — the user's round-102 spec;
+    // the round-101 bottom sheet is retired). Its content composes through
+    // the DetailBanner slot; Share fires the OS chooser directly from the
+    // submenu — no action sheet, no share sheet.
     var showManualSearch by remember { mutableStateOf(false) }
     var showResolverSheet by remember { mutableStateOf(false) }
     var resolverDownloadMode by remember { mutableStateOf(false) }
@@ -1043,11 +1048,57 @@ fun DetailsScreen(
                                 saved = isInLibrary,
                                 onToggleSave = { viewModel.toggleLibrary() },
                                 onLongPressSave = { viewModel.openCategorySheet() },
-                                // ROUND 101 (WS-C): the three-dot opens the
-                                // DetailsActionSheet now (Refresh / Share /
-                                // View in WebView / Tracking / data source /
-                                // link-unlink all live there, icon-rowed).
-                                onMore = { showActionSheet = true },
+                                // ROUND 102 (WS-B): the three-dot menu is an
+                                // ANCHORED DropdownMenu again (expanding from
+                                // the button itself) — the screen provides
+                                // the whole menu through the slot; the banner
+                                // owns the anchor + the open flag.
+                                overflowMenu = { menuOpen, onMenuDismiss ->
+                                    // Computed once per open — the source
+                                    // lookup is a map read, but the menu's
+                                    // lifetime is one interaction.
+                                    val webViewUrl = remember(menuOpen) { viewModel.buildWebViewUrl() }
+                                    DetailsActionMenu(
+                                        expanded = menuOpen,
+                                        onDismissRequest = onMenuDismiss,
+                                        contentTitle = anime.displayName,
+                                        // D-134: the selector shows when BOTH
+                                        // anilistId + sourceId exist.
+                                        hasBothDataSources = anime.anilistId != null && anime.sourceId != null,
+                                        currentDataSourcePriority = anime.dataSourcePriority
+                                            ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION,
+                                        onSwitchDataSource = { priority -> viewModel.switchDataSource(priority) },
+                                        onViewInWebView = {
+                                            // The app's internal WebView
+                                            // (D-209 activity — cookies shared
+                                            // with OkHttp). Works for aniyomi
+                                            // AND CloudStream-bridged sources.
+                                            if (webViewUrl != null) {
+                                                onOpenCloudflareWebView(
+                                                    webViewUrl,
+                                                    viewModel.currentSourceName() ?: "WebView",
+                                                )
+                                            }
+                                        },
+                                        canViewInWebView = webViewUrl != null,
+                                        onOpenTracking = { viewModel.openTrackSheet() },
+                                        // ROUND 102 (WS-E wires the real
+                                        // state; the menu contract lands in
+                                        // this round's tracking phase).
+                                        isTracked = isContentTracked,
+                                        isExtensionEntry = anime.isFromExtension == true,
+                                        isAniListLinked = anime.anilistId != null,
+                                        onLinkAniList = { viewModel.openManualLinkSheet() },
+                                        onUnlinkAniList = { viewModel.unlinkAniList() },
+                                        buildShareLinks = {
+                                            viewModel.buildShareContent()
+                                                ?.let {
+                                                    com.confused.anikuta.core.share.ContentShareLinkFactory.build(it)
+                                                }
+                                                ?: emptyList()
+                                        },
+                                    )
+                                },
                                 // Phase B: the auto-link spinner stays on the
                                 // banner (it is progress feedback, not an action).
                                 isAutoLinkSearching = autoLinkState is AutoLinkState.Searching,
@@ -1731,70 +1782,12 @@ fun DetailsScreen(
         }
     }
 
-    // ── ROUND 101 (WS-C): the DetailsActionSheet — the three-dot menu's
-    // replacement (icon-rowed bottom sheet: data source / Refresh / Share /
-    // View in WebView / Tracking / link-unlink). Every action that existed
-    // in the old DropdownMenu keeps its exact behavior. ROUND 101 (WS-D):
-    // accent-wrapped like every other details sheet.
-    if (showActionSheet) {
-        // Computed once per open — the source lookup is a map read, but the
-        // sheet's lifetime is one interaction; re-reading on every sheet
-        // recomposition would be noise.
-        val webViewUrl = remember(showActionSheet) { viewModel.buildWebViewUrl() }
-        val currentAnime = (state as? DetailsState.Success)?.anime
-        com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
-            accentArgb = coverAccent?.toLong(),
-        ) {
-        DetailsActionSheet(
-            onDismiss = { showActionSheet = false },
-            contentTitle = currentAnime?.displayName ?: "",
-            // D-134: the selector shows when BOTH anilistId + sourceId exist.
-            hasBothDataSources = currentAnime?.anilistId != null && currentAnime?.sourceId != null,
-            currentDataSourcePriority = currentAnime?.dataSourcePriority
-                ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION,
-            onSwitchDataSource = { priority -> viewModel.switchDataSource(priority) },
-            onRefresh = { viewModel.refreshAll() },
-            onShare = { showShareSheet = true },
-            onViewInWebView = {
-                // The app's internal WebView (D-209 activity — cookies shared
-                // with OkHttp). Works for aniyomi AND CloudStream-bridged
-                // sources (same AnimeCatalogueSource baseUrl contract).
-                if (webViewUrl != null) {
-                    onOpenCloudflareWebView(webViewUrl, viewModel.currentSourceName() ?: "WebView")
-                }
-            },
-            canViewInWebView = webViewUrl != null,
-            onOpenTracking = { viewModel.openTrackSheet() },
-            // Phase B: the AniList link section (extension entries only — the
-            // old menu's rule, unchanged).
-            isExtensionEntry = currentAnime?.isFromExtension == true,
-            isAniListLinked = currentAnime?.anilistId != null,
-            onLinkAniList = { viewModel.openManualLinkSheet() },
-            onUnlinkAniList = { viewModel.unlinkAniList() },
-        )
-        }
-    }
-
-    // ── ROUND 101 (WS-C): the share sheet — :core:share's three targets ──
-    // (WS-D: accent-wrapped, the details-page parity.)
-    if (showShareSheet) {
-        val shareContent = remember(showShareSheet) { viewModel.buildShareContent() }
-        val shareLinks = remember(shareContent) {
-            shareContent?.let {
-                com.confused.anikuta.core.share.ContentShareLinkFactory.build(it)
-            } ?: emptyList()
-        }
-        com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
-            accentArgb = coverAccent?.toLong(),
-        ) {
-        ShareContentSheet(
-            onDismiss = { showShareSheet = false },
-            contentTitle = shareContent?.title
-                ?: (state as? DetailsState.Success)?.anime?.displayName ?: "",
-            links = shareLinks,
-        )
-        }
-    }
+    // ── ROUND 102 (WS-B + WS-D): the three-dot menu + share are now the
+    // ANCHORED DetailsActionMenu (composed inside DetailBanner's anchor Box
+    // via the overflowMenu slot — see the banner call above). The round-101
+    // DetailsActionSheet + ShareContentSheet bottom sheets are RETIRED: the
+    // menu expands from the button itself, and Share fires the OS chooser
+    // directly from its submenu. ──
 
     // ── Phase B: Manual link sheet (AniList linking for extension entries) ──
     // ROUND 101 (WS-D): accent-wrapped (the link-sources sheet parity).
@@ -1929,7 +1922,11 @@ private fun DetailBanner(
     onBack: () -> Unit,
     saved: Boolean,
     onToggleSave: () -> Unit,
-    onMore: () -> Unit,
+    // ROUND 102 (WS-B): the anchored three-dot menu's slot — the screen
+    // provides the DetailsActionMenu composable (all its state + callbacks
+    // live in scope up there); DetailBanner owns ONLY the anchor + the open
+    // flag, handing the slot (expanded, onDismiss).
+    overflowMenu: @Composable (expanded: Boolean, onDismiss: () -> Unit) -> Unit,
     onLongPressSave: () -> Unit = {},
     // D-315: cover tap → full-screen viewer (carries the cover's on-screen
     // bounds so the viewer can expand from the exact position).
@@ -1939,6 +1936,10 @@ private fun DetailBanner(
     // Phase B: the auto-linking spinner under the title (progress feedback).
     isAutoLinkSearching: Boolean = false,
 ) {
+    // ROUND 102 (WS-B): the menu's open state lives HERE — beside the anchor
+    // button it drives. Outside-tap dismissal lands inside DropdownMenu's own
+    // handling and routes back through the slot's onDismiss.
+    var menuOpen by remember { mutableStateOf(false) }
     val coverUrl = anime.coverUrl
     // D-236: Background image source — cover or banner (with fallback).
     val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
@@ -2078,15 +2079,20 @@ private fun DetailBanner(
                         )
                     }
                 }
-                // Three-dot menu — ROUND 101 (WS-C): opens the
-                // DetailsActionSheet (screen level). The old inline
-                // DropdownMenu is retired — every action lives in the sheet
-                // now, icon-rowed and sectioned.
-                ActionButton(
-                    icon = Icons.Filled.MoreHoriz,
-                    contentDescription = "More",
-                    onClick = onMore,
-                )
+                // Three-dot menu — ROUND 102 (WS-B): the anchored
+                // DropdownMenu composes INSIDE this Box, so it expands from
+                // the button itself (the round-101 bottom sheet is retired
+                // — the user's "smoothly appear from the three dots buttons"
+                // spec). The menu's CONTENT comes from the screen via the
+                // [overflowMenu] slot (all state + callbacks live up there).
+                Box {
+                    ActionButton(
+                        icon = Icons.Filled.MoreHoriz,
+                        contentDescription = "More",
+                        onClick = { menuOpen = true },
+                    )
+                    overflowMenu(menuOpen) { menuOpen = false }
+                }
             }
         }
 

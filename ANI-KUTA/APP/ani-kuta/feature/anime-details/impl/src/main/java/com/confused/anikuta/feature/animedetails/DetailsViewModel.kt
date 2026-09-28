@@ -96,6 +96,9 @@ class DetailsViewModel(
     private val aniListTracker: com.confused.anikuta.core.trackeranilist.AniListTracker? = null,
     private val trackEntryRepository: com.confused.anikuta.core.trackeranilist.TrackEntryRepository? = null,
     private val trackSyncManager: com.confused.anikuta.core.trackeranilist.TrackSyncManager? = null,
+    // ROUND 102 (WS-E — the tracking contract): the user's per-content
+    // tracking INTENT (the opt-in flag gating every relay + the menu label).
+    private val trackingStateRepository: com.confused.anikuta.core.trackeranilist.TrackingStateRepository? = null,
 ) : ViewModel() {
 
     companion object {
@@ -556,6 +559,26 @@ class DetailsViewModel(
     /** D-242: Whether the user is logged in to AniList (for the TrackSheet). */
     private val _isTrackerLoggedIn = kotlinx.coroutines.flow.MutableStateFlow(false)
     val isTrackerLoggedIn: kotlinx.coroutines.flow.StateFlow<Boolean> = _isTrackerLoggedIn.asStateFlow()
+
+    /**
+     * ROUND 102 (WS-E — the tracking contract): whether the user has TRACKED
+     * the current content (the explicit opt-in — linking alone never tracks).
+     *
+     * Reactive off the content_tracking_state table: the three-dot menu's
+     * "Tracking now" / "Not tracking" label and the TrackSheet's state follow
+     * every change live (Save → true; Remove from Tracking → false; the
+     * trash-can delete → false).
+     */
+    val isTracked: kotlinx.coroutines.flow.StateFlow<Boolean> =
+        _mainIdFlow
+            .flatMapLatest { mainId ->
+                if (mainId != null && trackingStateRepository != null) {
+                    trackingStateRepository.observeIsTracked(mainId)
+                } else {
+                    kotlinx.coroutines.flow.flowOf(false)
+                }
+            }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), false)
 
     /**
      * D-242-fix: Pending remote track entry that hasn't been synced to local
