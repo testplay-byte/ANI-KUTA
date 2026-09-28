@@ -3022,7 +3022,11 @@ class DetailsViewModel(
         if (animeUrl.startsWith("http://") || animeUrl.startsWith("https://")) {
             return animeUrl // already absolute
         }
-        val source = extensionManager.getSource(sourceId) as? eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
+        // CI run-2 fix: baseUrl lives on AnimeHttpSource (the concrete source
+        // contract BOTH ecosystems implement — aniyomi sources AND the CS
+        // bridge), not on the AnimeCatalogueSource interface the first draft
+        // cast to (unresolved reference).
+        val source = extensionManager.getSource(sourceId) as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
         // P7-G2 fix (sub-agent-verified): the CS bridge's dead-provider
         // sentinel ("https://localhost" — a plugin that failed to load) is NOT
         // a real base; sharing/WebView-opening it would hand the user a dead
