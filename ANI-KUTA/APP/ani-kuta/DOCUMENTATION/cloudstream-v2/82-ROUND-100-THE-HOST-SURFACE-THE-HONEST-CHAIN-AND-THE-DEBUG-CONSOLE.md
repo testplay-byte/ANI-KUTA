@@ -1,6 +1,6 @@
 # Doc 82 — Round 100: The v1.1.56 device round — the host-surface fix, the honest test chain, and the debug console
 
-**Date:** 2026-09-28 · **Round:** 100 · **Decisions:** D-679..D-683 · **Commits:** 53236141 (feat) · **Released as:** v1.1.57/10157
+**Date:** 2026-09-28 · **Round:** 100 · **Decisions:** D-679..D-683 · **Commits:** 53236141 (feat) + 56e122b6 (the null-safe CI fix) · **Released as:** v1.1.57/10157 — LIVE (published 2026-09-28T10:09:36Z, 60.4 MB, Release APK run 36407555509 GREEN)
 
 ---
 
@@ -129,7 +129,7 @@ This fixes the tester's HOME_PAGE false negative AND the aniyomi-side Popular/La
 3. **The all-errored walk rethrows instead of returning empty**: the pre-round behavior for a single erroring shelf was an honest exception (the Cinefreak VIDEO_RESOLVE log showed exactly that shape); keeping it means a genuinely-broken home page still reads as a failure, not a quiet "no entries."
 4. **The console captures ONLY our Logger lines** (no `com.lagradost.api.Log` sink forwarding — that was part of what round 24 removed); the logcat source covers everything else on demand.
 5. **No `repo.json`/catalog-side changes** for ktor/ksoup/fuzzywuzzy — they are host-provided (like NewPipe), not plugin-visible API (unlike jsoup/Jackson which are `api` because plugin-visible signatures expose them).
-6. **APK size grows ~3-4 MB** (the three libs + transitives). Disclosed: this is the compatibility price; upstream pays it too. If the user objects, ktor-http alone (1 plugin family fewer covered per dropped lib) can be re-scoped.
+6. **APK size**: the round's pre-build estimate was ~3-4 MB; the SHIPPED growth is **+0.7 MB** (59.7 → 60.4 MB) — the ktor-http/-utils/-io + ksoup + fuzzywuzzy dex compresses far smaller than the jar sizes suggested. The compatibility price turned out tiny; upstream pays more (their full ktor-client stack).
 
 ## 10. The device-round checklist (v1.1.57)
 
