@@ -1124,6 +1124,39 @@ class DetailsViewModel(
         Logger.d(TAG) { "remergeBases: priority=$priority, merged ${merged.displayName}" }
     }
 
+    /**
+     * ROUND 102 (WS-C): the user's PERSISTED display-source preference for a
+     * content — `main_entry.display_source` ('data_source' | 'extension'),
+     * written by [switchDataSource] every time the user picks a side.
+     *
+     * WHY THIS EXISTS: the v1.1.58 device round caught the choice resetting —
+     * pick Extension, leave, reopen → AniList again (the load paths remerged
+     * with hardcoded defaults). The column ALREADY existed (the unlink flow
+     * maintains it as the "which axis is displayed" record — see
+     * ContentResolver.unlinkAniList); the load paths just never READ it.
+     *
+     * Semantics: a null/unknown value (or a missing record) falls back to
+     * [default] — the call site's natural orientation (the AniList paths
+     * default ANILIST, the extension paths EXTENSION), so first-time opens
+     * behave exactly as before.
+     */
+    private fun persistedDisplayPriority(
+        mainId: String?,
+        default: com.confused.anikuta.core.common.model.DataSourcePriority,
+    ): com.confused.anikuta.core.common.model.DataSourcePriority {
+        if (mainId == null) return default
+        return try {
+            when (contentRepository.getMainEntryByMainId(mainId)?.displaySource) {
+                "extension" -> com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
+                "data_source" -> com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+                else -> default
+            }
+        } catch (e: Exception) {
+            Logger.w(TAG) { "persistedDisplayPriority read failed (using default): ${e.message}" }
+            default
+        }
+    }
+
     // ── D-227: Reset ALL state (called when leaving the Details screen) ──
 
     /**
@@ -1254,7 +1287,11 @@ class DetailsViewModel(
                             anilistId = animeId,
                             entryMode = com.confused.anikuta.core.common.model.EntryMode.ANILIST,
                         )
-                        remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
+                        // ROUND 102 (WS-C): the user's persisted display choice
+                        // seeds the merge — reopening respects the last switch
+                        // (was hardcoded ANILIST: the v1.1.58 "reopens showing
+                        // AniList" report).
+                        remergeBases(persistedDisplayPriority(cachedMainId, com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST))
                         currentMainId = cachedMainId; _mainIdFlow.value = cachedMainId
                         refreshContentAndLibraryStatus(cachedMainId)
                         // D-223: Trigger cover color extraction for the AniList cache-first path.
@@ -2130,7 +2167,7 @@ class DetailsViewModel(
                     entryMode = com.confused.anikuta.core.common.model.EntryMode.EXTENSION,
                 )
             }
-            remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION)
+            remergeBases(persistedDisplayPriority(existingContent.mainId, com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION))
             refreshContentAndLibraryStatus(existingContent.mainId)
 
             // D-223: Trigger cover color extraction for the cache-first path too.
@@ -2751,7 +2788,11 @@ class DetailsViewModel(
                 return
             }
             currentAnimeId = anilistId // So episode metadata fetch can use it.
-            remergeBases(priority)
+            // ROUND 102 (WS-C): a persisted display choice outranks the
+            // caller's default — the auto-link merge must never silently flip
+            // an entry the user last viewed as Extension back to AniList
+            // (fresh links have no row yet → the caller's default applies).
+            remergeBases(persistedDisplayPriority(currentMainId, priority))
 
             // D-137: Persist the AniList link in the content database.
             // D-198: anilist_detail → content_details (data-source axis).
@@ -2829,6 +2870,23 @@ class DetailsViewModel(
      * Only works when the entry is linked (both anilistId + sourceId non-null).
      * Re-merges [extensionBase] + [anilistBase] with the new priority.
      * Both bases are preserved — switching back doesn't lose data.
+     *
+     * ROUND 102 (WS-C — the switch contract):
+     *  1. The choice PERSISTS — `main_entry.display_source` is written (the
+     *     column the unlink flow already maintains as the "which axis is
+     *     displayed" record) + `main_entry.title` follows the newly-primary
+     *     base, so BOTH the details reopen and the LIBRARY row (which reads
+     *     exactly those two things) reflect the choice. The v1.1.58 report:
+     *     "select extension → exit → reopen → AniList again; the library
+     *     cover/name never change."
+     *  2. The switch AUTO-REFRESHES the target axis — the v1.1.58 report had
+     *     the user tapping Refresh manually after every switch. The remerge
+     *     still lands instantly (the in-memory bases), then the newly-selected
+     *     axis refreshes in the background; a SUCCESS re-merges the fresh
+     *     data in, a FAILURE is logged + swallowed — the remerged local bases
+     *     stay displayed (the saved local data IS the fallback; no false
+     *     "data available" states — the displayed data is always the real
+     *     locally-merged bases, never a placeholder).
      */
     fun switchDataSource(priority: com.confused.anikuta.core.common.model.DataSourcePriority) {
         val anime = (_state.value as? DetailsState.Success)?.anime ?: return
@@ -2842,6 +2900,62 @@ class DetailsViewModel(
         // D-134: Just re-merge the existing bases with the new priority.
         // No network call needed — both bases are already in memory.
         remergeBases(priority)
+
+        // ── ROUND 102 (WS-C): PERSIST the choice ──
+        val mainId = currentMainId
+        if (mainId != null) {
+            try {
+                contentRepository.updateMainEntryDisplaySource(
+                    mainId,
+                    if (priority == com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST) {
+                        "data_source"
+                    } else {
+                        "extension"
+                    },
+                )
+                // The title follows the newly-primary base (read AFTER the
+                // remerge so it is the merged display name) — the Library row
+                // shows main_entry.title, so it reflects the choice too.
+                val mergedTitle = (_state.value as? DetailsState.Success)?.anime?.displayName
+                if (!mergedTitle.isNullOrBlank()) {
+                    contentRepository.updateMainEntryTitle(mainId, mergedTitle)
+                }
+            } catch (e: Exception) {
+                // Non-fatal by design: the in-session display still switched;
+                // only the cross-session persistence is lost (logged loudly).
+                Logger.e(TAG, e) { "switchDataSource: persisting the choice failed" }
+            }
+        }
+
+        // ── ROUND 102 (WS-C): AUTO-REFRESH the target axis ──
+        // The identity fields (sourceId/animeUrl/anilistId) survive every
+        // merge — read them off the CURRENT merged state.
+        viewModelScope.launch {
+            try {
+                when (priority) {
+                    com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST ->
+                        anime.anilistId?.let { refreshAniListAxis(it) }
+                    com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION -> {
+                        val sid = anime.sourceId
+                        val url = anime.animeUrl
+                        if (sid != null && url != null) {
+                            refreshExtensionAxis(
+                                sourceId = sid,
+                                animeUrl = url,
+                                title = (_state.value as? DetailsState.Success)?.anime?.displayName ?: anime.displayName,
+                                coverUrl = (_state.value as? DetailsState.Success)?.anime?.coverUrl,
+                                year = anime.seasonYear,
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // The axis refreshers already swallow + log their own errors;
+                // this belt-and-braces catch guarantees the contract: a failed
+                // refresh NEVER tears down the displayed local data.
+                Logger.w(TAG) { "switchDataSource: target-axis refresh failed (local data stays): ${e.message}" }
+            }
+        }
     }
 
     // ── Phase B: Manual link sheet ──
@@ -2977,6 +3091,17 @@ class DetailsViewModel(
         anilistBase = null
         currentAnimeId = 0
         remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION)
+        // ROUND 102 (WS-C): the title follows the now-extension-only display —
+        // the Library row reads main_entry.title, and the unlink already
+        // flipped display_source to 'extension' inside contentResolver.unlinkAniList.
+        val unlinkedTitle = (_state.value as? DetailsState.Success)?.anime?.displayName
+        if (mainId != null && !unlinkedTitle.isNullOrBlank()) {
+            try {
+                contentRepository.updateMainEntryTitle(mainId, unlinkedTitle)
+            } catch (e: Exception) {
+                Logger.w(TAG) { "unlinkAniList: title follow failed (non-fatal): ${e.message}" }
+            }
+        }
         _autoLinkState.value = AutoLinkState.Idle
         _episodeMetadata.value = emptyMap() // Clear AniList-sourced metadata.
     }

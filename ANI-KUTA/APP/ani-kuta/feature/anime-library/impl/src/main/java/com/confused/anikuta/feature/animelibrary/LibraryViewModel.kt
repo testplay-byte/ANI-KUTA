@@ -48,6 +48,10 @@ class LibraryViewModel(
     companion object {
         private const val TAG = "Anikuta:Feature:Library"
 
+        // ROUND 102 (WS-C): the minimum pull-to-refresh spinner window — the
+        // M3 PullToRefreshBox indicator-race workaround (see refreshLibrary).
+        private const val MIN_REFRESH_INDICATOR_MS = 800L
+
         // Customize-sheet preferences.
         private const val KEY_DISPLAY_MODE = "library_display_mode"
         private const val KEY_COLUMNS = "library_columns"
@@ -475,6 +479,16 @@ class LibraryViewModel(
 
                 if (details != null && details.hasDataSourceLink) {
                     // data-axis populated — instant display (D-198).
+                    // ROUND 102 (WS-C): the cover honors the user's persisted
+                    // display choice (main_entry.display_source, written by
+                    // DetailsViewModel.switchDataSource): 'extension' puts the
+                    // extension's own thumbnail first; anything else keeps the
+                    // AniList-first order (D-248's two-way fallback). The
+                    // v1.1.58 report: "in the library page, the cover image
+                    // does not change, and also the name of the content does
+                    // not actually get changed" — the name rides
+                    // main_entry.title, which the switch now updates too.
+                    val extDisplayFirst = content.displaySource == "extension"
                     entries.add(
                         LibraryEntry(
                             mainId = mainId,
@@ -482,9 +496,11 @@ class LibraryViewModel(
                             sourceId = content.extensionId,
                             animeUrl = content.animeUrl,
                             title = content.title,
-                            // D-248: two-way cover fallback — AniList cover first,
-                            // extension cover when AniList's is missing/null.
-                            coverUrl = details.dataCoverUrl ?: details.extThumbnailUrl,
+                            coverUrl = if (extDisplayFirst) {
+                                details.extThumbnailUrl ?: details.dataCoverUrl
+                            } else {
+                                details.dataCoverUrl ?: details.extThumbnailUrl
+                            },
                             averageScore = details.dataScore?.toInt(),
                             episodes = details.dataEpisodes?.toInt(),
                             seasonYear = details.dataSeasonYear?.toInt(),
@@ -649,12 +665,21 @@ class LibraryViewModel(
      * re-runs [loadLibraryImpl] (the actual suspend load) inside a single
      * coroutine so [_isRefreshing] tracks the TRUE duration of the refresh.
      *
-     * The M3 PullToRefreshBox indicator spins for exactly as long as the load
-     * takes — no hardcoded 500ms delay, no early dismiss, no lingering spinner.
+     * ROUND 102 (WS-C — the M3 indicator race): the library load is DB-only
+     * (the 7-query batch — tens of ms), and the v1.1.58 device round caught
+     * the pull-to-refresh spinner sticking: when `isRefreshing` flips
+     * true→false within the same frame window as the gesture end, Material 3's
+     * PullToRefreshBox can lose the indicator's dismiss transition (the
+     * spinner stays). The finally-block below was ALWAYS correct — the
+     * indicator never got a stable "settled while refreshing" frame to
+     * dismiss FROM. The fix: a minimum spinner window (800ms) so the
+     * true→false transition always lands after the indicator settles — the
+     * standard workaround for this M3 race, disclosed as such.
      */
     fun refreshLibrary() {
         viewModelScope.launch {
             _isRefreshing.value = true
+            val startedAt = android.os.SystemClock.elapsedRealtime()
             try {
                 clearCache()
                 // D-291: a pull-to-refresh is the user's explicit "reload
@@ -667,6 +692,13 @@ class LibraryViewModel(
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Library refresh failed: ${e.message}" }
             } finally {
+                // ROUND 102: hold the floor for the minimum window (no-op when
+                // the load already took longer — a huge library on a slow
+                // device keeps its true duration).
+                val elapsed = android.os.SystemClock.elapsedRealtime() - startedAt
+                if (elapsed < MIN_REFRESH_INDICATOR_MS) {
+                    kotlinx.coroutines.delay(MIN_REFRESH_INDICATOR_MS - elapsed)
+                }
                 _isRefreshing.value = false
                 Logger.i(TAG) { "Library refresh complete" }
             }
