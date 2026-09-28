@@ -435,6 +435,12 @@ internal fun CountUpText(
         fontSize = fontSize.sp,
         fontWeight = FontWeight.ExtraBold,
         color = color,
+        // ROUND 100 (D-682): a stat number must NEVER wrap mid-number — the
+        // v1.1.56 device report caught exactly that on the legend columns.
+        // This Text is width-constrained by the caller's weight(1f) cell, so
+        // an over-wide count at a high font scale would have wrapped too.
+        maxLines = 1,
+        softWrap = false,
         modifier = modifier,
     )
 }

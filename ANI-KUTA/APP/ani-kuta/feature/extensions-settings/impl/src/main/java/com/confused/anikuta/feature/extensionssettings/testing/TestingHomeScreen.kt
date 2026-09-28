@@ -52,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -900,6 +901,19 @@ private fun HealthLegendRow(
     label: String,
 ) {
     val total = countA + countB
+    // ROUND 100 (D-682) — THE NEVER-WRAPPING NUMBER COLUMNS. The v1.1.56
+    // device report caught the legend numbers LINE-BREAKING MID-NUMBER ("1"
+    // over "0"): the columns were FIXED-dp (28dp / 22dp) while the digits
+    // are sp-driven — any font scale above ~1.0 grew the text past its
+    // column and Compose wrapped the number across two lines. The D-659
+    // bar-height pattern applied to columns: every width derives from the
+    // SAME sp its text uses (growing with the user's font scale, exactly
+    // like the glyphs), and every number is maxLines=1 + softWrap=false —
+    // structurally incapable of breaking mid-number at any scale.
+    val totalFont = 13.sp
+    val splitFont = 11.sp
+    val totalColumnWidth = with(LocalDensity.current) { totalFont.toDp() * 2.4f }
+    val splitColumnWidth = with(LocalDensity.current) { splitFont.toDp() * 2.4f }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
         shape = RoundedCornerShape(10.dp),
@@ -921,18 +935,20 @@ private fun HealthLegendRow(
             Text(
                 text = "$total",
                 fontFamily = RobotoFamily,
-                fontSize = 13.sp,
+                fontSize = totalFont,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.width(28.dp),
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.width(totalColumnWidth),
             )
             Spacer(Modifier.width(8.dp))
             // The label — centered in the flexible middle column.
             Text(
                 text = label.lowercase(),
-                fontFamily = RobotoFamily,
                 fontSize = 10.sp,
+                fontFamily = RobotoFamily,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -945,11 +961,13 @@ private fun HealthLegendRow(
             Text(
                 text = "$countA",
                 fontFamily = RobotoFamily,
-                fontSize = 11.sp,
+                fontSize = splitFont,
                 fontWeight = FontWeight.ExtraBold,
                 color = swatchA,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.width(22.dp),
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.width(splitColumnWidth),
             )
             Text(
                 text = "+",
@@ -957,16 +975,20 @@ private fun HealthLegendRow(
                 fontSize = 10.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier.width(9.dp),
             )
             Text(
                 text = "$countB",
                 fontFamily = RobotoFamily,
-                fontSize = 11.sp,
+                fontSize = splitFont,
                 fontWeight = FontWeight.ExtraBold,
                 color = swatchB,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.width(22.dp),
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.width(splitColumnWidth),
             )
         }
     }

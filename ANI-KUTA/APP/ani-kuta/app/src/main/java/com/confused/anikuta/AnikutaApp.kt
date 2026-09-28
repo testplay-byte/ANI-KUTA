@@ -105,6 +105,16 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
         // stay a property of the dev/test LINE, not of debuggability.
         Logger.setEnabled(true)
         Logger.setMinLevel(if (BuildConfig.IS_DEBUG_LINE) LogLevel.DEBUG else LogLevel.INFO)
+        // ROUND 100 (D-683): the console capture is BACK — properly this
+        // time, and ONLY on the debug line. The round-99 device report asked
+        // for proper console logging on the debug version; the new capture
+        // is a bounded ring buffer INSIDE the Logger (no appender layer, no
+        // plugin-log forwarding — the round-24 removal stays honored for
+        // everything except our OWN Logger lines). Release builds never
+        // enable it, so they keep paying exactly zero.
+        if (BuildConfig.IS_DEBUG_LINE) {
+            Logger.setConsoleCaptureEnabled(true)
+        }
 
         // ── Extension compat setup (BEFORE Koin, BEFORE any extension loads) ──
         // Extensions use Injekt (a service locator) to resolve NetworkHelper,

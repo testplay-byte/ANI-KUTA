@@ -61,6 +61,30 @@ dependencies {
     // rhino 1.8.1 for YouTube's JS deciphering) ride along automatically.
     implementation(libs.newpipeextractor)
 
+    // ROUND 100 (D-679) — the host-provided plugin dependency surface,
+    // completed. The v1.1.56 device round caught the Cinefreak provider dying
+    // at BOTH test-time and real playback with
+    // `NoClassDefFoundError: io/ktor/http/URLUtilsKt` — dex inspection of the
+    // user's actual .cs3 (xr3ed v16) proved the plugin REFERENCES
+    // io/ktor/http/* without bundling it (host-provided expectation), and the
+    // upstream host ships exactly these classes (their coil-network-ktor3 +
+    // ktor 3.5.0 pins). A 309-plugin corpus scan across the user's five
+    // extension repos mapped the FULL gap set:
+    //   - ktor-http 3.5.0 — 21 plugins reference io/ktor/http/* (URLUtilsKt
+    //     / Url / URLProtocol — URL parsing helpers). Mirrors the upstream
+    //     version pin. Transitive ktor-utils/ktor-io ride along.
+    //   - ksoup 0.2.6 — 7 plugins reference com.fleeksoft.ksoup.* (the KMP
+    //     jsoup port). Mirrors the upstream pin.
+    //   - fuzzywuzzy 1.4.0 — 1 plugin references me.xdrop.fuzzywuzzy.
+    //     Mirrors the upstream pin.
+    // All three are Apache-2.0. `implementation` exposure — the plugins see
+    // them PARENT-FIRST at runtime (the same pattern as NewPipeExtractor);
+    // our own compile surface never leaks them. (Jackson + Gson, the two
+    // other corpus-referenced host libs, were already `api` above.)
+    implementation(libs.ktor.http)
+    implementation(libs.ksoup)
+    implementation(libs.fuzzywuzzy)
+
     // kotlinx-datetime — LocalDate in the plugin-visible Episode.addDate overload.
     implementation(libs.kotlinx.datetime)
 

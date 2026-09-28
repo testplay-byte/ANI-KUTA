@@ -22,6 +22,28 @@ newpipeextractor = "v0.26.3"
 desugarJdkLibs = "2.1.5"
 jacksonModuleKotlin = { strictly = "2.13.1" }
 gson = "2.11.0"
+# ROUND 100 (D-679) — the host-provided plugin dependency surface, completed.
+# The round-99 device logcat caught the Cinefreak provider dying at playback
+# with `NoClassDefFoundError: io/ktor/http/URLUtilsKt` — the .cs3 build (xr3ed
+# v16) REFERENCES io/ktor/http/* but does NOT bundle it (dex-verified: the
+# plugin's class table defines only com.cinefreak.*; ktor is compileOnly
+# against the HOST). Upstream recloudstream ships ktor via its own gradle
+# catalog (ktor = 3.5.0, consumed by coil-network-ktor3 + explicit ktor deps),
+# which is why the same extension works there. We mirror the SAME version the
+# current upstream host pins so the ABI the plugins were compiled against
+# matches. The corpus scan (309 .cs3 files across the user's five repos)
+# found 21 plugins referencing io/ktor/http ONLY (none touch ktor-client /
+# ktor-utils directly) — so ktor-http (+ its transitive ktor-utils/-io) is
+# the correct, minimal bundle.
+ktorHttp = "3.5.0"
+# ROUND 100 (D-679) — ksoup (Apache-2.0, the Kotlin multiplatform jsoup
+# port): 7 of the 309 corpus plugins reference com.fleeksoft.ksoup.* through
+# the host classloader; upstream bundles ksoup 0.2.6 (their catalog pin —
+# mirrored exactly).
+ksoup = "0.2.6"
+# ROUND 100 (D-679) — fuzzywuzzy (Apache-2.0): 1 corpus plugin references
+# me.xdrop.fuzzywuzzy through the host; upstream ships 1.4.0 (mirrored).
+fuzzywuzzy = "1.4.0"
 junit = "4.13.2"
 kotlinxDatetime = "0.6.1"
 
@@ -215,6 +237,15 @@ kotlinx-serialization-json-okio = { group = "org.jetbrains.kotlinx", name = "kot
 # gson (Apache-2.0) is imported directly by ~16% of real plugins.
 jackson-module-kotlin = { group = "com.fasterxml.jackson.module", name = "jackson-module-kotlin", version.ref = "jacksonModuleKotlin" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+# ROUND 100 (D-679) — the host-provided plugin dependency surface, completed:
+# ktor-http (Apache-2.0) resolves the io/ktor/http/* references 21 corpus
+# plugins carry (the Cinefreak playback crash — see the versions block);
+# ksoup (Apache-2.0) covers com.fleeksoft.ksoup.* (7 plugins); fuzzywuzzy
+# (Apache-2.0) covers me.xdrop.fuzzywuzzy (1 plugin). All three mirror the
+# upstream host's own pins so plugin bytecode resolves identically here.
+ktor-http = { group = "io.ktor", name = "ktor-http", version.ref = "ktorHttp" }
+ksoup = { group = "com.fleeksoft.ksoup", name = "ksoup", version.ref = "ksoup" }
+fuzzywuzzy = { group = "me.xdrop", name = "fuzzywuzzy", version.ref = "fuzzywuzzy" }
 
 # Testing (CloudStream V2 unit tests)
 junit = { group = "junit", name = "junit", version.ref = "junit" }

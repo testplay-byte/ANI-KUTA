@@ -108,10 +108,25 @@ class ExtensionTestEngine(
             // failed was never run, and the user reads that as a failure of
             // the source, not a skip. The message names the labels that
             // actually failed (not the full anyOf set).
-            val missing = test.requiresAnyOf
-                .filter { results[it]?.status != TestStatus.PASSED }
-            if (test.requiresAnyOf.isNotEmpty() && missing.isNotEmpty()) {
-                val failedLabels = missing.joinToString("/") { it.label }
+            //
+            // ROUND 100 (D-680) — THE ANYOF FIX. The old gate read
+            // `missing.isNotEmpty()` → the test only ran when EVERY feeder in
+            // requiresAnyOf had PASSED — allOf semantics under an anyOf name.
+            // The v1.1.56 device logcat proved the damage: YouTube's
+            // HOME_PAGE failed (its first shelf is a channel-mode category
+            // that errored silently inside the plugin) while SEARCH PASSED
+            // with 6 results — and DETAILS/EPISODE_LIST were still emitted as
+            // FAILED "Not run — Home page failed", cascade-killing
+            // VIDEO_RESOLVE and STREAM_PLAY too. A chain that had a perfectly
+            // good search pool to walk reported 5 failures for a working
+            // extension. The gate now honors the documented anyOf contract:
+            // the test runs when AT LEAST ONE feeder passed; the
+            // "Not run — … failed" verdict fires only when NONE did (and
+            // then the label list is by definition the full set).
+            if (test.requiresAnyOf.isNotEmpty() &&
+                test.requiresAnyOf.none { results[it]?.status == TestStatus.PASSED }
+            ) {
+                val failedLabels = test.requiresAnyOf.joinToString("/") { it.label }
                 val result = TestResult(
                     kind = kind,
                     status = TestStatus.FAILED,

@@ -247,6 +247,27 @@ class CloudstreamPluginLoader(
             Logger.e(TAG, t) {
                 "Failed to load ${file.name}: ${t::class.simpleName}: ${t.message}"
             }
+            // ROUND 100 (D-679): a MISSING-CLASS diagnosis — the v1.1.56
+            // device round's Cinefreak crash (`NoClassDefFoundError:
+            // io/ktor/http/URLUtilsKt`) was a HOST-SURFACE gap (the plugin
+            // expects the host to provide ktor), not a broken plugin, and the
+            // one-line message gave no hint of that distinction. These two
+            // error families almost always mean "the plugin references a
+            // host-provided class/method this build doesn't carry" — say so,
+            // naming the exact missing symbol, so the next gap is a one-glance
+            // diagnosis instead of a research round.
+            when (t) {
+                is NoClassDefFoundError -> Logger.w(TAG) {
+                    "diagnosis: ${file.name} expects the host to provide a class " +
+                        "this build may not carry — missing: ${t.message ?: "unknown"} " +
+                        "(bundled host libs: cloudstream3 API, nicehttp, okhttp, jsoup, " +
+                        "jackson, gson, newpipeextractor, ktor-http, ksoup, fuzzywuzzy)"
+                }
+                is NoSuchMethodError -> Logger.w(TAG) {
+                    "diagnosis: ${file.name} calls a host-provided method this build " +
+                        "may not carry (an API-version mismatch) — missing: ${t.message ?: "unknown"}"
+                }
+            }
             // ROUND 98 (D-669): memoize — the deterministic failures must not
             // re-dex on every refresh (see the fast path above).
             failedPlugins[filePath] = FailedLoad(

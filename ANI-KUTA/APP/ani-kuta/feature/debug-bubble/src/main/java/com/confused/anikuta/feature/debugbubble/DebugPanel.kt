@@ -181,9 +181,12 @@ fun DebugPanel(
 
                     // ── Tab content ──
                     // NO outer verticalScroll — each tab manages its own scrolling.
-                    // Task 64: the Console tab (and its zero-padding special case)
-                    // is gone with the console-logging family — every remaining
-                    // tab gets the standard 16/12 padding.
+                    // Task 64: the original Console tab (and its zero-padding
+                    // special case) was removed with the console-logging family;
+                    // ROUND 100 (D-683) brought a NEW Console tab back (the
+                    // Logger ring buffer + the live process logcat — see
+                    // ConsoleTab). It manages its own terminal surface and gets
+                    // the standard 16/12 padding like every other tab.
                     val contentPadding = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                     Box(
                         modifier = Modifier
@@ -216,6 +219,7 @@ fun DebugPanel(
                                     activeTab = DebugTab.DATABASE
                                 },
                             )
+                            DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab()
                             DebugTab.APP_INFO -> com.confused.anikuta.feature.debugbubble.panel.AppInfoTab()
                         }
                     }
@@ -296,8 +300,11 @@ fun DebugPanel(
                         }
                     }
                     // ── Live content (scrollable, no buttons) ──
-                    // Task 64: the Console tab's zero-padding special case is gone
-                    // with the console family — the mini panels all take the 8/4 padding.
+                    // Task 64: the original Console tab's zero-padding special
+                    // case went with the console family; ROUND 100 (D-683)
+                    // brought the Console tab back (the Logger ring + live
+                    // logcat) — in the mini window it renders the same live
+                    // tail, and takes the standard 8/4 mini padding.
                     val miniContentPadding = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     Box(
                         modifier = Modifier
@@ -323,6 +330,7 @@ fun DebugPanel(
                                     state.expand()
                                 },
                             )
+                            DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab()
                             DebugTab.APP_INFO -> com.confused.anikuta.feature.debugbubble.panel.AppInfoTab()
                         }
                     }

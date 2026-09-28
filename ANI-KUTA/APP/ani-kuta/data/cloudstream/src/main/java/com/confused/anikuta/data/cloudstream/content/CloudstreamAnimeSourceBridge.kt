@@ -124,24 +124,124 @@ class CloudstreamAnimeSourceBridge(
 
     // ── Catalogue (browse/search) ────────────────────────────────────────────
 
+    /**
+     * ROUND 100 (D-681): the shelf the page-1 walk settled on — remembered so
+     * `getPopularAnime(page > 1)` paginates THE shelf the popular list
+     * actually shows (not blindly shelf #1). Benign by design under races:
+     * worst case a pagination request lands on a different shelf's page —
+     * the registry keeps ONE bridge per provider, and browse pagination is
+     * sequential, so this is a "best remembered" hint, not state that must
+     * never drift. Reset implicitly whenever the walk re-runs.
+     */
+    private var popularShelfIndex: Int? = null
+
+    /**
+     * ROUND 100 (D-681) — THE SHELF WALK. The old `getPopularAnime` fetched
+     * ONLY the provider's FIRST shelf and equated "first shelf empty" with
+     * "home page broken". The v1.1.56 device round falsified that: the
+     * YouTube provider's first shelf is a channel-mode category whose fetch
+     * fails silently inside the plugin (`runCatching → emptyList`), so the
+     * home-page TEST failed while 12 of the provider's 13 shelves (and the
+     * search, proven in the same run) worked. CsBrowseLoader has always
+     * walked every shelf — the browse UI never had this bug; the aniyomi-side
+     * Popular/Latest paths and the tester did.
+     *
+     * Semantics now (browse parity, D-390's tolerance rules):
+     *  - page 1: walk the provider's shelves IN ORDER (capped at
+     *    [MAX_SHELF_WALK]); the first shelf whose response yields ≥1 entry
+     *    wins and is remembered for pagination. Per-shelf failures are
+     *    TOLERATED and logged (one broken shelf never blanks the page).
+     *  - A Cloudflare block is remembered: if EVERY tried shelf blocked, the
+     *    block rethrows (a challenge page is never "no results" — the
+     *    CsBrowseLoader contract).
+     *  - Zero entries after the walk: if at least one shelf ERRORED, the
+     *    last error rethrows (the honest provider failure — the pre-D-681
+     *    single-shelf behavior); only a walk where every shelf answered
+     *    OK-but-empty returns the empty page.
+     *  - page > 1: the REMEMBERED shelf's pagination (legacy first-shelf
+     *    fallback when no walk has run on this instance yet).
+     */
     override suspend fun getPopularAnime(page: Int): AnimesPage {
         val provider = liveProvider()
         if (!provider.hasMainPage) return AnimesPage(emptyList(), false)
-        Logger.i(TAG) { "bridge: getPopularAnime '$providerName' page=$page (first shelf)" }
-        val firstShelf = provider.mainPage.firstOrNull()
-            ?: return AnimesPage(emptyList(), false)
-        val response = guard {
-            provider.getMainPage(
-                page,
-                MainPageRequest(
-                    name = firstShelf.name,
-                    data = firstShelf.data,
-                    horizontalImages = firstShelf.horizontalImages,
-                ),
+        val shelves = provider.mainPage
+        if (shelves.isEmpty()) return AnimesPage(emptyList(), false)
+
+        if (page > 1) {
+            // Pagination rides the shelf the page-1 walk settled on.
+            val shelf = shelves.getOrNull(popularShelfIndex ?: 0) ?: shelves.first()
+            val response = guard {
+                provider.getMainPage(
+                    page,
+                    MainPageRequest(
+                        name = shelf.name,
+                        data = shelf.data,
+                        horizontalImages = shelf.horizontalImages,
+                    ),
+                )
+            } ?: return AnimesPage(emptyList(), false)
+            val items = response.items.flatMap { it.list }.distinctBy { it.url }
+            return AnimesPage(items.map { it.toSAnime() }, response.hasNext)
+        }
+
+        // ── page 1: the shelf walk ──
+        Logger.i(TAG) {
+            "bridge: getPopularAnime '$providerName' page=1 — walking up to " +
+                "${minOf(shelves.size, MAX_SHELF_WALK)} of ${shelves.size} shelf(ves)"
+        }
+        var firstCloudflareBlock: com.lagradost.cloudstream3.network.CloudflareBlockedException? = null
+        var lastError: IllegalStateException? = null
+        var sawError = false
+        var sawOkAnswer = false
+        for ((index, shelf) in shelves.withIndex()) {
+            if (index >= MAX_SHELF_WALK) break
+            val request = MainPageRequest(
+                name = shelf.name,
+                data = shelf.data,
+                horizontalImages = shelf.horizontalImages,
             )
-        } ?: return AnimesPage(emptyList(), false)
-        val items = response.items.flatMap { it.list }.distinctBy { it.url }
-        return AnimesPage(items.map { it.toSAnime() }, response.hasNext)
+            val response = try {
+                guard { provider.getMainPage(1, request) }
+            } catch (cf: com.lagradost.cloudstream3.network.CloudflareBlockedException) {
+                if (firstCloudflareBlock == null) firstCloudflareBlock = cf
+                Logger.w(TAG) {
+                    "bridge: getPopularAnime '$providerName' shelf '${shelf.name}' " +
+                        "blocked by Cloudflare — walking on"
+                }
+                null
+            } catch (e: IllegalStateException) {
+                // guard already logged the underlying throwable — a broken
+                // shelf must not blank the popular page (browse parity).
+                sawError = true
+                lastError = e
+                null
+            }
+            val items = response?.items?.flatMap { it.list }.orEmpty().distinctBy { it.url }
+            if (items.isNotEmpty()) {
+                popularShelfIndex = index
+                Logger.i(TAG) {
+                    "bridge: getPopularAnime '$providerName' page=1 — shelf " +
+                        "'${shelf.name}' (#${index + 1} of the walk) -> ${items.size} " +
+                        "entr${if (items.size == 1) "y" else "ies"}"
+                }
+                return AnimesPage(items.map { it.toSAnime() }, response.hasNext)
+            }
+            if (response != null) sawOkAnswer = true
+        }
+        // Every tried shelf blocked → the block IS the answer (never "empty").
+        firstCloudflareBlock?.let { throw it }
+        // No entries anywhere. An errored walk reports the error (the honest
+        // provider failure); a clean-but-empty walk reports the empty page.
+        if (sawError && !sawOkAnswer) {
+            throw lastError ?: IllegalStateException(
+                "Provider '$providerName' home page yielded no entries",
+            )
+        }
+        Logger.i(TAG) {
+            "bridge: getPopularAnime '$providerName' page=1 — every walked shelf " +
+                "came back empty${if (sawError) " (with shelf errors along the way — see above)" else ""}"
+        }
+        return AnimesPage(emptyList(), false)
     }
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
@@ -456,6 +556,17 @@ class CloudstreamAnimeSourceBridge(
     companion object {
         internal const val TAG = "Anikuta:Data:Cloudstream:Bridge"
 
+        /**
+         * ROUND 100 (D-681): the page-1 shelf-walk cap. Providers declare
+         * anywhere from 1 to ~20 shelves; the walk stops at the first one
+         * with content, so healthy providers pay for 1–3 requests. The cap
+         * keeps a pathological many-shelf provider from turning the popular
+         * probe into a 20-request crawl — the honest answer for a provider
+         * whose first 10 shelves are ALL empty is "empty", not 10 more
+         * chances. (CsBrowseLoader walks ALL shelves for the browse page —
+         * different surface, different budget.)
+         */
+        private const val MAX_SHELF_WALK = 10
     }
 }
 

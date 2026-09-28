@@ -3,6 +3,7 @@ package com.confused.anikuta.feature.debugbubble
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -16,11 +17,19 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * family (DebugLogBuffer/LogAppender/RingLogBuffer) — the round-24 device
  * instruction was "remove the console logs only", and every other bubble
  * tab keeps working exactly as before.
+ *
+ * ROUND 100 (D-683): the CONSOLE tab is BACK — the round-99 device report
+ * asked for proper console logging on the debug version. The new console is
+ * a different tool from the removed one: it browses the lines the app
+ * ALREADY logs (the Logger's in-memory ring + a live logcat feed for this
+ * process) instead of adding any new logging. It renders only on the debug
+ * line (the bubble itself is debug-only) and captures nothing on release.
  */
 enum class DebugTab(val label: String, val icon: ImageVector) {
     SCREEN("Screen", Icons.Filled.PhoneAndroid),
     DATABASE("Database", Icons.Filled.Storage),
     NETWORK("Network", Icons.Filled.Wifi),
+    CONSOLE("Console", Icons.Filled.Terminal),
     APP_INFO("App Info", Icons.Filled.Info),
 }
 
