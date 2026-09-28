@@ -1583,114 +1583,165 @@ class DetailsViewModel(
         val anime = (_state.value as? DetailsState.Success)?.anime ?: return
         Logger.i(TAG) { "D.3 Stage 2: Refreshing metadata for ${anime.displayName}" }
 
-        if (anime.anilistId != null) {
-            val anilistId = anime.anilistId!!
-            // D-313: generation guard — a metadata refresh of anime A landing
-            // after anime B opened must not remerge A's bases over B's screen.
-            val metaGen = loadGeneration
-            try {
-                val fresh = anilistApi.fetchAnimeDetails(anilistId)
+        // ── ROUND 101 (WS-B): the BOTH-AXES refresh ──
+        // The old `if (anilistId != null) … else if (sourceId != null)` only
+        // ever refreshed ONE axis: a linked entry (anilistId set) refreshed
+        // AniList and LEFT the extension base stale forever — with data source
+        // = Extension the user saw the extension's cover/name but a null/
+        // stale description that no Refresh could repair, because the
+        // extension branch was unreachable while linked (the user's report:
+        // unlinking AniList made the details finally load — the unlink made
+        // the extension branch reachable again). Now a linked entry refreshes
+        // BOTH axes concurrently; each axis persists itself and re-merges with
+        // the user's CURRENT priority as it lands.
+        val hasAnilist = anime.anilistId != null
+        val hasExtension = anime.sourceId != null && anime.animeUrl != null
+
+        if (!hasAnilist && !hasExtension) return
+
+        kotlinx.coroutines.coroutineScope {
+            if (hasAnilist) {
+                launch { refreshAniListAxis(anime.anilistId!!) }
+            }
+            if (hasExtension) {
+                launch {
+                    refreshExtensionAxis(
+                        sourceId = anime.sourceId!!,
+                        animeUrl = anime.animeUrl!!,
+                        title = anime.displayName,
+                        coverUrl = anime.coverUrl,
+                        // Task 47: re-seed the currently displayed year so a
+                        // refresh never drops the Year row when the source's
+                        // load() omits it.
+                        year = anime.seasonYear,
+                    )
+                }
+            }
+        }
+        Logger.i(TAG) { "D.3 Stage 2: Metadata refresh complete (anilist=$hasAnilist, extension=$hasExtension)" }
+    }
+
+    /**
+     * ROUND 101 (WS-B): the AniList half of the both-axes metadata refresh —
+     * the former body of [refreshMetadataNow]'s anilist branch, unchanged in
+     * behavior (fetch → anilistBase → re-merge with current priority →
+     * persist the data_* axis + airing data).
+     */
+    private suspend fun refreshAniListAxis(anilistId: Int) {
+        // D-313: generation guard — a metadata refresh of anime A landing
+        // after anime B opened must not remerge A's bases over B's screen.
+        val metaGen = loadGeneration
+        try {
+            val fresh = anilistApi.fetchAnimeDetails(anilistId)
+                if (metaGen == loadGeneration) {
+                    anilistBase = fresh.toUnifiedAnime()
+                    remergeBases(
+                        (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                            ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+                    )
+                } else {
+                    Logger.d(TAG) { "D.3 Stage 2: AniList metadata discarded (stale generation)" }
+                }
+                // D.1: Update the cache.
+                // D-198: anime_metadata_cache → content_details (data-source axis).
+                // D-248 FIX (user-reported: refreshed covers/metadata never reach
+                // the Library): (a) ensure the content_details row EXISTS before the
+                // axis update (a bare updateDataSourceAxis on a missing row is a
+                // silent no-op — refreshed data was lost); (b) build the update from
+                // the EXISTING row so fields the fresh fetch doesn't carry (e.g.
+                // dataCoverUrl when AniList omits it) are preserved instead of nulled.
+                val mainId = currentMainId
+                if (mainId != null) {
+                    val existing = contentRepository.getContentDetails(mainId)
+                    if (existing == null) {
+                        contentRepository.upsertContentDetails(
+                            com.confused.anikuta.core.content.ContentDetails(mainId = mainId),
+                        )
+                    }
+                    contentRepository.updateDataSourceAxis(
+                        (existing ?: com.confused.anikuta.core.content.ContentDetails(mainId = mainId)).copy(
+                            dataSourceType = "anilist",
+                            dataSourceRefId = anilistId.toString(),
+                            dataScore = fresh.averageScore?.toLong() ?: existing?.dataScore,
+                            dataEpisodes = fresh.episodes?.toLong() ?: existing?.dataEpisodes,
+                            dataSeason = fresh.season ?: existing?.dataSeason,
+                            dataSeasonYear = fresh.seasonYear?.toLong() ?: existing?.dataSeasonYear,
+                            dataStatus = fresh.status ?: existing?.dataStatus,
+                            dataGenres = fresh.genres?.joinToString(", ") ?: existing?.dataGenres,
+                            dataSynopsis = fresh.description ?: existing?.dataSynopsis,
+                            dataCoverUrl = fresh.coverUrl ?: existing?.dataCoverUrl,
+                            dataBannerUrl = fresh.bannerImage ?: existing?.dataBannerUrl,
+                            dataUpdatedAt = System.currentTimeMillis(),
+                        ),
+                    )
+                }
+                Logger.i(TAG) { "D.3 Stage 2: Refreshed AniList metadata" }
+                // D-235: Also refresh the airing schedule data.
+                if (mainId != null && metaGen == loadGeneration) {
+                    triggerNextEpisodeInfo(mainId, fresh.nextAiringEpisode, fresh.status)
+                }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "D.3 Stage 2: AniList metadata refresh failed: ${e.message}" }
+            }
+    }
+
+    /**
+     * ROUND 101 (WS-B): the extension half of the both-axes metadata refresh —
+     * the former body of [refreshMetadataNow]'s extension branch (previously
+     * UNREACHABLE for linked entries, the root cause of the stale-extension-
+     * details bug), promoted to a first-class axis refresh.
+     */
+    private suspend fun refreshExtensionAxis(
+        sourceId: Long,
+        animeUrl: String,
+        title: String,
+        coverUrl: String?,
+        year: Int?,
+    ) {
+        // D-313: generation guard (same as the AniList axis above).
+        val metaGen = loadGeneration
+        try {
+            val enriched = extensionProvider.fetchFromExtension(
+                sourceId, animeUrl, title, coverUrl,
+                year,
+            )
+                if (enriched != null) {
                     if (metaGen == loadGeneration) {
-                        anilistBase = fresh.toUnifiedAnime()
+                        extensionBase = enriched
                         remergeBases(
                             (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
-                                ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+                                ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
                         )
                     } else {
-                        Logger.d(TAG) { "D.3 Stage 2: AniList metadata discarded (stale generation)" }
+                        Logger.d(TAG) { "D.3 Stage 2: extension metadata discarded (stale generation)" }
                     }
-                    // D.1: Update the cache.
-                    // D-198: anime_metadata_cache → content_details (data-source axis).
-                    // D-248 FIX (user-reported: refreshed covers/metadata never reach
-                    // the Library): (a) ensure the content_details row EXISTS before the
-                    // axis update (a bare updateDataSourceAxis on a missing row is a
-                    // silent no-op — refreshed data was lost); (b) build the update from
-                    // the EXISTING row so fields the fresh fetch doesn't carry (e.g.
-                    // dataCoverUrl when AniList omits it) are preserved instead of nulled.
+                    // D-248 FIX (user-reported: extension refreshes never propagate to
+                    // the Library/covers): the old code only updated the in-memory
+                    // base — the ext_* axis of content_details was never persisted, so
+                    // the refreshed cover/thumbnail existed only until the screen
+                    // closed. Persist the extension axis now (same merge-with-existing
+                    // discipline as the AniList branch: null fetch fields preserve the
+                    // stored value instead of wiping it).
                     val mainId = currentMainId
                     if (mainId != null) {
-                        val existing = contentRepository.getContentDetails(mainId)
-                        if (existing == null) {
+                        val existingExt = contentRepository.getContentDetails(mainId)
+                        if (existingExt == null) {
                             contentRepository.upsertContentDetails(
                                 com.confused.anikuta.core.content.ContentDetails(mainId = mainId),
                             )
                         }
-                        contentRepository.updateDataSourceAxis(
-                            (existing ?: com.confused.anikuta.core.content.ContentDetails(mainId = mainId)).copy(
-                                dataSourceType = "anilist",
-                                dataSourceRefId = anilistId.toString(),
-                                dataScore = fresh.averageScore?.toLong() ?: existing?.dataScore,
-                                dataEpisodes = fresh.episodes?.toLong() ?: existing?.dataEpisodes,
-                                dataSeason = fresh.season ?: existing?.dataSeason,
-                                dataSeasonYear = fresh.seasonYear?.toLong() ?: existing?.dataSeasonYear,
-                                dataStatus = fresh.status ?: existing?.dataStatus,
-                                dataGenres = fresh.genres?.joinToString(", ") ?: existing?.dataGenres,
-                                dataSynopsis = fresh.description ?: existing?.dataSynopsis,
-                                dataCoverUrl = fresh.coverUrl ?: existing?.dataCoverUrl,
-                                dataBannerUrl = fresh.bannerImage ?: existing?.dataBannerUrl,
-                                dataUpdatedAt = System.currentTimeMillis(),
+                        contentRepository.updateExtensionAxis(
+                            (existingExt ?: com.confused.anikuta.core.content.ContentDetails(mainId = mainId)).copy(
+                                extThumbnailUrl = enriched.coverUrl ?: existingExt?.extThumbnailUrl,
+                                extDescription = enriched.description ?: existingExt?.extDescription,
+                                extUpdatedAt = System.currentTimeMillis(),
                             ),
                         )
                     }
-                    Logger.i(TAG) { "D.3 Stage 2: Refreshed AniList metadata" }
-                    // D-235: Also refresh the airing schedule data.
-                    if (mainId != null && metaGen == loadGeneration) {
-                        triggerNextEpisodeInfo(mainId, fresh.nextAiringEpisode, fresh.status)
-                    }
-                } catch (e: Exception) {
-                    Logger.e(TAG, e) { "D.3 Stage 2: Metadata refresh failed: ${e.message}" }
                 }
-        } else if (anime.sourceId != null && anime.animeUrl != null) {
-            val sourceId = anime.sourceId!!
-            val animeUrl = anime.animeUrl!!
-            // D-313: generation guard (same as the AniList branch above).
-            val metaGen = loadGeneration
-            try {
-                val enriched = extensionProvider.fetchFromExtension(
-                    sourceId, animeUrl, anime.displayName, anime.coverUrl,
-                    // Task 47: re-seed the currently displayed year so a refresh
-                    // never drops the Year row when the source's load() omits it.
-                    anime.seasonYear,
-                )
-                    if (enriched != null) {
-                        if (metaGen == loadGeneration) {
-                            extensionBase = enriched
-                            remergeBases(
-                                (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
-                                    ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
-                            )
-                        } else {
-                            Logger.d(TAG) { "D.3 Stage 2: extension metadata discarded (stale generation)" }
-                        }
-                        // D-248 FIX (user-reported: extension refreshes never propagate to
-                        // the Library/covers): the old code only updated the in-memory
-                        // base — the ext_* axis of content_details was never persisted, so
-                        // the refreshed cover/thumbnail existed only until the screen
-                        // closed. Persist the extension axis now (same merge-with-existing
-                        // discipline as the AniList branch: null fetch fields preserve the
-                        // stored value instead of wiping it).
-                        val mainId = currentMainId
-                        if (mainId != null) {
-                            val existingExt = contentRepository.getContentDetails(mainId)
-                            if (existingExt == null) {
-                                contentRepository.upsertContentDetails(
-                                    com.confused.anikuta.core.content.ContentDetails(mainId = mainId),
-                                )
-                            }
-                            contentRepository.updateExtensionAxis(
-                                (existingExt ?: com.confused.anikuta.core.content.ContentDetails(mainId = mainId)).copy(
-                                    extThumbnailUrl = enriched.coverUrl ?: existingExt?.extThumbnailUrl,
-                                    extDescription = enriched.description ?: existingExt?.extDescription,
-                                    extUpdatedAt = System.currentTimeMillis(),
-                                ),
-                            )
-                        }
-                    }
-                Logger.i(TAG) { "D.3 Stage 2: Refreshed extension metadata" }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "D.3 Stage 2: Extension metadata refresh failed: ${e.message}" }
             }
-        }
     }
 
     /**
@@ -1909,8 +1960,14 @@ class DetailsViewModel(
                             // (network fetch); never remerge old data over a new anime.
                             if (refreshed != null && loadGen == loadGeneration) {
                                 extensionBase = refreshed
+                                // ROUND 101 (WS-B): re-merge with the user's CURRENT
+                                // priority — the old hardcoded EXTENSION flip silently
+                                // overrode a user-selected AniList priority every time
+                                // this silent refresh landed (a mid-browsing priority
+                                // switch "didn't stick" until the next interaction).
                                 remergeBases(
-                                    com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
+                                    (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                                        ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
                                 )
                                 // Persist the refreshed ext_* axis (silent).
                                 resolveContentForExtension(sourceId, animeUrl, title, refreshed)
@@ -2859,9 +2916,20 @@ class DetailsViewModel(
 
         Logger.i(TAG) { "Unlinking AniList entry: sourceId=$sourceId, url=$animeUrl, anilistId=$anilistId" }
         autoLinkService.clearCachedLink(sourceId, animeUrl)
-        // D-538: unlinking is a deliberate link-cycle decision — clear the
-        // persisted skip flag so the auto-link can attempt the entry again.
-        autoLinkService.clearUserSkipped(sourceId, animeUrl)
+        // ROUND 101 (WS-B) — SUPERSEDES the D-538 unlink decision: unlinking
+        // now MARKS the entry user-skipped instead of clearing the flag. The
+        // D-538 semantics ("unlink re-enables auto-linking") produced the
+        // user's round-101 report: unlink AniList → leave → reopen → the
+        // forward auto-link fires again and the content is ALREADY re-linked
+        // ("it was maybe automatically trying to link to AnyList too"). The
+        // user's rule: a MANUAL unlink is final — the auto-link never re-attempts
+        // this entry until the user deliberately links it again (the manual
+        // link path clears the flag; the skip-button semantics are unchanged).
+        autoLinkService.markUserSkipped(sourceId, animeUrl)
+        // Also drop the persisted reverse source-link (anilistId → source) so
+        // no stale mapping survives the unlink (hygiene — loadLinkedSource's
+        // twin of the KEY_SOURCE_LINK_PREFIX write linkAniListEntry makes).
+        preferenceStore.putString(KEY_SOURCE_LINK_PREFIX + anilistId, "")
 
         // D-137: Persist the unlink in the content database.
         val mainId = currentMainId
@@ -3049,6 +3117,12 @@ class DetailsViewModel(
             autoLinkPreferences.clearUserUnlinked(animeId)
         }
 
+        // ROUND 101 (WS-B): the FORWARD-side twin — a manual source link is a
+        // deliberate link decision, so any persisted forward auto-link skip
+        // for this (sourceId, animeUrl) clears too (mirrors linkAniListEntry's
+        // clearUserSkipped; keeps both faces of the link cycle coherent).
+        autoLinkService.clearUserSkipped(source.id, sAnime.url)
+
         // D-238: Clear the episode cache so episodes from the OLD source don't
         // mix with the NEW source's episodes. The fresh fetch will repopulate.
         val mainIdForCacheClear = currentMainId
@@ -3149,6 +3223,19 @@ class DetailsViewModel(
     fun unlinkSource() {
         val animeId = currentAnimeId
         Logger.i(TAG) { "Unlinking source for anime $animeId" }
+        // ROUND 101 (WS-B): capture the linked identity BEFORE it clears —
+        // the forward auto-link twin of the unlink-must-be-final rule. The
+        // extension-side unlink also kills the FORWARD cached link for this
+        // (sourceId, animeUrl) + marks it user-skipped: without this, opening
+        // the same content from the EXTENSION side would hit
+        // getCachedAniListId → auto re-link ("already linked again"), the
+        // mirror of the round-101 AniList-side report. A manual link on
+        // either face clears the flag again.
+        val linkedIdentity = _linkedSource.value
+        if (linkedIdentity != null) {
+            autoLinkService.clearCachedLink(linkedIdentity.sourceId, linkedIdentity.animeUrl)
+            autoLinkService.markUserSkipped(linkedIdentity.sourceId, linkedIdentity.animeUrl)
+        }
         preferenceStore.putString(KEY_SOURCE_LINK_PREFIX + animeId, "")
         _linkedSource.value = null
         _episodeState.value = EpisodeState.Idle
