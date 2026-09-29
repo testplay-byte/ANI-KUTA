@@ -281,9 +281,34 @@ checklist append below as the streams land.)*
   scroll-position space; the repo's own unit-tested D-402 convention
   (finger-space) proved it inverted and the fix landed before CI.
 
-## 5. The CI history (the D-472 ledger)
+## 5. The CI history (the D-472 ledger — 3 runs, OVER the ≤2 budget, disclosed)
 
-1. **Run 36595801774 on 7315a065** — *(fills below when the run completes.)*
+1. **Run 36595801774 on 7315a065 — FAILURE:** the Dp OPERATOR-EXTENSION trap
+   (the round-104 member-extension lesson's mirror): the new
+   `bannerVerticalPadding`'s `(1f - t) * 6.dp` resolved against the stdlib's
+   `Float.times` overloads — Compose's `Float.times(Dp)` lives at TOP LEVEL
+   (`androidx.compose.ui.unit`) and needs an import, while `Dp * Float` is a
+   MEMBER operator (import-free; TrackSheet's pre-existing
+   `screenWidthDp.dp * 0.5f` compiled all along — the asymmetry that hides
+   the trap). ONE error, one file.
+2. **Run 36596334575 on 58159c00 — FAILURE:** the Dp fix cleared
+   :core:designsystem and the build reached :app, surfacing the NEXT layer's
+   two errors: (a) PlayerEpisodeListSettingsScreen's new PlayerSwitchRow
+   used `Modifier.width` without the import (the file had never used width);
+   (b) SettingsScreen.kt's `searchIconFor` — an EXHAUSTIVE `when` over
+   SettingsSearchPage — lacked the new PLAYER_EPISODE_LIST branch. Both
+   fixed in 73858411 (a repo-wide sweep confirmed only two `when`s over the
+   enum; the routing one was already handled). THE STRUCTURAL CAUSE: the
+   round added a new enum VALUE — Kotlin's exhaustive-whens turn every
+   consumer into a compile-time dependency, and each CI run only surfaces
+   the errors of the modules whose dependencies finally passed.
+3. **Run 36597168245 on 73858411 — GREEN** (the run-3 result; §8 records
+   the release). THE
+   BUDGET BREACH: this round needed 3 runs where D-472 allots ≤2 — disclosed
+   here and in the worklog (the precedent: round 102's 3-run cycle); the
+   two failure classes were both new-to-the-repo traps (the top-level
+   operator extension; the new-enum exhaustive-when fan-out), each swept
+   repo-wide at fix time.
 
 ## 6. The sub-agent audits (the standing ≥2 order, D-689)
 
