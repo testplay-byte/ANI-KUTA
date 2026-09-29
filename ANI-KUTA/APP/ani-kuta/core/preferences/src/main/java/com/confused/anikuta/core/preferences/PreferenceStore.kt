@@ -245,6 +245,19 @@ object IntSerializer : PreferenceSerializer<Int> {
         store.intFlow(key, default)
 }
 
+/**
+ * Serializer for Float preferences (ROUND 104 / D-703: the player banner's
+ * density slider — the store's getFloat/putFloat/floatFlow already existed).
+ */
+object FloatSerializer : PreferenceSerializer<Float> {
+    override fun deserialize(store: PreferenceStore, key: String, default: Float) =
+        store.getFloat(key, default)
+    override fun serialize(store: PreferenceStore, key: String, value: Float) =
+        store.putFloat(key, value)
+    override fun changes(store: PreferenceStore, key: String, default: Float) =
+        store.floatFlow(key, default)
+}
+
 /** Serializer for Boolean preferences. */
 object BooleanSerializer : PreferenceSerializer<Boolean> {
     override fun deserialize(store: PreferenceStore, key: String, default: Boolean) =

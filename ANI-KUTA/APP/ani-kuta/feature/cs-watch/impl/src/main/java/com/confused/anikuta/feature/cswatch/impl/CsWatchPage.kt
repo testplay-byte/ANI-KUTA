@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -148,8 +149,7 @@ internal fun CsWatchPage(
     // The in-player gear + search are RETIRED (the user's round-102 order —
     // same as the MPV stack's twin): the customization lives in the dedicated
     // Settings page now (Appearance → "Player episode list"), the SAME shared
-    // PlayerEpisodeListPreferences driving both player pages, applied here
-    // through the same pipeline (watched filter → sort).
+    // PlayerEpisodeListPreferences driving both player pages.
     val playerListPrefs = koinInject<com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences>()
     // ROUND 103 (WS-4): the raw key resolves through the lenient lookup; the
     // display bundle (the four-paradigm knobs) is built from the LIVE values
@@ -161,53 +161,45 @@ internal fun CsWatchPage(
     val csShowSynopsis by playerListPrefs.showSynopsis.changes.collectAsState(initial = playerListPrefs.showSynopsis.get())
     val csShowDatePill by playerListPrefs.showDatePill.changes.collectAsState(initial = playerListPrefs.showDatePill.get())
     val csDimWatched by playerListPrefs.dimWatched.changes.collectAsState(initial = playerListPrefs.dimWatched.get())
-    val csListDisplay = remember(csListStyle, csShowSynopsis, csShowDatePill, csDimWatched) {
+    // ROUND 104 (WS-D): the BANNER's controls — the ghost-number toggle +
+    // the density knob (both live in the shared display bundle now).
+    val csShowEpisodeNumber by playerListPrefs.showEpisodeNumber.changes.collectAsState(
+        initial = playerListPrefs.showEpisodeNumber.get(),
+    )
+    val csBannerDensity by playerListPrefs.bannerDensity.changes.collectAsState(
+        initial = playerListPrefs.bannerDensity.get(),
+    )
+    val csListDisplay = remember(
+        csListStyle, csShowSynopsis, csShowDatePill, csDimWatched,
+        csShowEpisodeNumber, csBannerDensity,
+    ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = csListStyle,
             showSynopsis = csShowSynopsis,
             showDatePill = csShowDatePill,
             dimWatched = csDimWatched,
+            showEpisodeNumber = csShowEpisodeNumber,
+            bannerDensity = csBannerDensity,
         )
     }
-    val csWatchedFilter by playerListPrefs.watchedFilter.changes.collectAsState(initial = playerListPrefs.watchedFilter.get())
+    // ROUND 104 (WS-D): the watched FILTER is RETIRED (the v1.1.60 order —
+    // "it should be completely removed"); the DIM treatment stays.
     // ROUND 103 (WS-4): DIRECTION ONLY — the round-101 sort modes are retired
     // per the device round's order.
     val csSortDescending by playerListPrefs.sortDescending.changes.collectAsState(initial = playerListPrefs.sortDescending.get())
 
     val renderRows = remember(
-        renderRowsBase, csWatchedFilter, csSortDescending,
-        uiState.episodeMetadata, progressByEpisodeKey,
+        renderRowsBase, csSortDescending,
     ) {
-        // Watched filter — the ordinal-aware progress identity (Task 57 P1).
-        val filtered = when (csWatchedFilter) {
-            "SHOW" -> renderRowsBase.filter { ep ->
-                val key = if (mainId.isNotBlank()) {
-                    CsWatchViewModel.episodeKey(
-                        mainId,
-                        flavorOrdinals[ep.data]?.toFloat() ?: ep.episodeNumber,
-                    )
-                } else null
-                key?.let { progressByEpisodeKey[it]?.isWatched == true } ?: false
-            }
-            "HIDE" -> renderRowsBase.filterNot { ep ->
-                val key = if (mainId.isNotBlank()) {
-                    CsWatchViewModel.episodeKey(
-                        mainId,
-                        flavorOrdinals[ep.data]?.toFloat() ?: ep.episodeNumber,
-                    )
-                } else null
-                key?.let { progressByEpisodeKey[it]?.isWatched == true } ?: false
-            }
-            else -> renderRowsBase
-        }
-        // ROUND 103 (WS-4): the sort is the episode number + direction ONLY.
-        val rows = filtered.sortedBy { it.episodeNumber }
+        // ROUND 104 (WS-D): the sort is the episode number + direction ONLY
+        // (the watched-filter stage is retired with the pref).
+        val rows = renderRowsBase.sortedBy { it.episodeNumber }
         if (csSortDescending) rows.asReversed() else rows
     }
 
     // ROUND 102 (WS-F): the current episode's position in the DISPLAY list —
-    // -1 means it is filtered out (the watched filter / the sub-dub switcher
-    // can exclude it), which hides the header's "Scroll to Current" action.
+    // -1 means it is outside the display list (the sub-dub switcher can
+    // exclude it), which hides the header's "Scroll to Current" action.
     // The lazy-index offset accounts for the items above the rows (the
     // Episodes header + the sub/dub switcher when it shows).
     val csCurrentEpisodeIndex = remember(renderRows, currentEpisodeData) {
@@ -221,6 +213,18 @@ internal fun CsWatchPage(
     } else {
         csCurrentEpisodeIndex
     }
+
+    // ── ROUND 104 (WS-C/WS-D): THE UNSTOPPABLE SCROLL's owner-level state —
+    // the MPV stack's twin. ROOT-CAUSE FIX: the round-103 scope lived INSIDE
+    // the header's lazy item (its disposal mid-glide cancelled the scroll —
+    // the "scrolls slightly, then stops" report); the scope now lives at the
+    // page level. The ARRIVAL PULSE token bumps only after a COMPLETED glide
+    // (a user touch cancels the coroutine BEFORE the bump). The WATCHED
+    // STORE feeds the swipe/long-press toggles (the same store the progress
+    // map above observes — the map re-emits live on every toggle). ──
+    val csPageScrollScope = rememberCoroutineScope()
+    var csScrollArrivalPulse by remember { mutableLongStateOf(0L) }
+    val csWatchProgressStore = koinInject<com.confused.anikuta.core.watchprogress.WatchProgressStore>()
 
     // Task 57 (P1): the CURRENT episode's rating/progress identity — the
     // flavor ORDINAL for tagged lists (sub-5 ↔ dub-5 share ONE key: one
@@ -418,9 +422,9 @@ internal fun CsWatchPage(
                                 // MPV stack's twin (the round-101 magnifier +
                                 // gear are retired per the user's order). A
                                 // TEXT action in the primary color; hidden
-                                // while the current episode is filtered out.
+                                // while the current episode is outside the
+                                // display list.
                                 if (csCurrentEpisodeIndex >= 0) {
-                                    val csScrollScope = rememberCoroutineScope()
                                     Text(
                                         text = "Scroll to Current",
                                         fontFamily = RobotoFamily,
@@ -430,16 +434,14 @@ internal fun CsWatchPage(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(10.dp))
                                             .clickable {
-                                                csScrollScope.launch {
-                                                    // ROUND 103 (WS-3): the
-                                                    // honest scroll — the MPV
-                                                    // stack's twin: a smooth
-                                                    // glide that CENTERS the
-                                                    // current episode in the
-                                                    // list's own viewport (no
-                                                    // far-target snap; the
-                                                    // first/last rows stop
-                                                    // naturally at the edges).
+                                                // ROUND 104 (WS-C): the PAGE-LEVEL
+                                                // scope (the round-103 scope lived
+                                                // INSIDE this lazy item — its
+                                                // disposal mid-glide cancelled the
+                                                // scroll) + the ARRIVAL PULSE after
+                                                // a COMPLETED glide (a user touch
+                                                // cancels before the bump).
+                                                csPageScrollScope.launch {
                                                     listState.animateScrollToItemCentered(
                                                         // ROUND 103 (WS-4): under GRID the items are
                                                         // PAIRS — csCurrentPairOffset already carries
@@ -450,6 +452,7 @@ internal fun CsWatchPage(
                                                         csCurrentPairOffset +
                                                             2 + if (showSubDubSwitcher) 1 else 0,
                                                     )
+                                                    csScrollArrivalPulse += 1L
                                                 }
                                             }
                                             .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -458,20 +461,9 @@ internal fun CsWatchPage(
                             }
                         }
                     }
-                    // ROUND 102 (WS-F): the in-list search field is RETIRED with
-                    // the in-player search (the MPV page's twin).
-                    // ROUND 101 (WS-E): the filtered-empty state.
-                    if (renderRows.isEmpty()) {
-                        item(key = "cs-episode-list-empty") {
-                            Text(
-                                text = "No episodes match your filter.",
-                                fontFamily = RobotoFamily,
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 20.dp),
-                            )
-                        }
-                    }
+                    // ROUND 104 (WS-D): the filtered-empty state is RETIRED
+                    // with the watched filter (a non-empty row list can no
+                    // longer filter down to nothing).
                     // Task 55: the Sub/Dub switcher chips (SEPARATE mode, both
                     // flavors) — the SeasonSelectorRow chip language.
                     if (showSubDubSwitcher) {
@@ -568,6 +560,25 @@ internal fun CsWatchPage(
                                         onEpisodeSwitch(ep)
                                     }
                                 },
+                                // ROUND 104 (WS-D): the GRID's long-press watched
+                                // toggle — the ordinal identity (the same math
+                                // toRowData uses), guarded on a blank mainId.
+                                onToggleWatched = { data ->
+                                    val ep = pair.firstOrNull {
+                                        val dn = flavorOrdinals[it.data]?.toFloat() ?: it.episodeNumber
+                                        com.confused.anikuta.core.common.EpisodeTitleParser
+                                            .formatEpisodeNumber(dn) == data.episodeNumberText
+                                    } ?: pair[0]
+                                    if (mainId.isNotBlank()) {
+                                        val dn = flavorOrdinals[ep.data]?.toFloat() ?: ep.episodeNumber
+                                        csPageScrollScope.launch {
+                                            csWatchProgressStore.toggleWatched(
+                                                CsWatchViewModel.episodeKey(mainId, dn),
+                                            )
+                                        }
+                                    }
+                                },
+                                arrivalPulse = csScrollArrivalPulse,
                             )
                         }
                     } else {
@@ -579,6 +590,21 @@ internal fun CsWatchPage(
                                 onClick = {
                                     if (!data.isCurrent) onEpisodeSwitch(ep)
                                 },
+                                // ROUND 104 (WS-D): the swipe-to-toggle — the
+                                // ordinal identity (the toRowData math), guarded
+                                // on a blank mainId; the progress map above
+                                // re-emits live on every toggle.
+                                onToggleWatched = {
+                                    if (mainId.isNotBlank()) {
+                                        val dn = flavorOrdinals[ep.data]?.toFloat() ?: ep.episodeNumber
+                                        csPageScrollScope.launch {
+                                            csWatchProgressStore.toggleWatched(
+                                                CsWatchViewModel.episodeKey(mainId, dn),
+                                            )
+                                        }
+                                    }
+                                },
+                                arrivalPulse = csScrollArrivalPulse,
                             )
                         }
                     }

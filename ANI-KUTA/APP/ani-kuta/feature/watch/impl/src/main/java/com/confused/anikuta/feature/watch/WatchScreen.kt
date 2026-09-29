@@ -57,6 +57,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -1669,15 +1670,29 @@ private fun MinimizedMode(
     val showSynopsis by playerListPrefs.showSynopsis.changes.collectAsState(initial = playerListPrefs.showSynopsis.get())
     val showDatePill by playerListPrefs.showDatePill.changes.collectAsState(initial = playerListPrefs.showDatePill.get())
     val dimWatched by playerListPrefs.dimWatched.changes.collectAsState(initial = playerListPrefs.dimWatched.get())
-    val liveListDisplay = remember(listStyle, showSynopsis, showDatePill, dimWatched) {
+    // ROUND 104 (WS-D): the BANNER's controls — the ghost-number toggle +
+    // the density knob (both live in the shared display bundle now).
+    val showEpisodeNumber by playerListPrefs.showEpisodeNumber.changes.collectAsState(
+        initial = playerListPrefs.showEpisodeNumber.get(),
+    )
+    val bannerDensity by playerListPrefs.bannerDensity.changes.collectAsState(
+        initial = playerListPrefs.bannerDensity.get(),
+    )
+    val liveListDisplay = remember(
+        listStyle, showSynopsis, showDatePill, dimWatched, showEpisodeNumber, bannerDensity,
+    ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = listStyle,
             showSynopsis = showSynopsis,
             showDatePill = showDatePill,
             dimWatched = dimWatched,
+            showEpisodeNumber = showEpisodeNumber,
+            bannerDensity = bannerDensity,
         )
     }
-    val watchedFilter by playerListPrefs.watchedFilter.changes.collectAsState(initial = playerListPrefs.watchedFilter.get())
+    // ROUND 104 (WS-D): the watched FILTER is RETIRED (the v1.1.60 order:
+    // "the option for watch filter… should be completely removed") — the
+    // list shows every episode; the DIM treatment (above) stays.
     // ROUND 103 (WS-4): DIRECTION ONLY — the round-101 sort modes are
     // retired per the device round's order ("the only sort option which
     // should be given here is ascending or descending").
@@ -1696,32 +1711,21 @@ private fun MinimizedMode(
         progressList.filter { it.isWatched }.map { it.episodeKey }.toSet()
     }
 
-    // The display list: watched filter → sort (ROUND 102: the search stage is
-    // RETIRED with the in-player search — the details page's EpisodeSearchSheet
-    // remains the searching surface for episode lists). ROUND 103 (WS-4): the
-    // sort is the episode number + direction ONLY (the round-101 sort modes
-    // retired per the device round's order).
-    val displayEpisodes = remember(
-        episodeList, watchedFilter, watchedKeys, sortDescending,
-    ) {
-        fun isWatchedEp(ep: SimpleEpisode) =
-            watchKey.mainId.isNotBlank() && watchedKeys.contains(buildEpisodeKey(watchKey.mainId, ep.episodeNumber))
-        val list = when (watchedFilter) {
-            "SHOW" -> episodeList.filter(::isWatchedEp)
-            "HIDE" -> episodeList.filterNot(::isWatchedEp)
-            else -> episodeList
-        }.sortedBy { it.episodeNumber }
+    // The display list: sort over the episode number + direction ONLY.
+    // (ROUND 104 (WS-D): the watched-filter stage is RETIRED — see the
+    // display prefs above; ROUND 102 retired the search stage with the
+    // in-player search.)
+    val displayEpisodes = remember(episodeList, sortDescending) {
+        val list = episodeList.sortedBy { it.episodeNumber }
         if (sortDescending) list.asReversed() else list
     }
 
     // ROUND 102 (WS-F): the current episode's position in the DISPLAY list —
-    // -1 means it is filtered out (the watched filter can exclude it), which
-    // hides the header's "Scroll to Current" action (nothing to scroll to).
+    // -1 means it is not in the list (defensive; with the filter retired
+    // this only happens for a current URL outside the episode list), which
+    // hides the header's "Scroll to Current" action.
     // SA2-F3 fix: the lazy-index offset counts EVERY item above the rows —
     // the "Currently playing" card (item 0) + the Episodes header (item 1).
-    // The round-101 search field item is gone with the search; the
-    // empty-state item only exists when the list is empty (and then there is
-    // no current to scroll to anyway).
     val currentEpisodeIndexInDisplay = remember(displayEpisodes, currentEpisodeUrl) {
         displayEpisodes.indexOfFirst { it.url == currentEpisodeUrl }
     }
@@ -1733,6 +1737,18 @@ private fun MinimizedMode(
     } else {
         currentEpisodeIndexInDisplay
     }
+
+    // ── ROUND 104 (WS-C): THE UNSTOPPABLE SCROLL's owner-level state.
+    // ROOT-CAUSE FIX: the round-103 code declared `rememberCoroutineScope()`
+    // INSIDE the header's lazy item — the moment the glide started, the
+    // header scrolled out of the composed window, the item was disposed,
+    // and the scope's cancellation KILLED the glide mid-flight ("it just
+    // scrolls slightly, but then it stops"). The scope now lives HERE, at
+    // the page level, OUTLIVING every lazy item. The ARRIVAL PULSE token
+    // bumps ONLY after a COMPLETED glide (a user touch cancels the scroll
+    // coroutine BEFORE this line — an interrupted glide never pulses). ──
+    val pageScrollScope = rememberCoroutineScope()
+    var scrollArrivalPulse by remember { mutableLongStateOf(0L) }
 
     // Wrap in derivedStateOf to prevent excessive recompositions.
     val collapsed by remember {
@@ -2071,11 +2087,9 @@ private fun MinimizedMode(
                             // action in the primary color; tapping it
                             // animatedly scrolls the episode list to the
                             // currently playing episode. Hidden while the
-                            // current episode is filtered out of the visible
-                            // list (the watched filter can exclude it —
-                            // there is nothing to scroll to).
+                            // current episode is outside the display list
+                            // (nothing to scroll to).
                             if (currentEpisodeIndexInDisplay >= 0) {
-                                val scrollScope = rememberCoroutineScope()
                                 Text(
                                     text = "Scroll to Current",
                                     fontFamily = RobotoFamily,
@@ -2085,21 +2099,26 @@ private fun MinimizedMode(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(10.dp))
                                         .clickable {
-                                            scrollScope.launch {
-                                                // ROUND 103 (WS-3): the honest
-                                                // scroll — a fully-animated glide
-                                                // (no far-target snap) that
-                                                // CENTERS the current episode in
-                                                // the list's own viewport (the
-                                                // area below the player), with
-                                                // the first/last rows stopping
-                                                // naturally un-centered at the
-                                                // content edges. (WS-4: under
-                                                // GRID this is the pair row that
-                                                // CONTAINS the current episode.)
+                                            // ROUND 104 (WS-C): the PAGE-LEVEL
+                                            // scope (the round-103 scope lived
+                                            // INSIDE this lazy item — its
+                                            // disposal mid-glide cancelled the
+                                            // scroll: the "scrolls slightly,
+                                            // then stops" the device round
+                                            // reported). After a COMPLETED
+                                            // glide the ARRIVAL PULSE token
+                                            // bumps — the current row plays a
+                                            // highlight that fades back to its
+                                            // normal treatment. A user touch
+                                            // cancels this coroutine BEFORE
+                                            // the bump (the scroll mutex's
+                                            // UserInput priority) — an
+                                            // interrupted glide never pulses.
+                                            pageScrollScope.launch {
                                                 listState.animateScrollToItemCentered(
                                                     currentLazyIndex,
                                                 )
+                                                scrollArrivalPulse += 1L
                                             }
                                         }
                                         .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -2108,28 +2127,19 @@ private fun MinimizedMode(
                         }
                     }
                 }
-                // ROUND 102 (WS-F): the in-list search field is RETIRED with
-                // the in-player search (see the header comment above).
-                // ROUND 101 (WS-E): the filtered-empty state — a watched
-                // filter that matches nothing says so (the extensions
-                // screen's twin message discipline).
-                if (displayEpisodes.isEmpty()) {
-                    item(key = "episode-list-empty") {
-                        Text(
-                            text = "No episodes match your filter.",
-                            fontFamily = RobotoFamily,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 20.dp),
-                        )
-                    }
-                }
+                // ROUND 104 (WS-D): the filtered-empty state is RETIRED
+                // with the watched filter (a non-empty episode list can no
+                // longer filter down to nothing).
                 // D-230: Lazy episode rows — virtualized! Only ~10-15 rows
                 // composed at a time (the visible window), not all 1000.
                 // ROUND 103 (WS-4): the rows render through the ONE shared
                 // four-paradigm dispatcher (PlayerEpisodeListEntry — the
                 // same renderer the settings preview draws); under GRID the
                 // items are two-across PAIRS.
+                // ROUND 104 (WS-D): every entry carries the SWIPE-to-toggle
+                // ("exactly like how it is on the details page"; the GRID's
+                // cells long-press instead — the shared renderer's parity)
+                // + the scroll-arrival pulse token.
                 // The MPV stack's mapping into the render-only bundle.
                 fun toRowData(ep: SimpleEpisode): com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeRowData {
                     val meta = episodeMetadata[ep.episodeNumber.toInt()]
@@ -2182,6 +2192,22 @@ private fun MinimizedMode(
                                     onEpisodeSwitch(ep)
                                 }
                             },
+                            // ROUND 104 (WS-D): the GRID's long-press watched
+                            // toggle (the swipe's parity — half-width cells
+                            // cannot swipe; the details page's GRID parity).
+                            onToggleWatched = { data ->
+                                val ep = pair.firstOrNull {
+                                    formatEpisodeNumber(it.episodeNumber) == data.episodeNumberText
+                                } ?: pair[0]
+                                if (watchKey.mainId.isNotBlank()) {
+                                    pageScrollScope.launch {
+                                        watchProgressStore.toggleWatched(
+                                            buildEpisodeKey(watchKey.mainId, ep.episodeNumber),
+                                        )
+                                    }
+                                }
+                            },
+                            arrivalPulse = scrollArrivalPulse,
                         )
                     }
                 } else {
@@ -2195,6 +2221,19 @@ private fun MinimizedMode(
                                     onEpisodeSwitch(ep)
                                 }
                             },
+                            // ROUND 104 (WS-D): the swipe-to-toggle — the
+                            // details page's gesture through the shared
+                            // wrapper (the store emits; watchedKeys is live).
+                            onToggleWatched = {
+                                if (watchKey.mainId.isNotBlank()) {
+                                    pageScrollScope.launch {
+                                        watchProgressStore.toggleWatched(
+                                            buildEpisodeKey(watchKey.mainId, ep.episodeNumber),
+                                        )
+                                    }
+                                }
+                            },
+                            arrivalPulse = scrollArrivalPulse,
                         )
                     }
                 }

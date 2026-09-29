@@ -1896,6 +1896,28 @@ fun DetailsScreen(
         }
     }
 
+    // ── ROUND 104 (WS-B): the tracking TOAST — the ViewModel's one-shot
+    // notice (startTracking's confirmed sync / removeTracking's success)
+    // rendered as the beautiful bottom pill. The host is a pass-through
+    // overlay (the details screen's established bottom-anchored-box
+    // pattern); the accent wrap keeps it on the sheet's theme. ──
+    val trackingNotice by viewModel.trackingNotice.collectAsState()
+    if (trackingNotice != null) {
+        com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
+            accentArgb = coverAccent?.toLong(),
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                TrackingToastHost(
+                    notice = trackingNotice,
+                    onConsumed = viewModel::consumeTrackingNotice,
+                )
+            }
+        }
+    }
+
     // D-242: "Mark all previous episodes as watched" — bottom-anchored snackbar
     // (NOT a fullscreen dialog, per user feedback). 5s timeout with auto-confirm.
     showMarkPreviousPrompt?.let { epNum ->

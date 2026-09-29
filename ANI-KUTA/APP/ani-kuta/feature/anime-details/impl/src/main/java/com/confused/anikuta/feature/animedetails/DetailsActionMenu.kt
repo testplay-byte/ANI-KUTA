@@ -52,51 +52,42 @@ import com.confused.anikuta.core.share.ShareLink
 import com.confused.anikuta.core.share.ShareTargetKind
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ROUND 103 (WS-1): DetailsActionMenu — the anchored menu's SECOND PASS.
+//  ROUND 103 (WS-1) → ROUND 104 (WS-A): DetailsActionMenu — the width + the
+//  color hierarchy + the tracking row's geometry.
 // ════════════════════════════════════════════════════════════════════════════
 //
-//  The v1.1.59 device round kept the anchored-dropdown FORM ("it opens up
-//  properly and it kind of looks clean") but ordered the look brought back to
-//  the app's aesthetic:
+//  The v1.1.60 device round kept the round-103 crimped STRUCTURE (the cards,
+//  the chips, the discs — all approved) and ordered three refinements:
 //
-//  • THE CRIMP — "you can crimp the menu a bit where the separations are…
-//    crimp the menu where the data source section ends, and the other options
-//    end, and also you can crimp the sides where the other sections get
-//    started." Every section is its own INSET ROUNDED CARD (16dp corners on a
-//    quiet surfaceVariant tint) with a visible gap between the groups — the
-//    inset-grouped rhythm, replacing the flat list + hairline dividers.
+//  • THE WIDTH — "it is way too wide, even more wider than it should
+//    actually be": the content column shrinks 300dp → 264dp on BOTH pages
+//    (the main menu + the share submenu — one width, one anchor rhythm).
 //
-//  • THE ROW-FORMAT DATA SOURCE — "in a row kind of format rather than a
-//    column, like one at the top and one at the bottom. Not like that. They
-//    should be shown just like how they were previously shown": the round-101
-//    sheet's side-by-side segmented chips are back. The LEFT chip carries ONLY
-//    the list system's NAME ("AniList" — future data-source systems append
-//    here); the RIGHT chip carries the EXTENSION TEXT (the linked source's
-//    actual name, not the generic word "Extension"). BELOW the row sits the
-//    link/unlink option ("below it it should show the option to unlink any
-//    list") — the round-102 standalone AniList section folds into this one.
+//  • THE COLOR HIERARCHY — "the background color is a bit on the lighter
+//    side, while the actual buttons are on the darker side, which is
+//    apparently not a good idea." The round-103 panel was flat `surface`
+//    while the section cards sat on a surfaceVariant overlay that read
+//    DARKER than the panel in light theme (and near-invisible in dark).
+//    The hierarchy INVERTS to the inset-grouped truth in BOTH themes —
+//    the CARDS are always BRIGHTER than the PANEL:
+//      dark  → panel = surface,        cards = surfaceVariant        (a lift)
+//      light → panel = surfaceContainerHigh (grey), cards = surface (near-white)
+//    The explicit colors carry the tone (tonalElevation 0 — no overlay
+//    fighting the picked containerColor).
 //
-//  • THE PREVIOUS LOGOS — "I liked the previous kind of logos which you had
-//    with the bottom-up menu": every action row wears the round-101
-//    DetailsActionSheet's ICON DISC — a 38dp tinted circle carrying a 19dp
-//    glyph (the bare 20dp DropdownMenuItem icons are gone).
+//  • THE TRACKING ROW — "the UI of the tracking button is looking a bit
+//    different, and it is not looking that proper": the round-103 row
+//    double-inset (a 6dp outer padding, then its own rounded wash — a pill
+//    INSIDE the card, a geometry no other row has). The row now wears
+//    EXACTLY MenuDiscRow's metrics (fillMaxWidth → clip(12) → wash →
+//    clickable → padding(h10, v8)) with the state tone INSIDE its own
+//    rounded rect; the idle grey wash is theme-aware (dark: a 4.5% onSurface
+//    lift over the card — the old surfaceVariant overlay was same-color
+//    and therefore invisible).
 //
-//  • "Open in Web View" — the label the user ordered (was "View in WebView").
-//
-//  • THE TRACKING STATE speaks through COLOR, not words: the text says only
-//    "Tracking"; NOT connected = the greyed disc + a greyish row background +
-//    greyish text; connected = a greenish tone on all three. (ROUND 103
-//    WS-2 — the state legend lives on the row itself.)
-//
-//  THE SHARE SUBMENU keeps its round-102 behavior exactly (the user: "much
-//  proper now… leave it as it is") — the same anchor, the same direct OS
-//  chooser; only its rows inherit the disc language so the two pages of one
-//  menu speak one visual language.
-//
-//  THEMING: composed INSIDE the details body's AdaptiveAccentTheme scope →
-//  the dropdown (a Compose popup inheriting the ambient MaterialTheme) picks
-//  up the per-content accent — the themed-menu behavior the user confirmed.
-// ════════════════════════════════════════════════════════════════════════════
+//  Everything else from round 103 stands: the crimped sections, the
+//  side-by-side data-source chips, the discs, "Open in Web View", and the
+//  share submenu's byte-identical behavior.
 
 /**
  * The three-dot anchored menu. [expanded] is the PARENT's open state (the
@@ -133,6 +124,15 @@ fun DetailsActionMenu(
     buildShareLinks: () -> List<ShareLink>,
 ) {
     val context = LocalContext.current
+    // ROUND 104 (WS-A): the theme-aware panel/card hierarchy — the CARDS are
+    // always BRIGHTER than the PANEL (the inverted relationship the device
+    // round ordered; see the file header).
+    val darkTheme = isSystemInDarkTheme()
+    val panelColor = if (darkTheme) {
+        MaterialTheme.colorScheme.surface
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    }
     // The Share page swap — internal so both menus share ONE anchor Box.
     // Reset when fully closed so the next open starts on the main page.
     var sharePage by remember { mutableStateOf(false) }
@@ -144,16 +144,16 @@ fun DetailsActionMenu(
     DropdownMenu(
         expanded = expanded && !sharePage,
         onDismissRequest = onDismissRequest,
-        // ROUND 103: the softer panel — 20dp corners + a gentle tonal lift
-        // (the crimped cards inside carry the structure).
+        // ROUND 104 (WS-A): 20dp corners + the explicit deeper panel (the
+        // crimped cards inside are the brighter layer now).
         shape = RoundedCornerShape(20.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = 6.dp,
+        containerColor = panelColor,
+        tonalElevation = 0.dp,
         shadowElevation = 10.dp,
     ) {
         Column(
             modifier = Modifier
-                .width(300.dp)
+                .width(264.dp)
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
@@ -264,13 +264,13 @@ fun DetailsActionMenu(
         expanded = expanded && sharePage,
         onDismissRequest = onDismissRequest,
         shape = RoundedCornerShape(20.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = 6.dp,
+        containerColor = panelColor,
+        tonalElevation = 0.dp,
         shadowElevation = 10.dp,
     ) {
         Column(
             modifier = Modifier
-                .width(300.dp)
+                .width(264.dp)
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
@@ -359,13 +359,20 @@ private fun MenuSectionLabel(text: String) {
 
 /**
  * ONE crimped section — "crimp the menu a bit where the separations are":
- * an inset rounded card on a quiet surfaceVariant tint, holding its rows;
- * the gaps BETWEEN the cards are the menu's separations.
+ * an inset rounded card holding its rows; the gaps BETWEEN the cards are
+ * the menu's separations. ROUND 104 (WS-A): the card is the BRIGHTER
+ * layer — surfaceVariant over the dark panel, near-white surface over the
+ * grey light panel (the inverted hierarchy the device round ordered).
  */
 @Composable
 private fun MenuSectionCard(content: @Composable () -> Unit) {
+    val darkTheme = isSystemInDarkTheme()
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f),
+        color = if (darkTheme) {
+            MaterialTheme.colorScheme.surfaceVariant
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -380,6 +387,10 @@ private fun MenuSectionCard(content: @Composable () -> Unit) {
  * round-101 sheet's segmented look exactly (10dp corners; selected = the
  * filled primary + onPrimary ExtraBold; unselected = the quiet tint +
  * onSurfaceVariant Medium). The selection IS the fill — no checkmark.
+ * ROUND 104 (WS-A): the quiet tone is theme-aware — the round-103
+ * surfaceVariant overlay was same-color as the new dark card (invisible);
+ * dark lifts via surfaceContainerHighest@40%, light steps via
+ * surfaceContainer.
  */
 @Composable
 private fun MenuSourceChip(
@@ -388,9 +399,14 @@ private fun MenuSourceChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val darkTheme = isSystemInDarkTheme()
+    val quietTone = if (darkTheme) {
+        MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.4f)
+    } else {
+        MaterialTheme.colorScheme.surfaceContainer
+    }
     Surface(
-        color = if (selected) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        color = if (selected) MaterialTheme.colorScheme.primary else quietTone,
         shape = RoundedCornerShape(10.dp),
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
@@ -464,26 +480,31 @@ private fun MenuDiscRow(
 }
 
 /**
- * ROUND 103 (WS-2): the Tracking row — the text says ONLY "Tracking"; the
- * STATE speaks through color, exactly per the device round:
- *  • NOT connected — "the icon's color will be greyed out, and also the
- *    background of it will be a little bit kind of a grayish tone… the text
- *    will be a little bit grayish too."
- *  • Connected — "a little bit kind of a greenish tone" on the background,
- *    the icon and the text.
- * The row is crimped INSIDE its section card (the 6dp inset + its own
- * rounded tint) so the state tone reads as the row's own surface.
+ * ROUND 103 (WS-2) → ROUND 104 (WS-A): the Tracking row — the text says
+ * ONLY "Tracking"; the STATE speaks through color, exactly per the device
+ * rounds:
+ *  • NOT connected — the greyed disc + a greyish row wash + greyish text.
+ *  • Connected — a greenish tone on the wash, the icon and the text.
+ * ROUND 104 (WS-A): the row wears EXACTLY MenuDiscRow's metrics (the
+ * round-103 double-inset — a 6dp outer padding then its own wash — read
+ * as "looking a bit different"); the state tone lives INSIDE the row's own
+ * rounded rect. The idle wash is theme-aware (dark: a 4.5% onSurface lift —
+ * the old surfaceVariant overlay was same-color as the card, invisible).
  */
 @Composable
 private fun MenuTrackingRow(
     isTracked: Boolean,
     onClick: () -> Unit,
 ) {
-    val trackingGreen = if (isSystemInDarkTheme()) SuccessDark else SuccessLight
+    val darkTheme = isSystemInDarkTheme()
+    val trackingGreen = if (darkTheme) SuccessDark else SuccessLight
     val rowTone = if (isTracked) {
         trackingGreen.copy(alpha = 0.13f)
+    } else if (darkTheme) {
+        // A neutral lift over the (already elevated) dark card.
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.045f)
     } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     }
     val tint = if (isTracked) trackingGreen
     else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
@@ -491,11 +512,10 @@ private fun MenuTrackingRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(6.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(rowTone)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
         Box(
             contentAlignment = Alignment.Center,

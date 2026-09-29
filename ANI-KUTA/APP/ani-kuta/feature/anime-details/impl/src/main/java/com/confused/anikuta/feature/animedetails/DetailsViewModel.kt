@@ -515,6 +515,20 @@ class DetailsViewModel(
     private val _showTrackSheet = kotlinx.coroutines.flow.MutableStateFlow(false)
     val showTrackSheet: kotlinx.coroutines.flow.StateFlow<Boolean> = _showTrackSheet.asStateFlow()
 
+    // ── ROUND 104 (WS-B): the one-shot tracking NOTICE — the beautiful
+    // toast's data ("it should show me a toast notification, a beautiful
+    // toast notification, saying that tracking started… no longer
+    // tracking"). Emitted ONLY on confirmed completions: startTracking's
+    // successful sync (STARTED) and removeTracking's success (STOPPED). The
+    // screen's TrackingToastHost renders + consumes it. ──
+    private val _trackingNotice = kotlinx.coroutines.flow.MutableStateFlow<TrackingNotice?>(null)
+    val trackingNotice: kotlinx.coroutines.flow.StateFlow<TrackingNotice?> = _trackingNotice.asStateFlow()
+
+    /** Clears the rendered toast (the host calls this after its exit animation). */
+    fun consumeTrackingNotice() {
+        _trackingNotice.value = null
+    }
+
     /** The current track entry (cached locally + synced from AniList). */
     private val _trackEntry = kotlinx.coroutines.flow.MutableStateFlow<com.confused.anikuta.core.trackerapi.TrackEntry?>(null)
     val trackEntry: kotlinx.coroutines.flow.StateFlow<com.confused.anikuta.core.trackerapi.TrackEntry?> = _trackEntry.asStateFlow()
@@ -770,6 +784,16 @@ class DetailsViewModel(
                         repo.upsert(updated)
                         _trackSheetError.value = null
                         _showTrackSheet.value = false
+                        // ROUND 104 (WS-B): the beautiful toast — "after doing
+                        // that it should show me a toast notification… saying
+                        // that tracking started". Fires ONLY on the Start
+                        // Tracking path (Save stays silent — it links nothing).
+                        if (flipOptIn) {
+                            _trackingNotice.value = TrackingNotice(
+                                kind = TrackingNoticeKind.STARTED,
+                                id = System.nanoTime(),
+                            )
+                        }
                         Logger.i(TAG) { "pushTrackEntry(flipOptIn=$flipOptIn) — synced + cached: $updated" }
                     } else {
                         _trackSheetError.value =
@@ -839,6 +863,12 @@ class DetailsViewModel(
                 trackingStateRepository?.setTracked(mid, false)
                 Logger.i(TAG) { "removeTracking — tracking unlinked for mainId=$mid (AniList entry + local data kept)" }
                 _showTrackSheet.value = false
+                // ROUND 104 (WS-B): the completion toast — "it should properly
+                // give me the details, like no longer tracking".
+                _trackingNotice.value = TrackingNotice(
+                    kind = TrackingNoticeKind.STOPPED,
+                    id = System.nanoTime(),
+                )
             }.onFailure { e ->
                 Logger.e(TAG, e) { "removeTracking failed: ${e.message}" }
                 _trackSheetError.value = "Couldn't stop the tracking: ${e.message}"
@@ -4293,3 +4323,18 @@ sealed interface ResolverState {
     ) : ResolverState
     data class Error(val message: String) : ResolverState
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 104 (WS-B): the tracking toast's payload — the one-shot notice the
+//  TrackingToastHost renders (STARTED on startTracking's confirmed sync;
+//  STOPPED on removeTracking's success). The `id` (System.nanoTime) forces a
+//  DISTINCT emission even when the same kind fires twice in a row — the
+//  host's LaunchedEffect keys on it.
+// ════════════════════════════════════════════════════════════════════════════
+
+enum class TrackingNoticeKind { STARTED, STOPPED }
+
+data class TrackingNotice(
+    val kind: TrackingNoticeKind,
+    val id: Long,
+)

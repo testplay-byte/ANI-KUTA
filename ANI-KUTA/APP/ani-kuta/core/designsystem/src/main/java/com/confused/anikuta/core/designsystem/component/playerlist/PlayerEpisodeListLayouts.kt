@@ -1,8 +1,14 @@
 package com.confused.anikuta.core.designsystem.component.playerlist
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
@@ -27,6 +35,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,46 +44,75 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ROUND 103 (WS-4 / D-699): the PLAYER episode list's FOUR PARADIGMS — the
-//  one shared renderer both player stacks AND the settings live preview call.
+//  ROUND 103 (WS-4 / D-699) → ROUND 104 (WS-D / D-703): the PLAYER episode
+//  list's FOUR PARADIGMS — the one shared renderer both player stacks AND
+//  the settings live preview call.
 // ════════════════════════════════════════════════════════════════════════════
 //
-//  The v1.1.59 device round: "the actual episode list on the details page is
-//  getting a total of four custom display options, but the player page one is
-//  not getting things like those. So what I want you to do is I want you to
-//  build custom ones for that too… It should also be handled properly, just
-//  like the other one."
+//  The v1.1.59 round ordered the four-paradigm doctrine (the details page's
+//  D-555, player-scoped); the v1.1.60 device round then reworked the SET:
 //
-//  THE DOCTRINE (the details page's D-555, player-scoped): every style is a
-//  CURATED PRESET and a DIFFERENT STRUCTURE, not a variation of one row —
-//    • DETAILED — the look the player list has always been: thumbnail + EP
-//      tag + title + date/audio pills + synopsis (the richest row).
-//    • COMPACT — the dense row: a smaller thumbnail, never a synopsis.
-//    • GRID — the two-across poster wall: full-bleed 16:9 cells, EP badge
-//      overlays, watched = grayscale + centered check, current = ring + play.
-//    • BANNER — the full-bleed banner card: the thumbnail AS the card, a
-//      bottom scrim, a ghost episode number, overlaid title + chips.
+//  • THE WATCHED FILTER IS GONE — "the option for watch filter as off, show
+//    watched and hide watched is most definitely not good. It should be
+//    completely removed." (The pref, both stacks' branches, and the settings
+//    card all retired together — the DIM treatment stays.)
 //
-//  ONE RENDERER, THREE CALLERS (the D-481 one-source-of-truth — the exact
-//  answer to "it should properly show the actual live preview of the data.
-//  It should not show random things"): the MPV player page, the CS player
-//  page, and Settings → Appearance → "Player episode list" all render through
-//  [PlayerEpisodeListEntry] — what the preview shows is what the player draws.
-//  The stacks keep their own identity/progress/ordinal logic and map it into
-//  [PlayerEpisodeRowData]; this file renders and nothing else.
+//  • COMPACT IS REPLACED BY TRACKLIST — "the compact layout, it is just
+//    trash… I want you to completely remove it, and instead of this layout I
+//    would like you to redesign a completely new, proper, beautiful,
+//    good-looking layout from scratch." THE DESIGN: a typographic,
+//    number-forward list — the episode NUMBER as the hero element (a fixed
+//    ghost-muted numeral column), a hairline spine, the title + pills to its
+//    right, never a thumbnail, never a synopsis. A different STRUCTURE, not
+//    a variation of one row.
 //
-//  (This supersedes D-688's zero-coupling rule for ROW RENDERING only — the
-//  two stacks still never depend on each other; both depend on
-//  :core:designsystem, which they already did for ScrollBlurOverlay.)
+//  • THE EP TAG lives ONLY on the DETAILED row — "the tags, the episode tags
+//    which show on the top left corner of the thumbnail images. I don't like
+//    them, so remove them. It should only be kept in the detailed view." The
+//    GRID's number moved into the bottom scrim's title line; the TRACKLIST's
+//    number IS its hero; the BANNER keeps its top-end ghost numeral (not a
+//    top-left tag) and it is now TOGGLEABLE.
+//
+//  • THE DIM is real now — the v1.1.60 round: "apparently on the details
+//    one, it does not have any functionality properly implemented for that,
+//    for dimming the watched episodes." The DETAILED row dims the WHOLE card
+//    (graphicsLayer alpha 0.55) + grayscales the thumbnail — the details
+//    page's CLASSIC treatment, exactly.
+//
+//  • THE BANNER gained the controls — "the episode number is not shown
+//    properly, it is not customizable… add a density slider too, like I can
+//    select what the size of them should be easily, and it would properly
+//    show in live view": [PlayerEpisodeListDisplay.showEpisodeNumber] toggles
+//    the ghost numeral; [PlayerEpisodeListDisplay.bannerDensity] (0f…1f)
+//    drives the aspect (21:9 flat strips → 4:3 tall cards; 0.5 ≈ the classic
+//    16:9).
+//
+//  • SWIPE + the ARRIVAL PULSE — "on the player episodes list there should
+//    be the swipe functionality too, exactly like how it is on the details
+//    page" (PlayerEpisodeSwipe.kt — the shared gesture; GRID long-presses)
+//    and "after scrolling to that area… add the effect of highlighting, like
+//    it will highlight that specific episode a bit and then just change the
+//    things to the normal ones" (the arrivalPulse token — the page bumps it
+//    after a COMPLETED glide; the current entry plays a wash + ring that
+//    fades to the normal treatment; a user-interrupted glide never pulses).
+//
+//  ONE RENDERER, THREE CALLERS (the D-481 one-source-of-truth): the MPV
+//  player page, the CS player page, and Settings → Appearance → "Player
+//  episode list" all render through [PlayerEpisodeListEntry] — what the
+//  preview shows is what the player draws. The stacks keep their own
+//  identity/progress/ordinal logic and map it into [PlayerEpisodeRowData];
+//  this file renders and nothing else.
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -84,18 +123,19 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
  */
 enum class PlayerEpisodeListStyle {
     DETAILED,
-    COMPACT,
+    TRACKLIST,
     GRID,
     BANNER;
 
     companion object {
         /**
-         * The lenient lookup: `"MINIMAL"` (the retired round-101 density
-         * variation) folds into COMPACT — the closest rhythm; unknown,
+         * The lenient lookup: the retired round-101/103 density keys
+         * ("COMPACT", "MINIMAL" — the variations the v1.1.60 round retired)
+         * fold into TRACKLIST (the slot's from-scratch replacement); unknown,
          * null or blank → DETAILED (the player list's default look).
          */
         fun fromKey(key: String?): PlayerEpisodeListStyle = when (key?.trim()?.uppercase()) {
-            "COMPACT", "MINIMAL" -> COMPACT
+            "TRACKLIST", "COMPACT", "MINIMAL" -> TRACKLIST
             "GRID" -> GRID
             "BANNER" -> BANNER
             else -> DETAILED
@@ -139,13 +179,36 @@ data class PlayerEpisodeListDisplay(
     val showSynopsis: Boolean = true,
     val showDatePill: Boolean = true,
     val dimWatched: Boolean = true,
+    /** ROUND 104: the BANNER's ghost episode number toggle. */
+    val showEpisodeNumber: Boolean = true,
+    /**
+     * ROUND 104: the BANNER's density — 0f (21:9 flat strips) … 1f (4:3
+     * tall cards); 0.5f ≈ the classic 16:9. See [bannerAspectRatio].
+     */
+    val bannerDensity: Float = 0.5f,
 )
 
 /**
+ * The BANNER's aspect ratio from the density knob — a linear blend from the
+ * flat 21:9 cinematic strip (density 0) to the tall 4:3 preview card
+ * (density 1); the 0.5 default lands at ≈16.5:9 (the classic look).
+ */
+fun bannerAspectRatio(density: Float): Float {
+    val t = density.coerceIn(0f, 1f)
+    return (21f / 9f) + ((4f / 3f) - (21f / 9f)) * t
+}
+
+/**
  * THE DISPATCHER — one episode entry in whichever of the four paradigms
- * [display.style] selects. Row styles (DETAILED/COMPACT) render a padded
- * card row; GRID renders ONE CELL of the two-across wall (the callers pair
- * them through [PlayerEpisodeGridRow]); BANNER renders the full-bleed card.
+ * [display.style] selects. Row styles (DETAILED/TRACKLIST) and the BANNER
+ * wrap in the shared swipe-to-toggle when [onToggleWatched] is provided
+ * (carrying the entry's outer padding); GRID renders ONE CELL of the
+ * two-across wall (the callers pair them through [PlayerEpisodeGridRow];
+ * cells long-press to toggle).
+ *
+ * [arrivalPulse] is the page's scroll-arrival token — the current entry
+ * plays a highlight wash + ring that fades back to its normal treatment
+ * whenever the token changes (a user-interrupted glide never bumps it).
  */
 @Composable
 fun PlayerEpisodeListEntry(
@@ -153,16 +216,69 @@ fun PlayerEpisodeListEntry(
     display: PlayerEpisodeListDisplay,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onToggleWatched: (() -> Unit)? = null,
+    arrivalPulse: Long = 0L,
 ) {
     when (display.style) {
-        PlayerEpisodeListStyle.DETAILED ->
-            PlayerEpisodeRow(data, display, compact = false, onClick, modifier)
-        PlayerEpisodeListStyle.COMPACT ->
-            PlayerEpisodeRow(data, display, compact = true, onClick, modifier)
+        PlayerEpisodeListStyle.DETAILED -> SwipeableEntry(
+            data = data,
+            onToggleWatched = onToggleWatched,
+            modifier = modifier,
+            verticalPadding = 3.dp,
+            backgroundShape = RoundedCornerShape(12.dp),
+        ) { entryModifier ->
+            PlayerEpisodeRow(data, display, onClick, entryModifier, arrivalPulse)
+        }
+        PlayerEpisodeListStyle.TRACKLIST -> SwipeableEntry(
+            data = data,
+            onToggleWatched = onToggleWatched,
+            modifier = modifier,
+            verticalPadding = 3.dp,
+            backgroundShape = RoundedCornerShape(12.dp),
+        ) { entryModifier ->
+            PlayerTracklistRow(data, display, onClick, entryModifier, arrivalPulse)
+        }
         PlayerEpisodeListStyle.GRID ->
-            PlayerEpisodeGridCell(data, display, onClick, modifier)
-        PlayerEpisodeListStyle.BANNER ->
-            PlayerEpisodeBannerCard(data, display, onClick, modifier)
+            PlayerEpisodeGridCell(data, display, onClick, modifier, onToggleWatched, arrivalPulse)
+        PlayerEpisodeListStyle.BANNER -> SwipeableEntry(
+            data = data,
+            onToggleWatched = onToggleWatched,
+            modifier = modifier,
+            verticalPadding = 4.dp,
+            backgroundShape = RoundedCornerShape(14.dp),
+        ) { entryModifier ->
+            PlayerEpisodeBannerCard(data, display, onClick, entryModifier, arrivalPulse)
+        }
+    }
+}
+
+/**
+ * The row/banner swipe adapter: applies the entry's OUTER padding on the
+ * wrapper (so the gesture + the background icon cover exactly the card's
+ * visual footprint) and wraps the card in [PlayerEpisodeSwipeToToggle] when
+ * a toggle is wired; without one, the padding passes straight through.
+ */
+@Composable
+private fun SwipeableEntry(
+    data: PlayerEpisodeRowData,
+    onToggleWatched: (() -> Unit)?,
+    modifier: Modifier,
+    verticalPadding: Dp,
+    backgroundShape: androidx.compose.ui.graphics.Shape,
+    content: @Composable (Modifier) -> Unit,
+) {
+    val outer = modifier.padding(horizontal = 10.dp, vertical = verticalPadding)
+    if (onToggleWatched != null) {
+        PlayerEpisodeSwipeToToggle(
+            isWatched = data.isWatched,
+            onToggleWatched = onToggleWatched,
+            modifier = outer,
+            backgroundShape = backgroundShape,
+        ) {
+            content(Modifier)
+        }
+    } else {
+        content(outer)
     }
 }
 
@@ -178,6 +294,8 @@ fun PlayerEpisodeGridRow(
     display: PlayerEpisodeListDisplay,
     onClick: (PlayerEpisodeRowData) -> Unit,
     modifier: Modifier = Modifier,
+    onToggleWatched: ((PlayerEpisodeRowData) -> Unit)? = null,
+    arrivalPulse: Long = 0L,
 ) {
     Row(
         modifier = modifier
@@ -185,9 +303,23 @@ fun PlayerEpisodeGridRow(
             .padding(horizontal = 10.dp, vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        PlayerEpisodeListEntry(left, display, { onClick(left) }, Modifier.weight(1f))
+        PlayerEpisodeListEntry(
+            data = left,
+            display = display,
+            onClick = { onClick(left) },
+            modifier = Modifier.weight(1f),
+            onToggleWatched = onToggleWatched?.let { cb -> { cb(left) } },
+            arrivalPulse = arrivalPulse,
+        )
         if (right != null) {
-            PlayerEpisodeListEntry(right, display, { onClick(right) }, Modifier.weight(1f))
+            PlayerEpisodeListEntry(
+                data = right,
+                display = display,
+                onClick = { onClick(right) },
+                modifier = Modifier.weight(1f),
+                onToggleWatched = onToggleWatched?.let { cb -> { cb(right) } },
+                arrivalPulse = arrivalPulse,
+            )
         } else {
             Spacer(Modifier.weight(1f))
         }
@@ -195,22 +327,69 @@ fun PlayerEpisodeGridRow(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DETAILED / COMPACT — the player row (the look the player list has always
-//  been; COMPACT shrinks the thumbnail and never renders the synopsis)
+//  The ARRIVAL PULSE — the scroll-completion highlight ("it will highlight
+//  that specific episode a bit and then just change the things to the normal
+//  ones as they will be"). The page bumps a Long token after a COMPLETED
+//  glide; the current entry animates a primary wash + ring from full
+//  strength down to nothing over ~1.1s, revealing the row's own (current)
+//  treatment underneath — the "back to normal" the order describes.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** The fading pulse strength for the current entry (0 when idle). */
+@Composable
+private fun rememberArrivalPulseAlpha(arrivalPulse: Long, isCurrent: Boolean): Float {
+    val pulse = remember { Animatable(0f) }
+    LaunchedEffect(arrivalPulse) {
+        if (arrivalPulse > 0L && isCurrent) {
+            pulse.snapTo(1f)
+            pulse.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(1100, easing = FastOutSlowInEasing),
+            )
+        }
+    }
+    return pulse.value
+}
+
+/** The pulse overlay — the wash + ring, drawn over the entry's own content. */
+@Composable
+private fun BoxScope.ArrivalPulseOverlay(pulseAlpha: Float, shape: androidx.compose.ui.graphics.Shape) {
+    if (pulseAlpha > 0.005f) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer { this.alpha = pulseAlpha }
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.20f), shape)
+                .border(
+                    2.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                    shape,
+                ),
+        )
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DETAILED — the player row (the look the player list has always been):
+//  thumbnail + the ONLY surviving EP tag + title + pills + synopsis. The
+//  watched dim is the REAL one now (whole-card alpha + grayscale thumbnail).
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun PlayerEpisodeRow(
     data: PlayerEpisodeRowData,
     display: PlayerEpisodeListDisplay,
-    compact: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    arrivalPulse: Long = 0L,
 ) {
     val isCurrent = data.isCurrent
-    // The element knobs within the style's frame: COMPACT never shows the
-    // synopsis; the date pill is toggle-gated.
-    val description = if (compact || !display.showSynopsis) null else data.synopsis
+    // ROUND 104 (WS-D): the REAL dim — the whole card at 0.55 alpha + the
+    // grayscale thumbnail (the details page's CLASSIC treatment; the current
+    // row's highlight always wins).
+    val dimmed = data.isWatched && display.dimWatched && !isCurrent
+    val grayscale = dimmed
+    val description = if (!display.showSynopsis) null else data.synopsis
     val dateText = if (display.showDatePill) data.dateText else null
     val pillsVisible = dateText != null || data.audioLabels.isNotEmpty() ||
         data.subDubLabel != null || data.flavorLabels.isNotEmpty() ||
@@ -219,91 +398,279 @@ private fun PlayerEpisodeRow(
     Surface(
         color = when {
             isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-            // The watched dim — the tinted-surface treatment (the current
-            // row's highlight always wins).
-            data.isWatched && display.dimWatched ->
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+            dimmed -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
             else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
         },
         shape = RoundedCornerShape(12.dp),
-        border = if (isCurrent) androidx.compose.foundation.BorderStroke(
-            2.dp, MaterialTheme.colorScheme.primary,
-        ) else null,
+        border = if (isCurrent) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 3.dp)
             .clickable(onClick = onClick),
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
+        Box {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { this.alpha = if (dimmed) 0.55f else 1f }
+                    .padding(10.dp),
             ) {
-                // ── Thumbnail with the EP tag overlay ──
-                if (data.thumbnailUrl != null) {
-                    Box(
-                        modifier = if (compact) Modifier.size(width = 84.dp, height = 48.dp)
-                        else Modifier.size(width = 120.dp, height = 68.dp),
-                    ) {
-                        AsyncImage(
-                            model = data.thumbnailUrl,
-                            contentDescription = data.displayTitle,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(10.dp)),
-                            contentScale = ContentScale.Crop,
-                        )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    // ── Thumbnail with the EP tag overlay (the ONLY style
+                    //    that keeps it — the v1.1.60 order) ──
+                    if (data.thumbnailUrl != null) {
+                        Box(
+                            modifier = Modifier.size(width = 120.dp, height = 68.dp),
+                        ) {
+                            AsyncImage(
+                                model = data.thumbnailUrl,
+                                contentDescription = data.displayTitle,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(10.dp)),
+                                contentScale = ContentScale.Crop,
+                                colorFilter = if (grayscale) {
+                                    ColorFilter.colorMatrix(
+                                        ColorMatrix().apply { setToSaturation(0f) },
+                                    )
+                                } else null,
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                            ) {
+                                Text(
+                                    text = "EP ${data.episodeNumberText}",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(10.dp))
+                    } else {
+                        // The number box (the thumbnail-less fallback tile).
                         Surface(
+                            color = if (isCurrent) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant,
                             shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                            modifier = Modifier.size(width = 44.dp, height = 32.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = data.episodeNumberText,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isCurrent) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    // ── Right column: title + pills ──
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
-                                text = "EP ${data.episodeNumberText}",
+                                text = data.displayTitle,
                                 fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
-                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             )
                         }
+                        if (pillsVisible) {
+                            Spacer(Modifier.height(6.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                if (dateText != null) {
+                                    Pill(dateText)
+                                }
+                                data.audioLabels.forEach { label -> Pill(label) }
+                                if (data.subDubLabel != null) {
+                                    Pill(data.subDubLabel)
+                                }
+                                data.flavorLabels.forEach { label -> Pill(label) }
+                                // The download hint rides the pills row when there
+                                // is no synopsis (the MPV row's placement).
+                                if (data.showDownloadHint && description.isNullOrBlank()) {
+                                    Spacer(Modifier.weight(1f))
+                                    Icon(
+                                        imageVector = Icons.Filled.Download,
+                                        contentDescription = "Download",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                }
+                            }
+                        }
                     }
-                    Spacer(Modifier.width(10.dp))
-                } else {
-                    // The number box (the thumbnail-less fallback tile).
-                    Surface(
-                        color = if (isCurrent) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.size(width = 44.dp, height = 32.dp),
+                }
+                // ── Synopsis + the download hint at its end ──
+                if (!description.isNullOrBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Bottom,
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
                             Text(
-                                text = data.episodeNumberText,
+                                text = description,
                                 fontFamily = RobotoFamily,
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = if (isCurrent) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 15.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            )
+                        }
+                        if (data.showDownloadHint) {
+                            Icon(
+                                imageVector = Icons.Filled.Download,
+                                contentDescription = "Download",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .padding(start = 8.dp, bottom = 2.dp),
                             )
                         }
                     }
-                    Spacer(Modifier.width(10.dp))
                 }
-                // ── Right column: title + pills ──
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.SpaceBetween,
+                // ── The thin watch-progress bar — partial watches only (fully
+                // watched rows dim instead). ──
+                if (data.progressFraction > 0f && !data.isWatched) {
+                    Spacer(Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(1.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(data.progressFraction.coerceIn(0f, 1f))
+                                .fillMaxHeight()
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                    }
+                }
+            }
+            // The scroll-arrival pulse (the current row only).
+            val pulseAlpha = rememberArrivalPulseAlpha(arrivalPulse, data.isCurrent)
+            ArrivalPulseOverlay(pulseAlpha, RoundedCornerShape(12.dp))
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  TRACKLIST (ROUND 104 — replaces COMPACT) — the typographic, number-forward
+//  list: the episode NUMBER as the hero (a fixed ghost-muted numeral column),
+//  a hairline spine, the title + pills to its right; never a thumbnail, never
+//  a synopsis. The number is the identity — big, calm, scannable.
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun PlayerTracklistRow(
+    data: PlayerEpisodeRowData,
+    display: PlayerEpisodeListDisplay,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    arrivalPulse: Long = 0L,
+) {
+    val isCurrent = data.isCurrent
+    val dimmed = data.isWatched && display.dimWatched && !isCurrent
+    val numberTone = when {
+        isCurrent -> MaterialTheme.colorScheme.primary
+        dimmed -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+    }
+    val dateText = if (display.showDatePill) data.dateText else null
+    val pills = buildList {
+        if (dateText != null) add(dateText)
+        addAll(data.audioLabels)
+        if (data.subDubLabel != null) add(data.subDubLabel)
+        addAll(data.flavorLabels)
+    }
+
+    Surface(
+        color = when {
+            isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        },
+        shape = RoundedCornerShape(12.dp),
+        border = if (isCurrent) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Box {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { this.alpha = if (dimmed) 0.55f else 1f },
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
                 ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
+                    // ── The NUMBER hero — a fixed-width right-aligned
+                    //    numeral, the row's identity. ──
+                    Text(
+                        text = data.episodeNumberText,
+                        fontFamily = RobotoFamily,
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = numberTone,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.width(52.dp),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    // ── The hairline spine — the track-list's rail. ──
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(30.dp)
+                            .background(
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            ),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    // ── The title + pills. ──
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
                             text = data.displayTitle,
@@ -313,94 +680,55 @@ private fun PlayerEpisodeRow(
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
-                    }
-                    if (pillsVisible) {
-                        Spacer(Modifier.height(6.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            if (dateText != null) {
-                                Pill(dateText)
-                            }
-                            data.audioLabels.forEach { label -> Pill(label) }
-                            if (data.subDubLabel != null) {
-                                Pill(data.subDubLabel)
-                            }
-                            data.flavorLabels.forEach { label -> Pill(label) }
-                            // The download hint rides the pills row when there
-                            // is no synopsis (the MPV row's placement).
-                            if (data.showDownloadHint && description.isNullOrBlank()) {
-                                Spacer(Modifier.weight(1f))
-                                Icon(
-                                    imageVector = Icons.Filled.Download,
-                                    contentDescription = "Download",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp),
-                                )
+                        if (pills.isNotEmpty()) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                pills.forEach { pill -> Pill(pill) }
                             }
                         }
                     }
-                }
-            }
-            // ── Synopsis + the download hint at its end ──
-            if (!description.isNullOrBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            text = description,
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            lineHeight = 15.sp,
-                            fontWeight = FontWeight.Normal,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                        )
-                    }
-                    if (data.showDownloadHint) {
+                    // ── The trailing state glyph — the current row's play;
+                    //    a watched row's quiet check. ──
+                    Spacer(Modifier.width(8.dp))
+                    if (isCurrent) {
                         Icon(
-                            imageVector = Icons.Filled.Download,
-                            contentDescription = "Download",
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = "Playing",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .size(24.dp)
-                                .padding(start = 8.dp, bottom = 2.dp),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    } else if (data.isWatched) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = "Watched",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                            modifier = Modifier.size(16.dp),
                         )
                     }
                 }
-            }
-            // ── The thin watch-progress bar — partial watches only (fully
-            // watched rows dim instead). ──
-            if (data.progressFraction > 0f && !data.isWatched) {
-                Spacer(Modifier.height(6.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(2.dp)
-                        .clip(RoundedCornerShape(1.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                ) {
+                // ── The thin watch-progress underline — partial watches only. ──
+                if (data.progressFraction > 0f && !data.isWatched) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(data.progressFraction.coerceIn(0f, 1f))
-                            .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
+                            .fillMaxWidth()
+                            .height(2.dp)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(data.progressFraction.coerceIn(0f, 1f))
+                                .fillMaxHeight()
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                    }
                 }
             }
+            // The scroll-arrival pulse (the current row only).
+            val pulseAlpha = rememberArrivalPulseAlpha(arrivalPulse, data.isCurrent)
+            ArrivalPulseOverlay(pulseAlpha, RoundedCornerShape(12.dp))
         }
     }
 }
@@ -427,15 +755,22 @@ private fun Pill(text: String) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  GRID — one cell of the two-across poster wall
+//  GRID — one cell of the two-across poster wall. ROUND 104: the top-left
+//  EP badge is GONE ("remove them. It should only be kept in the detailed
+//  view") — the number rides the bottom scrim's title line instead; the
+//  watched/current language stays (grayscale + check / ring + play); the
+//  cell long-presses to toggle watched (the details page's GRID parity).
 // ════════════════════════════════════════════════════════════════════════════
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlayerEpisodeGridCell(
     data: PlayerEpisodeRowData,
     display: PlayerEpisodeListDisplay,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onToggleWatched: (() -> Unit)? = null,
+    arrivalPulse: Long = 0L,
 ) {
     val isCurrent = data.isCurrent
     // Watched = grayscale + the centered check (the details page's GRID
@@ -459,7 +794,10 @@ private fun PlayerEpisodeGridCell(
                 },
             )
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onToggleWatched ?: {},
+            ),
     ) {
         if (data.thumbnailUrl != null) {
             AsyncImage(
@@ -480,24 +818,6 @@ private fun PlayerEpisodeGridCell(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-
-        // ── The EP badge (top-start) ──
-        Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.align(Alignment.TopStart).padding(5.dp),
-        ) {
-            Text(
-                text = "EP ${data.episodeNumberText}",
-                fontFamily = RobotoFamily,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                maxLines = 1,
-                softWrap = false,
-            )
         }
 
         // ── Watched: the centered check ──
@@ -536,7 +856,8 @@ private fun PlayerEpisodeGridCell(
             }
         }
 
-        // ── The title scrim (one line, the cell's bottom) ──
+        // ── The bottom scrim: "EP N" + the title (the number's new home —
+        //    the top-left badge is retired per the v1.1.60 order). ──
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -548,21 +869,50 @@ private fun PlayerEpisodeGridCell(
                 )
                 .padding(horizontal = 8.dp, vertical = 5.dp),
         ) {
-            Text(
-                text = data.displayTitle,
-                fontFamily = RobotoFamily,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = "EP ${data.episodeNumberText}",
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White.copy(alpha = 0.92f),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    text = data.displayTitle,
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        // The scroll-arrival pulse (the current cell only).
+        val pulseAlpha = rememberArrivalPulseAlpha(arrivalPulse, data.isCurrent)
+        if (pulseAlpha > 0.005f) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer { this.alpha = pulseAlpha }
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)),
             )
         }
     }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  BANNER — the full-bleed card (the thumbnail AS the card)
+//  BANNER — the full-bleed card (the thumbnail AS the card). ROUND 104: the
+//  ghost episode number is TOGGLEABLE (showEpisodeNumber) and the aspect is
+//  DENSITY-DRIVEN (bannerDensity: 21:9 flat strips → 4:3 tall cards).
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -571,6 +921,7 @@ private fun PlayerEpisodeBannerCard(
     display: PlayerEpisodeListDisplay,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    arrivalPulse: Long = 0L,
 ) {
     val isCurrent = data.isCurrent
     val watchedGray = data.isWatched && display.dimWatched && !isCurrent
@@ -579,8 +930,7 @@ private fun PlayerEpisodeBannerCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-            .aspectRatio(16f / 9f)
+            .aspectRatio(bannerAspectRatio(display.bannerDensity))
             .clip(RoundedCornerShape(14.dp))
             .then(
                 if (isCurrent) {
@@ -616,17 +966,20 @@ private fun PlayerEpisodeBannerCard(
             }
         }
 
-        // ── The GHOST episode number (top-end, huge, translucent) ──
-        Text(
-            text = data.episodeNumberText,
-            fontFamily = RobotoFamily,
-            fontSize = 56.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = Color.White.copy(alpha = 0.20f),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 2.dp, end = 10.dp),
-        )
+        // ── The GHOST episode number (top-end, huge, translucent) —
+        //    TOGGLEABLE since ROUND 104 ("it is not customizable"). ──
+        if (display.showEpisodeNumber) {
+            Text(
+                text = data.episodeNumberText,
+                fontFamily = RobotoFamily,
+                fontSize = 56.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White.copy(alpha = 0.20f),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 2.dp, end = 10.dp),
+            )
+        }
 
         // ── Watched: the check chip (top-start) ──
         if (watchedGray) {
@@ -716,6 +1069,17 @@ private fun PlayerEpisodeBannerCard(
                     }
                 }
             }
+        }
+
+        // The scroll-arrival pulse (the current card only).
+        val pulseAlpha = rememberArrivalPulseAlpha(arrivalPulse, data.isCurrent)
+        if (pulseAlpha > 0.005f) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer { this.alpha = pulseAlpha }
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)),
+            )
         }
     }
 }

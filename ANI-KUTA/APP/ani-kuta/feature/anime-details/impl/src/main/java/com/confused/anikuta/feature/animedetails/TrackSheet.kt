@@ -6,6 +6,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,8 +33,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -71,6 +75,7 @@ import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.trackerapi.TrackEntry
 import com.confused.anikuta.core.trackerapi.TrackStatus
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -79,44 +84,46 @@ import java.util.Locale
 import kotlin.math.abs
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ROUND 103 (WS-2): TrackSheet — the tracking FEEL.
+//  ROUND 103 (WS-2) → ROUND 104 (WS-B): TrackSheet — the STATUS + the feel.
 // ════════════════════════════════════════════════════════════════════════════
 //
-//  The v1.1.59 device round approved the round-102 CONTRACT (the opt-in, the
-//  draft, the trash can, the error surface) and ordered the FEEL reworked:
+//  The v1.1.60 device round approved the round-103 CONTRACT (the wheel, the
+//  Save/Start split, the unlinking — all confirmed working) and ordered the
+//  status + feel refinements:
 //
-//  • NO HEADING — "at the top it gives me the heading of the anime, but that
-//    is definitely not needed. It should not show the heading of the
-//    content." The sheet opens straight into the three pickers; the trash
-//    can keeps its top-right post (alone).
+//  • THE SYNC-STATUS CHIP — "at the top, just left of the delete button, the
+//    trash can icon, there should be the text which should show the current
+//    status… you need to decide on what it should actually display, how it
+//    should actually display." THE DESIGN: a compact dot + label pill at the
+//    top-LEFT, deriving entirely from the sheet's existing state —
+//      isSaving  → "Syncing…"             (primary tone, a spinner as the dot)
+//      error     → "Not synced"            (error tone)
+//      isTracked → "Synced with AniList"   (the success green)
+//      else      → "Not tracking"          (muted)
 //
-//  • THE LINK-SOURCES WHEEL — "the method which I want you to use here is
-//    the one which is being used for the link sources, the exact same one
-//    which is being used I have to select the extensions. I want that same
-//    kind of look and feel to this and the overall experience for it." The
-//    Status / Progress / Score pickers expand the ManualSearchSheet WHEEL
-//    (the D-628/D-636 contract): 36dp rows, snap fling, half-viewport edge
-//    centering, the distance blur falloff, the centered highlight,
-//    scroll-driven selection — "and also maybe you could add some vibration
-//    effects to the scrolling of it too" (HapticHelper.lightTick on every
-//    centered-row change).
+//  • THE WHEEL'S WIDTH — "it is taking up almost all the width, but… it
+//    should take almost half of the device's width, like it should calculate
+//    that and handle it properly as such": the picker Surface centers at
+//    HALF THE SCREEN WIDTH (computed from LocalConfiguration, never
+//    hard-coded).
 //
-//  • START TRACKING vs Save — "it should not show the remove from tracking
-//    button at the very first time… Instead what it should do is that it
-//    should give me the option to start tracking. So it should be like
-//    that." AND "the save button should actually not start the tracking
-//    system, but it should only be for saving… it should only update it in
-//    any list. It should not link both of them together." The button bar is
-//    contextual:
-//      NOT tracked → LEFT "Save" (quiet: syncs the draft to AniList, links
-//                     nothing) + RIGHT "Start Tracking" (the primary: the
-//                     opt-in + the sync — the round-102 Save's full body).
-//      tracked     → LEFT "Remove from Tracking" (the quiet unlink) +
-//                     RIGHT "Save" (the primary, sync-only).
-//    (This amends D-694's "Save = the opt-in flip": the flip MOVES to Start
-//    Tracking per this round's explicit order.)
+//  • THE EFFECTS — "implement properly, like vibrations and other kinds of
+//    effects for it properly": the picker cells TICK on open/close (on top
+//    of the wheel's scroll/tap ticks from round 103).
 //
-//  Everything else keeps the round-102 anatomy: the bottom-up form, the
+//  • THE HEIGHT — "you can increase the height of it a little bit more. Not
+//    too much, but just slightly more": the status row + a breathing pass
+//    (taller cells, wider dividers, a deeper bottom spacer).
+//
+//  • THE CONFIRMATIONS — "properly formatted with proper line breaking where
+//    needed": both dialogs render structured bullet lines instead of one
+//    run-on string.
+//
+//  • THE TOASTS — Start Tracking's completion and Remove From Tracking's
+//    completion now surface a beautiful in-app toast (see TrackingToastHost
+//    at this file's bottom — the ViewModel's one-shot notice drives it).
+//
+//  Everything else keeps the round-103 anatomy: the bottom-up form, the
 //  three summary cells, the date rows, the trash-can confirm, the inline
 //  error surface, the discard-on-close draft.
 // ════════════════════════════════════════════════════════════════════════════
@@ -174,13 +181,20 @@ fun TrackSheet(
                 .padding(horizontal = 20.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── ROUND 103 (WS-2): the heading is GONE ("it should not show
-            // the heading of the content") — the sheet opens straight into
-            // the pickers. The trash can keeps its top-right post, alone. ──
-            Box(
+            // ── ROUND 104 (WS-B): the TOP BAR — the sync-STATUS chip at the
+            // top-LEFT ("just left of the delete button"), the trash can at
+            // the top-right (its round-103 post). The chip's four states
+            // derive from the sheet's existing params — no new plumbing. ──
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.TopEnd,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                TrackingStatusChip(
+                    isSaving = isSaving,
+                    error = error,
+                    isTracked = isTracked,
+                )
+                Spacer(Modifier.weight(1f))
                 IconButton(onClick = { showDeleteConfirm = true }) {
                     Icon(
                         Icons.Filled.Delete,
@@ -238,13 +252,19 @@ fun TrackSheet(
             // ── ROUND 103 (WS-2): the expanded picker IS the link-sources
             // wheel now — the D-628/D-636 contract (snap, blur falloff,
             // center highlight, scroll-driven selection) + the ordered
-            // vibration. One wheel at a time, below the cells. ──
+            // vibration. One wheel at a time, below the cells.
+            // ROUND 104 (WS-B): the wheel CENTERS at half the screen width
+            // ("it should take almost half of the device's width, like it
+            // should calculate that and handle it properly as such"). ──
             AnimatedVisibility(
                 visible = expandedPicker != null,
                 enter = expandVertically(tween(300)) + fadeIn(tween(300)),
                 exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
             ) {
-                Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
                     when (expandedPicker) {
                         ExpandedPicker.STATUS -> TrackingWheelPicker(
                             items = TrackStatus.entries.map { it.displayLabel() },
@@ -273,8 +293,10 @@ fun TrackSheet(
             }
 
             // Separator
+            // ROUND 104 (WS-B): the breathing pass — 20dp vertical padding
+            // (was 16) — part of the "slightly taller" order.
             androidx.compose.material3.HorizontalDivider(
-                modifier = Modifier.padding(vertical = 16.dp),
+                modifier = Modifier.padding(vertical = 20.dp),
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
             )
 
@@ -283,11 +305,11 @@ fun TrackSheet(
             DateRow("Started", draft.startedAt) {
                 draft = draft.copy(startedAt = it)
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
             DateRow("Finished", draft.completedAt) {
                 draft = draft.copy(completedAt = it)
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(18.dp))
 
             // ── ROUND 102 (WS-E): the ERROR surface — the ViewModel's one-shot
             // message, rendered inline above the buttons. ──
@@ -359,11 +381,14 @@ fun TrackSheet(
                     )
                 }
             }
-            Spacer(Modifier.height(24.dp))
+            // ROUND 104 (WS-B): the breathing pass — 28dp (was 24).
+            Spacer(Modifier.height(28.dp))
         }
     }
 
-    // ── Remove from Tracking confirm — the unlink semantics, spelled out. ──
+    // ── Remove from Tracking confirm — the unlink semantics, spelled out.
+    // ROUND 104 (WS-B): the structured bullet-line body ("properly formatted
+    // with proper line breaking where needed"). ──
     if (showRemoveConfirm) {
         AlertDialog(
             onDismissRequest = { showRemoveConfirm = false },
@@ -378,16 +403,19 @@ fun TrackSheet(
             },
             title = { Text("Stop tracking this?") },
             text = {
-                Text(
-                    "This unlinks the tracking between AniList and ANI-KUTA — the app " +
-                        "stops syncing this content. Your AniList entry, watch progress " +
-                        "and rating are kept.",
+                ConfirmBulletLines(
+                    listOf(
+                        "Unlinks ANI-KUTA from your AniList entry for this content.",
+                        "The app stops syncing your progress and rating.",
+                        "Your AniList entry, watch progress and rating are kept.",
+                    ),
                 )
             },
         )
     }
 
-    // ── The trash-can confirm — the REAL delete from AniList. ──
+    // ── The trash-can confirm — the REAL delete from AniList (the same
+    // ROUND 104 structured body). ──
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
@@ -400,14 +428,119 @@ fun TrackSheet(
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
             },
-            title = { Text("Do you want to delete it from AniList?") },
+            title = { Text("Delete from AniList?") },
             text = {
-                Text(
-                    "The entry is removed from your AniList list. Your watch progress " +
-                        "and rating in ANI-KUTA are kept.",
+                ConfirmBulletLines(
+                    listOf(
+                        "Removes the entry from your AniList list.",
+                        "Your watch progress and rating in ANI-KUTA are kept.",
+                        "Tracking for this content turns off.",
+                    ),
                 )
             },
         )
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 104 (WS-B): the sync-status chip + the structured dialog body
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The sync-status pill — the sheet's state, spoken at a glance. The four
+ * states, in priority order: SYNCING (the in-flight write), NOT SYNCED (the
+ * inline error is showing), SYNCED (tracked — the success green), NOT
+ * TRACKING (the quiet default). A 7dp leading dot carries the tone; the
+ * syncing state swaps it for a 12dp spinner.
+ */
+@Composable
+private fun TrackingStatusChip(
+    isSaving: Boolean,
+    error: String?,
+    isTracked: Boolean,
+) {
+    val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+    val successGreen = if (darkTheme) {
+        com.confused.anikuta.core.designsystem.theme.SuccessDark
+    } else {
+        com.confused.anikuta.core.designsystem.theme.SuccessLight
+    }
+    // The state, in priority order.
+    val (label, tone, syncing) = when {
+        isSaving -> Triple("Syncing…", MaterialTheme.colorScheme.primary, true)
+        !error.isNullOrBlank() -> Triple("Not synced", MaterialTheme.colorScheme.error, false)
+        isTracked -> Triple("Synced with AniList", successGreen, false)
+        else -> Triple("Not tracking", MaterialTheme.colorScheme.onSurfaceVariant, false)
+    }
+    Surface(
+        color = tone.copy(alpha = if (syncing || isTracked) 0.13f else 0.10f),
+        shape = RoundedCornerShape(50),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 10.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+        ) {
+            if (syncing) {
+                // The in-flight state: a tiny spinner stands in for the dot.
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp),
+                    strokeWidth = 1.5.dp,
+                    color = tone,
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(tone),
+                )
+            }
+            Spacer(Modifier.width(7.dp))
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = tone,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/**
+ * ROUND 104 (WS-B): the structured confirmation body — one bullet line per
+ * fact ("properly formatted with proper line breaking where needed"), each
+ * with a quiet tone-matched dot. Replaces the round-103 run-on strings.
+ */
+@Composable
+private fun ConfirmBulletLines(lines: List<String>) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        lines.forEach { line ->
+            Row(verticalAlignment = Alignment.Top) {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 5.dp)
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        ),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = line,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.5.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
@@ -443,6 +576,10 @@ private fun TrackingWheelPicker(
     onIndexSelected: (Int) -> Unit,
 ) {
     val context = LocalContext.current
+    // ROUND 104 (WS-B): HALF THE SCREEN WIDTH, computed — never hard-coded
+    // ("it should take almost half of the device's width, like it should
+    // calculate that and handle it properly as such").
+    val halfScreenWidth = LocalConfiguration.current.screenWidthDp.dp * 0.5f
     val listState = rememberLazyListState(
         // Start with the seed at the top (no pre-layout flash); the
         // centering effect below moves it to the exact middle.
@@ -522,7 +659,8 @@ private fun TrackingWheelPicker(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)),
         shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.fillMaxWidth(),
+        // ROUND 104 (WS-B): half the screen, centered by the parent Box.
+        modifier = Modifier.width(halfScreenWidth),
     ) {
         LazyColumn(
             state = listState,
@@ -689,6 +827,9 @@ private fun PickerCell(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // ROUND 104 (WS-B): the picker's own tactile layer — a light tick on
+    // every open/close (the wheel's scroll/tap ticks stay as they were).
+    val context = LocalContext.current
     val bgAnimated by androidx.compose.animation.animateColorAsState(
         if (isExpanded) MaterialTheme.colorScheme.primary
         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -700,12 +841,16 @@ private fun PickerCell(
         tween(300), "cellFg",
     )
     Surface(
-        modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick),
+        modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
+            HapticHelper.lightTick(context)
+            onClick()
+        },
         color = bgAnimated,
         shape = RoundedCornerShape(12.dp),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+            // ROUND 104 (WS-B): the breathing pass — 16dp (was 14).
+            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(label, style = MaterialTheme.typography.labelSmall, color = fgAnimated.copy(alpha = 0.7f))
@@ -901,6 +1046,129 @@ fun MarkSeriesWatchedSnackbar(
                 shape = RoundedCornerShape(10.dp),
             ) {
                 Text("OK", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 104 (WS-B): TrackingToastHost — the beautiful in-app toast
+// ════════════════════════════════════════════════════════════════════════════
+//
+//  The device round's order: "when I click on Start Tracking button, then it
+//  should properly load everything up and handle the things properly, and
+//  after doing that it should show me a toast notification, a beautiful
+//  toast notification, saying that tracking started… and when I click on
+//  Remove From Tracking, then it should properly give me the details, like
+//  no longer tracking."
+//
+//  THE DESIGN: a bottom-centered pill — a 26dp tone disc carrying the glyph
+//  (CheckCircle in the success green for STARTED; LinkOff in the muted tone
+//  for STOPPED) + the message, on a bright elevated surface with a hairline
+//  border. It slides up + fades in (280ms), HOLDS ~2.4s, then fades + sinks
+//  out (320ms); a releaseConfirm/stageCross haptic lands with the show. The
+//  host is a pass-through Box (no click handlers) — it never blocks the page
+//  beneath it.
+//
+//  DRIVEN by the ViewModel's one-shot [TrackingNotice] (STARTED on
+//  startTracking's successful sync; STOPPED on removeTracking's success);
+//  the notice is consumed after the exit animation so a fast re-trigger
+//  always plays clean.
+
+/**
+ * The toast host. Drop as a SIBLING overlay (the details screen's
+ * bottom-anchored-box pattern): `Box(fillMaxSize, BottomCenter) {
+ * TrackingToastHost(notice, onConsumed) }`.
+ */
+@Composable
+fun TrackingToastHost(
+    notice: TrackingNotice?,
+    onConsumed: () -> Unit,
+) {
+    val context = LocalContext.current
+    val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+    val successGreen = if (darkTheme) {
+        com.confused.anikuta.core.designsystem.theme.SuccessDark
+    } else {
+        com.confused.anikuta.core.designsystem.theme.SuccessLight
+    }
+
+    // The entrance/exit state — driven by the notice's presence, with the
+    // exit running BEFORE the consume (the pill sinks out, THEN clears).
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(notice?.id) {
+        if (notice != null) {
+            // The tactile layer: a confirmed-start release vs a stage change.
+            if (notice.kind == TrackingNoticeKind.STARTED) {
+                HapticHelper.releaseConfirm(context)
+            } else {
+                HapticHelper.stageCross(context)
+            }
+            visible = true
+            // 280ms entrance + ~2.4s hold.
+            delay(280 + 2400)
+            visible = false
+            // 320ms exit, then clear (the AnimatedVisibility's exit runs
+            // while `notice` is still non-null).
+            delay(320)
+            onConsumed()
+        }
+    }
+
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        enter = slideInVertically(
+            initialOffsetY = { it / 2 },
+            animationSpec = tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        ) + fadeIn(tween(280)),
+        exit = fadeOut(tween(320)) + slideOutVertically(
+            targetOffsetY = { it / 3 },
+            animationSpec = tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        ),
+    ) {
+        val started = notice?.kind == TrackingNoticeKind.STARTED
+        val tone = if (started) successGreen else MaterialTheme.colorScheme.onSurfaceVariant
+        Surface(
+            color = if (darkTheme) {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            shape = RoundedCornerShape(22.dp),
+            tonalElevation = 6.dp,
+            shadowElevation = 10.dp,
+            border = BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
+            ),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                // The tone disc + glyph.
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(26.dp)
+                        .background(tone.copy(alpha = 0.16f), CircleShape),
+                ) {
+                    Icon(
+                        imageVector = if (started) Icons.Filled.CheckCircle else Icons.Filled.LinkOff,
+                        contentDescription = null,
+                        tint = tone,
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = if (started) "Tracking started" else "No longer tracking",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                )
             }
         }
     }
