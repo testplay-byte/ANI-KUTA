@@ -816,7 +816,17 @@ private fun TrackingWheelPicker(
     // wheel. The fling fence is edge-matched: a fling aimed where the wheel
     // has nowhere to go (its top/bottom edge) is eaten whole (the sheet
     // must not turn it into dismissal momentum); a fling the wheel can
-    // consume passes through untouched, and only its leftover is eaten. ──
+    // consume passes through untouched, and only its leftover is eaten.
+    //
+    // SA1-F1 fix (lead-verified): the fling velocity space is the FINGER's
+    // (available.y > 0 = the finger flicks DOWN — the repo's own unit-
+    // tested D-402 convention, SearchScreen.kt's policy doc + the M3
+    // pull-to-refresh's positive-y "swiping down" branch). The first draft
+    // wrote the branches in scroll-position space and ate exactly the
+    // WRONG pair: the wheel's own useful flicks at the edges, while leaking
+    // the dismissal-direction flick. The corrected pairing: finger-DOWN at
+    // the TOP edge (nowhere backward) / finger-UP at the BOTTOM edge
+    // (nowhere forward). ──
     val scrollContainment = remember(listState) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
@@ -829,13 +839,13 @@ private fun TrackingWheelPicker(
             ): Offset = available
 
             override suspend fun onPreFling(available: Velocity): Velocity = when {
-                // Finger-down fling while the wheel is at its TOP edge
-                // ("episode 1 / not started"): the wheel cannot use it — eat
-                // it before the sheet turns it into a dismissal.
-                available.y < 0f && !listState.canScrollBackward -> available
-                // Finger-up fling while the wheel is at its BOTTOM edge:
+                // Finger-DOWN flick while the wheel is at its TOP edge
+                // ("episode 1 / not started"): the wheel cannot use it —
+                // eat it before the sheet turns it into a dismissal.
+                available.y > 0f && !listState.canScrollBackward -> available
+                // Finger-UP flick while the wheel is at its BOTTOM edge:
                 // same fence, the other direction.
-                available.y > 0f && !listState.canScrollForward -> available
+                available.y < 0f && !listState.canScrollForward -> available
                 // The wheel can consume this fling — pass it through.
                 else -> Velocity.Zero
             }
@@ -997,6 +1007,11 @@ private fun TrackSheetButton(
             .clickable(enabled = enabled, onClick = onClick),
         color = color,
         border = border,
+        // SA1-F2 fix: the outline needs the Surface's own shape — without
+        // it the stroke path is a RECTANGLE that the modifier's rounded
+        // clip then notches at the corners (the old filled variant hid
+        // this; a stroke cannot survive it).
+        shape = RoundedCornerShape(14.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),

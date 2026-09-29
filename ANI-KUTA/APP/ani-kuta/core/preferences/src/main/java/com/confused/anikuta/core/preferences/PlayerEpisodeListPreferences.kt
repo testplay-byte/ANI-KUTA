@@ -103,12 +103,14 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
     )
 
     /**
-     * The BANNER's episode-number corner — "TOP_LEFT" (start) or "TOP_RIGHT"
-     * (end, the default). Lenient parse through the display bundle's
+     * The BANNER's episode-number corner — "TOP_START" (top-left) or
+     * "TOP_END" (top-right, the default). The stored vocabulary IS the
+     * enum's (SA2-F1 fix, lead-verified: the write side must speak exactly
+     * what fromKey parses). Lenient parse through the display bundle's
      * fromKey (unknown values fold to the default).
      */
     val bannerNumberPosition = store.preference(
-        KEY_BANNER_NUMBER_POSITION, "TOP_RIGHT", StringSerializer,
+        KEY_BANNER_NUMBER_POSITION, "TOP_END", StringSerializer,
     )
 
     /**

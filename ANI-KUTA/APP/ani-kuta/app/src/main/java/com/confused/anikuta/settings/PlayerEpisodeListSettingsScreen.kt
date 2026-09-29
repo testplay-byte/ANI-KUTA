@@ -104,15 +104,18 @@ import kotlin.math.roundToInt
  *  • THE ELEMENTS ARE STYLE-AWARE now, appearing/disappearing SMOOTHLY
  *    ("the options below, the elements options, should properly adjust
  *    accordingly and should disappear or appear smoothly depending on what's
- *    available to edit or what's not available to edit"):
- *      DETAILED  = Synopsis · Date pill · Dim watched
- *      TRACKLIST = Date pill · Dim watched
- *      GRID      = Dim watched
- *      BANNER    = Date pill · Dim watched · Episode number · Banner size
- *  • THE BANNER'S DENSITY SLIDER — "add a density slider too, like I can
- *    select what the size of them should be easily, and it would properly
- *    show in live view" (21:9 flat strips → 4:3 tall cards; the preview
- *    re-shapes live) + the EPISODE-NUMBER toggle ("it is not customizable").
+ *    available to edit or what's not available to edit"). ROUND 105 grew
+ *    the per-style sets (every row carries a one-line description):
+ *      DETAILED  = Synopsis · Date pill · Progress bar · Dim watched
+ *      TRACKLIST = Synopsis · Date pill · Progress bar · Dim watched
+ *      GRID      = Date pill · Watched checkmark · Currently playing · Titles
+ *      BANNER    = Date pill · Dim watched · Episode number (+ the nested
+ *                  position + style rows) · Banner size
+ *  • THE BANNER'S SIZE SLIDER — ROUND 105 re-aimed the round-104 knob
+ *    ("it should not change the height of the banner, but… the actual size
+ *    of the whole thumbnail cover image banner itself"): the aspect is
+ *    FIXED 16:9 and the slider scales the item's width fraction, centered,
+ *    with growing inter-item padding (the live % + the Small/Full ends).
  *  • THE PREVIEW IS SWIPEABLE — the details preview's interactive pattern
  *    (the local watchedOverride flip through the SAME shared gesture the
  *    player lists use).
@@ -775,7 +778,7 @@ fun PlayerEpisodeListSettingsScreen(
                                         ) 0 else 1,
                                         onSelect = { idx ->
                                             playerListPrefs.bannerNumberPosition.set(
-                                                if (idx == 0) "TOP_LEFT" else "TOP_RIGHT",
+                                                if (idx == 0) "TOP_START" else "TOP_END",
                                             )
                                         },
                                     )

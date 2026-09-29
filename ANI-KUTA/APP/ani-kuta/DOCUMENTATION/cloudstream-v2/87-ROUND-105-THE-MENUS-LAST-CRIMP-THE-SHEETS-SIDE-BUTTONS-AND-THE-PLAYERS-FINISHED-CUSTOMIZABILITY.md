@@ -217,7 +217,7 @@ The user's report, decomposed into the four work streams this round executes:
     START/END + FROSTED two-copy / SOLID shadowed, both THEMED —
     primary-colored at last); the size slider = the item-width scale
     (fraction lerp 0.66f…1f centered + vertical padding 4…10dp), its UI
-    re-labeled ("Banner size" + a live percentage + "Small"/"Large" ends).
+    re-labeled ("Banner size" + a live percentage + "Small"/"Full" ends).
   - The Elements card: every row described; the banner's position/style
     rows NESTED under the Episode number toggle (animated appear/hide); the
     Layout card loses its duplicate inner title and gains a per-style

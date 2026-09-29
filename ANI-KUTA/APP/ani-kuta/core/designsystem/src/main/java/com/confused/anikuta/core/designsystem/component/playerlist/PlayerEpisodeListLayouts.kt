@@ -117,7 +117,7 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 //
 //  ONE RENDERER, THREE CALLERS (the D-481 one-source-of-truth): the MPV
 //  player page, the CS player page, and Settings → Appearance → "Player
-//  episode list" all render through [PlayerEpisodeListEntry] — what the
+//  page" all render through [PlayerEpisodeListEntry] — what the
 //  preview shows is what the player draws. The stacks keep their own
 //  identity/progress/ordinal logic and map it into [PlayerEpisodeRowData];
 //  this file renders and nothing else.

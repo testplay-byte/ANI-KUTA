@@ -1655,8 +1655,9 @@ private fun MinimizedMode(
     // settings option there at all"). The customization itself lives in the
     // dedicated Settings page now (Appearance → "Player page") — the
     // SAME PlayerEpisodeListPreferences keys, read here exactly as before,
-    // so the list stays fully styleable/sortable/filterable — just from the
-    // settings surface instead of mid-playback.
+    // so the list stays fully styleable/sortable — just from the
+    // settings surface instead of mid-playback. (SA2-F4: "filterable" was
+    // stale — the filter retired in round 104.)
     val playerListPrefs = koinInject<com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences>()
     // ROUND 103 (WS-4): the raw key resolves through the lenient lookup —
     // a stored legacy value ("MINIMAL") maps to the paradigm the renderer
