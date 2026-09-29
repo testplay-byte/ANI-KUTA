@@ -443,3 +443,17 @@ stale-closure analysis, the CS resolve-flow termination (the ≤120s budget
    - The Audio pills toggle; the preview's tappable demo badge (cycles
      all six states).
 
+## 8. The release record (the D-565 loop)
+
+Released **v1.1.63 / 10163**: `release/1.1.63` cut from the green mainline
+head 1a56c0b0 (Build APK run 36623851282 GREEN on run 2 — run 1's
+nullability trap disclosed in §5); the bump (10120→10163, 1.1.20→1.1.63)
+rode the branch per D-430; the annotated tag `v1.1.63` carries the honest
+bullet body (D-466); **Release APK run 36624797365 GREEN FIRST-TRY →
+v1.1.63 LIVE** (published 2026-09-29T20:17:02Z, stable latest, arm64-v8a
+debug APK 60.6 MB + SHA256SUMS.txt — verified via the API: the tag, the
+latest flag, the assets). The first ledger files rode the CI-fix commit
+af7f3887 via a careless `git add -A` mid-write (the round-105 slip's
+repeat — disclosed here and in §5); the mainline twin (the docs-only
+mirror, no version bump per D-430) lands immediately after this record.
+Awaiting the user's device round (checklist §7).
