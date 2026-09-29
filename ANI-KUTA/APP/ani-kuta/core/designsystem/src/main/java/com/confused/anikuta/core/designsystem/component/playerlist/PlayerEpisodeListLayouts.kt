@@ -31,7 +31,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -1567,22 +1566,6 @@ private fun PlayerEpisodeBannerCard(
             }
         }
 
-        // ── Watched: the check chip (top-start) ──
-        if (watchedGray) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color.Black.copy(alpha = 0.5f),
-                modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = "Watched",
-                    tint = Color.White,
-                    modifier = Modifier.padding(4.dp).size(16.dp),
-                )
-            }
-        }
-
         // ── Current: the centered play glyph (the PLAY style; the ported
         //    TINT replaces it with the themed wash above). ──
         if (isCurrent && display.bannerCurrentStyle == PlayerBannerCurrentStyle.PLAY) {
@@ -1648,13 +1631,30 @@ private fun PlayerEpisodeBannerCard(
                         addAll(data.flavorLabels)
                     }
                 }
-                if (chips.isNotEmpty()) {
+                // SA2-F4: the watched CHECK rides the chips flow's head —
+                // the old top-start chip collided with the download badge
+                // (and, pre-existing, with a top-start number); in the flow
+                // it never collides with anything and reads with the facts.
+                if (watchedGray || chips.isNotEmpty()) {
                     // ROUND 106 (WS-D): the chips WRAP — the tags are data,
                     // never clipped.
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
+                        if (watchedGray) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color.White.copy(alpha = 0.22f),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = "Watched",
+                                    tint = Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp).size(12.dp),
+                                )
+                            }
+                        }
                         chips.forEach { chip -> Pill(chip) }
                     }
                     Spacer(Modifier.height(5.dp))

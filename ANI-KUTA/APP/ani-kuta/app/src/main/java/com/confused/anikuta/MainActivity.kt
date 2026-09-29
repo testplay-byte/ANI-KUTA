@@ -2182,7 +2182,10 @@ private fun handleDownloadEpisode(
                     "handleDownloadEpisode — CS-bridged source ${source.name} hit the classic " +
                         "auto path; redirecting to the picker guidance"
                 }
-                showDownloadToast("CloudStream downloads pick the stream first — use the episode's download button")
+                showDownloadToast(
+                    "CloudStream downloads pick the stream first — use the episode's download button",
+                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                )
                 return@launch
             }
 
@@ -2344,7 +2347,10 @@ private fun handleDownloadSpecificVideo(
                     "handleDownloadSpecificVideo — no source for sourceId=$sourceId"
                 }
                 // D-210 FIX: surface the failure to the user instead of silently returning.
-                showDownloadToast("Download failed: no extension source linked (sourceId=$sourceId). Try re-linking the source on the details page.")
+                showDownloadToast(
+                    "Download failed: no extension source linked (sourceId=$sourceId). Try re-linking the source on the details page.",
+                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                )
                 return@launch
             }
 
@@ -2374,7 +2380,10 @@ private fun handleDownloadSpecificVideo(
                         "Specific video download enqueued: taskId=${result.taskId}"
                     }
                     // D.FIX: Visual feedback — show a toast on the MAIN thread.
-                    showDownloadToast("Download started")
+                    showDownloadToast(
+                        "Download started",
+                        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                    )
                 }
                 is EnqueueResult.ShowPicker -> {
                     com.confused.anikuta.core.common.Logger.w("MainActivity") {
@@ -2385,20 +2394,29 @@ private fun handleDownloadSpecificVideo(
                     com.confused.anikuta.core.common.Logger.w("MainActivity") {
                         "handleDownloadSpecificVideo — no sources"
                     }
-                    showDownloadToast("No extension source linked")
+                    showDownloadToast(
+                        "No extension source linked",
+                        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                    )
                 }
                 is EnqueueResult.Error -> {
                     com.confused.anikuta.core.common.Logger.e("MainActivity") {
                         "handleDownloadSpecificVideo failed: ${result.message}"
                     }
-                    showDownloadToast("Download failed: ${result.message}")
+                    showDownloadToast(
+                        "Download failed: ${result.message}",
+                        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                    )
                 }
             }
         } catch (e: Exception) {
             com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
                 "handleDownloadSpecificVideo — exception"
             }
-            showDownloadToast("Download failed: ${e.message}")
+            showDownloadToast(
+                "Download failed: ${e.message}",
+                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+            )
         }
     }
 }
@@ -2441,14 +2459,20 @@ private fun handleCsDownloadPick(
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {
                     "handleCsDownloadPick — blank mainId (content not saved?)"
                 }
-                showDownloadToast("Save the anime to your library first, then download")
+                showDownloadToast(
+                    "Save the anime to your library first, then download",
+                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                )
                 return@launch
             }
             val content = contentRepository.getMainEntryByMainId(key.mainId) ?: run {
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {
                     "handleCsDownloadPick — no content for mainId=${key.mainId.take(8)}"
                 }
-                showDownloadToast("Download failed: content entry missing")
+                showDownloadToast(
+                    "Download failed: content entry missing",
+                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                )
                 return@launch
             }
             val details = contentRepository.getContentDetails(key.mainId)
@@ -2500,12 +2524,18 @@ private fun handleCsDownloadPick(
                 "handleCsDownloadPick — enqueued taskId=$taskId " +
                     "(${link.qualityLabel}, ${link.name}, ${link.audioLabel})"
             }
-            showDownloadToast("Download queued: ${link.qualityLabel} · ${link.name}")
+            showDownloadToast(
+                "Download queued: ${link.qualityLabel} · ${link.name}",
+                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+            )
         } catch (e: Exception) {
             com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
                 "handleCsDownloadPick — exception"
             }
-            showDownloadToast("Download failed: ${e.message}")
+            showDownloadToast(
+                "Download failed: ${e.message}",
+                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+            )
         }
     }
 }
@@ -2518,10 +2548,16 @@ private fun handleCsDownloadPick(
  * Dispatchers.IO directly, and the ONE host at the activity root renders
  * the pill on the main thread.
  */
-private fun showDownloadToast(message: String) {
+private fun showDownloadToast(
+    message: String,
+    // SA1-F10: the failure paths speak the ERROR tone now (the old helper
+    // rendered every outcome as a neutral info pill).
+    tone: com.confused.anikuta.core.designsystem.component.toast.AppToastTone =
+        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.NEUTRAL,
+) {
     com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
         message,
-        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.NEUTRAL,
+        tone,
     )
 }
 

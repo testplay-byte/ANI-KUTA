@@ -372,7 +372,7 @@ internal fun CsWatchPage(
                                     is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.LinksSnapshot ->
                                         links = event.links
                                     is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.SubtitlesSnapshot ->
-                                        subtitles = event.subs
+                                        subtitles = event.subtitles
                                     is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.Completed -> Unit
                                     is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.Failed ->
                                         failed = event.message
@@ -394,10 +394,11 @@ internal fun CsWatchPage(
                         // playable pool as-is.
                         val currentServer = uiState.currentLink?.name
                         val pool = links
+                        // SA2-F5: the raw quality INT ranks the pick (the
+                        // label says "4K"/"Auto" — a digit parse would
+                        // misrank them); 0 = Auto sorts lowest naturally.
                         val pick = pool.firstOrNull { currentServer != null && it.name == currentServer }
-                            ?: pool.maxByOrNull { link ->
-                                link.qualityLabel.filter(Char::isDigit).toIntOrNull() ?: 0
-                            } ?: links.first()
+                            ?: pool.maxByOrNull { it.quality } ?: links.first()
                         val request = com.confused.anikuta.core.download.cs.CsDownloadRequestBuilder.build(
                             content = content,
                             episode = com.confused.anikuta.core.download.DownloadEpisodeInfo(

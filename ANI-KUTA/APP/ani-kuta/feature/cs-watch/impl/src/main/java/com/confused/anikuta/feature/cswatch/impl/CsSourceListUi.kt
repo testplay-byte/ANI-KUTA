@@ -1,6 +1,5 @@
 package com.confused.anikuta.feature.cswatch.impl
 
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn

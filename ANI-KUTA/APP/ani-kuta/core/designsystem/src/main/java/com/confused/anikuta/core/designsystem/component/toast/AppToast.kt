@@ -37,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -150,13 +152,14 @@ object AppToast {
 @Composable
 fun AppToastHost() {
     val request by AppToast.request.collectAsState()
+    val context = LocalContext.current
 
     // The entrance/exit state — the exit runs BEFORE the consume (the pill
     // sinks out, THEN clears; a fast re-trigger plays clean on the new id).
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(request?.id) {
         if (request != null) {
-            HapticHelper.stageCross()
+            HapticHelper.stageCross(context)
             visible = true
             // 280ms entrance + the hold.
             delay(280 + (request?.durationMillis ?: 2400L))
@@ -168,25 +171,29 @@ fun AppToastHost() {
         }
     }
 
-    AnimatedVisibility(
-        visible = visible,
-        enter = slideInVertically(
-            initialOffsetY = { it / 2 },
-            animationSpec = tween(280, easing = FastOutSlowInEasing),
-        ) + fadeIn(tween(280)),
-        exit = fadeOut(tween(320)) + slideOutVertically(
-            targetOffsetY = { it / 3 },
-            animationSpec = tween(320, easing = FastOutSlowInEasing),
-        ),
+    // The pass-through frame — BottomCenter, ABOVE the navigation bar (the
+    // v1.1.62 placement order) with breathing room. The AnimatedVisibility
+    // wraps the PILL itself (SA1-F9: wrapping the full-screen frame made the
+    // slide lambdas measure the SCREEN — the entrance slid from half the
+    // display; around the pill they measure the pill, the approved
+    // TrackingToastHost rhythm).
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding()
+            .padding(bottom = 16.dp),
+        contentAlignment = Alignment.BottomCenter,
     ) {
-        // The pass-through frame — BottomCenter, ABOVE the navigation bar
-        // (the v1.1.62 placement order) with breathing room.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .navigationBarsPadding()
-                .padding(bottom = 16.dp),
-            contentAlignment = Alignment.BottomCenter,
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(
+                initialOffsetY = { it / 2 },
+                animationSpec = tween(280, easing = FastOutSlowInEasing),
+            ) + fadeIn(tween(280)),
+            exit = fadeOut(tween(320)) + slideOutVertically(
+                targetOffsetY = { it / 3 },
+                animationSpec = tween(320, easing = FastOutSlowInEasing),
+            ),
         ) {
             AppToastPill(
                 message = request?.message.orEmpty(),

@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.EaseInQuad
 import androidx.compose.animation.core.EaseInOutCubic
 import androidx.compose.animation.core.EaseOutCubic
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -104,6 +103,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -196,9 +196,13 @@ fun TrackSheet(
     // away, 0 = idle). The wheel owns the actual spin (see
     // TrackingWheelPicker); the steppers only report the hold. ──
     var stepperMotorDirection by remember { mutableStateOf(0) }
-    // The motor dies with the picker — a closed wheel must never spin.
+    // The motor dies with ANY picker transition — SA1-F4: a held +/− whose
+    // composable is disposed by a picker SWITCH (a second finger tapping the
+    // Score cell mid-hold) never fires its onHoldDirectionChange(0); the
+    // direction zeroes unconditionally here so the freshly composed wheel
+    // can never inherit a stale spin.
     LaunchedEffect(expandedPicker) {
-        if (expandedPicker == null) stepperMotorDirection = 0
+        stepperMotorDirection = 0
     }
 
     // ── THE DRAFT: seeded from the (cached → remote-fetched) entry; re-seeds

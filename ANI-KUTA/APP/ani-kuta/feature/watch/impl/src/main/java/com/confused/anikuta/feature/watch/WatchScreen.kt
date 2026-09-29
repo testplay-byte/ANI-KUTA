@@ -1663,6 +1663,9 @@ private fun MinimizedMode(
     // from the LIVE collected values — the settings preview and this list
     // re-shape together (the D-481 rule).
     val rowStyleKey by playerListPrefs.rowStyle.changes.collectAsState(initial = playerListPrefs.rowStyle.get())
+    // SA2-F1: the download engine — MinimizedMode's OWN inject (the
+    // WatchScreen local is out of this function's lexical scope).
+    val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
     val listStyle = remember(rowStyleKey) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle.fromKey(rowStyleKey)
     }
@@ -2360,7 +2363,15 @@ private fun MinimizedMode(
                             // ROUND 106 (WS-D): the per-cell download actions,
                             // resolved from the tapped cell's own episode.
                             downloadActions = { data ->
+                                // SA2-F10: the SAME number+title match the
+                                // onClick resolver uses (a pathological
+                                // same-number pair disambiguates by title).
                                 val ep = pair.firstOrNull {
+                                    formatEpisodeNumber(it.episodeNumber) == data.episodeNumberText &&
+                                        (episodeMetadata[it.episodeNumber.toInt()]?.title
+                                            ?: com.confused.anikuta.core.common.EpisodeTitleParser
+                                                .getDisplayTitle(it.name, it.episodeNumber)) == data.displayTitle
+                                } ?: pair.firstOrNull {
                                     formatEpisodeNumber(it.episodeNumber) == data.episodeNumberText
                                 } ?: pair[0]
                                 if (showDownloadButton) downloadActionsFor(ep) else null

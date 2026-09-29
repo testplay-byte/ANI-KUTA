@@ -752,6 +752,21 @@ fun PlayerEpisodeListSettingsScreen(
                                     checked = showDatePill,
                                     onChecked = { playerListPrefs.showDatePill.set(it) },
                                 )
+                                // ── ROUND 106 (WS-D): the AUDIO pills' own
+                                //    knob (the details page's parity — "all
+                                //    the relevant options for each one of the
+                                //    layouts should be available and easily
+                                //    customizable"). The pills wrap now. ──
+                                PlayerSwitchRow(
+                                    title = "Audio pills",
+                                    description = when (style) {
+                                        PlayerEpisodeListStyle.GRID -> "The SUB/DUB chips under each cell"
+                                        PlayerEpisodeListStyle.BANNER -> "The SUB/DUB chips above the title"
+                                        else -> "The SUB/DUB chips beside the date"
+                                    },
+                                    checked = showAudioPills,
+                                    onChecked = { playerListPrefs.showAudioPills.set(it) },
+                                )
                                 // ── The progress bar — DETAILED + TRACKLIST
                                 //    (ROUND 105: "I should be given an option
                                 //    there to show or hide the progress bar";
@@ -863,6 +878,27 @@ fun PlayerEpisodeListSettingsScreen(
                                         onSelect = { idx ->
                                             playerListPrefs.bannerNumberStyle.set(
                                                 if (idx == 1) "SOLID" else "FROSTED",
+                                            )
+                                        },
+                                    )
+                                }
+                                // ── ROUND 106 (WS-D): the BANNER's
+                                //    currently-playing treatment — the GRID's
+                                //    PLAY/TINT knob, ported ("the grid view
+                                //    has the ability to select between play
+                                //    button and the themed tint, but the
+                                //    banner does not have it"). ──
+                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.BANNER) {
+                                    PlayerSegmentedRow(
+                                        title = "Currently playing",
+                                        description = "How the playing episode is highlighted",
+                                        options = listOf("Play button", "Themed tint"),
+                                        selectedIndex = if (bannerCurrentStyle ==
+                                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerCurrentStyle.TINT
+                                        ) 1 else 0,
+                                        onSelect = { idx ->
+                                            playerListPrefs.bannerCurrentStyle.set(
+                                                if (idx == 1) "TINT" else "PLAY",
                                             )
                                         },
                                     )

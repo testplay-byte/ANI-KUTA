@@ -80,9 +80,9 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
         KEY_SHOW_SYNOPSIS, true, BooleanSerializer,
     )
 
-/**
- * Show the release-date pill (DETAILED + TRACKLIST + GRID + BANNER).
- */
+    /**
+     * Show the release-date pill (DETAILED + TRACKLIST + GRID + BANNER).
+     */
     val showDatePill = store.preference(
         KEY_SHOW_DATE_PILL, true, BooleanSerializer,
     )
