@@ -619,6 +619,9 @@ private fun searchIconFor(page: SettingsSearchPage): ImageVector = when (page) {
     SettingsSearchPage.APPEARANCE -> Icons.Filled.Palette
     SettingsSearchPage.APPEARANCE_GENERAL -> Icons.Filled.Palette
     SettingsSearchPage.EPISODE_LIST -> Icons.Filled.VideoLibrary
+    // ROUND 105 (WS-C): the player page's own glyph (the CI run-2 catch —
+    // the exhaustive when needed the new enum's branch).
+    SettingsSearchPage.PLAYER_EPISODE_LIST -> Icons.Filled.PlayCircle
     SettingsSearchPage.DETAILS_PAGE -> Icons.Filled.Image
     SettingsSearchPage.APP_ICON -> Icons.Filled.Apps
     SettingsSearchPage.EXTENSIONS -> Icons.Filled.Extension
