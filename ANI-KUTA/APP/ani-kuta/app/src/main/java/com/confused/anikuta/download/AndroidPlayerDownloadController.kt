@@ -89,7 +89,10 @@ class AndroidPlayerDownloadController(
             val episodeInfo = DownloadEpisodeInfo(
                 episodeKey = episode.episodeKey,
                 episodeNumber = episode.episodeNumber,
-                name = episode.name,
+                // CI run-1 fix: DownloadEpisodeInfo.name is non-null; the
+                // controller's neutral tuple carries String? — the empty
+                // fallback mirrors MainActivity's `episode.name ?: ""`.
+                name = episode.name ?: "",
                 description = effectiveDescription,
             )
 

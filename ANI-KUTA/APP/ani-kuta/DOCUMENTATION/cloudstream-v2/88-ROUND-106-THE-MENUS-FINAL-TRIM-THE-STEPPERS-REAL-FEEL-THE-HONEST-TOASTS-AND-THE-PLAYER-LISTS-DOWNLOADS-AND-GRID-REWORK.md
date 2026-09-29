@@ -315,5 +315,119 @@ preview's badge demo (the preview rows carry a cycling demo state via the
 5. The sub-agent audits (≥2, D-689) → the lead verification + fixes.
 6. CI → the ledger → the release.
 
-(§4 the execution record, §5 the CI history, §6 the audit records, and §7
-the round-107 checklist are appended AFTER execution.)
+## 4. The execution record
+
+Implemented in commit **0dbe9159** (+ the audit fixes in **d028b8a0**),
+26 files touched:
+
+**WS-A (D-708)** — `DetailsActionMenu.kt`: both content Columns
+240dp → 220dp (lines 170 + 287 post-edit); the header comment carries the
+round-106 note. Byte-identical otherwise.
+
+**WS-B (D-709)** — `TrackSheet.kt`:
+- The seed/re-center effect: the `selectedIndex > 0` guard GONE
+  (`if (items.isNotEmpty())`), + the `motorDirection` key/early-return.
+- `TrackingWheelRow`'s blur: `if (blurRadius > 0.dp && !selected)`.
+- `SCORE_STEPPER_STEP = 1` + the comments rewritten (the user's override).
+- The picker's AnimatedVisibility: the eased curves (see D-709).
+- THE MOTOR: `TrackStepperButton` on `awaitEachGesture` (the 380ms delayed
+  handoff via scope.launch, the quick-release step, the cancelled-gesture
+  neither, the pressed wash); the wheel's frame-loop effect (the ramp, the
+  raw scrollBy, the edge clamp, the NonCancellable nearest-row settle); the
+  hoisted `stepperMotorDirection` (reset on ANY picker transition — SA1-F4);
+  the `nearestRowCenterDelta` helper.
+
+**WS-C (D-710)** — `DetailsScreen.kt` (the three inset lifts +
+the navigationBarsPadding import); `AppToast.kt` (NEW — the object, the
+tones, the host, the pill); `MainActivity.kt` (the root host + the two
+helpers + the toned call sites); the 20-site sweep (ExtensionsSettings ×3,
+CloudstreamPluginDetail ×3, ExtensionRepoSettings ×1, ResolverSheet ×1,
+CoverViewerOverlay ×3, CsSourceListUi ×1, PlayerSheets ×1, WatchScreen ×3,
+AppIconScreen ×2, ConsoleTab ×2) + the six dead-import drops.
+
+**WS-D (D-711)** — the prefs (+3); `PlayerEpisodeListLayouts.kt` (the
+render model, the display bundle, the four reworked layouts, the badge, the
+FlowRows, the OptIns); `PlayerDownloadController.kt` (NEW, core/download);
+`AndroidPlayerDownloadController.kt` (NEW, :app — the extracted chain);
+`CsDownloadRequestBuilder.kt` MOVED to core/download/cs (+ the gradle dep);
+`AnikutaApp.kt` (the Koin registration); `WatchScreen.kt` (the MPV wiring);
+`CsWatchPage.kt` + `CsWatchScreen.kt` (the CS wiring + the sourceId param);
+`PlayerEpisodeListSettingsScreen.kt` (the Download card, the Audio pills
+row, the BANNER's Currently playing row, the preview's demo badge, the
+anchor shift); `SettingsSearchIndex.kt` (the entry).
+
+## 5. The CI history (the D-472 ledger)
+
+- CI run 1 (**36622858251**, Build APK on d028b8a0): pending at ledger
+  time — the record completes below.
+
+## 6. The sub-agent audits (the standing ≥2 order, D-689)
+
+**SA1 — streams 1-3 (menu + tracking sheet + toasts):** PASS after the
+lead-verified fixes. 3 HIGH (all pre-CI compile blockers: the missing
+`kotlinx.coroutines.withContext` import; `HapticHelper.stageCross` called
+without its Context param; the missing `FontWeight` import in AppToast) —
+all applied. 2 MEDIUM applied (F4: the stale motor on a mid-hold picker
+switch — the reset is now unconditional on ANY transition; F10: the
+showDownloadToast tone plumbing — ERROR/SUCCESS per call site). F5 (the
+two ExtensionInstaller OS-fallback toasts in data/extension) DOCUMENTED as
+accepted exceptions — the module cannot reach the designsystem and the
+notices fire during OS intent handoffs. LOWs: F6 (the six dead imports —
+applied), F7 (the unused animateFloatAsState — applied), F9 (the slide
+measuring the screen — applied via the restructure), F8 (the id-counter
+race — documented). The verified PASSES: the gesture contract, the motor's
+cancellation semantics (the MutatorMutex serializes; no double-settle),
+the index-0 math, the fence's non-interaction with programmatic scrolls,
+the four stepper call sites, the sweep's module graph.
+
+**SA2 — stream 4 (the player list):** PASS after the lead-verified fixes.
+2 HIGH (both pre-CI compile blockers: `MinimizedMode` referencing
+`WatchScreen`'s out-of-scope `downloadManager` local — fixed with the
+function's own inject; `event.subs` → `event.subtitles`) — applied. 3
+MEDIUM applied (F3: the two LOST settings rows — the Audio pills switch +
+the BANNER's Currently playing segmented row — a failed batch edit had
+silently dropped them, re-applied and verified; F4: the BANNER's watched
+check chip collided with the download badge at top-start — the check now
+rides the scrim's chips flow as the leading chip; F5: the CS pick ranked
+by a digit-parse of the "4K"/"Auto" labels — now the raw quality int).
+LOWs: F6 (the unused Pause import — applied), F7 (the prefs KDoc indent —
+applied), F10 (the GRID matcher's title disambiguation — applied); F8/F9
+documented (the badge dims with its watched row — consistent with the
+card-dim semantics; the InFlight tap is a no-op during the resolve window
+— bounded by the resolver's own timeouts). The verified PASSES: the
+module graph (no cycle), the render model, the GRID cell's structure, the
+controller's every field against the real models, the MPV hoisting + the
+stale-closure analysis, the CS resolve-flow termination (the ≤120s budget
++ the watchdog), the Koin graph, the anchor mapping, the search entry.
+
+## 7. The round-107 checklist (the device round on v1.1.63)
+
+1. **The menu**: the narrower width (220dp) — same structure, same
+   hierarchy, same rows.
+2. **The tracking sheet**: tap +/− — the wheel GLIDES the new row to
+   center and the selection highlight stays CRISP through the glide (no
+   smear, no vanishing); tap − all the way down to "Not started"/"—" —
+   the wheel follows to the top row (the old bug left it stranded); the
+   score's +/− moves 0.1 per tap; HOLD +/− — the wheel starts slow, ramps
+   up, cruises until release (the selection + the ticks follow), then
+   settles on a row; the picker's open/close glides smoothly (no abrupt
+   shrink at the end).
+3. **The toasts**: the tracking toast floats ABOVE the navigation bar (no
+   edge-hugging); the app's other toasts (extension installs, cover saves,
+   subtitle imports, the download notices, the debug console's copies) all
+   wear the themed pill with the right tone.
+4. **The player page**: Settings → Player page → **Download** — the
+   dedicated card; toggle it ON and EVERY layout carries the badge:
+   - DETAILED/TRACKLIST: the trailing badge — tap download (the spinner →
+     the progress ring → the % numeral), pause/resume, retry, and the
+     check → plays the offline file.
+   - GRID: the top-end translucent badge; the cell's new anatomy (the
+     text block below the plate; EVERY tag visible, wrapping).
+   - BANNER: the badge at the corner opposite the big number; the
+     "Currently playing" PLAY/TINT option (the GRID's parity); the
+     watched check riding the chips row.
+   - The CS stack: tap download → the resolve → the "Download queued:
+     server · quality" toast; the MPV stack: the classic auto-engine pick.
+   - The Audio pills toggle; the preview's tappable demo badge (cycles
+     all six states).
+
