@@ -64,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -98,7 +99,7 @@ import kotlin.math.abs
 //    top-LEFT, deriving entirely from the sheet's existing state —
 //      isSaving  → "Syncing…"             (primary tone, a spinner as the dot)
 //      error     → "Not synced"            (error tone)
-//      isTracked → "Synced with AniList"   (the success green)
+//      isTracked → "Tracking on"            (the success green)
 //      else      → "Not tracking"          (muted)
 //
 //  • THE WHEEL'S WIDTH — "it is taking up almost all the width, but… it
@@ -459,17 +460,23 @@ private fun TrackingStatusChip(
     error: String?,
     isTracked: Boolean,
 ) {
-    val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+    // SA1-F1 fix (lead-verified): the polarity derives from the ACTIVE
+    // SCHEME's background luminance, not isSystemInDarkTheme() — the app can
+    // force a theme opposite the system (MainActivity's ThemeMode); the
+    // scheme IS what renders, so its luminance is the truth.
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val successGreen = if (darkTheme) {
         com.confused.anikuta.core.designsystem.theme.SuccessDark
     } else {
         com.confused.anikuta.core.designsystem.theme.SuccessLight
     }
-    // The state, in priority order.
+    // The state, in priority order. SA1-F2 fix: the green label says
+    // "Tracking on" — the honest statement of the OPT-IN state (the word
+    // "Synced" overstated the rare failed-sync-but-tracked case).
     val (label, tone, syncing) = when {
         isSaving -> Triple("Syncing…", MaterialTheme.colorScheme.primary, true)
         !error.isNullOrBlank() -> Triple("Not synced", MaterialTheme.colorScheme.error, false)
-        isTracked -> Triple("Synced with AniList", successGreen, false)
+        isTracked -> Triple("Tracking on", successGreen, false)
         else -> Triple("Not tracking", MaterialTheme.colorScheme.onSurfaceVariant, false)
     }
     Surface(
@@ -1086,7 +1093,9 @@ fun TrackingToastHost(
     onConsumed: () -> Unit,
 ) {
     val context = LocalContext.current
-    val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+    // SA1-F1 fix: scheme-luminance polarity (the same fix as the status
+    // chip's — see its note).
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val successGreen = if (darkTheme) {
         com.confused.anikuta.core.designsystem.theme.SuccessDark
     } else {

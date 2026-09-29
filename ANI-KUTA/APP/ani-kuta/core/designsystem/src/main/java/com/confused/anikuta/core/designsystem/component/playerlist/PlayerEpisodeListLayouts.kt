@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -645,13 +646,15 @@ private fun PlayerTracklistRow(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                 ) {
                     // ── The NUMBER hero — a fixed-width right-aligned
-                    //    numeral, the row's identity. ──
+                    //    numeral, the row's identity (SA2-F3: TextAlign.End
+                    //    so "1"/"10"/"100" right-align in the column). ──
                     Text(
                         text = data.episodeNumberText,
                         fontFamily = RobotoFamily,
                         fontSize = 21.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = numberTone,
+                        textAlign = TextAlign.End,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.width(52.dp),

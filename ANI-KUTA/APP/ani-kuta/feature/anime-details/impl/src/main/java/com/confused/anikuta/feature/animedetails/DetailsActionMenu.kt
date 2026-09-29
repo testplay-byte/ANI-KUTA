@@ -3,7 +3,6 @@ package com.confused.anikuta.feature.animedetails
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -127,7 +127,14 @@ fun DetailsActionMenu(
     // ROUND 104 (WS-A): the theme-aware panel/card hierarchy — the CARDS are
     // always BRIGHTER than the PANEL (the inverted relationship the device
     // round ordered; see the file header).
-    val darkTheme = isSystemInDarkTheme()
+    // SA1-F1 fix (lead-verified): the polarity derives from the ACTIVE
+    // SCHEME's background luminance, NOT isSystemInDarkTheme() — the app
+    // can FORCE a theme opposite the system (MainActivity's ThemeMode), and
+    // a forced-DARK app on a system-light device would otherwise pick the
+    // light-mode panel (the exact inverted hierarchy this round fixes). The
+    // scheme IS what renders — its luminance is the truth (also correct for
+    // the D-254 custom themes + AMOLED).
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val panelColor = if (darkTheme) {
         MaterialTheme.colorScheme.surface
     } else {
@@ -366,7 +373,8 @@ private fun MenuSectionLabel(text: String) {
  */
 @Composable
 private fun MenuSectionCard(content: @Composable () -> Unit) {
-    val darkTheme = isSystemInDarkTheme()
+    // SA1-F1: scheme-luminance polarity (see the file header's note).
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     Surface(
         color = if (darkTheme) {
             MaterialTheme.colorScheme.surfaceVariant
@@ -399,7 +407,8 @@ private fun MenuSourceChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val darkTheme = isSystemInDarkTheme()
+    // SA1-F1: scheme-luminance polarity (see the file header's note).
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val quietTone = if (darkTheme) {
         MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.4f)
     } else {
@@ -496,7 +505,8 @@ private fun MenuTrackingRow(
     isTracked: Boolean,
     onClick: () -> Unit,
 ) {
-    val darkTheme = isSystemInDarkTheme()
+    // SA1-F1: scheme-luminance polarity (see the file header's note).
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val trackingGreen = if (darkTheme) SuccessDark else SuccessLight
     val rowTone = if (isTracked) {
         trackingGreen.copy(alpha = 0.13f)

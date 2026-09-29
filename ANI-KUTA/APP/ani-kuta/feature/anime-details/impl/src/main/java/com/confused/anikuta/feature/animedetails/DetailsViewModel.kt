@@ -878,7 +878,7 @@ class DetailsViewModel(
 
     /**
      * ROUND 102 (WS-E): DELETE FROM ANILIST — the TRASH CAN (the sheet's
-     * top-right icon, behind a "Do you want to delete it from AniList?"
+     * top-right icon, behind a "Delete from AniList?"
      * confirmation). This is the REAL remote deletion: AniList's
      * DeleteMediaListEntry + the local cache row + the opt-in OFF. Local
      * watch progress and the rating are KEPT (they are the app's own data —
