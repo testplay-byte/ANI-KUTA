@@ -163,3 +163,86 @@ this-session order, which overrides the standing THE-TASK-IS-DONE topic for this
 ---
 *(The execution record, the CI history, the judgment calls, and the round-104 checklist
 append below as the streams land.)*
+
+---
+
+## 4. The execution record
+
+| Stream | Files | Commit |
+|---|---|---|
+| WS-1 the menu | DetailsActionMenu.kt (full rework), Color.kt (SuccessLight), DetailsScreen.kt (the sourceName pass) | 1eff1593 |
+| WS-2 the tracking feel | TrackSheet.kt (full rework), DetailsViewModel.kt (saveTrackEntry/startTracking/pushTrackEntry), DetailsScreen.kt (the wiring) | 1eff1593 |
+| WS-3 the honest scroll | SmoothCenterScroll.kt (NEW), WatchScreen.kt + CsWatchPage.kt (the call sites) | 1eff1593 |
+| WS-4 the four paradigms | PlayerEpisodeListLayouts.kt (NEW), PlayerEpisodeListPreferences.kt, WatchScreen.kt + CsWatchPage.kt (the renderer adoption + sort collapse), PlayerEpisodeListSettingsScreen.kt (full rework), EpisodeListSettingsScreen.kt (the loader visibility flips) | 1eff1593 |
+| The audit fixes | PlayerEpisodeListSettingsScreen.kt (remember(isGrid)), SmoothCenterScroll.kt (break), DetailsViewModel.kt (the opt-in abort), WatchScreen.kt (the pair-match hardening), the import prunes | 1eff1593 |
+| The CI fixes | TrackSheet.kt (background/border/Close imports) | ace365be |
+
+**THE JUDGMENT CALLS (disclosed):**
+- **The MPV watched treatment** unifies on the CS tint style (surfaceVariant 0.15) — one
+  renderer needs one treatment; the MPV's old alpha-0.5 dim retired. The current-episode
+  highlight always wins in both.
+- **The MPV download glyph** (an inert Icon the row has carried since round 101) survives
+  the shared renderer via `showDownloadHint` — visual parity kept, the CS stack passes false.
+- **MINIMAL folds into COMPACT** (the lenient migration): the user's four-paradigm order
+  implicitly retires the density variation; the closest rhythm inherits its users.
+- **The preview's audio parse is scanlator-only** (the MPV parser also scans the episode
+  name) — the loader's reconstructed scanlator already carries the library's real audio
+  aggregates, so the preview shows real data either way.
+- **The GRID scroll centers the PAIR row** containing the current episode (the lazy items
+  are pairs) — the current episode lands in view at the pair's center; a per-cell centering
+  is impossible when the cells are not the lazy items.
+- **PROCESS SLIP (disclosed):** the first four ledger files (decisions/changelog/progress/
+  lessons) rode the CI-fix commit `ace365be` through a careless `git add -A` while the
+  ledger was mid-write — the intended dedicated docs commit shrinks to doc 85 + SESSION.
+
+## 5. The CI history (the D-472 ledger — 2 runs, within budget)
+
+1. **Run 36515949685 on 1eff1593 — FAILURE:** three unresolved references in TrackSheet.kt,
+   all import-block misses in the rewrite: `foundation.background` (the 610/614 errors were
+   its downstream cascades), `foundation.border`, and `material.icons.filled.Close` — the
+   round-102 extension-import trap verbatim ("extension properties resolve through IMPORTS,
+   never receiver qualification"). A repo-wide sweep of every touched file for the same
+   error class found no further gaps (two false positives: WatchScreen's Star/StarBorder
+   imports carry trailing comments that broke the sweep's regex).
+2. **Run 36516391039 on ace365be — GREEN** (the three imports fixed).
+
+## 6. The sub-agent audits (the standing ≥2 order, D-689)
+
+- **SA1 (the menu + tracking contract): S1-S14 all PASS** — the menu structure/labels/
+  states, the share submenu's byte-identical behavior (verified against HEAD), the
+  Save/Start contract split, the wheel contract port, the vibration guards, the draft
+  semantics, the heading removal, the regression sweep, the compile-risk scan.
+- **SA2 (the scroll + player list): T1-T14 PASS** — the scroller's bounded/clamped/
+  snap-free math, both stacks' lazy-index correctness in all four shape combinations,
+  the renderer's four treatments, the stacks' bundles, the prefs deletion sweep, the
+  preview's truth (loader/renderer/direction/filter), the sort collapse, the regression
+  sweep, the compile-risk scan.
+- **Every finding lead-verified before applying:** SA2-F1 (MEDIUM — the stale `isGrid`
+  capture in the preview's collapse: `remember { derivedStateOf { if (isGrid) … } }` never
+  re-captures; fixed with `remember(isGrid)`), SA2-F2 (the scroller's ~zero-estimate
+  early-`return` skipping the fallback; now `break`), SA1-F2 (the silently-swallowed opt-in
+  failure on Start Tracking; now aborts with the error surface before the sync), SA2-F3
+  (the GRID pair-match hardening: number + title), and both audits' unused-import lists
+  (height/Color/alpha/Search/Tune/fillMaxHeight — pruned).
+- **Not applied (documented):** SA1-F3/F4/F5 (INFO — the draft re-seed edge when the
+  open's fetch lands late, the blur-wording nuance, the Compose-pulse note) and SA2-F4/F5
+  (INFO — the scanlator-only preview parse, the fling-equivalent composition cost of the
+  no-snap glide on 1000+ episode lists). All pre-existing or deliberate.
+
+## 7. The round-104 checklist (the device round on v1.1.60)
+
+1. **The menu:** the crimped sections' rhythm; the data-source chips side by side (the
+   right chip should show the EXTENSION'S NAME, not "Extension"); the unlink row below
+   them; the discs; "Open in Web View"; the Tracking row's grey↔green states.
+2. **The tracking sheet:** no anime heading; the wheel's feel (snap + blur + the tick
+   vibration while scrolling); untracked shows START TRACKING; Save on an untracked
+   content updates AniList WITHOUT linking (verify the menu row stays grey after a
+   Save-only round, and that Start Tracking turns it green).
+3. **The scroll:** tap Scroll to Current on a LONG list (100+ episodes) — the glide should
+   be smooth start-to-stop (no jump) and land the current episode CENTERED in the area
+   below the player; episode 1 / the last episode should stop un-centered at the edge.
+4. **The player list styles:** Settings → Appearance → Player episode list — the preview
+   should show YOUR library's real episodes (titles/dates/thumbnails), the four layouts
+   (Detailed/Compact/Grid/Banner), the direction flip reordering the preview, the watched
+   filter hiding/showing the watched slot live; the player pages should draw all four
+   layouts identically (both stacks, incl. the GRID pair taps switching the right episode).

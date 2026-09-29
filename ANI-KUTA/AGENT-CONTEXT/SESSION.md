@@ -1,7 +1,7 @@
 # SESSION — Read This At The Start Of Every Session
 
 > A 60-second orientation. Read this FIRST, every time, before any work.
-> Refreshed in **Round 102 (2026-09-28)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
+> Refreshed in **Round 103 (2026-09-29)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
 
 ---
 
@@ -12,22 +12,21 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 
 ---
 
-## 📍 Current State (refreshed Round 102, 2026-09-28)
+## 📍 Current State (refreshed Round 103, 2026-09-29)
 
 - **Mainline branch:** `feature/round-57-cloudstream-downloads` — this IS the default branch. `main` was DELETED (D-552 — it had 0 unique commits). Other live branches: `release/1.1.3` (the professional release branch), `feature/test-controller-v5` (dormant, kept by user order).
-- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.58 / 10158** (round 101); the round-102 release **v1.1.59 / 10159** is **LIVE** — `release/1.1.59` cut from d8df651a, the bump 765a5564 rides the branch (D-430), Release APK run **36463060067 GREEN**, published 2026-09-28T18:12:25Z, stable latest, arm64-v8a debug APK **60.5 MB** + SHA256SUMS.txt, verified via the API (D-690 the filter scope — the search picker independent of the extensions filters, D-691 the anchored three-dot DropdownMenu + the direct-share OS-chooser submenu, D-692 the switch contract — persistence via the existing display_source column + the target-axis auto-refresh + the Library cover/name reflection + the 800ms PTR-indicator window, D-693 the detected deep links — singleTask + the PendingNavigation reactive intake (cold AND warm, links AND notifications), D-694 THE TRACKING CONTRACT — the opt-in content_tracking_state table + the fail-closed gates + the TrackingWatchSyncBridge (the missed-updates root fix: the player's completions now reconcile against the confirmed cache, self-healing at startup) + the TrackSheet draft/Save/Remove/trash redesign, D-695 the player list's new home — "Scroll to Current" + the dedicated Settings → Appearance → "Player episode list" page; CI run 4 of 4 GREEN 36461645067 — the 2-run overage disclosed doc 84 §4.1).
-- **Latest records:** Round 102 implemented (D-690..D-695 — doc **84**, commits 3a046329 → d827f268; Build APK run 36461645067 GREEN on run 4 (the overage disclosed); the v1.1.59 release is the session's pending cut); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **85**; the next decision is **D-696**.
-- **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases (the latest: **v1.1.58/10158**; the round-102 cut **v1.1.59/10159** is in flight). **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
-- **The per-round loop is unchanged:** device feedback → implement on the mainline → CI green (≤2 runs/cycle, disclosed ledger, D-472 — round 93 honestly used 3) → `release/1.1.3N` cut from the green head → the bump rides that branch → tag `v1.1.3N` → the debug release publishes → LIVE-mirror docs → ntfy → the user's device round.
+- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.60 / 10160** (round 103); the round-102 release v1.1.59 shipped 2026-09-28. **THE ROUND-103 SET (D-696..D-699):** D-696 the menu's second pass (the crimped inset section cards, the round-101 icon discs, the data-source chips side by side — left "AniList" / right the extension's own name — the unlink folded below, "Open in Web View", the Tracking row's grey↔green color states, the share submenu behavior untouched), D-697 the tracking feel (the sheet's heading gone, the Status/Progress/Score pickers are the link-sources WHEEL + vibration ticks, Save is SYNC-ONLY and the new START TRACKING carries the opt-in — the D-694 amendment), D-698 the honest scroll (animateScrollToItemCentered — snap-free glide + the exact-center settle on the list's own viewport, edges clamped; both stacks GRID-aware), D-699 the player's four paradigms (DETAILED/COMPACT/GRID/BANNER through ONE shared renderer in :core:designsystem that both stacks AND the settings preview call; the actual-data library preview; direction-only sort — the round-101 sort modes + both stacks' private rows retired).
+- **Latest records:** Round 103 implemented (commits 1eff1593 + ace365be; doc **85**; CI run 36516391039 GREEN on run 2 — run 1's three TrackSheet import misses disclosed doc 85 §5); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **86**; the next decision is **D-700**.
+- **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases. **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
+- **The per-round loop is unchanged:** device feedback → implement on the mainline → CI green (≤2 runs/cycle, disclosed ledger, D-472) → `release/1.1.3N` cut from the green head → the bump rides that branch → tag `v1.1.3N` → the debug release publishes → LIVE-mirror docs → ntfy → the user's device round.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` pushes build NOTHING.
-
----
+- **THIS SESSION'S NOTIFICATION:** the user ordered ntfy topic **TASK808DONE** for the round-103 completion (an explicit per-task override of the standing THE-TASK-IS-DONE topic — §11's standing topic resumes afterward).
 
 ## 📂 If The Environment Was Just Cloned
 1. Clone `https://github.com/testplay-byte/ANI-KUTA.git` (public — read needs no token). **PUSH** uses the credential helper that reads the PAT from `/home/z/.secrets/github-credentials` (repo-external, git-credential FORMAT — for raw API calls extract the `password=` line; NEVER commit it, NEVER paste it). If the sandbox lost the file, ask the user.
 2. Checkout the mainline `feature/round-57-cloudstream-downloads` (the default branch).
 3. Read `AGENT-CONTEXT/memory/progress.md` — the TOP **CURRENT STATUS** block first, then the newest `## Round NN` sections at the BOTTOM (the file grows downward; the middle "Historical session" paragraphs are old).
-4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-673** (round 98).
+4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-699** (round 103).
 5. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task type.
 6. Read `AGENT-CONTEXT/knowledge/` files on demand (architecture, module-map, tech-stack, ui-customization, emulator-testing…).
 
