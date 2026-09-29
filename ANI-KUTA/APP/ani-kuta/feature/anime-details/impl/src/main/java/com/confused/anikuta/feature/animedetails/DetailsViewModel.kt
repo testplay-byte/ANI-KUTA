@@ -670,23 +670,49 @@ class DetailsViewModel(
     }
 
     /**
-     * ROUND 102 (WS-E — the tracking contract): THE SAVE BUTTON.
+     * ROUND 102 (WS-E) → ROUND 103 (WS-2) AMENDED: THE SAVE BUTTON — sync
+     * ONLY.
      *
-     * The TrackSheet's draft lands here — the ONLY way tracking changes
-     * persist (closing the sheet without saving discards them, per the
-     * user's spec). Saving means:
-     *  1. THE OPT-IN flips ON — configuring + saving tracking IS "track this
-     *     anime" (the contract's whole point: linking alone never tracks).
-     *  2. The draft's PROGRESS drives the local watch_progress follow (the
-     *     D-242-fix5 semantics, moved from the old per-picker immediate
-     *     save: decreasing unmarks the trailing episodes, increasing marks
-     *     the new ones).
-     *  3. The remote sync — on success the cache (the confirmed truth) is
+     * The v1.1.59 device round's explicit order: "the save button should
+     * actually not start the tracking system, but it should only be for
+     * saving… it should only update it in any list. It should not link both
+     * of them together." Saving now means:
+     *  1. The draft's PROGRESS drives the local watch_progress follow (the
+     *     D-242-fix5 semantics: decreasing unmarks the trailing episodes,
+     *     increasing marks the new ones).
+     *  2. The remote sync — on success the cache (the confirmed truth) is
      *     updated; on failure the ERROR surfaces and the cache keeps the
-     *     last confirmed state (no false "AniList has it" positives — the
-     *     next Save or the bridge's progress reconciliation retries).
+     *     last confirmed state (no false "AniList has it" positives).
+     * The OPT-IN FLIP that used to live here (the round-102 D-694 "Save =
+     * the opt-in" step) MOVED to [startTracking] — this round's order.
      */
     fun saveTrackEntry(entry: com.confused.anikuta.core.trackerapi.TrackEntry) {
+        pushTrackEntry(entry, flipOptIn = false)
+    }
+
+    /**
+     * ROUND 103 (WS-2): START TRACKING — the opt-in path.
+     *
+     * The untracked sheet's primary button ("it should give me the option to
+     * start tracking"): the full round-102 Save contract — the OPT-IN flip
+     * (linking the app's tracking to the AniList entry: from this moment the
+     * bridge relays progress both ways) + the local progress follow + the
+     * remote sync. Shares [pushTrackEntry]'s body with Save; only the flip
+     * differs.
+     */
+    fun startTracking(entry: com.confused.anikuta.core.trackerapi.TrackEntry) {
+        pushTrackEntry(entry, flipOptIn = true)
+    }
+
+    /**
+     * The shared Save/Start body (ROUND 103): the local progress follow +
+     * the remote sync + the stay-open error surface (the SA2-F2 shape),
+     * with [flipOptIn] controlling ONLY the tracking opt-in write.
+     */
+    private fun pushTrackEntry(
+        entry: com.confused.anikuta.core.trackerapi.TrackEntry,
+        flipOptIn: Boolean,
+    ) {
         val mid = currentMainId ?: return
         val tracker = aniListTracker ?: return
         val repo = trackEntryRepository ?: return
@@ -709,34 +735,47 @@ class DetailsViewModel(
 
         viewModelScope.launch {
             try {
-                // 1. THE OPT-IN — the contract.
-                runCatching { trackingStateRepository?.setTracked(mid, true) }
-                    .onFailure { e ->
-                        Logger.e(TAG, e) { "saveTrackEntry — tracking opt-in failed: ${e.message}" }
+                // 1. THE OPT-IN — ONLY on the Start Tracking path (ROUND 103:
+                //    Save must NOT link the app and AniList together).
+                //    SA1-F2 fix (lead-verified): a FAILED opt-in write ABORTS
+                //    with the error surface — the sheet stays open, nothing
+                //    syncs, no false "tracking started" positive (a silent
+                //    swallow would leave a synced remote entry the app never
+                //    relays progress for).
+                if (flipOptIn) {
+                    val optInOk = runCatching { trackingStateRepository?.setTracked(mid, true) }.isSuccess
+                    if (!optInOk) {
+                        _trackSheetError.value =
+                            "Couldn't turn on tracking — nothing was synced. Try again."
+                        Logger.e(TAG) { "startTracking — tracking opt-in failed; aborting before the sync" }
+                        return@launch
                     }
+                }
 
                 // 2. The local watch-progress follow (the D-242-fix5 ranges, on
                 //    the identity numbers — CS sub/dub pairs collapse to one).
                 runCatching { applyTrackProgressToLocal(mid, oldProgress, updated.progress) }
                     .onFailure { e ->
-                        Logger.w(TAG) { "saveTrackEntry — local progress follow failed (non-fatal): ${e.message}" }
+                        Logger.w(TAG) { "pushTrackEntry — local progress follow failed (non-fatal): ${e.message}" }
                     }
 
                 // 3. The remote sync (+ the confirmed cache on success).
                 if (tracker.isLoggedIn()) {
                     val success = runCatching { tracker.syncEntry(updated) }
                         .onFailure { e ->
-                            Logger.w(TAG) { "saveTrackEntry — sync failed: ${e.message}" }
+                            Logger.w(TAG) { "pushTrackEntry — sync failed: ${e.message}" }
                         }
                         .getOrDefault(false)
                     if (success) {
                         repo.upsert(updated)
                         _trackSheetError.value = null
                         _showTrackSheet.value = false
-                        Logger.i(TAG) { "saveTrackEntry — synced + cached: $updated" }
+                        Logger.i(TAG) { "pushTrackEntry(flipOptIn=$flipOptIn) — synced + cached: $updated" }
                     } else {
                         _trackSheetError.value =
-                            "Couldn't reach AniList — tracking is on, but this change didn't sync. Try saving again."
+                            "Couldn't reach AniList — " +
+                                (if (flipOptIn) "tracking is on, but this change didn't sync. Try again."
+                                 else "this change didn't sync. Try saving again.")
                     }
                 } else {
                     _trackSheetError.value =

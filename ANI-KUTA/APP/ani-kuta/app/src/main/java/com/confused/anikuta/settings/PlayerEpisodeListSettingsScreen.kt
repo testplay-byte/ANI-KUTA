@@ -1,6 +1,7 @@
 package com.confused.anikuta.settings
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,8 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,88 +21,91 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.common.EpisodeTitleParser
+import com.confused.anikuta.core.content.ContentRepository
+import com.confused.anikuta.core.datacache.DataCacheRepository
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeGridRow
+import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListEntry
+import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle
+import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeRowData
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
  * ══════════════════════════════════════════════════════════════════════════
- *  ROUND 102 (WS-G): PlayerEpisodeListSettingsScreen — the PLAYER page's
- *  episode-list customization, as a DEDICATED SETTINGS PAGE
+ *  ROUND 102 (WS-G) → ROUND 103 (WS-4) REWORKED: PlayerEpisodeListSettingsScreen
  * ══════════════════════════════════════════════════════════════════════════
  *
- *  The user's order: "Just like how there is the option to customize the
- *  episodes list of the details page… there should be a proper,
- *  well-formatted page, exactly the same style and overall experience for
- *  the episodes player page." The round-101 in-player sheets (the gear on
- *  the Episodes header) are retired — this page (Settings → Appearance →
- *  "Player episode list") is the customization's new home, and the SAME
- *  [PlayerEpisodeListPreferences] keys drive BOTH player stacks (the MPV
- *  page + the CS page) and this preview.
+ *  The v1.1.59 device round's orders, verbatim intent:
+ *  • "The actual episode list on the details page is getting a total of four
+ *    custom display options, but the player page one is not getting things
+ *    like those… build custom ones for that too… It should also be handled
+ *    properly, just like the other one." → THE FOUR PARADIGMS
+ *    (Detailed / Compact / Grid / Banner) through the ONE shared renderer
+ *    both player stacks draw with.
+ *  • "It should properly show the actual live preview of the data. It should
+ *    not show random things. It should all show the actual things, just like
+ *    how it gets the data for the episode list of the details page." → THE
+ *    ACTUAL-DATA PREVIEW: the SAME library-backed loader the details page's
+ *    "Episode list" screen uses (a random qualifying series — ≥2 cached
+ *    episodes, real titles/dates/audio/imagery; the demo samples only paint
+ *    the first frame on an empty library).
+ *  • "These changes were not being applied in the live preview" (the sort) →
+ *    the preview REORDERS live with the direction, and the watched filter
+ *    reflects too (Hide watched → the watched slot is gone; Show watched →
+ *    only the watched slot renders — the honest reading of the real list's
+ *    behavior).
+ *  • "The only sort option which should be given here is ascending or
+ *    descending. It does not need to give any other options." → the Sort
+ *    card is DIRECTION ONLY (the round-101 sort modes are retired).
  *
- *  # The pattern (the details page's EpisodeListSettingsScreen, player-scoped)
- *
- *  The same shape: a **live preview** at the top (two rows — slot 1 styled
- *  as the CURRENTLY PLAYING episode, slot 2 as a watched one carrying the
- *  dim treatment) and the options in a LazyColumn below (the D-525 single
- *  8dp gutter). The preview is NOT a mock-up of a style: it renders the
- *  SAME row anatomy the player draws (thumbnail + EP tag + title surface +
- *  audio pill + synopsis + date pill), fed from the SAME preference keys
- *  this page writes — what you tune is exactly what the player shows
- *  (the D-481 one-source-of-truth rule). Every flip re-shapes the preview
- *  above AND both player pages, live.
- *
- *  # The collapse
- *
- *  The preview slides up under a clip as the options scroll (the details
- *  page's D-556 reading: "the first episode list is hidden, and the second
- *  one will remain"); scrolling back restores it. The two-phase snap of the
- *  details page is deliberately NOT replicated here — the player page's
- *  options list is short (four cards), so the simple scroll-linked slide is
- *  the proportionate experience.
- *
- *  # The option set (everything the player list respects)
- *
- *  - **Row style** — Detailed / Compact / Minimal (COMPACT: the smaller
- *    thumbnail, never a synopsis; MINIMAL: number + title only).
- *  - **Elements** — the synopsis + date-pill toggles + dim-watched.
- *  - **Watched filter** — Off / Show watched / Hide watched (the three-state
- *    the player list filters by).
- *  - **Sort** — Episode / Upload date / Alphabetical, ascending or
- *    descending.
+ *  The preview's two slots: slot 1 styled as the CURRENTLY PLAYING episode
+ *  (the ring/border treatment + a partial progress bar), slot 2 as a WATCHED
+ *  one (the dim/grayscale treatment) — every element the player list can
+ *  draw, drawn by the player list's own renderer.
  */
 @Composable
 fun PlayerEpisodeListSettingsScreen(
     onBack: () -> Unit,
     playerListPrefs: PlayerEpisodeListPreferences = koinInject(),
+    contentRepository: ContentRepository = koinInject(),
+    dataCacheRepository: DataCacheRepository = koinInject(),
 ) {
     // ── The reactive reads — the SAME prefs both player pages collect. Every
     // write below updates the pref; `changes` re-emits; the preview AND the
     // player lists re-shape from the same emission (no local mirror state,
-    // the D-481 drift killer).
-    val rowStyle by playerListPrefs.rowStyle.changes.collectAsState(
+    // the D-481 drift killer). ──
+    val rowStyleKey by playerListPrefs.rowStyle.changes.collectAsState(
         initial = playerListPrefs.rowStyle.get(),
     )
+    val style = remember(rowStyleKey) { PlayerEpisodeListStyle.fromKey(rowStyleKey) }
     val showSynopsis by playerListPrefs.showSynopsis.changes.collectAsState(
         initial = playerListPrefs.showSynopsis.get(),
     )
@@ -116,25 +118,73 @@ fun PlayerEpisodeListSettingsScreen(
     val watchedFilter by playerListPrefs.watchedFilter.changes.collectAsState(
         initial = playerListPrefs.watchedFilter.get(),
     )
-    val sortMode by playerListPrefs.sortMode.changes.collectAsState(
-        initial = playerListPrefs.sortMode.get(),
-    )
     val sortDescending by playerListPrefs.sortDescending.changes.collectAsState(
         initial = playerListPrefs.sortDescending.get(),
     )
+    val display = remember(style, showSynopsis, showDatePill, dimWatched) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
+            style = style,
+            showSynopsis = showSynopsis,
+            showDatePill = showDatePill,
+            dimWatched = dimWatched,
+        )
+    }
 
+    // ── ROUND 103 (WS-4): THE ACTUAL-DATA PREVIEW — the details page's
+    // loader, verbatim (demo samples first for the instant paint, then a
+    // RANDOM qualifying library series with REAL titles/dates/audio/imagery
+    // replaces them). ──
+    val context = LocalContext.current
+    var previewItems by remember {
+        mutableStateOf(demoPreviewItems(context.packageName))
+    }
+    LaunchedEffect(Unit) {
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching { loadLibraryPreviewItems(contentRepository, dataCacheRepository) }.getOrNull()
+        }
+        if (loaded != null) previewItems = loaded
+    }
+
+    // The preview's slot data — ordered by the LIVE direction ("these
+    // changes were not being applied in the live preview" — they are now:
+    // flipping the direction visibly reorders the two episodes).
+    val orderedItems = remember(previewItems, sortDescending) {
+        if (sortDescending) previewItems.reversed() else previewItems
+    }
+    // The watched filter's honest reflection: Hide watched → the watched
+    // slot is gone; Show watched → only the watched slot renders (exactly
+    // what the player list would show for these two episodes).
+    val currentSlotVisible = watchedFilter != "SHOW"
+    val watchedSlotVisible = watchedFilter != "HIDE"
+    val currentData = orderedItems.getOrNull(0)?.toPlayerRowData(
+        isCurrent = true,
+        isWatched = false,
+        progressFraction = 0.35f,
+    )
+    val watchedData = orderedItems.getOrNull(1)?.toPlayerRowData(
+        isCurrent = false,
+        isWatched = true,
+        progressFraction = 0f,
+    )
+
+    val isGrid = style == PlayerEpisodeListStyle.GRID
     val lazyListState = rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 
     // ── The collapse: the FIRST preview row slides up under a clip as the
-    // options scroll; the second row stays pinned (the D-556 reading). The
-    // slide is a simple linear map of the scroll offset — proportionate for
-    // a four-card options list. ──
+    // options scroll; the second row stays pinned (the D-556 reading). GRID
+    // is exempt (the details page's rule — "already compressed enough"). ──
     var firstRowHeightPx by remember { mutableIntStateOf(0) }
-    val hidePx by remember {
+    // SA2-F1 fix (lead-verified): the derived block MUST re-capture isGrid —
+    // remember(isGrid) rebuilds the derivedStateOf when the layout switches
+    // mid-visit (the stale-capture bug left the exemption dead after a
+    // DETAILED→Grid flip).
+    val hidePx by remember(isGrid) {
         derivedStateOf {
-            if (lazyListState.firstVisibleItemIndex > 0) {
+            if (isGrid) {
+                0f
+            } else if (lazyListState.firstVisibleItemIndex > 0) {
                 firstRowHeightPx.toFloat()
             } else {
                 min(
@@ -153,9 +203,9 @@ fun PlayerEpisodeListSettingsScreen(
                 onBack = onBack,
             )
 
-            // ── THE LIVE PREVIEW — the two slots. The clip+shift layout
-            // collapses the first row as the options scroll; animateContentSize
-            // makes style switches glide (the details page's language). ──
+            // ── THE LIVE PREVIEW — the player's OWN renderer (the shared
+            // four-paradigm dispatcher), fed the REAL library episodes. What
+            // you tune below is exactly what the player draws. ──
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                 PlayerListCard(label = "Live preview") {
                     Box(
@@ -174,30 +224,59 @@ fun PlayerEpisodeListSettingsScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .animateContentSize()
+                                .animateContentSize(
+                                    animationSpec = tween(360),
+                                )
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Box(
-                                modifier = Modifier.onSizeChanged { size ->
-                                    firstRowHeightPx = size.height
-                                },
-                            ) {
-                                PlayerPreviewRow(
-                                    slot = PlayerPreviewSlot.CURRENT,
-                                    rowStyle = rowStyle,
-                                    showSynopsis = showSynopsis,
-                                    showDatePill = showDatePill,
-                                    dimWatched = dimWatched,
-                                )
+                            if (isGrid) {
+                                // The wall pairs its cells two-across — the
+                                // preview mirrors the real list's shape. The
+                                // slot guards honor the watched filter and
+                                // stay null-safe on short item lists.
+                                val gridLeft = when {
+                                    currentSlotVisible && currentData != null -> currentData
+                                    watchedSlotVisible && watchedData != null -> watchedData
+                                    else -> null
+                                }
+                                val gridRight = when {
+                                    currentSlotVisible && currentData != null &&
+                                        watchedSlotVisible && watchedData != null -> watchedData
+                                    else -> null
+                                }
+                                if (gridLeft != null) {
+                                    PlayerEpisodeGridRow(
+                                        left = gridLeft,
+                                        right = gridRight,
+                                        display = display,
+                                        onClick = { /* the preview is inert */ },
+                                    )
+                                }
+                            } else {
+                                if (currentSlotVisible) {
+                                    Box(
+                                        modifier = Modifier.onSizeChanged { size ->
+                                            firstRowHeightPx = size.height
+                                        },
+                                    ) {
+                                        if (currentData != null) {
+                                            PlayerEpisodeListEntry(
+                                                data = currentData,
+                                                display = display,
+                                                onClick = { /* inert */ },
+                                            )
+                                        }
+                                    }
+                                }
+                                if (watchedSlotVisible && watchedData != null) {
+                                    PlayerEpisodeListEntry(
+                                        data = watchedData,
+                                        display = display,
+                                        onClick = { /* inert */ },
+                                    )
+                                }
                             }
-                            PlayerPreviewRow(
-                                slot = PlayerPreviewSlot.WATCHED,
-                                rowStyle = rowStyle,
-                                showSynopsis = showSynopsis,
-                                showDatePill = showDatePill,
-                                dimWatched = dimWatched,
-                            )
                         }
                     }
                 }
@@ -214,16 +293,16 @@ fun PlayerEpisodeListSettingsScreen(
                         bottom = 24.dp,
                     ),
                 ) {
-                    // ── Row style ──
+                    // ── Layout — THE FOUR PARADIGMS ──
                     item {
-                        PlayerListCard(label = "Row style") {
+                        PlayerListCard(label = "Layout") {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                             ) {
                                 Text(
-                                    text = "Row style",
+                                    text = "Layout",
                                     fontFamily = RobotoFamily,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontSize = 16.sp,
@@ -231,19 +310,11 @@ fun PlayerEpisodeListSettingsScreen(
                                 )
                                 Box(modifier = Modifier.padding(top = 10.dp)) {
                                     SegmentedToggle(
-                                        options = listOf("Detailed", "Compact", "Minimal"),
-                                        selectedIndex = when (rowStyle) {
-                                            "COMPACT" -> 1
-                                            "MINIMAL" -> 2
-                                            else -> 0
-                                        },
+                                        options = listOf("Detailed", "Compact", "Grid", "Banner"),
+                                        selectedIndex = style.ordinal,
                                         onSelect = { idx ->
                                             playerListPrefs.rowStyle.set(
-                                                when (idx) {
-                                                    1 -> "COMPACT"
-                                                    2 -> "MINIMAL"
-                                                    else -> "DETAILED"
-                                                },
+                                                PlayerEpisodeListStyle.entries[idx].name,
                                             )
                                         },
                                     )
@@ -313,7 +384,10 @@ fun PlayerEpisodeListSettingsScreen(
                         }
                     }
 
-                    // ── Sort ──
+                    // ── Sort — DIRECTION ONLY (ROUND 103: "the only sort
+                    //    option which should be given here is ascending or
+                    //    descending. It does not need to give any other
+                    //    options.") ──
                     item {
                         PlayerListCard(label = "Sort") {
                             Column(
@@ -322,7 +396,7 @@ fun PlayerEpisodeListSettingsScreen(
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                             ) {
                                 Text(
-                                    text = "Sort by",
+                                    text = "Sort episodes",
                                     fontFamily = RobotoFamily,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontSize = 16.sp,
@@ -330,38 +404,13 @@ fun PlayerEpisodeListSettingsScreen(
                                 )
                                 Box(modifier = Modifier.padding(top = 10.dp)) {
                                     SegmentedToggle(
-                                        options = listOf("Episode", "Upload date", "Alphabetical"),
-                                        selectedIndex = when (sortMode) {
-                                            "UPLOAD_DATE" -> 1
-                                            "ALPHABETICAL" -> 2
-                                            else -> 0
-                                        },
+                                        options = listOf("Ascending", "Descending"),
+                                        selectedIndex = if (sortDescending) 1 else 0,
                                         onSelect = { idx ->
-                                            playerListPrefs.sortMode.set(
-                                                when (idx) {
-                                                    1 -> "UPLOAD_DATE"
-                                                    2 -> "ALPHABETICAL"
-                                                    else -> "EPISODE_NUMBER"
-                                                },
-                                            )
+                                            playerListPrefs.sortDescending.set(idx == 1)
                                         },
                                     )
                                 }
-                                Text(
-                                    text = "Direction",
-                                    fontFamily = RobotoFamily,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
-                                )
-                                SegmentedToggle(
-                                    options = listOf("Ascending", "Descending"),
-                                    selectedIndex = if (sortDescending) 1 else 0,
-                                    onSelect = { idx ->
-                                        playerListPrefs.sortDescending.set(idx == 1)
-                                    },
-                                )
                             }
                         }
                     }
@@ -382,189 +431,56 @@ fun PlayerEpisodeListSettingsScreen(
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-//  The preview slots — the player row's anatomy, self-contained
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 103 (WS-4): the preview's mapping — a REAL library PreviewItem into
+//  the player renderer's data bundle (the same fields the player stacks map:
+//  number, title, thumbnail, date, audio, synopsis).
+// ════════════════════════════════════════════════════════════════════════════
 
-/** The two preview slots: the currently-playing look + the watched look. */
-private enum class PlayerPreviewSlot { CURRENT, WATCHED }
+private fun PreviewItem.toPlayerRowData(
+    isCurrent: Boolean,
+    isWatched: Boolean,
+    progressFraction: Float,
+): PlayerEpisodeRowData {
+    val ep = episode
+    return PlayerEpisodeRowData(
+        episodeNumberText = EpisodeTitleParser.formatEpisodeNumber(ep.episode_number),
+        displayTitle = EpisodeTitleParser.getDisplayTitle(ep.name, ep.episode_number),
+        thumbnailUrl = ep.preview_url ?: fallbackCoverUrl,
+        dateText = if (ep.date_upload > 0) formatDate(ep.date_upload) else null,
+        audioLabels = parseAudioLabels(ep.scanlator),
+        synopsis = ep.summary,
+        isCurrent = isCurrent,
+        isWatched = isWatched,
+        progressFraction = progressFraction,
+    )
+}
 
-/**
- * One preview row — the SAME anatomy the player's EpisodeListRow draws
- * (thumbnail + EP tag + title surface + audio pill + synopsis + date pill),
- * duplicated here as a private (the player's is file-private; sharing would
- * widen its visibility for no reuse value beyond these two surfaces — the
- * poster page's established reasoning). Offline demo content; the style
- * inputs are the LIVE preference values, so the preview IS what the player
- * will draw.
- */
-@Composable
-private fun PlayerPreviewRow(
-    slot: PlayerPreviewSlot,
-    rowStyle: String,
-    showSynopsis: Boolean,
-    showDatePill: Boolean,
-    dimWatched: Boolean,
-) {
-    val isCurrent = slot == PlayerPreviewSlot.CURRENT
-    val isWatched = slot == PlayerPreviewSlot.WATCHED
-    val compact = rowStyle == "COMPACT"
-    val minimal = rowStyle == "MINIMAL"
-
-    // The watched dim — alpha toward the background; the current-episode
-    // highlight always wins (the player's exact rule).
-    val rowAlpha = if (isWatched && dimWatched && !isCurrent) 0.5f else 1f
-
-    Surface(
-        color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(12.dp),
-        border = if (isCurrent) androidx.compose.foundation.BorderStroke(
-            2.dp, MaterialTheme.colorScheme.primary,
-        ) else null,
-        modifier = Modifier
-            .fillMaxWidth()
-            .alpha(rowAlpha),
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(10.dp)) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                // ── Thumbnail with the EP tag (MINIMAL drops it) ──
-                if (!minimal) {
-                    Box(
-                        modifier = if (compact) Modifier.size(width = 84.dp, height = 48.dp)
-                        else Modifier.size(width = 120.dp, height = 68.dp),
-                    ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                // A quiet placeholder art stand-in: the number
-                                // disc reads clearly at any style.
-                                Text(
-                                    text = if (isCurrent) "▶" else "✓",
-                                    fontSize = 22.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                )
-                            }
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                        ) {
-                            Text(
-                                text = if (isCurrent) "EP 5" else "EP 4",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                maxLines = 1,
-                                softWrap = false,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                } else {
-                    Surface(
-                        color = if (isCurrent) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.size(width = 44.dp, height = 32.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = if (isCurrent) "5" else "4",
-                                fontFamily = RobotoFamily,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = if (isCurrent) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                }
-
-                // ── Right column: title + pills ──
-                Column(modifier = Modifier.weight(1f)) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = if (isCurrent) "The Journey Begins" else "Whispers of the Past",
-                            fontFamily = RobotoFamily,
-                            fontSize = if (compact || minimal) 13.sp else 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.padding(top = 6.dp, start = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        if (!minimal) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.35f),
-                            ) {
-                                Text(
-                                    text = "SUB",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                )
-                            }
-                        }
-                        if (!minimal && showDatePill) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            ) {
-                                Text(
-                                    text = if (isCurrent) "Oct 12, 2025" else "Oct 5, 2025",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── Synopsis (DETAILED only, toggle-gated) ──
-            if (!compact && !minimal && showSynopsis) {
-                Text(
-                    text = "A chance meeting sets the story in motion — the first steps " +
-                        "of a journey neither of them expected.",
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 8.dp, start = 2.dp, end = 2.dp),
-                )
-            }
-        }
+/** The audio pills — the player stacks' SUB/DUB/HSUB parse, scanlator-only
+ *  (the reconstructed scanlator already carries the library's aggregates). */
+private fun parseAudioLabels(scanlator: String?): List<String> {
+    val haystack = (scanlator ?: "").uppercase()
+    val hasHsub = haystack.contains("HSUB") || haystack.contains("HARDSUB")
+    val hasSub = haystack.contains("SUB") && !hasHsub
+    val hasDub = haystack.contains("DUB") && !hasHsub
+    return buildList {
+        if (hasSub) add("SUB")
+        if (hasDub) add("DUB")
+        if (hasHsub) add("HSUB")
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════
+/** "MMM d, yyyy" — the player pages' date format. */
+private fun formatDate(epochMillis: Long): String {
+    if (epochMillis <= 0) return ""
+    val sdf = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+    return sdf.format(Date(epochMillis))
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 //  The local card + switch shapes (the details settings screen's privates,
 //  duplicated per the poster page's established reasoning)
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 
 /** The section card — the SettingsGroupCard look, single-8dp-gutter form. */
 @Composable

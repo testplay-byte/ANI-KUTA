@@ -43,3 +43,8 @@ val PrimaryContainerLight = Color(0xFFD4F5A0)
 
 val OutlineLight = Color(0xFF79747E)
 val OutlineVariantLight = Color(0xFFCAC4D0)
+
+// ROUND 103 (D-696): the light-theme counterpart of SuccessDark — the
+// tracking-connected state's greenish tone needs a readable green on the warm
+// light surfaces too (the dark pale-green would wash out on BgLight).
+val SuccessLight = Color(0xFF2E7D32)

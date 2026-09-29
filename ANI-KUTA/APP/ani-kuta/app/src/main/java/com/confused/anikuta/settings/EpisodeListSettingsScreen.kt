@@ -881,7 +881,9 @@ fun EpisodeListSettingsScreen(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** One preview slot's content: a REAL episode (library cache) or a demo one. */
-private data class PreviewItem(
+// ROUND 103 (WS-4): internal — the PLAYER settings screen (same :app
+// module) reuses this loader stack for its own actual-data preview.
+internal data class PreviewItem(
     val episode: SEpisode,
     val metadata: EpisodeMetadata?,
     val fallbackCoverUrl: String?,
@@ -989,7 +991,7 @@ private fun PreviewEpisodeSlot(
  * `android.resource://` URIs (see the screen KDoc for why data URIs can
  * never work on Coil 3 — no DataUriFetcher).
  */
-private fun demoPreviewItems(packageName: String): List<PreviewItem> {
+internal fun demoPreviewItems(packageName: String): List<PreviewItem> {
     val thumb1 = "android.resource://$packageName/${R.drawable.ep_preview_still_1}"
     val thumb2 = "android.resource://$packageName/${R.drawable.ep_preview_still_2}"
     val fresh = SEpisode.create().apply {
@@ -1030,7 +1032,7 @@ private fun demoPreviewItems(packageName: String): List<PreviewItem> {
  * + the full D-190 EpisodeMetadata), so the preview rows are byte-for-byte
  * the rows the details screen would draw for that series.
  */
-private fun loadLibraryPreviewItems(
+internal fun loadLibraryPreviewItems(
     contentRepository: ContentRepository,
     dataCacheRepository: DataCacheRepository,
 ): List<PreviewItem>? {
@@ -1145,7 +1147,7 @@ private fun reconstructMetadata(
  * the details page shows for real scanlator strings), otherwise SUB/DUB
  * tokens as the aggregates know them.
  */
-private fun audioScanlatorHint(agg: EpisodeAudioAggregates): String? = when {
+internal fun audioScanlatorHint(agg: EpisodeAudioAggregates): String? = when {
     agg.hasHsub -> "HSUB"
     agg.hasSub && agg.hasDub -> "SUB DUB"
     agg.hasSub -> "SUB"

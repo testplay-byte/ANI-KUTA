@@ -1,16 +1,19 @@
 package com.confused.anikuta.feature.animedetails
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,19 +24,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,71 +45,94 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.trackerapi.TrackEntry
 import com.confused.anikuta.core.trackerapi.TrackStatus
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
-/**
- * ══════════════════════════════════════════════════════════════════════════
- *  ROUND 102 (WS-E): TrackSheet — the tracking contract's configuration UI
- * ══════════════════════════════════════════════════════════════════════════
- *
- *  The v1.1.58 device round's spec, implemented as a DRAFT + explicit commit:
- *
- *  • THE DRAFT — every picker edit lands in a LOCAL draft; NOTHING syncs per
- *    tap anymore. "If the user does not save it and just directly closes the
- *    menu, then those changes will not be saved" — a dismiss (swipe, outside
- *    tap, navigate) discards the draft with it.
- *
- *  • TWO BUTTONS at the bottom — LEFT "Remove from Tracking" (the quiet
- *    style): unlinks the tracking between AniList and the app (the remote
- *    entry is KEPT — the destructive delete lives behind the trash can).
- *    RIGHT "Save" (the theme-colored primary): the ONLY way changes persist;
- *    saving also flips the tracking opt-in ON (configuring + saving IS
- *    "track this anime").
- *
- *  • THE TRASH CAN replaces the old X close (top-right) — "Do you want to
- *    delete it from AniList?" — the REAL remote deletion (AniList's
- *    DeleteMediaListEntry + the local cache row + the opt-in off). Local
- *    watch progress and the rating are the app's own data and stay.
- *
- *  • ERRORS SURFACE — the sheet renders the ViewModel's one-shot error
- *    message inline (Save/Delete/Stop failures), per the user's "it should
- *    properly give the user the error message."
- *
- *  The wheel pickers, the three-cell top section, and the date rows keep the
- *  D-242 anatomy; dragHandle stays null (the app's no-grab-area rule).
- */
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 103 (WS-2): TrackSheet — the tracking FEEL.
+// ════════════════════════════════════════════════════════════════════════════
+//
+//  The v1.1.59 device round approved the round-102 CONTRACT (the opt-in, the
+//  draft, the trash can, the error surface) and ordered the FEEL reworked:
+//
+//  • NO HEADING — "at the top it gives me the heading of the anime, but that
+//    is definitely not needed. It should not show the heading of the
+//    content." The sheet opens straight into the three pickers; the trash
+//    can keeps its top-right post (alone).
+//
+//  • THE LINK-SOURCES WHEEL — "the method which I want you to use here is
+//    the one which is being used for the link sources, the exact same one
+//    which is being used I have to select the extensions. I want that same
+//    kind of look and feel to this and the overall experience for it." The
+//    Status / Progress / Score pickers expand the ManualSearchSheet WHEEL
+//    (the D-628/D-636 contract): 36dp rows, snap fling, half-viewport edge
+//    centering, the distance blur falloff, the centered highlight,
+//    scroll-driven selection — "and also maybe you could add some vibration
+//    effects to the scrolling of it too" (HapticHelper.lightTick on every
+//    centered-row change).
+//
+//  • START TRACKING vs Save — "it should not show the remove from tracking
+//    button at the very first time… Instead what it should do is that it
+//    should give me the option to start tracking. So it should be like
+//    that." AND "the save button should actually not start the tracking
+//    system, but it should only be for saving… it should only update it in
+//    any list. It should not link both of them together." The button bar is
+//    contextual:
+//      NOT tracked → LEFT "Save" (quiet: syncs the draft to AniList, links
+//                     nothing) + RIGHT "Start Tracking" (the primary: the
+//                     opt-in + the sync — the round-102 Save's full body).
+//      tracked     → LEFT "Remove from Tracking" (the quiet unlink) +
+//                     RIGHT "Save" (the primary, sync-only).
+//    (This amends D-694's "Save = the opt-in flip": the flip MOVES to Start
+//    Tracking per this round's explicit order.)
+//
+//  Everything else keeps the round-102 anatomy: the bottom-up form, the
+//  three summary cells, the date rows, the trash-can confirm, the inline
+//  error surface, the discard-on-close draft.
+// ════════════════════════════════════════════════════════════════════════════
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackSheet(
     trackEntry: TrackEntry?,
     isLoggedIn: Boolean,
     totalEpisodes: Int?,
-    seriesTitle: String,
     // ── ROUND 102 (WS-E): the contract's state + error surface ──
     isTracked: Boolean,
     error: String?,
     // SA2-F2: the Save button's in-flight state (buttons disable, "Saving…").
     isSaving: Boolean = false,
     onSave: (TrackEntry) -> Unit,
+    // ── ROUND 103 (WS-2): the opt-in path — Start Tracking (the round-102
+    // Save's full contract: the opt-in flip + the sync). ──
+    onStartTracking: (TrackEntry) -> Unit,
     onRemoveTracking: () -> Unit,
     onDeleteFromAniList: () -> Unit,
     onDismiss: () -> Unit,
@@ -123,7 +146,7 @@ fun TrackSheet(
 
     // ── THE DRAFT: seeded from the (cached → remote-fetched) entry; re-seeds
     // when the open's background fetch lands. Every picker below edits THIS —
-    // nothing persists until Save. ──
+    // nothing persists until Save / Start Tracking. ──
     var draft by remember(trackEntry) {
         mutableStateOf(
             trackEntry ?: TrackEntry(
@@ -148,35 +171,13 @@ fun TrackSheet(
                 .padding(horizontal = 20.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header: the tracking-state chip + the TRASH CAN ──
-            // (ROUND 102: the X is gone — the trash can behind a confirm is
-            // the real delete-from-AniList; closing the sheet is the swipe /
-            // outside tap, which discards the draft.)
-            Row(
+            // ── ROUND 103 (WS-2): the heading is GONE ("it should not show
+            // the heading of the content") — the sheet opens straight into
+            // the pickers. The trash can keeps its top-right post, alone. ──
+            Box(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                contentAlignment = Alignment.TopEnd,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        seriesTitle,
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontFamily = RobotoFamily,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        // The two-state answer, live off the opt-in table.
-                        text = if (isTracked) "Tracking now" else "Not tracking",
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (isTracked) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
                 IconButton(onClick = { showDeleteConfirm = true }) {
                     Icon(
                         Icons.Filled.Delete,
@@ -185,7 +186,6 @@ fun TrackSheet(
                     )
                 }
             }
-            Spacer(Modifier.height(16.dp))
 
             if (!isLoggedIn) {
                 NotLoggedInState()
@@ -232,7 +232,10 @@ fun TrackSheet(
                 )
             }
 
-            // Expanded picker — smooth animation (D-242), now editing the DRAFT.
+            // ── ROUND 103 (WS-2): the expanded picker IS the link-sources
+            // wheel now — the D-628/D-636 contract (snap, blur falloff,
+            // center highlight, scroll-driven selection) + the ordered
+            // vibration. One wheel at a time, below the cells. ──
             AnimatedVisibility(
                 visible = expandedPicker != null,
                 enter = expandVertically(tween(300)) + fadeIn(tween(300)),
@@ -240,24 +243,24 @@ fun TrackSheet(
             ) {
                 Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     when (expandedPicker) {
-                        ExpandedPicker.STATUS -> WheelPicker(
+                        ExpandedPicker.STATUS -> TrackingWheelPicker(
                             items = TrackStatus.entries.map { it.displayLabel() },
                             selectedIndex = TrackStatus.entries.indexOf(draft.status),
-                            onItemClick = { index ->
+                            onIndexSelected = { index ->
                                 draft = draft.copy(status = TrackStatus.entries[index])
                             },
                         )
-                        ExpandedPicker.PROGRESS -> WheelPicker(
+                        ExpandedPicker.PROGRESS -> TrackingWheelPicker(
                             items = (0..effectiveTotal).map { if (it == 0) "Not started" else it.toString() },
                             selectedIndex = draft.progress.coerceIn(0, effectiveTotal),
-                            onItemClick = { index ->
+                            onIndexSelected = { index ->
                                 draft = draft.copy(progress = index)
                             },
                         )
-                        ExpandedPicker.SCORE -> WheelPicker(
+                        ExpandedPicker.SCORE -> TrackingWheelPicker(
                             items = (0..100).map { if (it == 0) "—" else String.format("%.1f", it / 10.0) },
                             selectedIndex = (draft.score ?: 0).coerceIn(0, 100),
-                            onItemClick = { index ->
+                            onIndexSelected = { index ->
                                 draft = draft.copy(score = if (index == 0) null else index)
                             },
                         )
@@ -267,7 +270,7 @@ fun TrackSheet(
             }
 
             // Separator
-            HorizontalDivider(
+            androidx.compose.material3.HorizontalDivider(
                 modifier = Modifier.padding(vertical = 16.dp),
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
             )
@@ -302,63 +305,55 @@ fun TrackSheet(
                 Spacer(Modifier.height(12.dp))
             }
 
-            // ── ROUND 102 (WS-E): the TWO-BUTTON bar — LEFT Remove from
-            // Tracking (quiet), RIGHT Save (the theme-colored primary; the
-            // ONLY way changes persist). SA2-F2: both disable while the Save
-            // sync is in flight (the sheet stays open until it resolves). ──
+            // ── ROUND 103 (WS-2): the CONTEXTUAL two-button bar.
+            //  NOT tracked → LEFT "Save" (quiet, sync-only) + RIGHT "Start
+            //    Tracking" (the primary — the opt-in + the sync).
+            //  tracked     → LEFT "Remove from Tracking" (the quiet unlink) +
+            //    RIGHT "Save" (the primary, sync-only).
+            // Both disable while a sync is in flight (the SA2-F2 shape). ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable(enabled = !isSaving) { showRemoveConfirm = true },
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            "Remove from Tracking",
-                            color = MaterialTheme.colorScheme.error,
-                            fontWeight = FontWeight.Medium,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                }
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable(enabled = !isSaving) { onSave(draft) },
-                    color = MaterialTheme.colorScheme.primary,
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (isSaving) {
-                            androidx.compose.material3.CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(
-                            if (isSaving) "Saving…" else "Save",
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            fontWeight = FontWeight.ExtraBold,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
+                if (isTracked) {
+                    TrackSheetButton(
+                        text = "Remove from Tracking",
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                        textColor = MaterialTheme.colorScheme.error,
+                        enabled = !isSaving,
+                        onClick = { showRemoveConfirm = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                    TrackSheetButton(
+                        text = if (isSaving) "Saving…" else "Save",
+                        color = MaterialTheme.colorScheme.primary,
+                        textColor = MaterialTheme.colorScheme.onPrimary,
+                        fontWeight = FontWeight.ExtraBold,
+                        enabled = !isSaving,
+                        showSpinner = isSaving,
+                        onClick = { onSave(draft) },
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    TrackSheetButton(
+                        text = if (isSaving) "Saving…" else "Save",
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        textColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        enabled = !isSaving,
+                        showSpinner = isSaving,
+                        onClick = { onSave(draft) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    TrackSheetButton(
+                        text = if (isSaving) "Starting…" else "Start Tracking",
+                        color = MaterialTheme.colorScheme.primary,
+                        textColor = MaterialTheme.colorScheme.onPrimary,
+                        fontWeight = FontWeight.ExtraBold,
+                        enabled = !isSaving,
+                        showSpinner = isSaving,
+                        onClick = { onStartTracking(draft) },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
             Spacer(Modifier.height(24.dp))
@@ -415,56 +410,268 @@ fun TrackSheet(
 
 private enum class ExpandedPicker { STATUS, PROGRESS, SCORE }
 
-// ── Wheel-like picker ───────────────────────────────────────────────────────
-// Items fade + shrink at edges; center item is highlighted.
-// Uses LazyColumn with alpha based on distance from center.
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 103 (WS-2): TrackingWheelPicker — the LINK-SOURCES WHEEL, verbatim
+//  contract (ManualSearchSheet's D-628/D-636 geometry), player-agnostic:
+//    • five-row 168dp viewport (3×36dp rows + 4×3dp gaps + 2×24dp peeks)
+//    • half-viewport contentPadding → first/last rows reach the CENTER
+//    • snap fling → every gesture settles with a row centered
+//    • the centered row drives the blur falloff (0 / 0.8 / 1.8 / 3dp)
+//    • scroll-driven selection (the interaction guard) + tap-to-center
+//      (the suppression counter) — the selected row is centered at all times
+//    • VIBRATION — HapticHelper.lightTick on every centered-row change while
+//      the user scrolls ("add some vibration effects to the scrolling of
+//      it"), and on every tap-select (a selection is a tick).
+// ════════════════════════════════════════════════════════════════════════════
+
+/** The wheel geometry — ManualSearchSheet's constants, kept identical. */
+private val TRACK_WHEEL_ROW_HEIGHT = 36.dp
+private val TRACK_WHEEL_ROW_SPACING = 3.dp
+private val TRACK_WHEEL_VIEWPORT_HEIGHT = 168.dp
+
+/** The per-level blur radii for the distance falloff, by row distance from
+ *  the centered row: 0 = never blurred, 1 = slight, 2 = more, 3+ = rims. */
+private val TRACK_WHEEL_BLUR_BY_DISTANCE = listOf(0.dp, 0.8.dp, 1.8.dp, 3.dp)
 
 @Composable
-private fun WheelPicker(
+private fun TrackingWheelPicker(
     items: List<String>,
     selectedIndex: Int,
-    onItemClick: (Int) -> Unit,
+    onIndexSelected: (Int) -> Unit,
 ) {
-    val listState = rememberLazyListState()
-    val clampedIndex = selectedIndex.coerceIn(0, items.lastIndex)
+    val context = LocalContext.current
+    val listState = rememberLazyListState(
+        // Start with the seed at the top (no pre-layout flash); the
+        // centering effect below moves it to the exact middle.
+        initialFirstVisibleItemIndex = selectedIndex.coerceIn(0, items.lastIndex.coerceAtLeast(0)),
+    )
+    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(clampedIndex) {
-        listState.animateScrollToItem(clampedIndex)
+    // ── The centered row: nearest to the list's vertical midpoint ──
+    val centeredIndex by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val visible = info.visibleItemsInfo
+            if (visible.isEmpty()) {
+                null
+            } else {
+                val center = (info.viewportStartOffset + info.viewportEndOffset) / 2
+                visible.minByOrNull { item ->
+                    abs(item.offset + item.size / 2 - center)
+                }?.index
+            }
+        }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxWidth().height(180.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        items(items.size) { index ->
-            val item = items[index]
-            val isSelected = index == clampedIndex
-            val alphaAnimated by animateColorAsState(
-                if (isSelected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                tween(200), "wheelAlpha",
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onItemClick(index) }
-                    .padding(vertical = 10.dp, horizontal = 24.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (isSelected) {
-                    Icon(Icons.Filled.Star, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
+    // ── The interaction guard: only USER scrolls drive the selection ──
+    // (the seed-centering below is a scroll too — without the guard it would
+    // fire a selection on composition).
+    var hasScrolled by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (scrolling) hasScrolled = true
+        }
+    }
+
+    // ── The tap-centering suppression: while a TAP's centering animation
+    // runs, the centered-index events are the animation's OWN passing
+    // traffic — the tap already set the selection (and ticked). ──
+    var tapCenteringCount by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        var lastEmitted: Int? = null
+        snapshotFlow { centeredIndex }.collect { idx ->
+            if (idx != null && hasScrolled && tapCenteringCount == 0) {
+                if (idx != lastEmitted) {
+                    // ROUND 103 (WS-2): the ordered wheel-tick — one light
+                    // vibration per centered-row change while scrolling.
+                    HapticHelper.lightTick(context)
+                    lastEmitted = idx
+                    onIndexSelected(idx)
                 }
-                Text(
-                    item,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    color = alphaAnimated,
-                    modifier = Modifier.alpha(if (isSelected) 1f else 0.5f),
+            }
+        }
+    }
+
+    // ── The seed centering: scroll the seeded row to the EXACT vertical
+    // center (the draft's current value opens centered). Runs once per
+    // composition of this wheel; waits for the first layout pass. ──
+    LaunchedEffect(items) {
+        if (selectedIndex > 0 && items.isNotEmpty()) {
+            snapshotFlow { listState.layoutInfo.visibleItemsInfo.any { it.index == selectedIndex } }
+                .first { it }
+            val info = listState.layoutInfo
+            val item = info.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
+                ?: return@LaunchedEffect
+            val viewportCenter = (info.viewportStartOffset + info.viewportEndOffset) / 2
+            val centerDelta = (item.offset + item.size / 2) - viewportCenter
+            if (centerDelta != 0) {
+                listState.scrollBy(centerDelta.toFloat())
+            }
+        }
+    }
+
+    // ── The half-viewport padding — the wheel's edge contract: the first
+    // and last rows can reach the CENTER; the space above/below stays empty. ──
+    val centerPadding = ((TRACK_WHEEL_VIEWPORT_HEIGHT - TRACK_WHEEL_ROW_HEIGHT) / 2)
+        .coerceAtLeast(0.dp)
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)),
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        LazyColumn(
+            state = listState,
+            // The SNAP — every fling settles with a row centered.
+            flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
+            verticalArrangement = Arrangement.spacedBy(TRACK_WHEEL_ROW_SPACING),
+            contentPadding = PaddingValues(vertical = centerPadding),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(TRACK_WHEEL_VIEWPORT_HEIGHT)
+                .padding(horizontal = 5.dp),
+        ) {
+            itemsIndexed(items, key = { index, _ -> index }) { index, label ->
+                // The row's DISTANCE from the centered row drives the blur
+                // falloff; before the first layout everything reads as 0.
+                val distance = centeredIndex?.let { abs(it - index) } ?: 0
+                TrackingWheelRow(
+                    label = label,
+                    selected = index == selectedIndex,
+                    distance = distance,
+                    onClick = {
+                        // A tap selects its row AND ticks, then centers it —
+                        // the wheel's "selected is always centered" contract.
+                        HapticHelper.lightTick(context)
+                        onIndexSelected(index)
+                        tapCenteringCount++
+                        scope.launch {
+                            try {
+                                // ZERO offset: with the half-viewport
+                                // contentPadding, (index, 0) IS the centered
+                                // position (the D-636 tap fix).
+                                listState.animateScrollToItem(index)
+                            } finally {
+                                tapCenteringCount--
+                            }
+                        }
+                    },
                 )
             }
+        }
+    }
+}
+
+/**
+ * One row of the tracking wheel — ManualSearchSheet's row treatment adapted
+ * to centered text (no icons): the selected row wears the primary tint +
+ * ring + ExtraBold; the rest gray out with the alpha falloff and blur more
+ * with distance.
+ */
+@Composable
+private fun TrackingWheelRow(
+    label: String,
+    selected: Boolean,
+    distance: Int,
+    onClick: () -> Unit,
+) {
+    val blurRadius = TRACK_WHEEL_BLUR_BY_DISTANCE[distance.coerceIn(0, TRACK_WHEEL_BLUR_BY_DISTANCE.lastIndex)]
+    val textAlpha = when {
+        selected -> 1f
+        distance <= 1 -> 0.78f
+        distance == 2 -> 0.64f
+        else -> 0.52f
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(TRACK_WHEEL_ROW_HEIGHT)
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                } else {
+                    Color.Transparent
+                },
+            )
+            .border(
+                if (selected) 1.5.dp else 1.dp,
+                if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                } else {
+                    Color.Transparent
+                },
+                RoundedCornerShape(10.dp),
+            )
+            .then(
+                // The DISTANCE BLUR — never on the centered/selected row.
+                if (blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp),
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = textAlpha)
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 6.dp),
+        )
+    }
+}
+
+// ── The contextual button (one shape for all four buttons of the bar) ──────
+
+@Composable
+private fun TrackSheetButton(
+    text: String,
+    color: Color,
+    textColor: Color,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    fontWeight: FontWeight = FontWeight.Medium,
+    showSpinner: Boolean = false,
+) {
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+        color = color,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (showSpinner) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = textColor,
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                text,
+                color = textColor,
+                fontWeight = fontWeight,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -479,12 +686,12 @@ private fun PickerCell(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bgAnimated by animateColorAsState(
+    val bgAnimated by androidx.compose.animation.animateColorAsState(
         if (isExpanded) MaterialTheme.colorScheme.primary
         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         tween(300), "cellBg",
     )
-    val fgAnimated by animateColorAsState(
+    val fgAnimated by androidx.compose.animation.animateColorAsState(
         if (isExpanded) MaterialTheme.colorScheme.onPrimary
         else MaterialTheme.colorScheme.onSurfaceVariant,
         tween(300), "cellFg",
@@ -576,7 +783,7 @@ private fun DateRow(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Snackbar prompts
+//  Snackbar prompts
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable

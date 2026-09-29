@@ -37,7 +37,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
@@ -54,8 +53,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -80,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.designsystem.component.animateScrollToItemCentered
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.player.AnikutaMPVView
 import com.confused.anikuta.core.player.PlayerInitializer
@@ -1659,12 +1657,30 @@ private fun MinimizedMode(
     // so the list stays fully styleable/sortable/filterable — just from the
     // settings surface instead of mid-playback.
     val playerListPrefs = koinInject<com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences>()
-    val rowStyle by playerListPrefs.rowStyle.changes.collectAsState(initial = playerListPrefs.rowStyle.get())
+    // ROUND 103 (WS-4): the raw key resolves through the lenient lookup —
+    // a stored legacy value ("MINIMAL") maps to the paradigm the renderer
+    // actually draws. The display bundle (the four-paradigm knobs) is built
+    // from the LIVE collected values — the settings preview and this list
+    // re-shape together (the D-481 rule).
+    val rowStyleKey by playerListPrefs.rowStyle.changes.collectAsState(initial = playerListPrefs.rowStyle.get())
+    val listStyle = remember(rowStyleKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle.fromKey(rowStyleKey)
+    }
     val showSynopsis by playerListPrefs.showSynopsis.changes.collectAsState(initial = playerListPrefs.showSynopsis.get())
     val showDatePill by playerListPrefs.showDatePill.changes.collectAsState(initial = playerListPrefs.showDatePill.get())
     val dimWatched by playerListPrefs.dimWatched.changes.collectAsState(initial = playerListPrefs.dimWatched.get())
+    val liveListDisplay = remember(listStyle, showSynopsis, showDatePill, dimWatched) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
+            style = listStyle,
+            showSynopsis = showSynopsis,
+            showDatePill = showDatePill,
+            dimWatched = dimWatched,
+        )
+    }
     val watchedFilter by playerListPrefs.watchedFilter.changes.collectAsState(initial = playerListPrefs.watchedFilter.get())
-    val sortMode by playerListPrefs.sortMode.changes.collectAsState(initial = playerListPrefs.sortMode.get())
+    // ROUND 103 (WS-4): DIRECTION ONLY — the round-101 sort modes are
+    // retired per the device round's order ("the only sort option which
+    // should be given here is ascending or descending").
     val sortDescending by playerListPrefs.sortDescending.changes.collectAsState(initial = playerListPrefs.sortDescending.get())
 
     // The watched set (live — the store emits as the player saves progress).
@@ -1682,24 +1698,19 @@ private fun MinimizedMode(
 
     // The display list: watched filter → sort (ROUND 102: the search stage is
     // RETIRED with the in-player search — the details page's EpisodeSearchSheet
-    // remains the searching surface for episode lists).
+    // remains the searching surface for episode lists). ROUND 103 (WS-4): the
+    // sort is the episode number + direction ONLY (the round-101 sort modes
+    // retired per the device round's order).
     val displayEpisodes = remember(
-        episodeList, watchedFilter, watchedKeys, sortMode, sortDescending,
+        episodeList, watchedFilter, watchedKeys, sortDescending,
     ) {
         fun isWatchedEp(ep: SimpleEpisode) =
             watchKey.mainId.isNotBlank() && watchedKeys.contains(buildEpisodeKey(watchKey.mainId, ep.episodeNumber))
-        var list = when (watchedFilter) {
+        val list = when (watchedFilter) {
             "SHOW" -> episodeList.filter(::isWatchedEp)
             "HIDE" -> episodeList.filterNot(::isWatchedEp)
             else -> episodeList
-        }
-        list = when (sortMode) {
-            "UPLOAD_DATE" -> list.sortedBy { episodeMetadata[it.episodeNumber.toInt()]?.airDateMillis ?: 0L }
-            "ALPHABETICAL" -> list.sortedBy {
-                (episodeMetadata[it.episodeNumber.toInt()]?.title ?: it.name).lowercase()
-            }
-            else -> list.sortedBy { it.episodeNumber }
-        }
+        }.sortedBy { it.episodeNumber }
         if (sortDescending) list.asReversed() else list
     }
 
@@ -1715,6 +1726,13 @@ private fun MinimizedMode(
         displayEpisodes.indexOfFirst { it.url == currentEpisodeUrl }
     }
     val episodeListHeaderOffset = 2
+    // ROUND 103 (WS-4): under GRID the lazy items are PAIRS (two cells per
+    // item) — the current episode's lazy index is its PAIR's index.
+    val currentLazyIndex = episodeListHeaderOffset + if (listStyle == com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle.GRID) {
+        currentEpisodeIndexInDisplay / 2
+    } else {
+        currentEpisodeIndexInDisplay
+    }
 
     // Wrap in derivedStateOf to prevent excessive recompositions.
     val collapsed by remember {
@@ -2068,8 +2086,19 @@ private fun MinimizedMode(
                                         .clip(RoundedCornerShape(10.dp))
                                         .clickable {
                                             scrollScope.launch {
-                                                listState.animateScrollToItem(
-                                                    currentEpisodeIndexInDisplay + episodeListHeaderOffset,
+                                                // ROUND 103 (WS-3): the honest
+                                                // scroll — a fully-animated glide
+                                                // (no far-target snap) that
+                                                // CENTERS the current episode in
+                                                // the list's own viewport (the
+                                                // area below the player), with
+                                                // the first/last rows stopping
+                                                // naturally un-centered at the
+                                                // content edges. (WS-4: under
+                                                // GRID this is the pair row that
+                                                // CONTAINS the current episode.)
+                                                listState.animateScrollToItemCentered(
+                                                    currentLazyIndex,
                                                 )
                                             }
                                         }
@@ -2097,27 +2126,77 @@ private fun MinimizedMode(
                 }
                 // D-230: Lazy episode rows — virtualized! Only ~10-15 rows
                 // composed at a time (the visible window), not all 1000.
-                items(displayEpisodes, key = { it.url }) { ep ->
-                    val isCurrent = ep.url == currentEpisodeUrl
-                    val epNum = ep.episodeNumber.toInt()
-                    val meta = episodeMetadata[epNum]
-                    val isWatchedEp = watchKey.mainId.isNotBlank() &&
-                        watchedKeys.contains(buildEpisodeKey(watchKey.mainId, ep.episodeNumber))
-                    EpisodeListRow(
-                        episode = ep,
-                        metadata = meta,
-                        isCurrent = isCurrent,
-                        isWatched = isWatchedEp,
-                        rowStyle = rowStyle,
-                        showSynopsis = showSynopsis,
-                        showDatePill = showDatePill,
-                        dimWatched = dimWatched,
-                        onClick = {
-                            if (!isCurrent) {
-                                onEpisodeSwitch(ep)
-                            }
-                        },
+                // ROUND 103 (WS-4): the rows render through the ONE shared
+                // four-paradigm dispatcher (PlayerEpisodeListEntry — the
+                // same renderer the settings preview draws); under GRID the
+                // items are two-across PAIRS.
+                // The MPV stack's mapping into the render-only bundle.
+                fun toRowData(ep: SimpleEpisode): com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeRowData {
+                    val meta = episodeMetadata[ep.episodeNumber.toInt()]
+                    val audio = parseAudioAvailability(meta?.scanlator, ep.name)
+                    return com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeRowData(
+                        episodeNumberText = formatEpisodeNumber(ep.episodeNumber),
+                        displayTitle = meta?.title
+                            ?: com.confused.anikuta.core.common.EpisodeTitleParser
+                                .getDisplayTitle(ep.name, ep.episodeNumber),
+                        thumbnailUrl = meta?.thumbnailUrl,
+                        dateText = if (meta != null && meta.airDateMillis > 0) {
+                            formatDate(meta.airDateMillis)
+                        } else null,
+                        audioLabels = audio.labels,
+                        synopsis = meta?.description,
+                        isCurrent = ep.url == currentEpisodeUrl,
+                        isWatched = watchKey.mainId.isNotBlank() &&
+                            watchedKeys.contains(buildEpisodeKey(watchKey.mainId, ep.episodeNumber)),
+                        showDownloadHint = true,
                     )
+                }
+                if (listStyle == com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle.GRID) {
+                    val pairs = displayEpisodes.chunked(2)
+                    items(
+                        count = pairs.size,
+                        key = { i -> pairs[i].joinToString("|") { it.url } },
+                    ) { pairIndex ->
+                        val pair = pairs[pairIndex]
+                        com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeGridRow(
+                            left = toRowData(pair[0]),
+                            right = pair.getOrNull(1)?.let { toRowData(it) },
+                            display = liveListDisplay,
+                            onClick = { data ->
+                                // The tapped cell's episode, matched inside its
+                                // own pair by the bundle's identity (number +
+                                // title, falling back to the number — SA2-F3
+                                // hardening: a pathological pair holding two
+                                // same-number episodes disambiguates by title).
+                                fun titleOf(ep: SimpleEpisode) =
+                                    episodeMetadata[ep.episodeNumber.toInt()]?.title
+                                        ?: com.confused.anikuta.core.common.EpisodeTitleParser
+                                            .getDisplayTitle(ep.name, ep.episodeNumber)
+                                val ep = pair.firstOrNull {
+                                    formatEpisodeNumber(it.episodeNumber) == data.episodeNumberText &&
+                                        titleOf(it) == data.displayTitle
+                                } ?: pair.firstOrNull {
+                                    formatEpisodeNumber(it.episodeNumber) == data.episodeNumberText
+                                } ?: pair[0]
+                                if (ep.url != currentEpisodeUrl) {
+                                    onEpisodeSwitch(ep)
+                                }
+                            },
+                        )
+                    }
+                } else {
+                    items(displayEpisodes, key = { it.url }) { ep ->
+                        val data = toRowData(ep)
+                        com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListEntry(
+                            data = data,
+                            display = liveListDisplay,
+                            onClick = {
+                                if (!data.isCurrent) {
+                                    onEpisodeSwitch(ep)
+                                }
+                            },
+                        )
+                    }
                 }
             }
             } // end LazyColumn
@@ -2237,248 +2316,10 @@ private fun PlayerSurface(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Episode list row (minimized mode)
+//  ROUND 103 (WS-4): the private EpisodeListRow is RETIRED — both player
+//  stacks and the settings preview render through the ONE shared four-paradigm
+//  dispatcher (:core:designsystem/component/playerlist/PlayerEpisodeListEntry).
 // ════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun EpisodeListRow(
-    episode: SimpleEpisode,
-    metadata: WatchEpisodeMeta?,
-    isCurrent: Boolean,
-    onClick: () -> Unit,
-    // ── ROUND 101 (WS-E): the player list's customization inputs (defaults
-    // preserve the exact pre-round rendering when the prefs are absent). ──
-    isWatched: Boolean = false,
-    rowStyle: String = "DETAILED",
-    showSynopsis: Boolean = true,
-    showDatePill: Boolean = true,
-    dimWatched: Boolean = true,
-) {
-    val displayTitle = metadata?.title
-        ?: com.confused.anikuta.core.common.EpisodeTitleParser
-            .getDisplayTitle(episode.name, episode.episodeNumber)
-    val epNumText = com.confused.anikuta.core.common.EpisodeTitleParser
-        .formatEpisodeNumber(episode.episodeNumber)
-    // ROUND 101 (WS-E): the style frame — COMPACT shrinks the thumbnail +
-    // never renders the synopsis; MINIMAL drops the thumbnail + date pill
-    // entirely (number + title only, the fast-switching shape).
-    val compact = rowStyle == "COMPACT"
-    val minimal = rowStyle == "MINIMAL"
-    val thumbnailUrl = if (minimal) null else metadata?.thumbnailUrl
-    val description = if (compact || minimal || !showSynopsis) null else metadata?.description
-    val dateText = if (!minimal && showDatePill && metadata != null && metadata.airDateMillis > 0) {
-        formatDate(metadata.airDateMillis)
-    } else null
-    val audio = parseAudioAvailability(metadata?.scanlator, episode.name)
-    // ROUND 101 (WS-E): the watched dim — alpha toward the background (the
-    // details page's D-554 treatment); the current-episode highlight always
-    // wins over the dim.
-    val rowAlpha = if (isWatched && dimWatched && !isCurrent) 0.5f else 1f
-
-    Surface(
-        color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(12.dp),
-        border = if (isCurrent) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 3.dp)
-            .alpha(rowAlpha)
-            .clickable(onClick = onClick),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-            ) {
-                // ── Thumbnail with EP tag overlay ──
-                if (thumbnailUrl != null) {
-                    Box(
-                        modifier = if (compact) Modifier.size(width = 84.dp, height = 48.dp)
-                        else Modifier.size(width = 120.dp, height = 68.dp),
-                    ) {
-                        coil3.compose.AsyncImage(
-                            model = thumbnailUrl,
-                            contentDescription = displayTitle,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(10.dp)),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                        )
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                        ) {
-                            Text(
-                                text = "EP $epNumText",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                maxLines = 1,
-                                softWrap = false,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                } else {
-                    Surface(
-                        color = if (isCurrent) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.size(width = 44.dp, height = 32.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = epNumText,
-                                fontFamily = RobotoFamily,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = if (isCurrent) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                }
-                // ── Right column: title + date/audio pills ──
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = displayTitle,
-                            fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        )
-                    }
-                    if (dateText != null || audio.hasAny || description.isNullOrBlank()) {
-                        Spacer(Modifier.height(6.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            if (dateText != null) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant,
-                                ) {
-                                    Text(
-                                        text = dateText,
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 10.sp,
-                                        lineHeight = 14.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                        maxLines = 1,
-                                        softWrap = false,
-                                    )
-                                }
-                            }
-                            if (audio.hasAny) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant,
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                    ) {
-                                        audio.labels.forEachIndexed { idx, label ->
-                                            if (idx > 0) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(3.dp)
-                                                        .clip(CircleShape)
-                                                        .background(MaterialTheme.colorScheme.onSurfaceVariant),
-                                                )
-                                            }
-                                            Text(
-                                                text = label,
-                                                fontFamily = RobotoFamily,
-                                                fontSize = 10.sp,
-                                                lineHeight = 14.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            // Download button — shown here (next to pills) when no synopsis.
-                            if (description.isNullOrBlank()) {
-                                Spacer(Modifier.weight(1f))
-                                Icon(
-                                    imageVector = Icons.Filled.Download,
-                                    contentDescription = "Download",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            // ── Synopsis + download button ──
-            // If synopsis exists: download at bottom-right of synopsis.
-            // If no synopsis: download at the right of the date/audio pills row.
-            if (!description.isNullOrBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            text = description,
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            lineHeight = 15.sp,
-                            fontWeight = FontWeight.Normal,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                        )
-                    }
-                    Icon(
-                        imageVector = Icons.Filled.Download,
-                        contentDescription = "Download",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .padding(start = 8.dp, bottom = 2.dp),
-                    )
-                }
-            }
-            // No synopsis: download button already rendered inline in the pills row above.
-        }
-    }
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Helpers

@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,12 +51,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
+import com.confused.anikuta.core.designsystem.component.animateScrollToItemCentered
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.EpisodeListPreferences
 import com.confused.anikuta.feature.cswatch.api.CsSimpleEpisode
@@ -153,20 +151,35 @@ internal fun CsWatchPage(
     // PlayerEpisodeListPreferences driving both player pages, applied here
     // through the same pipeline (watched filter → sort).
     val playerListPrefs = koinInject<com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences>()
-    val csRowStyle by playerListPrefs.rowStyle.changes.collectAsState(initial = playerListPrefs.rowStyle.get())
+    // ROUND 103 (WS-4): the raw key resolves through the lenient lookup; the
+    // display bundle (the four-paradigm knobs) is built from the LIVE values
+    // — the settings preview and this list re-shape together (the D-481 rule).
+    val csRowStyleKey by playerListPrefs.rowStyle.changes.collectAsState(initial = playerListPrefs.rowStyle.get())
+    val csListStyle = remember(csRowStyleKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle.fromKey(csRowStyleKey)
+    }
     val csShowSynopsis by playerListPrefs.showSynopsis.changes.collectAsState(initial = playerListPrefs.showSynopsis.get())
     val csShowDatePill by playerListPrefs.showDatePill.changes.collectAsState(initial = playerListPrefs.showDatePill.get())
     val csDimWatched by playerListPrefs.dimWatched.changes.collectAsState(initial = playerListPrefs.dimWatched.get())
+    val csListDisplay = remember(csListStyle, csShowSynopsis, csShowDatePill, csDimWatched) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
+            style = csListStyle,
+            showSynopsis = csShowSynopsis,
+            showDatePill = csShowDatePill,
+            dimWatched = csDimWatched,
+        )
+    }
     val csWatchedFilter by playerListPrefs.watchedFilter.changes.collectAsState(initial = playerListPrefs.watchedFilter.get())
-    val csSortMode by playerListPrefs.sortMode.changes.collectAsState(initial = playerListPrefs.sortMode.get())
+    // ROUND 103 (WS-4): DIRECTION ONLY — the round-101 sort modes are retired
+    // per the device round's order.
     val csSortDescending by playerListPrefs.sortDescending.changes.collectAsState(initial = playerListPrefs.sortDescending.get())
 
     val renderRows = remember(
-        renderRowsBase, csWatchedFilter, csSortMode, csSortDescending,
+        renderRowsBase, csWatchedFilter, csSortDescending,
         uiState.episodeMetadata, progressByEpisodeKey,
     ) {
         // Watched filter — the ordinal-aware progress identity (Task 57 P1).
-        var rows = when (csWatchedFilter) {
+        val filtered = when (csWatchedFilter) {
             "SHOW" -> renderRowsBase.filter { ep ->
                 val key = if (mainId.isNotBlank()) {
                     CsWatchViewModel.episodeKey(
@@ -187,13 +200,8 @@ internal fun CsWatchPage(
             }
             else -> renderRowsBase
         }
-        rows = when (csSortMode) {
-            "UPLOAD_DATE" -> rows.sortedBy { uiState.episodeMetadata[it.episodeNumber.toInt()]?.airDateMillis ?: 0L }
-            "ALPHABETICAL" -> rows.sortedBy {
-                (uiState.episodeMetadata[it.episodeNumber.toInt()]?.title ?: it.name).lowercase()
-            }
-            else -> rows.sortedBy { it.episodeNumber }
-        }
+        // ROUND 103 (WS-4): the sort is the episode number + direction ONLY.
+        val rows = filtered.sortedBy { it.episodeNumber }
         if (csSortDescending) rows.asReversed() else rows
     }
 
@@ -204,6 +212,14 @@ internal fun CsWatchPage(
     // Episodes header + the sub/dub switcher when it shows).
     val csCurrentEpisodeIndex = remember(renderRows, currentEpisodeData) {
         renderRows.indexOfFirst { it.data == currentEpisodeData }
+    }
+    // ROUND 103 (WS-4): under GRID the lazy items are PAIRS — the current
+    // episode's lazy index is its PAIR's index (base offset computed at the
+    // scroll site where showSubDubSwitcher is in scope).
+    val csCurrentPairOffset = if (csListStyle == com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle.GRID) {
+        csCurrentEpisodeIndex / 2
+    } else {
+        csCurrentEpisodeIndex
     }
 
     // Task 57 (P1): the CURRENT episode's rating/progress identity — the
@@ -415,12 +431,23 @@ internal fun CsWatchPage(
                                             .clip(RoundedCornerShape(10.dp))
                                             .clickable {
                                                 csScrollScope.launch {
-                                                    listState.animateScrollToItem(
-                                                        csCurrentEpisodeIndex +
-                                                            // SA2-F3 fix: EVERY item above the rows —
-                                                            // the "Currently playing" card (0) + the
-                                                            // Episodes header (1) + the sub/dub
-                                                            // switcher when it shows (0/1).
+                                                    // ROUND 103 (WS-3): the
+                                                    // honest scroll — the MPV
+                                                    // stack's twin: a smooth
+                                                    // glide that CENTERS the
+                                                    // current episode in the
+                                                    // list's own viewport (no
+                                                    // far-target snap; the
+                                                    // first/last rows stop
+                                                    // naturally at the edges).
+                                                    listState.animateScrollToItemCentered(
+                                                        // ROUND 103 (WS-4): under GRID the items are
+                                                        // PAIRS — csCurrentPairOffset already carries
+                                                        // the pair math. SA2-F3 fix: EVERY item above
+                                                        // the rows — the "Currently playing" card (0)
+                                                        // + the Episodes header (1) + the sub/dub
+                                                        // switcher when it shows (0/1).
+                                                        csCurrentPairOffset +
                                                             2 + if (showSubDubSwitcher) 1 else 0,
                                                     )
                                                 }
@@ -487,8 +514,10 @@ internal fun CsWatchPage(
                     // PROGRESS identity — sub-5 / dub-5 / their COMBINED merge
                     // read ONE progress row; (P2) merged rows carry their
                     // flavor tags as render-only pills.
-                    items(renderRows, key = { it.data }) { ep ->
-                        val isCurrent = ep.data == currentEpisodeData
+                    // ROUND 103 (WS-4): the rows render through the ONE shared
+                    // four-paradigm dispatcher (the same renderer the settings
+                    // preview draws); under GRID the items are two-across PAIRS.
+                    fun toRowData(ep: CsSimpleEpisode): com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeRowData {
                         // .toFloat(): the elvis of Int? and Float infers Number —
                         // the displayNumber param is Float (no numeric widening).
                         val displayNumber = flavorOrdinals[ep.data]?.toFloat()
@@ -498,23 +527,60 @@ internal fun CsWatchPage(
                         } else null
                         val rowProgress = rowKey?.let { progressByEpisodeKey[it] }
                         val meta = uiState.episodeMetadata[ep.episodeNumber.toInt()]
-                        CsEpisodeListRow(
-                            episode = ep,
-                            displayNumber = displayNumber,
-                            metadata = meta,
-                            isCurrent = isCurrent,
-                            flavors = ep.flavors,
+                        return com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeRowData(
+                            episodeNumberText = com.confused.anikuta.core.common.EpisodeTitleParser
+                                .formatEpisodeNumber(displayNumber),
+                            displayTitle = meta?.title
+                                ?: com.confused.anikuta.core.common.EpisodeTitleParser
+                                    .getDisplayTitle(ep.name, displayNumber),
+                            thumbnailUrl = meta?.thumbnailUrl,
+                            dateText = if (meta != null && meta.airDateMillis > 0) {
+                                formatDate(meta.airDateMillis)
+                            } else null,
+                            subDubLabel = meta?.scanlator?.takeIf { it.isNotBlank() },
+                            flavorLabels = ep.flavors,
+                            synopsis = meta?.description,
+                            isCurrent = ep.data == currentEpisodeData,
                             isWatched = rowProgress?.isWatched ?: false,
                             progressFraction = rowProgress?.progressFraction ?: 0f,
-                            // ROUND 101 (WS-E): the shared player-list style inputs.
-                            rowStyle = csRowStyle,
-                            showSynopsis = csShowSynopsis,
-                            showDatePill = csShowDatePill,
-                            dimWatched = csDimWatched,
-                            onClick = {
-                                if (!isCurrent) onEpisodeSwitch(ep)
-                            },
                         )
+                    }
+                    if (csListStyle == com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle.GRID) {
+                        val pairs = renderRows.chunked(2)
+                        items(
+                            count = pairs.size,
+                            key = { i -> pairs[i].joinToString("|") { it.data } },
+                        ) { pairIndex ->
+                            val pair = pairs[pairIndex]
+                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeGridRow(
+                                left = toRowData(pair[0]),
+                                right = pair.getOrNull(1)?.let { toRowData(it) },
+                                display = csListDisplay,
+                                onClick = { data ->
+                                    // The tapped cell's episode, matched inside
+                                    // its own pair by the bundle's number text.
+                                    val ep = pair.firstOrNull {
+                                        val dn = flavorOrdinals[it.data]?.toFloat() ?: it.episodeNumber
+                                        com.confused.anikuta.core.common.EpisodeTitleParser
+                                            .formatEpisodeNumber(dn) == data.episodeNumberText
+                                    } ?: pair[0]
+                                    if (ep.data != currentEpisodeData) {
+                                        onEpisodeSwitch(ep)
+                                    }
+                                },
+                            )
+                        }
+                    } else {
+                        items(renderRows, key = { it.data }) { ep ->
+                            val data = toRowData(ep)
+                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListEntry(
+                                data = data,
+                                display = csListDisplay,
+                                onClick = {
+                                    if (!data.isCurrent) onEpisodeSwitch(ep)
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -680,266 +746,10 @@ private fun CsCurrentlyPlayingSection(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Episode row (the aniyomi EpisodeListRow design, CS-data driven)
+//  ROUND 103 (WS-4): the private CsEpisodeListRow is RETIRED — both player
+//  stacks and the settings preview render through the ONE shared four-paradigm
+//  dispatcher (:core:designsystem/component/playerlist/PlayerEpisodeListEntry).
 // ════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun CsEpisodeListRow(
-    episode: CsSimpleEpisode,
-    metadata: CsWatchEpisodeMeta?,
-    isCurrent: Boolean,
-    onClick: () -> Unit,
-    /**
-     * Task 56: the EP tag + title-fallback number — the per-flavor ORDINAL
-     * for sub/dub-tagged rows (Dub restarts at 1), else the raw number.
-     * Identity (data/episodeNumber) is untouched. Task 57 (P1): the SAME
-     * number is the row's progress/rating identity key.
-     */
-    displayNumber: Float = episode.episodeNumber,
-    /**
-     * Task 57 (round 17 — P2): the row's audio-version pills (COMBINED merged
-     * rows carry ["SUB", "DUB"]); empty = no pills. Render-only data.
-     */
-    flavors: List<String> = emptyList(),
-    /** Task 57 (P1): watched rows dim (aniyomi EpisodeRow language). */
-    isWatched: Boolean = false,
-    /** Task 57 (P1): 0..1 watch fraction — renders the thin bar below. */
-    progressFraction: Float = 0f,
-    // ── ROUND 101 (WS-E): the shared player-list style inputs (defaults
-    // preserve the exact pre-round rendering). ──
-    rowStyle: String = "DETAILED",
-    showSynopsis: Boolean = true,
-    showDatePill: Boolean = true,
-    dimWatched: Boolean = true,
-) {
-    val displayTitle = metadata?.title
-        ?: com.confused.anikuta.core.common.EpisodeTitleParser
-            .getDisplayTitle(episode.name, displayNumber)
-    val epNumText = com.confused.anikuta.core.common.EpisodeTitleParser
-        .formatEpisodeNumber(displayNumber)
-    // ROUND 101 (WS-E): the style frame (the MPV row's twin) — COMPACT
-    // shrinks the thumbnail + never renders the synopsis; MINIMAL drops the
-    // thumbnail + date pill entirely.
-    val compact = rowStyle == "COMPACT"
-    val minimal = rowStyle == "MINIMAL"
-    val thumbnailUrl = if (minimal) null else metadata?.thumbnailUrl
-    val description = if (compact || minimal || !showSynopsis) null else metadata?.description
-    val dateText = if (!minimal && showDatePill && metadata != null && metadata.airDateMillis > 0) {
-        formatDate(metadata.airDateMillis)
-    } else null
-    val subDub = metadata?.scanlator?.takeIf { it.isNotBlank() }
-
-    Surface(
-        color = when {
-            isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-            // Task 57 (P1): watched rows dim (the aniyomi EpisodeRow language —
-            // current-row tint always wins). ROUND 101 (WS-E): the dim is now
-            // gated by the player pref (off = the normal row color).
-            isWatched && dimWatched -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
-            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-        },
-        shape = RoundedCornerShape(12.dp),
-        border = if (isCurrent) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 3.dp)
-            .clickable(onClick = onClick),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-            ) {
-                // ── Thumbnail with EP tag overlay ──
-                if (thumbnailUrl != null) {
-                    Box(
-                        modifier = if (compact) Modifier.size(width = 84.dp, height = 48.dp)
-                        else Modifier.size(width = 120.dp, height = 68.dp),
-                    ) {
-                        AsyncImage(
-                            model = thumbnailUrl,
-                            contentDescription = displayTitle,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(10.dp)),
-                            contentScale = ContentScale.Crop,
-                        )
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                        ) {
-                            Text(
-                                text = "EP $epNumText",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                maxLines = 1,
-                                softWrap = false,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                } else {
-                    // Ep-number box (the aniyomi fallback tile).
-                    Surface(
-                        color = if (isCurrent) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.size(width = 44.dp, height = 32.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = epNumText,
-                                fontFamily = RobotoFamily,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = if (isCurrent) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                }
-                // ── Right column: title + date/sub-dub pills ──
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = displayTitle,
-                            fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        )
-                    }
-                    if (dateText != null || subDub != null || flavors.isNotEmpty()) {
-                        Spacer(Modifier.height(6.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            if (dateText != null) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant,
-                                ) {
-                                    Text(
-                                        text = dateText,
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 10.sp,
-                                        lineHeight = 14.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                        maxLines = 1,
-                                        softWrap = false,
-                                    )
-                                }
-                            }
-                            if (subDub != null) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant,
-                                ) {
-                                    Text(
-                                        text = subDub,
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 10.sp,
-                                        lineHeight = 14.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                        maxLines = 1,
-                                        softWrap = false,
-                                    )
-                                }
-                            }
-                            // Task 57 (P2): flavor pills — one per merged variant,
-                            // the row's existing pill language (the COMBINED
-                            // merge's restored flavor signal).
-                            flavors.forEach { flavor ->
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant,
-                                ) {
-                                    Text(
-                                        text = flavor,
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 10.sp,
-                                        lineHeight = 14.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                        maxLines = 1,
-                                        softWrap = false,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // ── Synopsis (2 lines) ──
-            if (!description.isNullOrBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = description,
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        lineHeight = 15.sp,
-                        fontWeight = FontWeight.Normal,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                    )
-                }
-            }
-            // ── Task 57 (P1): thin watch-progress bar at the row's bottom —
-            // partial watches ONLY (fully-watched rows dim instead; the
-            // aniyomi details row's YouTube-style signal, flattened to the
-            // row width here). Width = the fraction of the row.
-            if (progressFraction > 0f && !isWatched) {
-                Spacer(Modifier.height(6.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(2.dp)
-                        .clip(RoundedCornerShape(1.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(progressFraction.coerceIn(0f, 1f))
-                            .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
-                }
-            }
-        }
-    }
-}
 
 /** 10 clickable stars, each = 10 points (the aniyomi WatchStarRatingBar replica). */
 @Composable

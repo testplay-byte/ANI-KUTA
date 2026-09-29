@@ -1058,6 +1058,11 @@ fun DetailsScreen(
                                     // lookup is a map read, but the menu's
                                     // lifetime is one interaction.
                                     val webViewUrl = remember(menuOpen) { viewModel.buildWebViewUrl() }
+                                    // ROUND 103 (WS-1): the extension's
+                                    // display name — the RIGHT data-source
+                                    // chip's text ("on the right side it
+                                    // should show the extension text").
+                                    val sourceName = remember(menuOpen) { viewModel.currentSourceName() }
                                     DetailsActionMenu(
                                         expanded = menuOpen,
                                         onDismissRequest = onMenuDismiss,
@@ -1068,6 +1073,7 @@ fun DetailsScreen(
                                         currentDataSourcePriority = anime.dataSourcePriority
                                             ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION,
                                         onSwitchDataSource = { priority -> viewModel.switchDataSource(priority) },
+                                        extensionSourceName = sourceName,
                                         onViewInWebView = {
                                             // The app's internal WebView
                                             // (D-209 activity — cookies shared
@@ -1863,6 +1869,9 @@ fun DetailsScreen(
     // ROUND 101 (WS-D): accent-wrapped (the details-page parity).
     // ROUND 102 (WS-E): the tracking contract's UI — a DRAFT + Save/Remove
     // two-button bar + the trash-can delete + the inline error surface.
+    // ROUND 103 (WS-2): the heading is gone; the pickers are the
+    // link-sources wheels; Save is sync-only and the new Start Tracking
+    // carries the opt-in.
     if (showTrackSheet) {
         val trackSheetError by viewModel.trackSheetError.collectAsState()
         val trackSheetSaving by viewModel.trackSheetSaving.collectAsState()
@@ -1874,12 +1883,12 @@ fun DetailsScreen(
             isLoggedIn = isTrackerLoggedIn,
             totalEpisodes = (state as? DetailsState.Success)?.anime?.episodes
                 ?: (episodeState as? EpisodeState.Loaded)?.episodes?.size,
-            seriesTitle = (state as? DetailsState.Success)?.anime?.displayName ?: "Tracking",
             // ROUND 102 (WS-E): the two-state answer + the error surface.
             isTracked = isContentTracked,
             error = trackSheetError,
             isSaving = trackSheetSaving,
             onSave = viewModel::saveTrackEntry,
+            onStartTracking = viewModel::startTracking,
             onRemoveTracking = viewModel::removeTracking,
             onDeleteFromAniList = viewModel::deleteFromAniList,
             onDismiss = viewModel::dismissTrackSheet,
