@@ -1,7 +1,7 @@
 # SESSION — Read This At The Start Of Every Session
 
 > A 60-second orientation. Read this FIRST, every time, before any work.
-> Refreshed in **Round 103 (2026-09-29)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
+> Refreshed in **Round 104 (2026-09-29)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
 
 ---
 
@@ -12,21 +12,21 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 
 ---
 
-## 📍 Current State (refreshed Round 103, 2026-09-29)
+## 📍 Current State (refreshed Round 104, 2026-09-29)
 
 - **Mainline branch:** `feature/round-57-cloudstream-downloads` — this IS the default branch. `main` was DELETED (D-552 — it had 0 unique commits). Other live branches: `release/1.1.3` (the professional release branch), `feature/test-controller-v5` (dormant, kept by user order).
-- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.60 / 10160** (round 103); the round-102 release v1.1.59 shipped 2026-09-28. **THE ROUND-103 SET (D-696..D-699):** D-696 the menu's second pass (the crimped inset section cards, the round-101 icon discs, the data-source chips side by side — left "AniList" / right the extension's own name — the unlink folded below, "Open in Web View", the Tracking row's grey↔green color states, the share submenu behavior untouched), D-697 the tracking feel (the sheet's heading gone, the Status/Progress/Score pickers are the link-sources WHEEL + vibration ticks, Save is SYNC-ONLY and the new START TRACKING carries the opt-in — the D-694 amendment), D-698 the honest scroll (animateScrollToItemCentered — snap-free glide + the exact-center settle on the list's own viewport, edges clamped; both stacks GRID-aware), D-699 the player's four paradigms (DETAILED/COMPACT/GRID/BANNER through ONE shared renderer in :core:designsystem that both stacks AND the settings preview call; the actual-data library preview; direction-only sort — the round-101 sort modes + both stacks' private rows retired).
-- **Latest records:** Round 103 implemented (commits 1eff1593 + ace365be; doc **85**; CI run 36516391039 GREEN on run 2 — run 1's three TrackSheet import misses disclosed doc 85 §5); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **86**; the next decision is **D-700**.
+- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.60 / 10160** (round 103; the round-104 release v1.1.61 ships this session). **THE ROUND-104 SET (D-700..D-703):** D-700 the menu's width + INVERTED hierarchy (264dp; cards always brighter than the panel in both themes; the Tracking row aligned to MenuDiscRow's metrics; the polarity from the ACTIVE SCHEME's background luminance — forced-theme-proof), D-701 the tracking status + toasts (the sync-status chip left of the trash can — Syncing…/Not synced/Tracking on/Not tracking; the wheel at HALF the screen width; picker ticks; the breathing pass; the bullet-line confirmations; the beautiful in-app toast on Start/Remove completions), D-702 the unstoppable scroll (the ROOT-CAUSE scope hoist — both round-103 scopes lived INSIDE the header's lazy item and the glide disposed its own scope mid-flight; the ARRIVAL PULSE highlight after a completed glide; user interruption cancels before the bump), D-703 the player list's real customizability (the watched filter COMPLETELY removed player-scoped; COMPACT replaced by the typographic TRACKLIST; the DETAILED dim made real — whole-card alpha + grayscale; the EP tag DETAILED-only; the BANNER's toggleable number + density slider 21:9→4:3; the style-aware Elements with animated appear/disappear; the details page's D-557/D-558 two-phase-snap preview scroll ported verbatim; the SWIPE-TO-TOGGLE via the shared PlayerEpisodeSwipe — the GRID long-presses).
+- **Latest records:** Round 104 implemented (commits 8fa16554 + 87e0d8af + f68af121; doc **86**; CI run 36557222112 GREEN on run 2 — run 1's member-extension import trap disclosed doc 86 §5); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **87**; the next decision is **D-704**.
 - **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases. **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
 - **The per-round loop is unchanged:** device feedback → implement on the mainline → CI green (≤2 runs/cycle, disclosed ledger, D-472) → `release/1.1.3N` cut from the green head → the bump rides that branch → tag `v1.1.3N` → the debug release publishes → LIVE-mirror docs → ntfy → the user's device round.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` pushes build NOTHING.
-- **THIS SESSION'S NOTIFICATION:** the user ordered ntfy topic **TASK808DONE** for the round-103 completion (an explicit per-task override of the standing THE-TASK-IS-DONE topic — §11's standing topic resumes afterward).
+- **THIS SESSION'S NOTIFICATION:** the user ordered ntfy topic **TASK808DONE** for the round-104 completion (the standing per-task override — §11's THE-TASK-IS-DONE resumes after this task).
 
 ## 📂 If The Environment Was Just Cloned
 1. Clone `https://github.com/testplay-byte/ANI-KUTA.git` (public — read needs no token). **PUSH** uses the credential helper that reads the PAT from `/home/z/.secrets/github-credentials` (repo-external, git-credential FORMAT — for raw API calls extract the `password=` line; NEVER commit it, NEVER paste it). If the sandbox lost the file, ask the user.
 2. Checkout the mainline `feature/round-57-cloudstream-downloads` (the default branch).
 3. Read `AGENT-CONTEXT/memory/progress.md` — the TOP **CURRENT STATUS** block first, then the newest `## Round NN` sections at the BOTTOM (the file grows downward; the middle "Historical session" paragraphs are old).
-4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-699** (round 103).
+4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-703** (round 104).
 5. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task type.
 6. Read `AGENT-CONTEXT/knowledge/` files on demand (architecture, module-map, tech-stack, ui-customization, emulator-testing…).
 
@@ -81,9 +81,9 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (C
 
 ---
 
-## 🚧 Open Items / Blocked (refreshed Round 102)
-- **Round 102 IMPLEMENTED (D-690..D-695 — doc 84), the v1.1.59 release pending in-session:** the scoped filters (the search picker independent), the anchored menu + the direct share, the switch contract (persistence + auto-refresh + the library reflection + the PTR window), the detected deep links (singleTask + the reactive intake), THE TRACKING CONTRACT (the opt-in table + the fail-closed gates + the TrackingWatchSyncBridge + the sheet redesign), and the player list's new home ("Scroll to Current" + the dedicated settings page). The user's device round on v1.1.59 is the next input (checklist doc 84 §10). NEXT after it: v1.1.60/10160, doc 85, D-696. NOT-APPLIED + DOCUMENTED (doc 84 §9): the transient single-base priority label; the delete-failure leaving tracking off (deliberate — a deleted-then-failed entry must not re-sync); the draft re-seed clobbering ultra-fast edits during the open fetch; a failed score/status sync needs a re-Save (the bridge reconciles progress only). The dead AutoLinkPopup.kt remains a cleanup-round candidate; a FUTURE Coil 3.1.x upgrade must ADD respectCacheHeaders(false) to list-icon requests (doc 81 §11.2 — still standing).
-- **Historical — round 101 shipped v1.1.58 (D-684..D-689 — doc 83):** the untrusted filter truth, the details contract (both-axes refresh + the PERMANENT unlink), the :core:share system + View in WebView, the adaptive-accent completeness (the whole player themed), the player episode-list customization (the in-player gear/search superseded forward by D-695's dedicated settings page in round 102), and the sub-agent testing discipline (D-689 — the standing ≥2-guided-audits order, two rounds proven).
+## 🚧 Open Items / Blocked (refreshed Round 104)
+- **Round 104 IMPLEMENTED (D-700..D-703 — doc 86), the v1.1.61 release pending in-session:** the menu's width + inverted hierarchy, the tracking status chip + the toasts, the scroll's root-cause scope fix + the arrival pulse, and the player list's real customizability (the filter removal, TRACKLIST, the real dim, the EP-tag exclusivity, the banner controls, the preview's D-557/D-558 parity, the swipe). The user's device round on v1.1.61 is the next input (checklist doc 86 §7). NEXT after it: v1.1.62/10162, doc 87, D-704. NOT-APPLIED + DOCUMENTED (doc 86 §6): the stale-notice replay after a mid-toast navigation (rare, harmless); the light scheme's latent missing surfaceContainerHighest role (no current consumer); the theoretical wheel seed tick (byte-identical to the approved reference); the swipe's reference-inherited no-onDragCancel; the delete-failure leaving tracking off (deliberate). The dead AutoLinkPopup.kt remains a cleanup-round candidate; a FUTURE Coil 3.1.x upgrade must ADD respectCacheHeaders(false) to list-icon requests (doc 81 §11.2 — still standing).
+- **Historical — round 103 shipped v1.1.60 (D-696..D-699 — doc 85):** the crimped menu with the discs + chips, the tracking sheet's wheel + the Save/Start split, the centered smooth Scroll-to-Current, and the player's four paradigms with the actual-data preview + direction-only sort — all approved by the v1.1.60 device round except the refinement points this round closed.
 - **THE DEBUG LINE IS NON-DEBUGGABLE now (D-674):** if any future work needs `adb run-as` or a debugger on the debug build, that path is GONE by design (the revert = the one gradle flag + the three annotated re-keys). The updater's dev-repo gate + the Logger's DEBUG level + the Developer-tools section are keyed on IS_DEBUG_LINE / the .debug suffix — NOT on BuildConfig.DEBUG / FLAG_DEBUGGABLE (both read false on the dev line now).
 - **The dev PAT** is stored repo-external at `/home/z/.secrets/github-credentials` (0600, account `testplay-byte`, admin — the raw token file; the repo's remote URL also embeds it for push/API use). The `official-repo-token` is NOT needed for current work (the user, round 89: debug versions only — the real release-repo token arrives when an official release is actually ordered).
 - **The user's uploads folder:** `USER-UPLOADS/` contents may be cleared if cleanup is ever wanted, but the FOLDER itself stays (the user, round 89: "don't remove the folder, only the things in it").
@@ -91,7 +91,7 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (C
 - **The official repo is LIVE (resolved round 79):** Confused-Creature-180/ANI-KUTA carries professional v1.1.3 (11 assets: 5 APKs + 5 ZIPs + SHA256SUMS.txt) + the Pages download site with the APK|ZIP option selector. The process is documented: `ANI-KUTA-RELEASE-PLAYBOOK.md` (repo-external) + the official repo's `RELEASES.md`. The official-repo token lives at `/home/z/.secrets/official-repo-token`.
 - **Dashboard deep debt (disclosed, D-565):** the dashboard carries REPRESENTATIVE data — decisions D-277..D-695 are not individually listed, and the per-table DB transcription is the D-192-era snapshot (current truth: 26 tables / 18 .sq files). Status-level facts were refreshed Round 77. A full backfill is available on the user's request. (The user, round 89: leave the dashboard as-is for now — focus comes later.)
 - **`feature/test-controller-v5`** stays dormant (kept by explicit user order — do not delete).
-- **Version bookkeeping quirk (D-430):** the mainline says 1.1.20/10120 while the shipped debug line is at v1.1.58 — this is CORRECT by doctrine (bumps ride release branches). Don't "fix" it.
+- **Version bookkeeping quirk (D-430):** the mainline says 1.1.20/10120 while the shipped debug line is at v1.1.61 — this is CORRECT by doctrine (bumps ride release branches). Don't "fix" it.
 
 ## 🧪 Testing on the Emulator
 The sandbox CAN run the app on an Android emulator (user-authorized §8 exception) — but read
@@ -108,7 +108,7 @@ repo-root/
 │   │   ├── memory/              # progress / decisions / changelog / lessons-learned
 │   │   └── knowledge/           # quick-reference summaries (read on demand)
 │   ├── APP/ani-kuta/            # Android app — 56 Gradle modules (1 app + 32 core + 2 data + 21 feature)
-│   │   └── DOCUMENTATION/cloudstream-v2/  # the round records (next: 81)
+│   │   └── DOCUMENTATION/cloudstream-v2/  # the round records (next: 87)
 │   ├── DASHBOARD/webpage/       # Next.js dashboard (→ GitHub Pages; sub-agents build it)
 │   └── REFERENCES/              # old-kuta + animiru (read-only)
 └── .github/workflows/           # CI — build-apk / release-apk / release-build-once / deploy-dashboard

@@ -205,3 +205,113 @@ ntfy (topic **TASK808DONE** — the user's standing this-session override).
 ---
 *(The execution record, the CI history, the judgment calls, and the round-105
 checklist append below as the streams land.)*
+
+---
+
+## 4. The execution record
+
+| Stream | Files | Commit |
+|---|---|---|
+| WS-A the menu | DetailsActionMenu.kt (width + hierarchy + chips + tracking row) | 8fa16554 |
+| WS-B the tracking status + toasts | TrackSheet.kt (status chip + wheel width + haptics + breathing + bullet dialogs + TrackingToastHost), DetailsViewModel.kt (TrackingNotice + the two emit points + the types), DetailsScreen.kt (the toast host wiring) | 8fa16554 |
+| WS-C the scroll | WatchScreen.kt + CsWatchPage.kt (the page-level scopes + the arrival pulse), PlayerEpisodeListLayouts.kt (the pulse overlays) | 8fa16554 |
+| WS-D the player list | PlayerEpisodeListLayouts.kt (full rework: TRACKLIST + the real dim + the EP-tag exclusivity + the grid scrim number + the banner controls + the pulse + the swipe adapter), PlayerEpisodeSwipe.kt (NEW), PlayerEpisodeListPreferences.kt + PreferenceStore.kt (the filter removal + showEpisodeNumber/bannerDensity + FloatSerializer), WatchScreen.kt + CsWatchPage.kt (the filter removal + the swipe/long-press wiring + the banner knobs), PlayerEpisodeListSettingsScreen.kt (full rework: the D-557/D-558 port + the style-aware elements + the slider + the preview swipe) | 8fa16554 |
+| The audit fixes | DetailsActionMenu.kt + TrackSheet.kt (the scheme-luminance polarity), TrackSheet.kt ("Tracking on"), DetailsViewModel.kt (the stale comment), PlayerEpisodeListSettingsScreen.kt (the import prune), PlayerEpisodeListLayouts.kt (TextAlign.End) | 87e0d8af |
+| The CI fixes | PlayerEpisodeListLayouts.kt + PlayerEpisodeSwipe.kt (the matchParentSize member-extension imports + the BoxScope import) | f68af121 |
+
+**THE JUDGMENT CALLS (disclosed):**
+- **The status chip's green label says "Tracking on", not "Synced with AniList"** — the
+  SA1-F2 audit finding: the chip reads the OPT-IN state, and the rare
+  failed-sync-but-tracked case (plus the logged-out-but-tracked case) would have
+  made "Synced" a lie. "Tracking on" states exactly what the flag says.
+- **The polarity derives from the scheme's background LUMINANCE, not
+  isSystemInDarkTheme()** — the SA1-F1 finding (MEDIUM): MainActivity's ThemeMode
+  can force a theme opposite the system, which would have re-inverted the whole
+  round's hierarchy on exactly those devices. The scheme IS what renders.
+- **The wheel keeps its 168dp five-row viewport** (the link-sources parity the user
+  approved) — the "slightly taller" order is answered by the status row + the
+  breathing pass, not by stretching the approved wheel geometry.
+- **The swipe wrapper OWNS the entry's outer padding** (SwipeableEntry applies
+  padding(h10, v3/v4) on the wrapper) — the gesture + the background icon then
+  cover exactly the card's visual footprint, the details page's structure.
+- **The GRID's episode number lives in the bottom scrim's title line** ("EP 12 ·
+  Title" in one ExtraBold+Bold line) — the number stays readable without any
+  overlay tag on the thumbnail (the user's stated aversion).
+- **The banner density maps 0f→21:9 … 1f→4:3** with 0.5≈16.5:9 — the default
+  preserves the classic look byte-for-byte while the slider's two ends are the
+  honest cinematic extremes; the live label snaps to the familiar ratios.
+- **The preview's swipe flips a LOCAL watchedOverride** (the details preview's
+  interactive pattern) rather than touching any store — the settings preview
+  stays inert data-wise; the stacks' swipes write the real stores.
+- **The KEY_WATCHED_FILTER tombstone stays** (SA2-F2, deliberate) — the same
+  pattern as the round-103 KEY_SORT_MODE: a future re-add must not silently
+  inherit a stale mode.
+
+## 5. The CI history (the D-472 ledger — 2 runs, within budget)
+
+1. **Run 36556911837 on 87e0d8af — FAILURE:** the member-extension import trap's
+   MIRROR facet — `matchParentSize` imported as a top-level symbol in BOTH
+   playerlist files (it is a BoxScope MEMBER extension: receiver-resolved, never
+   importable), and the layouts file also missed the `BoxScope` import for
+   ArrivalPulseOverlay's receiver. Two files, three errors, one class.
+2. **Run 36557222112 on f68af121 — GREEN** (the two imports fixed; the error
+   class swept repo-wide — zero remaining member-extension imports).
+
+## 6. The sub-agent audits (the standing ≥2 order, D-689)
+
+- **SA1 (the menu + tracking): S1-S12 all PASS** — the width, the theme-aware
+  hierarchy (verified against Theme.kt's actual container roles incl. AMOLED),
+  the tracking row's geometry parity, the chip visibility in both themes, the
+  status chip's four states + priority, the half-width wheel with the round-103
+  contract intact, the haptic guards, the toast contract (the emit gating, the
+  replay keying, the auto-dismiss sequence, the pass-through overlay), the
+  bullet dialogs' truthfulness (cross-checked against the ViewModel's actual
+  delete behavior), the breathing pass, the regression sweep, the compile-risk
+  scan.
+- **SA2 (the scroll + player list + settings): T1-T14 all PASS** (T7 with one
+  cosmetic sub-claim) — the root-cause scope fix (with the reasoning of WHY the
+  old placement failed), the arrival-pulse interruption semantics (traced
+  through SmoothCenterScroll's bare suspension points), the swipe algebra vs
+  the details reference (branch-for-branch), both stacks' key math (verified
+  identical to the isWatched computations), the grid long-press, the filter
+  removal completeness (the details page's own filter verified untouched),
+  TRACKLIST's renderer, the real dim, the EP-tag exclusivity, the banner math,
+  the D-557/D-558 port fidelity (branch-by-branch against the reference), the
+  style-aware elements, the preview override, the regression + compile scan.
+- **Applied (lead-verified):** SA1-F1 (the scheme-luminance polarity — MEDIUM),
+  SA1-F2 ("Tracking on"), SA1-F6 (the stale comment), SA2-F1 (the import
+  prune), SA2-F3 (the numeral's TextAlign.End).
+- **Not applied (documented):** SA1-F3 (the stale-notice replay after a
+  mid-toast navigation — rare, harmless, a true event replay), SA1-F4 (the
+  light scheme's latent missing surfaceContainerHighest — no current consumer),
+  SA1-F5 (pre-existing lint noise), SA1-F7 (the theoretical wheel seed tick —
+  byte-identical to the approved reference), SA1-F8 (the deliberate
+  delete-failure ordering), SA2-F2 (the tombstone — deliberate), SA2-F4..F9
+  (INFO — plan-vs-impl cosmetic deltas, the reference-inherited no-onDragCancel,
+  the wash-only grid/banner pulses).
+
+## 7. The round-105 checklist (the device round on v1.1.61)
+
+1. **The menu:** the narrower width (264dp); the CARDS brighter than the panel
+   in BOTH themes (and under a FORCED theme opposite the system — the
+   luminance fix); the Tracking row reading as one of the family with its
+   grey↔green states intact.
+2. **The tracking sheet:** the status chip left of the trash can
+   (Syncing…/Not synced/Tracking on/Not tracking — watch it flip while a save
+   runs); the wheel centered at half the screen; the tick on picker open/close;
+   the slightly taller sheet; the bullet-line confirmations; the beautiful
+   toast after Start Tracking completes ("Tracking started") and after Remove
+   ("No longer tracking") — including the haptic.
+3. **The scroll:** tap Scroll to Current on a LONG list — the glide must run
+   the WHOLE way (the round-104 root-cause fix), center the current episode,
+   then the highlight pulse that fades to normal; TOUCH the list mid-glide —
+   it must stop immediately with NO pulse; episode 1 / the last episode stop
+   un-centered at the edges.
+4. **The player list:** the watched filter is GONE everywhere (settings +
+   both players); the Tracklist layout (the big number + spine); the DETAILED
+   dim on watched rows; the EP tag ONLY on Detailed (the grid's number in the
+   scrim); the banner's Episode number toggle + the Banner size slider (live);
+   the Elements rows appearing/disappearing smoothly per layout; the settings
+   preview's scroll behaving EXACTLY like the details page's (the two-phase
+   snap, the fling handoff); SWIPE a row on either player to toggle watched
+   (long-press on grid) — and in the settings preview.
