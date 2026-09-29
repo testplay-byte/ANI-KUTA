@@ -544,8 +544,15 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── ROUND 104 (v1.1.61 / 10161) — the v1.1.60 device round ────────────
+    // The menu's width + the INVERTED card-brighter hierarchy (D-700), the
+    // tracking status chip + the beautiful completion toasts (D-701), the
+    // scroll's root-cause scope fix + the arrival pulse (D-702), and the
+    // player list's real customizability — the filter removed, TRACKLIST,
+    // the real dim, the banner's number + density slider, the preview's
+    // D-557/D-558 parity, and the swipe-to-toggle (D-703).
+    const val versionCode = 10161
+    const val versionName = "1.1.61"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
