@@ -236,3 +236,105 @@ standing this-session override).
 ---
 *(The execution record, the CI history, the judgment calls, and the round-106
 checklist append below as the streams land.)*
+
+## 4. The execution record
+
+| Stream | Files | Commit |
+|---|---|---|
+| WS-A the menu's last crimp | DetailsActionMenu.kt (264→240dp both pages + the header note) | 0b993e72 |
+| WS-B the sheet's QoL | TrackSheet.kt (the containment connection + the unified seed/re-center + the Row of side buttons — TrackStepperButton/TrackStatusQuickButton + the outlined Save via TrackSheetButton's border/leadingIcon + the sheet-level context + SCORE_STEPPER_STEP) | 0b993e72 |
+| WS-C the renames | AppearanceScreen.kt (the three rows + the section label + the subtitles), EpisodeListSettingsScreen/PlayerEpisodeListSettingsScreen/DetailsPageSettingsScreen (the titles), SettingsSearchModels.kt + SettingsSearchIndex.kt + MainActivity.kt (the search index retitle + the PLAYER_EPISODE_LIST page: enum, 4 entries, the route branch, the anchor plumbing), the comment sweep (6 files) | 0b993e72 |
+| WS-D the player list | PlayerEpisodeListPreferences.kt (7 new knobs + the bannerDensity tombstone), PlayerEpisodeListLayouts.kt (the display bundle + 3 enums + the fraction/padding math + the DETAILED progress gate + the TRACKLIST exact-fit column/synopsis/underline + the GRID checkmark/tint/titles/pills + the BANNER fixed-16:9/overlay inversion/CINEMA number port + the dispatcher's centered size wrapper), WatchScreen.kt + CsWatchPage.kt (the full display construction + the tracklist reference), PlayerEpisodeListSettingsScreen.kt (the reworked options: descriptions everywhere, the per-style Elements, the nested banner rows, the re-aimed slider, the highlight plumbing) | 0b993e72 |
+| The audit fixes | TrackSheet.kt (SA1-F1 the fling fence's sign — finger-space per D-402; SA1-F2 the Surface shape), PlayerEpisodeListSettingsScreen.kt + PlayerEpisodeListPreferences.kt (SA2-F1 the TOP_START vocabulary), the comment cleanups (SA2-F2/F3/F4), doc 87's slider ends | 7315a065 |
+
+**THE JUDGMENT CALLS (disclosed):**
+- **The background screen's retitle ("Details background")** — the rename
+  order ("name the first one… as details page") would have left TWO rows
+  titled "Details page" on the Appearance screen; the background settings
+  screen takes the precise name (its subtitle already says what it is).
+  Flagged to the user in the round report.
+- **The status quick-sets are Watching/Completed**, not a prev/next cycler —
+  the two statuses anyone actually switches to; cycling an unordered enum
+  would be noise. The active state wears the wheel's selected-row language.
+- **The score stepper steps ±1.0** (±10 wheel indices) — the AniYomi tracker
+  stepper's step; the wheel stays the fine 0.1 control. From "—" the first +
+  lands at 1.0 (the scale's start, not a midpoint presumption).
+- **The TRACKLIST column is exact-fit + TextAlign.Start** — the root-cause
+  fix (the round-104 fixed 52dp + End alignment put ~39dp of dead space
+  before a single digit). The caller passes its list's widest number
+  (tracklistReferenceNumber); every row of a list measures the same
+  reference → the same column → the spine stays list-stable.
+- **The GRID's checkmark governs grayscale + check TOGETHER** — the user's
+  order replaced the dim OPTION with the checkmark option; splitting them
+  would re-add the dim through the back door.
+- **The GRID's current-TINT is grayscale + primary@0.50 + the ring** —
+  "the whole thumbnail image will be tinted": the desaturated imagery under
+  the themed wash reads as themed while hinting the content.
+- **The banner size maps 1f = byte-identical full-bleed** (fraction 1.0,
+  4dp vpad); 0f = 66% width centered + 10dp vpad — the default preserves
+  the classic look; the old bannerDensity key is tombstoned (incompatible
+  stored semantics — the D-529 lesson).
+- **The player page joined the settings search index** — the round-102 gap,
+  closed alongside the rename (the "Player page" title is findable; the
+  landing anchor pulses the Layout card).
+- **The SA1 fling-fence sign** — the first draft was written in
+  scroll-position space; the repo's own unit-tested D-402 convention
+  (finger-space) proved it inverted and the fix landed before CI.
+
+## 5. The CI history (the D-472 ledger)
+
+1. **Run 36595801774 on 7315a065** — *(fills below when the run completes.)*
+
+## 6. The sub-agent audits (the standing ≥2 order, D-689)
+
+- **SA1 (the menu + the tracking sheet)**: S1 FAIL→FIXED (the fling fence's
+  sign inversion — HIGH, see §4), S2-S6 PASS (the unified seed/recenter
+  effect traced through restarts/cancellation/rapid taps; the side-button
+  bindings verified against TrackEntry's types; the compile-risk sweep; the
+  regression diff — the ModalBottomSheet params, the status chip, the
+  toasts, the dialogs all untouched). Applied: F1 (the sign), F2 (the
+  Surface shape).
+- **SA2 (the renames + the player list)**: T1-T11 with two defects — F1
+  (HIGH: the Number-position write vocabulary "TOP_LEFT" vs the parser's
+  "TOP_START" — the Top-left option was a silent no-op; fixed) and F2/F3/F4
+  (comment-grade; fixed). Everything else verified clean: the display
+  bundle, the renderer paradigms (the dispatcher's sizing math, the
+  TextMeasurer column), the settings screen's structure with the D-557/
+  D-558 machinery byte-identical, both callers' formulas (the CS display
+  number's flavor-ordinal fallback matches toRowData exactly), and the
+  compile-risk sweep (zero member-extension imports; zero dangling
+  bannerDensity/bannerAspectRatio/aspectLabel references).
+- **Not applied (documented):** SA2-F6 (the GRID's unconditional grayscale
+  ColorFilter allocation — inherited from round 104, negligible), SA2-F7
+  (the empty-list "?" tracklist reference — zero rows render anyway), SA1's
+  INFO note on the D-557 momentum handoff's direction (the inherited
+  details-page machinery; at the handoff moment the options list sits at
+  its very top where a backward fling clamps to nothing — the question is
+  unobservable on device; NOT this round's scope, flagged for a future
+  scroll-round).
+
+## 7. The round-106 checklist (the device round on v1.1.62)
+
+1. **The menu**: the narrower width (240dp) — same structure, same
+   hierarchy, same rows.
+2. **The tracking sheet**: open the Progress or Score picker and SWIPE
+   DOWN on the wheel at its TOP ("Not started" / episode 1) — the sheet
+   must NOT move at all; flick down fast — same; the sheet still closes
+   by dragging the header/dates/buttons areas. The +/− buttons flank the
+   wheel (tap + on Progress → the wheel glides the new episode to center;
+   hold bounds: − at 0 and + at the total disable); Score's ± moves whole
+   points (0.0→1.0→2.0…). The Status row: Watching/Completed quick-sets
+   with the active ring. The not-tracked Save: the outlined button with
+   the save glyph; Start Tracking unchanged.
+3. **The renames**: Appearance → "Details page" / "Player page" / "Details
+   background"; the opened screens' titles match; the settings SEARCH
+   finds "Player page" (and the old queries still land).
+4. **The player list**: the Tracklist's number hugs the left edge (no dead
+   padding) at 24sp with the optional synopsis; the Detailed's
+   Progress-bar toggle; the Grid's checkmark/Themed-tint/Titles options
+   (watched = gray+check together; tint = the themed wash on the current
+   cell); the Banner's pills-above-the-name overlay, the themed number
+   (frosted/solid, left/right corner), and the SIZE slider (smaller =
+   narrower centered cards with breathing room — never a height change);
+   every Elements row described; the nested number rows appear/hide with
+   the toggle.

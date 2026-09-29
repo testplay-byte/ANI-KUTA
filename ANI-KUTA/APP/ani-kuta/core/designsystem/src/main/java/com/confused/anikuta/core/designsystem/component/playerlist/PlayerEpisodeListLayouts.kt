@@ -295,7 +295,11 @@ fun bannerWidthFraction(size: Float): Float {
  */
 fun bannerVerticalPadding(size: Float): Dp {
     val t = size.coerceIn(0f, 1f)
-    return 4.dp + (1f - t) * 6.dp
+    // CI run-1 fix: pure Float arithmetic, THEN .dp once — the first draft's
+    // `(1f - t) * 6.dp` needed the top-level Float.times(Dp) operator
+    // extension import (the stdlib's Float.times overloads were the only
+    // candidates the compiler could see).
+    return (4f + (1f - t) * 6f).dp
 }
 
 /**
