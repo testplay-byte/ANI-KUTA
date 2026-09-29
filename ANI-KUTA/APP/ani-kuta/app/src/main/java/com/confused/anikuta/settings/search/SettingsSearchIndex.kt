@@ -337,6 +337,16 @@ object SettingsSearchIndex {
         )
         add(
             SettingsSearchEntry(
+                id = "playerepisodelist.download",
+                title = "Download button",
+                page = SettingsSearchPage.PLAYER_EPISODE_LIST,
+                anchor = "player_download",
+                keywords = listOf("download", "button", "badge", "offline",
+                    "episode", "player"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
                 id = "playerepisodelist.sort",
                 title = "Sort",
                 page = SettingsSearchPage.PLAYER_EPISODE_LIST,

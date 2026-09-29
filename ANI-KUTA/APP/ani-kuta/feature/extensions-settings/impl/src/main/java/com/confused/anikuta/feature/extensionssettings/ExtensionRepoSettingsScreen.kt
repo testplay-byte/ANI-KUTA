@@ -437,11 +437,11 @@ private fun RepoRow(
                 onLongClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     clipboard.setText(AnnotatedString(url))
-                    android.widget.Toast.makeText(
-                        context,
+                    // ROUND 106 (WS-C): the themed app toast.
+                    com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                         "URL copied \u00b7 $name",
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
+                        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                    )
                 },
             ),
     ) {

@@ -491,6 +491,15 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                     get<com.confused.anikuta.core.download.DownloadPreferences>(),
                 )
             }
+            // ROUND 106 (WS-D): the player page's download bridge — the
+            // extracted handleDownloadEpisode chain, injectable by both
+            // player stacks (feature/watch + feature/cs-watch).
+            single<com.confused.anikuta.core.download.PlayerDownloadController> {
+                com.confused.anikuta.download.AndroidPlayerDownloadController(
+                    get<com.confused.anikuta.download.DownloadOrchestrator>(),
+                    get<com.confused.anikuta.core.content.ContentRepository>(),
+                )
+            }
         }
     }
 }

@@ -1,7 +1,6 @@
 package com.confused.anikuta.feature.debugbubble.panel
 
 import android.content.Intent
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -191,7 +190,11 @@ fun ConsoleTab() {
 
     fun copyAll() {
         clipboard.setText(AnnotatedString(exportText().ifEmpty { "(no lines)" }))
-        Toast.makeText(context, "Copied ${rows.size} line(s)", Toast.LENGTH_SHORT).show()
+        // ROUND 106 (WS-C): the themed app toast.
+        com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+            "Copied ${rows.size} line(s)",
+            com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+        )
     }
 
     fun share() {
@@ -358,7 +361,10 @@ fun ConsoleTab() {
                                             "${row.time} ${row.level}/${row.tag}: ${row.text}",
                                         ),
                                     )
-                                    Toast.makeText(context, "Line copied", Toast.LENGTH_SHORT).show()
+                                    com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                        "Line copied",
+                                        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                                    )
                                 }
                                 .padding(vertical = 2.dp),
                         ) {

@@ -58,6 +58,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -299,17 +300,17 @@ fun WatchScreen(
                         Logger.i(TAG) { "Manual subtitle import — refreshed: ${subs.size} sub track(s)" }
                     }
                 }
-                android.widget.Toast.makeText(
-                    context,
+                // ROUND 106 (WS-C): the themed app toast.
+                com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                     if (added == 1) "Subtitle added" else "$added subtitles added",
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
+                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                )
             } else if (rejected > 0) {
-                android.widget.Toast.makeText(
-                    context,
+                com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                     "Unsupported file type (use .srt, .vtt, .ass, .ssa or .sub)",
-                    android.widget.Toast.LENGTH_LONG,
-                ).show()
+                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                    durationMillis = 3600,
+                )
             }
         }
     }
@@ -1011,26 +1012,23 @@ fun WatchScreen(
                                 stateHolder.updateTracks(subs, audio)
                             }
                         }
-                        android.widget.Toast.makeText(
-                            context,
+                        com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                             "Subtitle added",
-                            android.widget.Toast.LENGTH_SHORT,
-                        ).show()
+                            com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                        )
                     }.onFailure {
                         Logger.w(TAG) { "Storage subtitle sub-add failed: ${it.message}" }
-                        android.widget.Toast.makeText(
-                            context,
+                        com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                             "Could not load the subtitle",
-                            android.widget.Toast.LENGTH_SHORT,
-                        ).show()
+                            com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                        )
                     }
                 } else {
                     Logger.w(TAG) { "Storage subtitle staging failed: '${track.label}'" }
-                    android.widget.Toast.makeText(
-                        context,
+                    com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                         "Could not read the subtitle file",
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
+                        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                    )
                 }
             }
         }
@@ -1711,6 +1709,21 @@ private fun MinimizedMode(
     val gridTitles by playerListPrefs.gridTitles.changes.collectAsState(
         initial = playerListPrefs.gridTitles.get(),
     )
+    // ROUND 106 (WS-D): the new knobs — the audio pills, the download
+    // button, and the BANNER's currently-playing treatment.
+    val showAudioPills by playerListPrefs.showAudioPills.changes.collectAsState(
+        initial = playerListPrefs.showAudioPills.get(),
+    )
+    val showDownloadButton by playerListPrefs.showDownloadButton.changes.collectAsState(
+        initial = playerListPrefs.showDownloadButton.get(),
+    )
+    val bannerCurrentStyleKey by playerListPrefs.bannerCurrentStyle.changes.collectAsState(
+        initial = playerListPrefs.bannerCurrentStyle.get(),
+    )
+    val bannerCurrentStyle = remember(bannerCurrentStyleKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerCurrentStyle
+            .fromKey(bannerCurrentStyleKey)
+    }
     // ROUND 105 (WS-D): the TRACKLIST's column-sizing reference — the LIST's
     // widest episode number, pre-formatted (the row measures it once and the
     // number column exactly fits; the digit hugs the left edge).
@@ -1719,20 +1732,24 @@ private fun MinimizedMode(
         formatEpisodeNumber(maxNumber)
     }
     val liveListDisplay = remember(
-        listStyle, showSynopsis, showDatePill, dimWatched, showEpisodeNumber,
-        showProgressBar, bannerSize, bannerNumberPosition, bannerNumberStyle,
+        listStyle, showSynopsis, showDatePill, showAudioPills, dimWatched,
+        showEpisodeNumber, showProgressBar, showDownloadButton, bannerSize,
+        bannerNumberPosition, bannerNumberStyle, bannerCurrentStyle,
         gridWatchedCheckmark, gridCurrentStyle, gridTitles, tracklistReferenceNumber,
     ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = listStyle,
             showSynopsis = showSynopsis,
             showDatePill = showDatePill,
+            showAudioPills = showAudioPills,
             dimWatched = dimWatched,
             showEpisodeNumber = showEpisodeNumber,
             showProgressBar = showProgressBar,
+            showDownloadButton = showDownloadButton,
             bannerSize = bannerSize,
             bannerNumberPosition = bannerNumberPosition,
             bannerNumberStyle = bannerNumberStyle,
+            bannerCurrentStyle = bannerCurrentStyle,
             gridWatchedCheckmark = gridWatchedCheckmark,
             gridCurrentStyle = gridCurrentStyle,
             gridTitles = gridTitles,
@@ -1797,6 +1814,18 @@ private fun MinimizedMode(
     // bumps ONLY after a COMPLETED glide (a user touch cancels the scroll
     // coroutine BEFORE this line — an interrupted glide never pulses). ──
     val pageScrollScope = rememberCoroutineScope()
+
+    // ── ROUND 106 (WS-D): THE PLAYER PAGE'S DOWNLOADS — the badge's data.
+    // The engine's per-episode states (keyed "$mainId|$episodeKey") map
+    // into the render-only bundle; the enqueue-in-flight set covers the
+    // resolve gap (the controller's suspend call before the queue row
+    // exists). The controller is the :app bridge — the extracted
+    // handleDownloadEpisode chain. (Page level: the row-level helpers below
+    // close over these; the LazyListScope itself is not composable.) ──
+    val playerDownloadController = koinInject<com.confused.anikuta.core.download.PlayerDownloadController>()
+    val coreDownloadStates by downloadManager.episodeDownloadStates.collectAsState()
+    val downloadQueueSnapshot by downloadManager.getQueue().collectAsState()
+    val enqueueInFlight = remember { mutableStateMapOf<String, Boolean>() }
     var scrollArrivalPulse by remember { mutableLongStateOf(0L) }
 
     // Wrap in derivedStateOf to prevent excessive recompositions.
@@ -2189,6 +2218,111 @@ private fun MinimizedMode(
                 // ("exactly like how it is on the details page"; the GRID's
                 // cells long-press instead — the shared renderer's parity)
                 // + the scroll-arrival pulse token.
+                // ── ROUND 106 (WS-D): the row-level download helpers (the
+                // composable state hoists to the page level above; these
+                // close over it). ──
+                fun playerDownloadStateFor(ep: SimpleEpisode): com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState? {
+                    if (watchKey.mainId.isBlank()) return null
+                    val key = "${watchKey.mainId}|${ep.url}"
+                    if (enqueueInFlight[key] == true) {
+                        return com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.InFlight
+                    }
+                    val raw = coreDownloadStates[key]
+                        ?: return com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.NotDownloaded
+                    return when (raw.first) {
+                        com.confused.anikuta.core.download.DownloadStatus.QUEUED,
+                        com.confused.anikuta.core.download.DownloadStatus.RETRYING,
+                            -> com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.InFlight
+                        com.confused.anikuta.core.download.DownloadStatus.DOWNLOADING ->
+                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Downloading(raw.second)
+                        com.confused.anikuta.core.download.DownloadStatus.PAUSED ->
+                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Paused
+                        com.confused.anikuta.core.download.DownloadStatus.ERROR ->
+                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Error
+                        com.confused.anikuta.core.download.DownloadStatus.COMPLETED ->
+                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Downloaded
+                        com.confused.anikuta.core.download.DownloadStatus.CANCELLED ->
+                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.NotDownloaded
+                    }
+                }
+                // The queue's task id for an episode (the DetailsViewModel's
+                // lookup, player-side).
+                fun downloadTaskIdFor(ep: SimpleEpisode): Long? {
+                    if (watchKey.mainId.isBlank()) return null
+                    return downloadQueueSnapshot.firstOrNull {
+                        it.content.mainId == watchKey.mainId && it.episode.episodeKey == ep.url
+                    }?.id
+                }
+                // The badge's full action bag for one episode.
+                fun downloadActionsFor(ep: SimpleEpisode): com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeDownloadActions {
+                    val flowKey = "${watchKey.mainId}|${ep.url}"
+                    return com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeDownloadActions(
+                        onDownload = {
+                            if (watchKey.mainId.isNotBlank()) {
+                                enqueueInFlight[flowKey] = true
+                                pageScrollScope.launch {
+                                    val outcome = playerDownloadController.enqueueClassic(
+                                        mainId = watchKey.mainId,
+                                        episode = com.confused.anikuta.core.download.PlayerDownloadController.EpisodeInfo(
+                                            episodeKey = ep.url,
+                                            episodeNumber = ep.episodeNumber,
+                                            name = ep.name,
+                                        ),
+                                    )
+                                    enqueueInFlight[flowKey] = false
+                                    when (outcome) {
+                                        is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.Started -> Unit
+                                        is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.NoSource ->
+                                            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                                "No download source for this episode",
+                                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                            )
+                                        is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.CsBridged ->
+                                            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                                "This episode streams through CloudStream — no classic download",
+                                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                            )
+                                        is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.Error ->
+                                            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                                "Download failed: ${outcome.message}",
+                                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                            )
+                                    }
+                                }
+                            }
+                        },
+                        onPause = {
+                            downloadTaskIdFor(ep)?.let { id ->
+                                pageScrollScope.launch { downloadManager.pauseDownload(id) }
+                            }
+                        },
+                        onResume = {
+                            downloadTaskIdFor(ep)?.let { id ->
+                                pageScrollScope.launch { downloadManager.resumeDownload(id) }
+                            }
+                        },
+                        onCancel = {
+                            // An enqueue still resolving lands in a moment —
+                            // cancel it from the queue once it appears.
+                            downloadTaskIdFor(ep)?.let { id ->
+                                pageScrollScope.launch { downloadManager.cancelDownload(id) }
+                            }
+                        },
+                        onRetry = {
+                            downloadTaskIdFor(ep)?.let { id ->
+                                pageScrollScope.launch { downloadManager.retryDownload(id) }
+                            }
+                        },
+                        onPlayDownloaded = {
+                            // The offline routing already lives in
+                            // onEpisodeSwitch (the downloaded-episode fd://
+                            // path).
+                            if (ep.url != currentEpisodeUrl) {
+                                onEpisodeSwitch(ep)
+                            }
+                        },
+                    )
+                }
                 // The MPV stack's mapping into the render-only bundle.
                 fun toRowData(ep: SimpleEpisode): com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeRowData {
                     val meta = episodeMetadata[ep.episodeNumber.toInt()]
@@ -2207,7 +2341,9 @@ private fun MinimizedMode(
                         isCurrent = ep.url == currentEpisodeUrl,
                         isWatched = watchKey.mainId.isNotBlank() &&
                             watchedKeys.contains(buildEpisodeKey(watchKey.mainId, ep.episodeNumber)),
-                        showDownloadHint = true,
+                        // ROUND 106 (WS-D): the REAL badge state (the old
+                        // inert hint glyph is retired).
+                        downloadState = if (showDownloadButton) playerDownloadStateFor(ep) else null,
                     )
                 }
                 if (listStyle == com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle.GRID) {
@@ -2221,6 +2357,14 @@ private fun MinimizedMode(
                             left = toRowData(pair[0]),
                             right = pair.getOrNull(1)?.let { toRowData(it) },
                             display = liveListDisplay,
+                            // ROUND 106 (WS-D): the per-cell download actions,
+                            // resolved from the tapped cell's own episode.
+                            downloadActions = { data ->
+                                val ep = pair.firstOrNull {
+                                    formatEpisodeNumber(it.episodeNumber) == data.episodeNumberText
+                                } ?: pair[0]
+                                if (showDownloadButton) downloadActionsFor(ep) else null
+                            },
                             onClick = { data ->
                                 // The tapped cell's episode, matched inside its
                                 // own pair by the bundle's identity (number +
@@ -2270,6 +2414,8 @@ private fun MinimizedMode(
                                     onEpisodeSwitch(ep)
                                 }
                             },
+                            // ROUND 106 (WS-D): the download badge's actions.
+                            downloadActions = if (showDownloadButton) downloadActionsFor(ep) else null,
                             // ROUND 104 (WS-D): the swipe-to-toggle — the
                             // details page's gesture through the shared
                             // wrapper (the store emits; watchedKeys is live).

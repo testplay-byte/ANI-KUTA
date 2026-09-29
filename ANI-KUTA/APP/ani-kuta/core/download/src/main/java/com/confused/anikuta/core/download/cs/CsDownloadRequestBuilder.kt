@@ -1,4 +1,12 @@
-package com.confused.anikuta.download
+package com.confused.anikuta.core.download.cs
+
+// ROUND 106 (WS-D / D-711): MOVED from :app (com.confused.anikuta.download)
+// into :core:download — the CS player stack (feature/cs-watch) resolves its
+// own links and enqueues through this builder + DownloadManager directly;
+// keeping it in :app put the ONLY CS→request translation out of the player's
+// reach. The object is pure (core.cs-player + core.download types only) —
+// :core:download gains the :core:cs-player dependency (no cycle: cs-player
+// depends only on :core:common). :app's callers now import from here.
 
 import com.confused.anikuta.core.csplayer.CsLinkType
 import com.confused.anikuta.core.csplayer.CsServerNames

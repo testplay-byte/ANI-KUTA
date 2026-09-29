@@ -15,6 +15,10 @@ dependencies {
     implementation(project(":core:content"))
     implementation(project(":core:video-resolver"))
     implementation(project(":core:activity-tracker"))  // D-192: activity tracking
+    // ROUND 106 (D-711): CsDownloadRequestBuilder moved here from :app — the
+    // CS player stack enqueues through it directly (no cycle: cs-player
+    // depends only on :core:common).
+    implementation(project(":core:cs-player"))
 
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)

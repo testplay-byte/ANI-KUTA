@@ -192,6 +192,21 @@ fun PlayerEpisodeListSettingsScreen(
     val gridTitles by playerListPrefs.gridTitles.changes.collectAsState(
         initial = playerListPrefs.gridTitles.get(),
     )
+    // ROUND 106 (WS-D): the new knobs — the audio pills, the download
+    // button, and the BANNER's currently-playing treatment.
+    val showAudioPills by playerListPrefs.showAudioPills.changes.collectAsState(
+        initial = playerListPrefs.showAudioPills.get(),
+    )
+    val showDownloadButton by playerListPrefs.showDownloadButton.changes.collectAsState(
+        initial = playerListPrefs.showDownloadButton.get(),
+    )
+    val bannerCurrentStyleKey by playerListPrefs.bannerCurrentStyle.changes.collectAsState(
+        initial = playerListPrefs.bannerCurrentStyle.get(),
+    )
+    val bannerCurrentStyle = remember(bannerCurrentStyleKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerCurrentStyle
+            .fromKey(bannerCurrentStyleKey)
+    }
     val sortDescending by playerListPrefs.sortDescending.changes.collectAsState(
         initial = playerListPrefs.sortDescending.get(),
     )
@@ -218,24 +233,56 @@ fun PlayerEpisodeListSettingsScreen(
         EpisodeTitleParser.formatEpisodeNumber(maxNumber)
     }
     val display = remember(
-        style, showSynopsis, showDatePill, dimWatched, showEpisodeNumber,
-        showProgressBar, bannerSize, bannerNumberPosition, bannerNumberStyle,
+        style, showSynopsis, showDatePill, showAudioPills, dimWatched,
+        showEpisodeNumber, showProgressBar, showDownloadButton, bannerSize,
+        bannerNumberPosition, bannerNumberStyle, bannerCurrentStyle,
         gridWatchedCheckmark, gridCurrentStyle, gridTitles, tracklistReferenceNumber,
     ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = style,
             showSynopsis = showSynopsis,
             showDatePill = showDatePill,
+            showAudioPills = showAudioPills,
             dimWatched = dimWatched,
             showEpisodeNumber = showEpisodeNumber,
             showProgressBar = showProgressBar,
+            showDownloadButton = showDownloadButton,
             bannerSize = bannerSize,
             bannerNumberPosition = bannerNumberPosition,
             bannerNumberStyle = bannerNumberStyle,
+            bannerCurrentStyle = bannerCurrentStyle,
             gridWatchedCheckmark = gridWatchedCheckmark,
             gridCurrentStyle = gridCurrentStyle,
             gridTitles = gridTitles,
             tracklistReferenceNumber = tracklistReferenceNumber,
+        )
+    }
+
+    // ── ROUND 106 (WS-D): THE PREVIEW'S DOWNLOAD BADGE DEMO — the D-557
+    // pattern: a cycling render state + a previewTapAll bag (one tap walks
+    // every state; the preview's rows stay inert otherwise). The CURRENT
+    // row carries the demo badge (the row the eye sits on). ──
+    val demoDownloadStates = remember {
+        listOf(
+            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.NotDownloaded,
+            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.InFlight,
+            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Downloading(64),
+            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Paused,
+            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Error,
+            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Downloaded,
+        )
+    }
+    var demoDownloadIndex by remember { mutableStateOf(0) }
+    val demoDownloadState = demoDownloadStates[demoDownloadIndex % demoDownloadStates.size]
+    val demoDownloadActions = remember {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeDownloadActions(
+            onDownload = {},
+            onPause = {},
+            onResume = {},
+            onCancel = {},
+            onRetry = {},
+            onPlayDownloaded = {},
+            previewTapAll = { demoDownloadIndex += 1 },
         )
     }
 
@@ -249,15 +296,24 @@ fun PlayerEpisodeListSettingsScreen(
     val watchedOverride = remember { mutableStateMapOf<String, Boolean>() }
     val currentUrl = orderedItems.getOrNull(0)?.episode?.url
     val watchedUrl = orderedItems.getOrNull(1)?.episode?.url
+    // ROUND 106 (WS-D): the CURRENT row carries the demo badge when the
+    // download toggle is on (tap it to cycle every state — the D-557 demo).
+    val previewDownloadState = if (showDownloadButton) demoDownloadState else null
     val currentData = orderedItems.getOrNull(0)?.toPlayerRowData(
         isCurrent = true,
         isWatched = currentUrl?.let { watchedOverride[it] } ?: false,
         progressFraction = 0.35f,
+        downloadState = previewDownloadState,
     )
     val watchedData = orderedItems.getOrNull(1)?.toPlayerRowData(
         isCurrent = false,
         isWatched = watchedUrl?.let { watchedOverride[it] } ?: true,
         progressFraction = 0f,
+        downloadState = if (showDownloadButton) {
+            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.NotDownloaded
+        } else {
+            null
+        },
     )
 
     val isGrid = style == PlayerEpisodeListStyle.GRID
@@ -272,7 +328,8 @@ fun PlayerEpisodeListSettingsScreen(
             when (anchor) {
                 "player_episode_list", "player_layout" -> 0
                 "player_elements" -> 1
-                "player_sort" -> 2
+                "player_download" -> 2
+                "player_sort" -> 3
                 else -> null
             }
         },
@@ -526,6 +583,7 @@ fun PlayerEpisodeListSettingsScreen(
                                         right = watchedData,
                                         display = display,
                                         onClick = { /* the preview is inert */ },
+                                        downloadActions = { if (showDownloadButton) demoDownloadActions else null },
                                         onToggleWatched = { data ->
                                             val url = when (data) {
                                                 currentData -> currentUrl
@@ -553,6 +611,7 @@ fun PlayerEpisodeListSettingsScreen(
                                             data = currentData,
                                             display = display,
                                             onClick = { /* inert */ },
+                                            downloadActions = if (showDownloadButton) demoDownloadActions else null,
                                             // The preview's swipe — the same
                                             // shared gesture, flipping the
                                             // slot's local watched override.
@@ -570,6 +629,7 @@ fun PlayerEpisodeListSettingsScreen(
                                         data = watchedData,
                                         display = display,
                                         onClick = { /* inert */ },
+                                        downloadActions = if (showDownloadButton) demoDownloadActions else null,
                                         onToggleWatched = {
                                             if (watchedUrl != null) {
                                                 watchedOverride[watchedUrl] =
@@ -694,16 +754,21 @@ fun PlayerEpisodeListSettingsScreen(
                                 )
                                 // ── The progress bar — DETAILED + TRACKLIST
                                 //    (ROUND 105: "I should be given an option
-                                //    there to show or hide the progress bar"). ──
+                                //    there to show or hide the progress bar";
+                                //    ROUND 106: the reworked GRID's plate
+                                //    carries the bar too). ──
                                 AnimatedStyleRow(
                                     visible = style == PlayerEpisodeListStyle.DETAILED ||
-                                        style == PlayerEpisodeListStyle.TRACKLIST,
+                                        style == PlayerEpisodeListStyle.TRACKLIST ||
+                                        style == PlayerEpisodeListStyle.GRID,
                                 ) {
                                     PlayerSwitchRow(
                                         title = "Progress bar",
                                         description = when (style) {
                                             PlayerEpisodeListStyle.TRACKLIST ->
                                                 "The thin underline on partially watched rows"
+                                            PlayerEpisodeListStyle.GRID ->
+                                                "The thin bar at the cell's bottom edge"
                                             else ->
                                                 "The thin bar on partially watched rows"
                                         },
@@ -888,6 +953,47 @@ fun PlayerEpisodeListSettingsScreen(
                     // "Most definitely not needed, and it is apparently
                     // unnecessary… It should be completely removed.")
 
+                    // ── ROUND 106 (WS-D): THE DOWNLOAD BUTTON — the
+                    //    dedicated section the v1.1.62 round ordered: "in
+                    //    the player page there could be a toggle for this,
+                    //    like a dedicated separate toggle, like given a
+                    //    proper dedicated section for it, like download, and
+                    //    the toggle will be used to turn on or turn off the
+                    //    download button for every single one of them. If
+                    //    turned off, then on the player page the download
+                    //    button will not show. But if it is turned on, then
+                    //    the download button will show." ──
+                    item {
+                        SettingsHighlightTarget(anchorId = "player_download", activeAnchor = highlightAnchor) {
+                        PlayerListCard(label = "Download") {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                            ) {
+                                PlayerSwitchRow(
+                                    title = "Download button",
+                                    description = "The download control on every episode",
+                                    checked = showDownloadButton,
+                                    onChecked = { playerListPrefs.showDownloadButton.set(it) },
+                                )
+                                Text(
+                                    text = "When on, every layout carries the badge — " +
+                                        "tap to download, watch the progress ring, " +
+                                        "pause/resume/retry in place, and tap the check " +
+                                        "to play the offline file.",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 8.dp, start = 2.dp),
+                                )
+                            }
+                        }
+                        }
+                    }
+
                     // ── Sort — DIRECTION ONLY (ROUND 105: the card label is
                     //    the title; the description carries the key). ──
                     item {
@@ -976,6 +1082,9 @@ private fun PreviewItem.toPlayerRowData(
     isCurrent: Boolean,
     isWatched: Boolean,
     progressFraction: Float,
+    // ROUND 106 (WS-D): the preview's demo download state (the cycling
+    // badge — null hides it).
+    downloadState: com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState? = null,
 ): PlayerEpisodeRowData {
     val ep = episode
     return PlayerEpisodeRowData(
@@ -988,6 +1097,7 @@ private fun PreviewItem.toPlayerRowData(
         isCurrent = isCurrent,
         isWatched = isWatched,
         progressFraction = progressFraction,
+        downloadState = downloadState,
     )
 }
 

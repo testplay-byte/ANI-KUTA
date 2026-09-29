@@ -3,7 +3,6 @@ package com.confused.anikuta.settings
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -322,11 +321,11 @@ fun AppIconScreen(
                                         onClick = {
                                             controller.applyLauncherIcon(preset.key)
                                             activeKey = controller.activeLauncherKey
-                                            Toast.makeText(
-                                                context,
+                                            // ROUND 106 (WS-C): the themed app toast.
+                                            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                                                 "App icon updated",
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
+                                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                                            )
                                         },
                                         modifier = Modifier.weight(1f),
                                     )
@@ -345,11 +344,11 @@ fun AppIconScreen(
                                     .clickable {
                                         controller.applyLauncherIcon(null)
                                         activeKey = controller.activeLauncherKey
-                                        Toast.makeText(
-                                            context,
+                                        // ROUND 106 (WS-C): the themed app toast.
+                                        com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                                             "App icon updated",
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
+                                            com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                                        )
                                     },
                             ) {
                                 Text(

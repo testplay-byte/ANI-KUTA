@@ -939,19 +939,26 @@ private suspend fun sharePluginFile(
         }
     } catch (t: ShareException) {
         com.confused.anikuta.core.common.Logger.e("Anikuta:CS:PluginDetail", t) { "share failed" }
+        // ROUND 106 (WS-C): the themed app toast (thread-safe — no
+        // Dispatchers.Main hop needed, but the hop stays for the logger's
+        // ordering).
         withContext(Dispatchers.Main) {
-            Toast.makeText(context, t.message, Toast.LENGTH_LONG).show()
+            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                t.message ?: "Sharing failed",
+                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                durationMillis = 3600,
+            )
         }
     } catch (t: kotlinx.coroutines.TimeoutCancellationException) {
         // The hard 15s bound fired (a slow network or a huge plugin) — the
         // spinner has ended; tell the user what happened instead of silence.
         com.confused.anikuta.core.common.Logger.e("Anikuta:CS:PluginDetail", t) { "share timed out" }
         withContext(Dispatchers.Main) {
-            Toast.makeText(
-                context,
+            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                 "Sharing took too long — check your connection and try again",
-                Toast.LENGTH_LONG,
-            ).show()
+                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                durationMillis = 3600,
+            )
         }
     } catch (c: kotlinx.coroutines.CancellationException) {
         // The user left the screen (or the scope died) mid-share — rethrow;
@@ -961,11 +968,11 @@ private suspend fun sharePluginFile(
         com.confused.anikuta.core.common.Logger.e("Anikuta:CS:PluginDetail", t) { "share failed" }
         withContext(Dispatchers.Main) {
             val reason = t.message?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""
-            Toast.makeText(
-                context,
+            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                 "Couldn't share the plugin file$reason",
-                Toast.LENGTH_LONG,
-            ).show()
+                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                durationMillis = 3600,
+            )
         }
     }
 }

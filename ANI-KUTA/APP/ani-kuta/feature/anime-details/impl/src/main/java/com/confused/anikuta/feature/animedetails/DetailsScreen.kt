@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -1900,14 +1901,20 @@ fun DetailsScreen(
     // notice (startTracking's confirmed sync / removeTracking's success)
     // rendered as the beautiful bottom pill. The host is a pass-through
     // overlay (the details screen's established bottom-anchored-box
-    // pattern); the accent wrap keeps it on the sheet's theme. ──
+    // pattern); the accent wrap keeps it on the sheet's theme.
+    // ROUND 106 (WS-C): THE PLACEMENT — "way too much aligned to the
+    // bottom": the pill lifts ABOVE the navigation bar (+18dp of breathing
+    // room) instead of hugging the screen's edge. ──
     val trackingNotice by viewModel.trackingNotice.collectAsState()
     if (trackingNotice != null) {
         com.confused.anikuta.core.designsystem.theme.AdaptiveAccentTheme(
             accentArgb = coverAccent?.toLong(),
         ) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding()
+                    .padding(bottom = 18.dp),
                 contentAlignment = Alignment.BottomCenter,
             ) {
                 TrackingToastHost(
@@ -1922,8 +1929,11 @@ fun DetailsScreen(
     // (NOT a fullscreen dialog, per user feedback). 5s timeout with auto-confirm.
     showMarkPreviousPrompt?.let { epNum ->
         Box(
+            // ROUND 106 (WS-C): the same lift as the tracking toast — the
+            // snackbar floats above the navigation bar.
             modifier = Modifier
-                .fillMaxSize(),
+                .fillMaxSize()
+                .navigationBarsPadding(),
             contentAlignment = Alignment.BottomCenter,
         ) {
             MarkPreviousEpisodesSnackbar(
@@ -1937,8 +1947,10 @@ fun DetailsScreen(
     // D-242: "Mark series as watched" — bottom-anchored snackbar (only if FINISHED + all watched).
     if (showMarkSeriesPrompt) {
         Box(
+            // ROUND 106 (WS-C): the same lift — above the navigation bar.
             modifier = Modifier
-                .fillMaxSize(),
+                .fillMaxSize()
+                .navigationBarsPadding(),
             contentAlignment = Alignment.BottomCenter,
         ) {
             MarkSeriesWatchedSnackbar(

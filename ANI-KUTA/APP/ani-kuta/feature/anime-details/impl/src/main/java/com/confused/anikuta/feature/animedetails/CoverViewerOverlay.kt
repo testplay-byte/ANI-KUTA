@@ -286,16 +286,19 @@ fun CoverViewerOverlay(
                 }
                 saveState = result.fold(
                     onSuccess = {
-                        Toast.makeText(context, "Cover saved to gallery", Toast.LENGTH_SHORT).show()
+                        // ROUND 106 (WS-C): the themed app toast.
+                        com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                            "Cover saved to gallery",
+                            com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                        )
                         CoverSaveState.SAVED
                     },
                     onFailure = { e ->
                         Logger.w(COVER_VIEWER_TAG) { "Cover save failed: ${e.message}" }
-                        Toast.makeText(
-                            context,
+                        com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                             "Save failed: ${e.message ?: e::class.java.simpleName}",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                            com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                        )
                         CoverSaveState.ERROR
                     },
                 )
@@ -308,7 +311,10 @@ fun CoverViewerOverlay(
             if (granted) {
                 performSave()
             } else {
-                Toast.makeText(context, "Storage permission is needed to save the cover", Toast.LENGTH_SHORT).show()
+                com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                    "Storage permission is needed to save the cover",
+                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                )
             }
         }
 

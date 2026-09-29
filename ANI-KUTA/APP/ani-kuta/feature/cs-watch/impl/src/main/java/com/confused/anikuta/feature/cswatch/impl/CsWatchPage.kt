@@ -42,6 +42,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -103,6 +104,10 @@ internal fun CsWatchPage(
     currentEpisodeData: String,
     ratingStore: com.confused.anikuta.core.ratings.RatingStore = koinInject(),
     mainId: String,
+    // ROUND 106 (WS-D): the bridged source's synthetic id — the download
+    // badge's enqueue labels the request with it (the caller passes the
+    // key's).
+    sourceId: Long = 0L,
     /**
      * Task 57 (round 17 — P1): the current content's watch-progress rows,
      * keyed by [CsWatchViewModel.episodeKey] — the episode rows below render
@@ -201,6 +206,21 @@ internal fun CsWatchPage(
     val csGridTitles by playerListPrefs.gridTitles.changes.collectAsState(
         initial = playerListPrefs.gridTitles.get(),
     )
+    // ROUND 106 (WS-D): the new knobs — the audio pills, the download
+    // button, and the BANNER's currently-playing treatment.
+    val csShowAudioPills by playerListPrefs.showAudioPills.changes.collectAsState(
+        initial = playerListPrefs.showAudioPills.get(),
+    )
+    val csShowDownloadButton by playerListPrefs.showDownloadButton.changes.collectAsState(
+        initial = playerListPrefs.showDownloadButton.get(),
+    )
+    val csBannerCurrentStyleKey by playerListPrefs.bannerCurrentStyle.changes.collectAsState(
+        initial = playerListPrefs.bannerCurrentStyle.get(),
+    )
+    val csBannerCurrentStyle = remember(csBannerCurrentStyleKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerCurrentStyle
+            .fromKey(csBannerCurrentStyleKey)
+    }
     // ROUND 105 (WS-D): the TRACKLIST's column-sizing reference — the LIST's
     // widest DISPLAY number (the per-flavor ordinal where present, the raw
     // number otherwise), pre-formatted the same way toRowData formats it.
@@ -211,22 +231,25 @@ internal fun CsWatchPage(
         com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(maxDisplay)
     }
     val csListDisplay = remember(
-        csListStyle, csShowSynopsis, csShowDatePill, csDimWatched,
-        csShowEpisodeNumber, csShowProgressBar, csBannerSize,
-        csBannerNumberPosition, csBannerNumberStyle,
-        csGridWatchedCheckmark, csGridCurrentStyle, csGridTitles,
-        csTracklistReferenceNumber,
+        csListStyle, csShowSynopsis, csShowDatePill, csShowAudioPills,
+        csDimWatched, csShowEpisodeNumber, csShowProgressBar,
+        csShowDownloadButton, csBannerSize, csBannerNumberPosition,
+        csBannerNumberStyle, csBannerCurrentStyle, csGridWatchedCheckmark,
+        csGridCurrentStyle, csGridTitles, csTracklistReferenceNumber,
     ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = csListStyle,
             showSynopsis = csShowSynopsis,
             showDatePill = csShowDatePill,
+            showAudioPills = csShowAudioPills,
             dimWatched = csDimWatched,
             showEpisodeNumber = csShowEpisodeNumber,
             showProgressBar = csShowProgressBar,
+            showDownloadButton = csShowDownloadButton,
             bannerSize = csBannerSize,
             bannerNumberPosition = csBannerNumberPosition,
             bannerNumberStyle = csBannerNumberStyle,
+            bannerCurrentStyle = csBannerCurrentStyle,
             gridWatchedCheckmark = csGridWatchedCheckmark,
             gridCurrentStyle = csGridCurrentStyle,
             gridTitles = csGridTitles,
@@ -276,6 +299,170 @@ internal fun CsWatchPage(
     val csPageScrollScope = rememberCoroutineScope()
     var csScrollArrivalPulse by remember { mutableLongStateOf(0L) }
     val csWatchProgressStore = koinInject<com.confused.anikuta.core.watchprogress.WatchProgressStore>()
+
+    // ── ROUND 106 (WS-D): THE PLAYER PAGE'S DOWNLOADS (the CS stack) —
+    // the badge's data + actions. The states ride the engine's map (keyed
+    // "$mainId|$dataHandle" — the SAME key the details page's CS downloads
+    // write); the enqueue resolves the tapped episode's links ON DEMAND
+    // (the same CloudstreamLinkResolver the player resolves with), picks
+    // the stream (the current episode's server first, then the best
+    // quality), and enqueues through the moved CsDownloadRequestBuilder —
+    // the engine itself is source-agnostic from there. ──
+    val csDownloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
+    val csPlayerDownloadController = koinInject<com.confused.anikuta.core.download.PlayerDownloadController>()
+    val csLinkResolver = koinInject<com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver>()
+    val csCoreDownloadStates by csDownloadManager.episodeDownloadStates.collectAsState()
+    val csDownloadQueueSnapshot by csDownloadManager.getQueue().collectAsState()
+    val csEnqueueInFlight = remember { mutableStateMapOf<String, Boolean>() }
+    fun csDownloadStateFor(ep: CsSimpleEpisode): com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState? {
+        if (mainId.isBlank()) return null
+        val key = "$mainId|${ep.data}"
+        if (csEnqueueInFlight[key] == true) {
+            return com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.InFlight
+        }
+        val raw = csCoreDownloadStates[key]
+            ?: return com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.NotDownloaded
+        return when (raw.first) {
+            com.confused.anikuta.core.download.DownloadStatus.QUEUED,
+            com.confused.anikuta.core.download.DownloadStatus.RETRYING,
+                -> com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.InFlight
+            com.confused.anikuta.core.download.DownloadStatus.DOWNLOADING ->
+                com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Downloading(raw.second)
+            com.confused.anikuta.core.download.DownloadStatus.PAUSED ->
+                com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Paused
+            com.confused.anikuta.core.download.DownloadStatus.ERROR ->
+                com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Error
+            com.confused.anikuta.core.download.DownloadStatus.COMPLETED ->
+                com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Downloaded
+            com.confused.anikuta.core.download.DownloadStatus.CANCELLED ->
+                com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.NotDownloaded
+        }
+    }
+    fun csDownloadTaskIdFor(ep: CsSimpleEpisode): Long? {
+        if (mainId.isBlank()) return null
+        return csDownloadQueueSnapshot.firstOrNull {
+            it.content.mainId == mainId && it.episode.episodeKey == ep.data
+        }?.id
+    }
+    fun csDownloadActionsFor(ep: CsSimpleEpisode): com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeDownloadActions {
+        val flowKey = "$mainId|${ep.data}"
+        return com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeDownloadActions(
+            onDownload = {
+                if (mainId.isBlank()) return@PlayerEpisodeDownloadActions
+                csEnqueueInFlight[flowKey] = true
+                csPageScrollScope.launch {
+                    try {
+                        val content = csPlayerDownloadController.contentInfoFor(mainId)
+                        if (content == null) {
+                            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                "No download source for this episode",
+                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                            )
+                            return@launch
+                        }
+                        // Resolve the tapped episode's links on demand —
+                        // the same resolver + event stream the player uses.
+                        val provider = uiState.providerName
+                        var links: List<com.confused.anikuta.core.csplayer.CsVideoLink> = emptyList()
+                        var subtitles: List<com.confused.anikuta.core.csplayer.CsSubtitle> = emptyList()
+                        var failed: String? = null
+                        runCatching {
+                            csLinkResolver.resolve(provider, ep.data).collect { event ->
+                                when (event) {
+                                    is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.LinksSnapshot ->
+                                        links = event.links
+                                    is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.SubtitlesSnapshot ->
+                                        subtitles = event.subs
+                                    is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.Completed -> Unit
+                                    is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.Failed ->
+                                        failed = event.message
+                                }
+                            }
+                        }
+                        if (links.isEmpty()) {
+                            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                failed ?: "No streams found for this episode",
+                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                            )
+                            return@launch
+                        }
+                        // The pick: the CURRENT episode's server first (the
+                        // user is watching it — the natural choice), else
+                        // the highest declared quality.
+                        // The resolver already HIDES torrent/magnet links
+                        // (+DRM) before emitting — the snapshot is the
+                        // playable pool as-is.
+                        val currentServer = uiState.currentLink?.name
+                        val pool = links
+                        val pick = pool.firstOrNull { currentServer != null && it.name == currentServer }
+                            ?: pool.maxByOrNull { link ->
+                                link.qualityLabel.filter(Char::isDigit).toIntOrNull() ?: 0
+                            } ?: links.first()
+                        val request = com.confused.anikuta.core.download.cs.CsDownloadRequestBuilder.build(
+                            content = content,
+                            episode = com.confused.anikuta.core.download.DownloadEpisodeInfo(
+                                episodeKey = ep.data,
+                                episodeNumber = ep.episodeNumber,
+                                name = ep.name,
+                            ),
+                            link = pick,
+                            subtitles = subtitles,
+                            sourceId = sourceId,
+                            allLinks = pool,
+                        )
+                        val taskId = csDownloadManager.enqueueDownload(request)
+                        com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                            "Download queued: ${pick.qualityLabel} · ${pick.name}",
+                            com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                        )
+                        com.confused.anikuta.core.common.Logger.i("Anikuta:CS:Watch") {
+                            "player download enqueued taskId=$taskId (${pick.qualityLabel}, ${pick.name})"
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        com.confused.anikuta.core.common.Logger.e("Anikuta:CS:Watch", e) {
+                            "player download failed"
+                        }
+                        com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                            "Download failed: ${e.message}",
+                            com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                        )
+                    } finally {
+                        csEnqueueInFlight[flowKey] = false
+                    }
+                }
+            },
+            onPause = {
+                csDownloadTaskIdFor(ep)?.let { id ->
+                    csPageScrollScope.launch { csDownloadManager.pauseDownload(id) }
+                }
+            },
+            onResume = {
+                csDownloadTaskIdFor(ep)?.let { id ->
+                    csPageScrollScope.launch { csDownloadManager.resumeDownload(id) }
+                }
+            },
+            onCancel = {
+                csDownloadTaskIdFor(ep)?.let { id ->
+                    csPageScrollScope.launch { csDownloadManager.cancelDownload(id) }
+                }
+            },
+            onRetry = {
+                csDownloadTaskIdFor(ep)?.let { id ->
+                    csPageScrollScope.launch { csDownloadManager.retryDownload(id) }
+                }
+            },
+            onPlayDownloaded = {
+                // The CS player's own offline routing (the DASH/file
+                // handoff) lives in the episode switch — same as the MPV
+                // stack's contract.
+                if (ep.data != currentEpisodeData) {
+                    onEpisodeSwitch(ep)
+                }
+            },
+        )
+    }
 
     // Task 57 (P1): the CURRENT episode's rating/progress identity — the
     // flavor ORDINAL for tagged lists (sub-5 ↔ dub-5 share ONE key: one
@@ -586,6 +773,8 @@ internal fun CsWatchPage(
                             isCurrent = ep.data == currentEpisodeData,
                             isWatched = rowProgress?.isWatched ?: false,
                             progressFraction = rowProgress?.progressFraction ?: 0f,
+                            // ROUND 106 (WS-D): the badge's state.
+                            downloadState = if (csShowDownloadButton) csDownloadStateFor(ep) else null,
                         )
                     }
                     if (csListStyle == com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle.GRID) {
@@ -599,6 +788,16 @@ internal fun CsWatchPage(
                                 left = toRowData(pair[0]),
                                 right = pair.getOrNull(1)?.let { toRowData(it) },
                                 display = csListDisplay,
+                                // ROUND 106 (WS-D): the per-cell actions.
+                                downloadActions = { data ->
+                                    val ep = pair.firstOrNull {
+                                        com.confused.anikuta.core.common.EpisodeTitleParser
+                                            .formatEpisodeNumber(
+                                                flavorOrdinals[it.data]?.toFloat() ?: it.episodeNumber,
+                                            ) == data.episodeNumberText
+                                    } ?: pair[0]
+                                    if (csShowDownloadButton) csDownloadActionsFor(ep) else null
+                                },
                                 onClick = { data ->
                                     // The tapped cell's episode, matched inside
                                     // its own pair by the bundle's number text.
@@ -641,6 +840,8 @@ internal fun CsWatchPage(
                                 onClick = {
                                     if (!data.isCurrent) onEpisodeSwitch(ep)
                                 },
+                                // ROUND 106 (WS-D): the badge's actions.
+                                downloadActions = if (csShowDownloadButton) csDownloadActionsFor(ep) else null,
                                 // ROUND 104 (WS-D): the swipe-to-toggle — the
                                 // ordinal identity (the toRowData math), guarded
                                 // on a blank mainId; the progress map above

@@ -80,9 +80,48 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
         KEY_SHOW_SYNOPSIS, true, BooleanSerializer,
     )
 
-    /** Show the release-date pill (DETAILED + TRACKLIST + GRID + BANNER). */
+/**
+ * Show the release-date pill (DETAILED + TRACKLIST + GRID + BANNER).
+ */
     val showDatePill = store.preference(
         KEY_SHOW_DATE_PILL, true, BooleanSerializer,
+    )
+
+    /**
+     * ROUND 106 (WS-D): show the AUDIO pills (SUB / DUB / HSUB + the CS
+     * flavor tags) on every style — the details page's parity knob ("all
+     * the relevant options for each one of the layouts should be available
+     * and easily customizable"). The pills WRAP now — every tag is shown.
+     */
+    val showAudioPills = store.preference(
+        KEY_SHOW_AUDIO_PILLS, true, BooleanSerializer,
+    )
+
+    /**
+     * ROUND 106 (WS-D): THE DOWNLOAD BUTTON — "in the player page there
+     * could be a toggle for this, like a dedicated separate toggle, like
+     * given a proper dedicated section for it, like download… If turned off,
+     * then on the player page the download button will not show. But if it
+     * is turned on, then the download button will show." Default OFF — the
+     * player list's current (button-less) look is what everyone knows; the
+     * toggle is the opt-in. When on, every one of the four layouts carries
+     * the badge (the full state contract: download / in-flight / progress /
+     * pause / resume / retry / play-downloaded).
+     */
+    val showDownloadButton = store.preference(
+        KEY_SHOW_DOWNLOAD_BUTTON, false, BooleanSerializer,
+    )
+
+    /**
+     * ROUND 106 (WS-D): the BANNER's currently-playing treatment — the GRID's
+     * PLAY/TINT knob, ported: "the grid view has the ability to select
+     * between play button and the themed tint, but the banner does not have
+     * it. So I want you to implement it there properly too." "PLAY" (the
+     * default — the centered play disc, today's look) or "TINT" (the
+     * grayscaled imagery under a themed wash + the ring).
+     */
+    val bannerCurrentStyle = store.preference(
+        KEY_BANNER_CURRENT_STYLE, "PLAY", StringSerializer,
     )
 
     /**
@@ -205,6 +244,9 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_ROW_STYLE = "pref_player_episode_list_row_style"
         private const val KEY_SHOW_SYNOPSIS = "pref_player_episode_list_show_synopsis"
         private const val KEY_SHOW_DATE_PILL = "pref_player_episode_list_show_date_pill"
+        private const val KEY_SHOW_AUDIO_PILLS = "pref_player_episode_list_show_audio_pills"
+        private const val KEY_SHOW_DOWNLOAD_BUTTON = "pref_player_episode_list_show_download_button"
+        private const val KEY_BANNER_CURRENT_STYLE = "pref_player_episode_list_banner_current_style"
         private const val KEY_SHOW_PROGRESS_BAR = "pref_player_episode_list_show_progress_bar"
         private const val KEY_SHOW_EPISODE_NUMBER =
             "pref_player_episode_list_show_episode_number"

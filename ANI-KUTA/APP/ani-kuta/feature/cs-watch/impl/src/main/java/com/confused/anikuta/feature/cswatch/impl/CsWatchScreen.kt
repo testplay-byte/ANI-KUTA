@@ -634,6 +634,8 @@ fun CsWatchScreen(
             onEpisodeSwitch = { viewModel.selectEpisode(it) },
             currentEpisodeData = viewModel.currentEpisodeData(),
             mainId = key.mainId,
+            // ROUND 106 (WS-D): the download badge's source label.
+            sourceId = key.sourceId,
         )
 
         CsPlayerMode.FULLSCREEN -> Box(

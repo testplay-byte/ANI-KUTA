@@ -63,8 +63,12 @@ import com.confused.anikuta.core.share.ShareTargetKind
 //    actually be": the content column shrinks 300dp → 264dp on BOTH pages
 //    (the main menu + the share submenu — one width, one anchor rhythm).
 //    ROUND 105 (WS-A): the v1.1.61 round approved everything but asked for
-//    "a little bit smaller, like a bit more" — 264dp → 240dp, the last
-//    crimp; every other metric untouched.
+//    "a little bit smaller, like a bit more" — 264dp → 240dp.
+//    ROUND 106 (WS-A): the final trim — the v1.1.62 round's "make it a
+//    little bit more less wider and a little bit more properly handled":
+//    240dp → 220dp. The chip pair, the discs, and every label keep their
+//    metrics — 220dp still leaves a comfortable 184dp of row width inside
+//    the 10dp padding + 16dp cards.
 //
 //  • THE COLOR HIERARCHY — "the background color is a bit on the lighter
 //    side, while the actual buttons are on the darker side, which is
@@ -163,7 +167,7 @@ fun DetailsActionMenu(
     ) {
         Column(
             modifier = Modifier
-                .width(240.dp)
+                .width(220.dp)
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
@@ -280,7 +284,7 @@ fun DetailsActionMenu(
     ) {
         Column(
             modifier = Modifier
-                .width(240.dp)
+                .width(220.dp)
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {

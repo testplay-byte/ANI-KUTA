@@ -1,6 +1,10 @@
 package com.confused.anikuta.feature.animedetails
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.EaseInQuad
+import androidx.compose.animation.core.EaseInOutCubic
+import androidx.compose.animation.core.EaseOutCubic
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -13,7 +17,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +36,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -65,6 +73,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -76,8 +85,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,6 +99,8 @@ import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.trackerapi.TrackEntry
 import com.confused.anikuta.core.trackerapi.TrackStatus
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -97,8 +110,9 @@ import java.util.Locale
 import kotlin.math.abs
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ROUND 103 (WS-2) → ROUND 104 (WS-B) → ROUND 105 (WS-B): TrackSheet — the
-//  STATUS + the feel + the side buttons.
+//  ROUND 103 (WS-2) → ROUND 104 (WS-B) → ROUND 105 (WS-B) → ROUND 106
+//  (WS-B): TrackSheet — the STATUS + the feel + the side buttons + the
+//  steppers' real feel.
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  The v1.1.61 device round approved the round-104 contract (the status
@@ -116,7 +130,8 @@ import kotlin.math.abs
 //    a plus or minus buttons for the progress and for the scores there…
 //    they will adapt based on the available space… their height will be the
 //    same as the normal one": the wheel's flanks fill with the steppers
-//    (PROGRESS ±1 episode; SCORE ±1.0 on the display scale); the STATUS row
+//    (PROGRESS ±1 episode; SCORE ±0.1 — ROUND 106 realigned the step
+//    with the wheel's grain); the STATUS row
 //    carries the quick-sets instead (Watching / Completed) — "for the
 //    status, it will not show plus or minus buttons, but instead… better
 //    suitable button options."
@@ -130,6 +145,16 @@ import kotlin.math.abs
 //  three summary cells, the status chip, the date rows, the trash-can
 //  confirm, the inline error surface, the discard-on-close draft, the
 //  toasts.
+//
+//  ROUND 106 (WS-B) adds THE STEPPERS' REAL FEEL (the v1.1.62 orders):
+//    • THE SELECTION'S PERSISTENCE — the seed/re-center effect's index-0
+//      skip (a − tap down to "Not started"/"—" moved the highlight into the
+//      blurred peek WITHOUT scrolling the wheel) is GONE, and the distance
+//      blur never touches the selected row (it smeared through every glide).
+//    • THE SCORE'S STEP — 10 → 1 wheel indices (±0.1, the wheel's grain).
+//    • THE EASED OPEN/CLOSE — the picker's expand/shrink curves.
+//    • THE LONG-PRESS MOTOR — a 380ms hold spins the wheel itself (slow
+//      start → linear ramp → constant cruise) until release/edge.
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  (The round-104 record — the status chip's four states, the half-width
@@ -166,6 +191,15 @@ fun TrackSheet(
     var expandedPicker by remember { mutableStateOf<ExpandedPicker?>(null) }
     var showRemoveConfirm by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    // ── ROUND 106 (WS-B): THE STEPPER MOTOR'S DIRECTION — hoisted here so a
+    // held +/− can drive the open wheel (−1 = toward the scale's start, +1 =
+    // away, 0 = idle). The wheel owns the actual spin (see
+    // TrackingWheelPicker); the steppers only report the hold. ──
+    var stepperMotorDirection by remember { mutableStateOf(0) }
+    // The motor dies with the picker — a closed wheel must never spin.
+    LaunchedEffect(expandedPicker) {
+        if (expandedPicker == null) stepperMotorDirection = 0
+    }
 
     // ── THE DRAFT: seeded from the (cached → remote-fetched) entry; re-seeds
     // when the open's background fetch lands. Every picker below edits THIS —
@@ -278,8 +312,19 @@ fun TrackSheet(
             // prev/next cycler over an unordered enum would be noise). ──
             AnimatedVisibility(
                 visible = expandedPicker != null,
-                enter = expandVertically(tween(300)) + fadeIn(tween(300)),
-                exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
+                // ROUND 106 (WS-B): THE EASED OPEN/CLOSE — "the animation
+                // needs a little bit smoothness": the expand grows DOWNWARD
+                // from the cells with EaseOutCubic; the shrink settles with
+                // EaseInOutCubic; the fades are asymmetric (fast in,
+                // structured out) so the motion — not the fade — carries it.
+                enter = expandVertically(
+                    animationSpec = tween(300, easing = EaseOutCubic),
+                    expandFrom = Alignment.Top,
+                ) + fadeIn(tween(180, easing = EaseOutCubic)),
+                exit = shrinkVertically(
+                    animationSpec = tween(280, easing = EaseInOutCubic),
+                    shrinkTowards = Alignment.Top,
+                ) + fadeOut(tween(200, easing = EaseInQuad)),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -322,6 +367,10 @@ fun TrackSheet(
                                     HapticHelper.lightTick(context)
                                     draft = draft.copy(progress = draft.progress - 1)
                                 },
+                                // ROUND 106 (WS-B): the long-press motor — a
+                                // hold drives the wheel toward the start.
+                                holdDirection = -1,
+                                onHoldDirectionChange = { stepperMotorDirection = it },
                                 modifier = Modifier.weight(1f),
                             )
                             TrackingWheelPicker(
@@ -330,6 +379,7 @@ fun TrackSheet(
                                 onIndexSelected = { index ->
                                     draft = draft.copy(progress = index)
                                 },
+                                motorDirection = stepperMotorDirection,
                             )
                             TrackStepperButton(
                                 icon = Icons.Filled.Add,
@@ -338,6 +388,8 @@ fun TrackSheet(
                                     HapticHelper.lightTick(context)
                                     draft = draft.copy(progress = draft.progress + 1)
                                 },
+                                holdDirection = +1,
+                                onHoldDirectionChange = { stepperMotorDirection = it },
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -351,6 +403,8 @@ fun TrackSheet(
                                         .coerceAtLeast(0)
                                     draft = draft.copy(score = if (stepped <= 0) null else stepped)
                                 },
+                                holdDirection = -1,
+                                onHoldDirectionChange = { stepperMotorDirection = it },
                                 modifier = Modifier.weight(1f),
                             )
                             TrackingWheelPicker(
@@ -359,19 +413,24 @@ fun TrackSheet(
                                 onIndexSelected = { index ->
                                     draft = draft.copy(score = if (index == 0) null else index)
                                 },
+                                motorDirection = stepperMotorDirection,
                             )
                             TrackStepperButton(
                                 icon = Icons.Filled.Add,
                                 enabled = (draft.score ?: 0) < 100,
                                 onClick = {
                                     HapticHelper.lightTick(context)
-                                    // From "—" (null) the first step lands on
-                                    // 1.0 — the scale's start, not a midpoint
-                                    // presumption.
+                                    // ROUND 106 (WS-B): the step is ONE wheel
+                                    // index — ±0.1 on the 0.0–10.0 display
+                                    // scale (the v1.1.62 order: "it should
+                                    // only jump 0.1 points"). From "—" (null)
+                                    // the first step lands on 0.1.
                                     val stepped = ((draft.score ?: 0) + SCORE_STEPPER_STEP)
                                         .coerceAtMost(100)
                                     draft = draft.copy(score = if (stepped <= 0) null else stepped)
                                 },
+                                holdDirection = +1,
+                                onHoldDirectionChange = { stepperMotorDirection = it },
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -652,10 +711,26 @@ private fun ConfirmBulletLines(lines: List<String>) {
 
 private enum class ExpandedPicker { STATUS, PROGRESS, SCORE }
 
-/** ROUND 105 (WS-B): the score stepper's step — 10 wheel indices = ±1.0 on
- * the 0.0–10.0 display scale (the AniYomi tracker stepper's step; the wheel
- * stays the fine 0.1 control). */
-private const val SCORE_STEPPER_STEP = 10
+/** ROUND 105 (WS-B) → ROUND 106 (WS-B): the score stepper's step — ONE
+ * wheel index = ±0.1 on the 0.0–10.0 display scale. (Round 105 had the
+ * AniYomi-parity ±1.0 step; the v1.1.62 device round ordered the 0.1 grain:
+ * "the score apparently jumps 10 points, like a whole point, which is not
+ * good, while it should only jump 0.1 points" — the stepper and the wheel
+ * now move together.) */
+private const val SCORE_STEPPER_STEP = 1
+
+/** ROUND 106 (WS-B): the steppers' long-press hold threshold — a press held
+ * past this hands the wheel to the motor; a quicker release is a single
+ * step. */
+private const val STEPPER_HOLD_THRESHOLD_MS = 380L
+
+/** ROUND 106 (WS-B): the motor's curve — the ramp's acceleration and the
+ * cruise cap (dp/s² + dp/s, converted per-density at run time). The crawl
+ * is ~1 row/s, the cruise ~10.7 rows/s: "first of all, it should be slowly
+ * scrolling, then it should speed up at a constant speed, then it should
+ * keep on scrolling until I leave the minus button." */
+private val STEPPER_MOTOR_ACCELERATION = 260.dp
+private val STEPPER_MOTOR_MAX_VELOCITY = 420.dp
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ROUND 103 (WS-2): TrackingWheelPicker — the LINK-SOURCES WHEEL, verbatim
@@ -697,13 +772,31 @@ private val TRACK_WHEEL_VIEWPORT_HEIGHT = 168.dp
  *  the centered row: 0 = never blurred, 1 = slight, 2 = more, 3+ = rims. */
 private val TRACK_WHEEL_BLUR_BY_DISTANCE = listOf(0.dp, 0.8.dp, 1.8.dp, 3.dp)
 
+/** ROUND 106 (WS-B): the signed px delta from the wheel's CURRENT position
+ * to the NEAREST row's centered position — the motor's settle target (the
+ * same centering math the seed effect uses, factored for reuse). */
+private fun nearestRowCenterDelta(listState: LazyListState): Float {
+    val info = listState.layoutInfo
+    val center = (info.viewportStartOffset + info.viewportEndOffset) / 2
+    val nearest = info.visibleItemsInfo.minByOrNull { item ->
+        abs(item.offset + item.size / 2 - center)
+    } ?: return 0f
+    return (nearest.offset + nearest.size / 2) - center.toFloat()
+}
+
 @Composable
 private fun TrackingWheelPicker(
     items: List<String>,
     selectedIndex: Int,
     onIndexSelected: (Int) -> Unit,
+    // ── ROUND 106 (WS-B): the steppers' MOTOR — non-zero while a +/− is
+    // held (−1 = toward the scale's start, +1 = away). The wheel spins
+    // ITSELF under the motor (see the motor effect below); the seed/re-center
+    // effect stands down while it runs. ──
+    motorDirection: Int = 0,
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     // ROUND 104 (WS-B): HALF THE SCREEN WIDTH, computed — never hard-coded
     // ("it should take almost half of the device's width, like it should
     // calculate that and handle it properly as such").
@@ -761,17 +854,24 @@ private fun TrackingWheelPicker(
         }
     }
 
-    // ── ROUND 105 (WS-B): THE SEED + THE EXTERNAL RE-CENTER — ONE effect.
-    // On first layout it centers the seeded row INSTANTLY (the approved
-    // no-flash open, byte-identical to the round-103/104 seed). On every
-    // LATER selectedIndex change — a +/− stepper tap, a status quick-set,
-    // or the background draft re-seed — it GLIDES the new selection to the
-    // center under the programmatic-centering suppression. Waits for a
-    // laid-out, idle list first (a user scroll in flight owns the wheel;
-    // after its snap settles the centered row IS the selection — a no-op). ──
+    // ── ROUND 105 (WS-B) → ROUND 106 (WS-B): THE SEED + THE EXTERNAL RE-CENTER
+    // — ONE effect. On first layout it centers the seeded row INSTANTLY (the
+    // approved no-flash open, byte-identical to the round-103/104 seed). On
+    // every LATER selectedIndex change — a +/− stepper tap, a status
+    // quick-set, or the background draft re-seed — it GLIDES the new
+    // selection to the center under the programmatic-centering suppression.
+    // Waits for a laid-out, idle list first (a user scroll in flight owns the
+    // wheel; after its snap settles the centered row IS the selection — a
+    // no-op). ROUND 106: the index-0 SKIP is GONE — "Not started"/"—"/
+    // index 0 re-centers like every other index (the old `selectedIndex > 0`
+    // guard left the highlight stranded in the blurred top peek — "the
+    // selection on them disappears"); index 0's seed is already centered by
+    // the contentPadding geometry (delta ≈ 0 → a no-op). The motor stands
+    // this effect down while it owns the wheel. ──
     var hasSeeded by remember { mutableStateOf(false) }
-    LaunchedEffect(items, selectedIndex) {
-        if (selectedIndex > 0 && items.isNotEmpty()) {
+    LaunchedEffect(items, selectedIndex, motorDirection) {
+        if (motorDirection != 0) return@LaunchedEffect // the motor owns the wheel
+        if (items.isNotEmpty()) {
             snapshotFlow {
                 listState.layoutInfo.totalItemsCount > 0 && !listState.isScrollInProgress
             }.first { it }
@@ -805,6 +905,50 @@ private fun TrackingWheelPicker(
                 }
             }
             hasSeeded = true
+        }
+    }
+
+    // ── ROUND 106 (WS-B): THE MOTOR — a held +/− spins the wheel itself.
+    // The frame loop ramps the velocity from rest (linear acceleration to a
+    // constant cruise — the ordered curve: "first of all, it should be slowly
+    // scrolling, then it should speed up at a constant speed, then it should
+    // keep on scrolling until I leave the minus button") and raw-scrolls the
+    // list; the EXISTING scroll-driven selection + tick machinery follows
+    // along — every row the wheel centers becomes the selection, with its
+    // ordered vibration. The loop ends on RELEASE (the key change cancels the
+    // effect) or at the scale's edge; either path runs the NonCancellable
+    // settle, gliding to the nearest row center under the programmatic
+    // suppression. ──
+    LaunchedEffect(motorDirection, items) {
+        if (motorDirection == 0 || items.isEmpty()) return@LaunchedEffect
+        try {
+            val accelerationPx = with(density) { STEPPER_MOTOR_ACCELERATION.toPx() }
+            val cruisePx = with(density) { STEPPER_MOTOR_MAX_VELOCITY.toPx() }
+            var velocity = 0f // px/s — the ramp starts from rest (the slow crawl)
+            var lastFrame = withFrameNanos { it }
+            while (true) {
+                val now = withFrameNanos { it }
+                // The dt clamp keeps a stalled frame from spiking the delta.
+                val dt = ((now - lastFrame) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
+                lastFrame = now
+                velocity = (velocity + accelerationPx * dt).coerceAtMost(cruisePx)
+                listState.scrollBy(motorDirection * velocity * dt)
+                // The scale's edge ends the spin (the press dies there too).
+                if (motorDirection < 0 && !listState.canScrollBackward) break
+                if (motorDirection > 0 && !listState.canScrollForward) break
+            }
+        } finally {
+            withContext(NonCancellable) {
+                val settle = nearestRowCenterDelta(listState)
+                if (abs(settle) > 0.5f) {
+                    programmaticCenteringCount++
+                    try {
+                        listState.animateScrollBy(settle)
+                    } finally {
+                        programmaticCenteringCount--
+                    }
+                }
+            }
         }
     }
 
@@ -958,8 +1102,13 @@ private fun TrackingWheelRow(
                 RoundedCornerShape(10.dp),
             )
             .then(
-                // The DISTANCE BLUR — never on the centered/selected row.
-                if (blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier,
+                // The DISTANCE BLUR — never on the centered row, never on the
+                // SELECTED row (ROUND 106: the selected row rides CRISP
+                // through the +/− glide — the selection must STAY properly
+                // shown; the old distance-only blur smeared the freshly
+                // stepped row for the whole animation — "the selection on
+                // them disappears").
+                if (blurRadius > 0.dp && !selected) Modifier.blur(blurRadius) else Modifier,
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp),
@@ -1063,9 +1212,16 @@ private fun TrackSheetButton(
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * One +/− stepper — the progress ±1 episode, the score ±1.0. [enabled] is
+ * One +/− stepper — the progress ±1 episode, the score ±0.1. [enabled] is
  * the bound state (the glyph dims and the press dies at the scale's edge);
  * the press ticks and the draft edit drives the wheel's re-centering.
+ *
+ * ROUND 106 (WS-B): THE LONG-PRESS MOTOR — a press held past
+ * [STEPPER_HOLD_THRESHOLD_MS] reports [holdDirection] to the wheel (which
+ * spins itself); release (or a cancelled gesture — the finger slid off)
+ * reports 0. A quicker release stays ONE step ([onClick]). The gesture
+ * handler owns the pointer stream (replacing `clickable`), so the press
+ * wears its own subtle wash instead of the ripple.
  */
 @Composable
 private fun TrackStepperButton(
@@ -1073,7 +1229,19 @@ private fun TrackStepperButton(
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // ROUND 106 (WS-B): the motor's wiring — the direction this button
+    // drives while held (−1 / +1), reported through [onHoldDirectionChange].
+    holdDirection: Int = 0,
+    onHoldDirectionChange: (Int) -> Unit = {},
 ) {
+    // The pressed wash — the tactile layer for the custom gesture handler.
+    var pressed by remember { mutableStateOf(false) }
+    val washAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (pressed && enabled) 0.10f else 0f,
+        animationSpec = tween(120),
+        label = "stepperWash",
+    )
+    val scope = rememberCoroutineScope()
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)),
@@ -1081,12 +1249,52 @@ private fun TrackStepperButton(
         modifier = modifier
             .height(TRACK_WHEEL_VIEWPORT_HEIGHT)
             .clip(RoundedCornerShape(18.dp))
-            .clickable(enabled = enabled, onClick = onClick),
+            .pointerInput(enabled) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    if (!enabled) return@awaitEachGesture
+                    pressed = true
+                    var motor = false
+                    // The delayed motor handoff — cancelled on release when
+                    // the press was still a tap.
+                    val holdJob = scope.launch {
+                        try {
+                            delay(STEPPER_HOLD_THRESHOLD_MS)
+                            motor = true
+                            onHoldDirectionChange(holdDirection)
+                        } catch (_: CancellationException) {
+                            // Released (or the button left the composition)
+                            // before the threshold — a plain tap.
+                        }
+                    }
+                    val up = waitForUpOrCancellation()
+                    holdJob.cancel()
+                    pressed = false
+                    if (motor) {
+                        // The motor ran — the release only stops it (the
+                        // wheel's rows already became the selection).
+                        onHoldDirectionChange(0)
+                    } else if (up != null) {
+                        // A quick, in-bounds release — the single step.
+                        onClick()
+                    }
+                    // A cancelled gesture (the finger slid off): neither —
+                    // the motor (if it had started) stops, no step fires.
+                }
+            },
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier.fillMaxWidth().height(TRACK_WHEEL_VIEWPORT_HEIGHT),
         ) {
+            // The pressed wash — under the glyph, over the shell.
+            if (washAlpha > 0.005f) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = washAlpha)),
+                )
+            }
             Icon(
                 imageVector = icon,
                 contentDescription = null,

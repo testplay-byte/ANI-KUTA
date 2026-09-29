@@ -795,7 +795,11 @@ private fun rememberResolverCopyFeedback(): (String, String) -> Unit {
     return remember(clipboardManager, context) {
         val copy: (String, String) -> Unit = { text, toast ->
             clipboardManager.setText(AnnotatedString(text))
-            Toast.makeText(context, toast, Toast.LENGTH_SHORT).show()
+            // ROUND 106 (WS-C): the themed app toast.
+            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                toast,
+                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.NEUTRAL,
+            )
         }
         copy
     }

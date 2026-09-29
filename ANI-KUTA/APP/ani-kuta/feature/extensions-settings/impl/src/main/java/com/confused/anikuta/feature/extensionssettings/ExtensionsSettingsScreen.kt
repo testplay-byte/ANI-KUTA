@@ -455,7 +455,12 @@ fun ExtensionsSettingsScreen(
     val csUninstallError by csManager.uninstallError.collectAsState()
     LaunchedEffect(csUninstallError) {
         csUninstallError?.let { message ->
-            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            // ROUND 106 (WS-C): the themed app toast.
+            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                message,
+                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                durationMillis = 3600,
+            )
             csManager.consumeUninstallError()
         }
     }
@@ -731,26 +736,27 @@ fun ExtensionsSettingsScreen(
                             batchInstallProgress = (batchInstallProgress?.first?.plus(1) ?: 1) to
                                 (batchInstallProgress?.second ?: targets.size)
                             if (event.step is InstallStep.Error) {
-                                Toast.makeText(
-                                    context,
+                                // ROUND 106 (WS-C): the themed app toast.
+                                com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                                     "Couldn't install ${event.name}",
-                                    Toast.LENGTH_LONG,
-                                ).show()
+                                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                    durationMillis = 3600,
+                                )
                             }
                         }
                         is ExtensionManager.BatchInstallEvent.Finished -> {
                             if (event.installed > 0 && event.failed.isEmpty() && !event.aborted) {
-                                Toast.makeText(
-                                    context,
+                                // ROUND 106 (WS-C): the themed app toast.
+                                com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                                     "Installed ${event.installed} extension${if (event.installed == 1) "" else "s"}",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                                )
                             } else if (event.failed.isNotEmpty()) {
-                                Toast.makeText(
-                                    context,
+                                com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                                     "${event.installed} installed · ${event.failed.size} failed",
-                                    Toast.LENGTH_LONG,
-                                ).show()
+                                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                    durationMillis = 3600,
+                                )
                             }
                         }
                     }

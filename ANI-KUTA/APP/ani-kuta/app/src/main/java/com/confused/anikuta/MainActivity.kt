@@ -854,11 +854,11 @@ fun AppRoot() {
                     // The share deep link is the app's OWN artifact — an
                     // unknown mainId there deserves the honest toast (a
                     // notification for a removed content stays silent).
-                    android.widget.Toast.makeText(
-                        context,
+                    // ROUND 106 (WS-C): the themed app toast.
+                    com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
                         "This content is not available on this device",
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
+                        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                    )
                 }
             }
         } finally {
@@ -2063,6 +2063,12 @@ fun AppRoot() {
         // requestNavigation itself (ON = every entry click shows the popup) —
         // the D-561 app-open gate composable that used to sit here is gone.
         SmartLinkAdInterstitial()
+
+        // ROUND 106 (WS-C): the app's ONE themed toast host — the AppToast
+        // requests (from every swept surface in the app) render here, above
+        // the nav, over every screen. A pass-through overlay (it never
+        // intercepts touches); the pill sits above the navigation bar.
+        com.confused.anikuta.core.designsystem.component.toast.AppToastHost()
         } // end CompositionLocalProvider Box
     } // end CompositionLocalProvider
 }
@@ -2403,7 +2409,7 @@ private fun handleDownloadSpecificVideo(
  * mode. The engine is source-agnostic — this handler only builds the
  * content/episode identity (mirroring [handleDownloadSpecificVideo]'s lookup,
  * but keyed on the CsWatchKey's OWN mainId — no detailsKey round-trip) and
- * hands [com.confused.anikuta.download.CsDownloadRequestBuilder]'s request to
+ * hands [com.confused.anikuta.core.download.cs.CsDownloadRequestBuilder]'s request to
  * the SAME [com.confused.anikuta.core.download.DownloadManager] the aniyomi
  * path uses: queue, foreground service, HTTP/HLS fetchers, SAF storage,
  * notifications + the downloads screen all just work, and the episode row's
@@ -2480,7 +2486,7 @@ private fun handleCsDownloadPick(
                 name = key.episodeTitle.ifBlank { "Episode ${key.episodeNumber.toInt()}" },
                 description = null,
             )
-            val request = com.confused.anikuta.download.CsDownloadRequestBuilder.build(
+            val request = com.confused.anikuta.core.download.cs.CsDownloadRequestBuilder.build(
                 content = contentInfo,
                 episode = episodeInfo,
                 link = link,
@@ -2505,18 +2511,18 @@ private fun handleCsDownloadPick(
 }
 
 /**
- * Shows a toast on the main thread (safe to call from Dispatchers.IO).
- * D.FIX: Toast.makeText requires Looper.prepare() on the calling thread —
- * this helper posts to the main looper to avoid the NullPointerException.
+ * Shows a toast (safe to call from ANY thread).
+ * D.FIX (ROUND 106 / WS-C): the old helper posted a system Toast to the
+ * main looper (Toast.makeText needs Looper.prepare()); the themed AppToast
+ * flow is thread-safe by construction — the StateFlow set works from
+ * Dispatchers.IO directly, and the ONE host at the activity root renders
+ * the pill on the main thread.
  */
 private fun showDownloadToast(message: String) {
-    android.os.Handler(android.os.Looper.getMainLooper()).post {
-        android.widget.Toast.makeText(
-            org.koin.core.context.GlobalContext.get().get(),
-            message,
-            android.widget.Toast.LENGTH_SHORT,
-        ).show()
-    }
+    com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+        message,
+        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.NEUTRAL,
+    )
 }
 
 /**

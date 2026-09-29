@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -29,7 +31,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -177,8 +182,55 @@ data class PlayerEpisodeRowData(
     val isWatched: Boolean = false,
     /** 0..1 partial-watch fraction (the thin bar; fully-watched rows dim). */
     val progressFraction: Float = 0f,
-    /** The MPV row's inert download glyph (the CS stack passes false). */
-    val showDownloadHint: Boolean = false,
+    /**
+     * ROUND 106 (WS-D): the download badge's render state — mapped by the
+     * caller from the core download status ("$mainId|$episodeKey" in
+     * DownloadManager.episodeDownloadStates). NULL = the badge is hidden
+     * (the toggle is off, or the stack has no download support for the row).
+     */
+    val downloadState: PlayerDownloadRenderState? = null,
+)
+
+/**
+ * ROUND 106 (WS-D): the download badge's render-only state — the details
+ * page's approved EpisodeDownloadBadge contract, generalized for the player
+ * (the D-481 render-only doctrine: the callers map their semantics INTO
+ * this; the layouts never touch the download engine).
+ */
+sealed interface PlayerDownloadRenderState {
+    /** Nothing downloaded — the plain download glyph. */
+    data object NotDownloaded : PlayerDownloadRenderState
+
+    /** Resolving / queued / retrying — the in-flight indeterminate spinner. */
+    data object InFlight : PlayerDownloadRenderState
+
+    /** Actively downloading — the determinate ring + the progress numeral. */
+    data class Downloading(val progress: Int) : PlayerDownloadRenderState
+
+    /** Paused — the resume glyph. */
+    data object Paused : PlayerDownloadRenderState
+
+    /** Errored — the retry glyph. */
+    data object Error : PlayerDownloadRenderState
+
+    /** Downloaded — the check; tap plays the offline file. */
+    data object Downloaded : PlayerDownloadRenderState
+}
+
+/**
+ * ROUND 106 (WS-D): the download badge's action bag — the caller wires the
+ * engine (enqueue / pause / resume / cancel / retry / play-downloaded);
+ * [previewTapAll] is the settings preview's demo-cycle hook (the D-557
+ * pattern — ONE tap target for ALL states).
+ */
+data class PlayerEpisodeDownloadActions(
+    val onDownload: () -> Unit,
+    val onPause: () -> Unit,
+    val onResume: () -> Unit,
+    val onCancel: () -> Unit,
+    val onRetry: () -> Unit,
+    val onPlayDownloaded: () -> Unit,
+    val previewTapAll: (() -> Unit)? = null,
 )
 
 /** The display knobs — the live preference values, collected per screen. */
@@ -186,11 +238,19 @@ data class PlayerEpisodeListDisplay(
     val style: PlayerEpisodeListStyle,
     val showSynopsis: Boolean = true,
     val showDatePill: Boolean = true,
+    /** ROUND 106 (WS-D): the audio pills' toggle (every style; they wrap). */
+    val showAudioPills: Boolean = true,
     val dimWatched: Boolean = true,
     /** ROUND 104: the BANNER's ghost episode number toggle. */
     val showEpisodeNumber: Boolean = true,
     /** ROUND 105: the thin watch-progress bar/underline (DETAILED + TRACKLIST). */
     val showProgressBar: Boolean = true,
+    /**
+     * ROUND 106 (WS-D): THE DOWNLOAD BUTTON — the dedicated toggle (default
+     * off). When on, every layout renders the badge from the row's
+     * [PlayerEpisodeRowData.downloadState] + the wired actions.
+     */
+    val showDownloadButton: Boolean = false,
     /**
      * ROUND 105: the BANNER's ITEM SIZE — 0f (small: ≈66% width, centered,
      * breathing room between cards) … 1f (full-bleed, the classic look).
@@ -201,6 +261,9 @@ data class PlayerEpisodeListDisplay(
     val bannerNumberPosition: PlayerBannerNumberPosition = PlayerBannerNumberPosition.TOP_END,
     /** ROUND 105: the BANNER's number treatment (frosted glass / solid). */
     val bannerNumberStyle: PlayerBannerNumberStyle = PlayerBannerNumberStyle.FROSTED,
+    /** ROUND 106 (WS-D): the BANNER's currently-playing treatment (the
+     * GRID's PLAY/TINT knob, ported). */
+    val bannerCurrentStyle: PlayerBannerCurrentStyle = PlayerBannerCurrentStyle.PLAY,
     /** ROUND 105: the GRID's watched treatment (the checkmark, not the dim). */
     val gridWatchedCheckmark: Boolean = true,
     /** ROUND 105: the GRID's currently-playing treatment. */
@@ -279,6 +342,27 @@ enum class PlayerGridCurrentStyle {
 }
 
 /**
+ * ROUND 106 (WS-D): the BANNER's currently-playing treatment — the GRID's
+ * knob, ported per the v1.1.62 order: "the grid view has the ability to
+ * select between play button and the themed tint, but the banner does not
+ * have it. So I want you to implement it there properly too." Lenient
+ * fromKey (the rowStyle doctrine): unknown values fold to PLAY.
+ */
+enum class PlayerBannerCurrentStyle {
+    PLAY,
+    TINT;
+
+    companion object {
+        fun fromKey(key: String?): PlayerBannerCurrentStyle =
+            if (key?.trim()?.equals("TINT", ignoreCase = true) == true) {
+                TINT
+            } else {
+                PLAY
+            }
+    }
+}
+
+/**
  * ROUND 105: the BANNER's item-width fraction from the size knob — 1f =
  * full-bleed (the classic look); 0f = 66% of the row width, centered (the
  * "padding on the left and right sides" the device round described).
@@ -322,6 +406,10 @@ fun PlayerEpisodeListEntry(
     modifier: Modifier = Modifier,
     onToggleWatched: (() -> Unit)? = null,
     arrivalPulse: Long = 0L,
+    // ROUND 106 (WS-D): the download badge's action bag — wired by the
+    // caller when the toggle is on (null = the badge stays hidden even if
+    // the row carries a state — the preview passes a demo bag).
+    downloadActions: PlayerEpisodeDownloadActions? = null,
 ) {
     when (display.style) {
         PlayerEpisodeListStyle.DETAILED -> SwipeableEntry(
@@ -331,7 +419,7 @@ fun PlayerEpisodeListEntry(
             verticalPadding = 3.dp,
             backgroundShape = RoundedCornerShape(12.dp),
         ) { entryModifier ->
-            PlayerEpisodeRow(data, display, onClick, entryModifier, arrivalPulse)
+            PlayerEpisodeRow(data, display, onClick, entryModifier, arrivalPulse, downloadActions)
         }
         PlayerEpisodeListStyle.TRACKLIST -> SwipeableEntry(
             data = data,
@@ -340,10 +428,10 @@ fun PlayerEpisodeListEntry(
             verticalPadding = 3.dp,
             backgroundShape = RoundedCornerShape(12.dp),
         ) { entryModifier ->
-            PlayerTracklistRow(data, display, onClick, entryModifier, arrivalPulse)
+            PlayerTracklistRow(data, display, onClick, entryModifier, arrivalPulse, downloadActions)
         }
         PlayerEpisodeListStyle.GRID ->
-            PlayerEpisodeGridCell(data, display, onClick, modifier, onToggleWatched, arrivalPulse)
+            PlayerEpisodeGridCell(data, display, onClick, modifier, onToggleWatched, arrivalPulse, downloadActions)
         // ROUND 105 (WS-D): THE BANNER'S ITEM SIZE — the swipe wrapper
         // narrows to the size's width fraction and CENTERS inside the row
         // ("some padding on the left and right sides"), while its vertical
@@ -363,7 +451,7 @@ fun PlayerEpisodeListEntry(
                     verticalPadding = bannerVerticalPadding(display.bannerSize),
                     backgroundShape = RoundedCornerShape(14.dp),
                 ) { entryModifier ->
-                    PlayerEpisodeBannerCard(data, display, onClick, entryModifier, arrivalPulse)
+                    PlayerEpisodeBannerCard(data, display, onClick, entryModifier, arrivalPulse, downloadActions)
                 }
             }
         }
@@ -414,6 +502,9 @@ fun PlayerEpisodeGridRow(
     modifier: Modifier = Modifier,
     onToggleWatched: ((PlayerEpisodeRowData) -> Unit)? = null,
     arrivalPulse: Long = 0L,
+    // ROUND 106 (WS-D): the per-cell download actions (resolved by the
+    // caller from the cell's row data — the stacks own the engine wiring).
+    downloadActions: ((PlayerEpisodeRowData) -> PlayerEpisodeDownloadActions?)? = null,
 ) {
     Row(
         modifier = modifier
@@ -428,6 +519,7 @@ fun PlayerEpisodeGridRow(
             modifier = Modifier.weight(1f),
             onToggleWatched = onToggleWatched?.let { cb -> { cb(left) } },
             arrivalPulse = arrivalPulse,
+            downloadActions = downloadActions?.let { resolver -> resolver(left) },
         )
         if (right != null) {
             PlayerEpisodeListEntry(
@@ -437,6 +529,7 @@ fun PlayerEpisodeGridRow(
                 modifier = Modifier.weight(1f),
                 onToggleWatched = onToggleWatched?.let { cb -> { cb(right) } },
                 arrivalPulse = arrivalPulse,
+                downloadActions = downloadActions?.let { resolver -> resolver(right) },
             )
         } else {
             Spacer(Modifier.weight(1f))
@@ -493,6 +586,7 @@ private fun BoxScope.ArrivalPulseOverlay(pulseAlpha: Float, shape: androidx.comp
 //  watched dim is the REAL one now (whole-card alpha + grayscale thumbnail).
 // ════════════════════════════════════════════════════════════════════════════
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlayerEpisodeRow(
     data: PlayerEpisodeRowData,
@@ -500,6 +594,7 @@ private fun PlayerEpisodeRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     arrivalPulse: Long = 0L,
+    downloadActions: PlayerEpisodeDownloadActions? = null,
 ) {
     val isCurrent = data.isCurrent
     // ROUND 104 (WS-D): the REAL dim — the whole card at 0.55 alpha + the
@@ -509,9 +604,24 @@ private fun PlayerEpisodeRow(
     val grayscale = dimmed
     val description = if (!display.showSynopsis) null else data.synopsis
     val dateText = if (display.showDatePill) data.dateText else null
-    val pillsVisible = dateText != null || data.audioLabels.isNotEmpty() ||
-        data.subDubLabel != null || data.flavorLabels.isNotEmpty() ||
-        (data.showDownloadHint && description.isNullOrBlank())
+    // ROUND 106 (WS-D): the audio pills respect their own knob now, and the
+    // old inert download HINT glyph is RETIRED (the real badge below
+    // replaces it — a glyph that looks like a button but does nothing was
+    // the lie the round-104 review flagged).
+    val audioPills = if (display.showAudioPills) {
+        buildList {
+            addAll(data.audioLabels)
+            if (data.subDubLabel != null) add(data.subDubLabel)
+            addAll(data.flavorLabels)
+        }
+    } else {
+        emptyList()
+    }
+    val pillsVisible = dateText != null || audioPills.isNotEmpty()
+    // ROUND 106 (WS-D): THE DOWNLOAD BADGE — the toggle + the row's state +
+    // the wired actions together decide it.
+    val showDownloadBadge = display.showDownloadButton &&
+        data.downloadState != null && downloadActions != null
 
     Surface(
         color = when {
@@ -618,32 +728,31 @@ private fun PlayerEpisodeRow(
                         }
                         if (pillsVisible) {
                             Spacer(Modifier.height(6.dp))
-                            Row(
+                            // ROUND 106 (WS-D): the pills WRAP — the tags are
+                            // data, never clipped ("all the tags are
+                            // considered properly and handled properly").
+                            FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 if (dateText != null) {
                                     Pill(dateText)
                                 }
-                                data.audioLabels.forEach { label -> Pill(label) }
-                                if (data.subDubLabel != null) {
-                                    Pill(data.subDubLabel)
-                                }
-                                data.flavorLabels.forEach { label -> Pill(label) }
-                                // The download hint rides the pills row when there
-                                // is no synopsis (the MPV row's placement).
-                                if (data.showDownloadHint && description.isNullOrBlank()) {
-                                    Spacer(Modifier.weight(1f))
-                                    Icon(
-                                        imageVector = Icons.Filled.Download,
-                                        contentDescription = "Download",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                }
+                                audioPills.forEach { label -> Pill(label) }
                             }
                         }
+                    }
+                    // ── ROUND 106 (WS-D): the TRAILING download badge — the
+                    //    row's end, beside the title/pills block (always
+                    //    visible, synopsis or not; the details page's
+                    //    trailing-control placement). ──
+                    if (showDownloadBadge && data.downloadState != null && downloadActions != null) {
+                        Spacer(Modifier.width(8.dp))
+                        PlayerEpisodeDownloadBadge(
+                            state = data.downloadState,
+                            actions = downloadActions,
+                        )
                     }
                 }
                 // ── Synopsis + the download hint at its end ──
@@ -670,16 +779,7 @@ private fun PlayerEpisodeRow(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                             )
                         }
-                        if (data.showDownloadHint) {
-                            Icon(
-                                imageVector = Icons.Filled.Download,
-                                contentDescription = "Download",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .padding(start = 8.dp, bottom = 2.dp),
-                            )
-                        }
+
                     }
                 }
                 // ── The thin watch-progress bar — partial watches only (fully
@@ -729,6 +829,7 @@ private fun PlayerEpisodeRow(
 //  the spine stays list-stable), and the number grew 21sp → 24sp.
 // ════════════════════════════════════════════════════════════════════════════
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlayerTracklistRow(
     data: PlayerEpisodeRowData,
@@ -736,6 +837,7 @@ private fun PlayerTracklistRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     arrivalPulse: Long = 0L,
+    downloadActions: PlayerEpisodeDownloadActions? = null,
 ) {
     val isCurrent = data.isCurrent
     val dimmed = data.isWatched && display.dimWatched && !isCurrent
@@ -745,11 +847,14 @@ private fun PlayerTracklistRow(
         else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
     }
     val dateText = if (display.showDatePill) data.dateText else null
+    // ROUND 106 (WS-D): the audio pills respect their own knob.
     val pills = buildList {
         if (dateText != null) add(dateText)
-        addAll(data.audioLabels)
-        if (data.subDubLabel != null) add(data.subDubLabel)
-        addAll(data.flavorLabels)
+        if (display.showAudioPills) {
+            addAll(data.audioLabels)
+            if (data.subDubLabel != null) add(data.subDubLabel)
+            addAll(data.flavorLabels)
+        }
     }
     // ROUND 105: the optional synopsis ("there was no option to turn on or
     // show the synopsis or turn off the synopsis. So I need a toggle… in
@@ -841,9 +946,11 @@ private fun PlayerTracklistRow(
                             overflow = TextOverflow.Ellipsis,
                         )
                         if (pills.isNotEmpty()) {
-                            Row(
+                            // ROUND 106 (WS-D): the pills WRAP — the tags are
+                            // data, never clipped.
+                            FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 pills.forEach { pill -> Pill(pill) }
                             }
@@ -860,6 +967,18 @@ private fun PlayerTracklistRow(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
+                    }
+                    // ── ROUND 106 (WS-D): the TRAILING download badge —
+                    //    first in the slot, before the state glyphs (the
+                    //    download is an action; the glyphs are states). ──
+                    if (display.showDownloadButton && data.downloadState != null &&
+                        downloadActions != null
+                    ) {
+                        Spacer(Modifier.width(8.dp))
+                        PlayerEpisodeDownloadBadge(
+                            state = data.downloadState,
+                            actions = downloadActions,
+                        )
                     }
                     // ── The trailing state glyph — the current row's play;
                     //    a watched row's quiet check. ──
@@ -927,6 +1046,107 @@ private fun Pill(text: String) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+//  ROUND 106 (WS-D): THE DOWNLOAD BADGE — the details page's approved
+//  EpisodeDownloadBadge visual, generalized for the player's four layouts.
+//  A 32dp circle: the plain download glyph → the in-flight spinner → the
+//  determinate ring + numeral → the resume glyph → the retry glyph → the
+//  check. [translucent] switches the over-image language (the white-on-black
+//  scrim treatment the GRID + BANNER plates use; the row styles read the
+//  themed surface).
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun PlayerEpisodeDownloadBadge(
+    state: PlayerDownloadRenderState,
+    actions: PlayerEpisodeDownloadActions,
+    modifier: Modifier = Modifier,
+    translucent: Boolean = false,
+) {
+    val bg = if (translucent) Color.Black.copy(alpha = 0.45f)
+    else MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+    val fg = if (translucent) Color.White else MaterialTheme.colorScheme.onSurface
+    val accent = if (translucent) Color.White else MaterialTheme.colorScheme.primary
+    Box(
+        modifier = modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(bg)
+            .clickable {
+                // The settings preview passes previewTapAll — ONE tap target
+                // for ALL states so the demo cycle can walk every state (the
+                // D-557 pattern). Production call sites pass null → the
+                // state contract below.
+                val tap = actions.previewTapAll
+                if (tap != null) {
+                    tap()
+                } else {
+                    when (state) {
+                        is PlayerDownloadRenderState.NotDownloaded -> actions.onDownload()
+                        is PlayerDownloadRenderState.InFlight -> actions.onCancel()
+                        is PlayerDownloadRenderState.Downloading -> actions.onPause()
+                        is PlayerDownloadRenderState.Paused -> actions.onResume()
+                        is PlayerDownloadRenderState.Error -> actions.onRetry()
+                        is PlayerDownloadRenderState.Downloaded -> actions.onPlayDownloaded()
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        when (state) {
+            is PlayerDownloadRenderState.NotDownloaded -> Icon(
+                imageVector = Icons.Filled.Download,
+                contentDescription = "Download",
+                tint = fg,
+                modifier = Modifier.size(18.dp),
+            )
+            is PlayerDownloadRenderState.InFlight -> CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = accent,
+            )
+            is PlayerDownloadRenderState.Downloading -> Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    progress = { (state.progress / 100f).coerceIn(0f, 1f) },
+                    modifier = Modifier.size(24.dp),
+                    strokeWidth = 2.dp,
+                    color = accent,
+                    trackColor = fg.copy(alpha = 0.15f),
+                )
+                Text(
+                    text = "${state.progress}",
+                    fontFamily = RobotoFamily,
+                    fontSize = 7.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = fg,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+            is PlayerDownloadRenderState.Paused -> Icon(
+                imageVector = Icons.Filled.PlayArrow,
+                contentDescription = "Resume download",
+                tint = accent,
+                modifier = Modifier.size(18.dp),
+            )
+            is PlayerDownloadRenderState.Error -> Icon(
+                imageVector = Icons.Filled.Refresh,
+                contentDescription = "Retry download",
+                tint = accent,
+                modifier = Modifier.size(18.dp),
+            )
+            is PlayerDownloadRenderState.Downloaded -> Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = "Downloaded — tap to play",
+                tint = accent,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+    // NOTE: onDelete has no gesture room in a 32dp badge — the downloads
+    // page keeps that action (the D-555 plan §4, carried forward).
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 //  GRID — one cell of the two-across poster wall. ROUND 104: the top-left
 //  EP badge is GONE ("remove them. It should only be kept in the detailed
 //  view") — the number rides the bottom scrim's title line instead; the
@@ -948,7 +1168,7 @@ private fun Pill(text: String) {
 //      line is toggleable (gridTitles — the clean image wall).
 // ════════════════════════════════════════════════════════════════════════════
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun PlayerEpisodeGridCell(
     data: PlayerEpisodeRowData,
@@ -957,6 +1177,7 @@ private fun PlayerEpisodeGridCell(
     modifier: Modifier = Modifier,
     onToggleWatched: (() -> Unit)? = null,
     arrivalPulse: Long = 0L,
+    downloadActions: PlayerEpisodeDownloadActions? = null,
 ) {
     val isCurrent = data.isCurrent
     // ROUND 105: the watched treatment is the CHECKMARK knob (grayscale +
@@ -965,173 +1186,209 @@ private fun PlayerEpisodeGridCell(
     val watchedGray = data.isWatched && display.gridWatchedCheckmark && !isCurrent
     val currentTinted = isCurrent && display.gridCurrentStyle == PlayerGridCurrentStyle.TINT
     val grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+    // ROUND 106 (WS-D): the audio pills respect their own knob.
     val pills = buildList {
         if (display.showDatePill && data.dateText != null) add(data.dateText)
-        addAll(data.audioLabels)
-        if (data.subDubLabel != null) add(data.subDubLabel)
-        addAll(data.flavorLabels)
+        if (display.showAudioPills) {
+            addAll(data.audioLabels)
+            if (data.subDubLabel != null) add(data.subDubLabel)
+            addAll(data.flavorLabels)
+        }
     }
 
-    Box(
+    // ── ROUND 106 (WS-D): THE REWORK — "I am not satisfied with the grid UI
+    //    at all. Like the things are not managed properly. Like the date
+    //    does not get shown properly, the audio versions do not get shown
+    //    properly, and also the other details do not get shown properly."
+    //    ROOT CAUSE: the old cell crammed EVERYTHING into a bottom scrim on
+    //    a HALF-WIDTH image — one non-wrapping pills Row that clipped after
+    //    ~2 pills ("Oct 12, 2025" alone ≈ 80dp of a ~170dp cell). THE NEW
+    //    ANATOMY (the details page's approved grid, player-flavored): the
+    //    image plate carries ONLY the over-image treatments (the current
+    //    disc/tint + ring, the watched check, the download badge, the
+    //    progress bar), and the TEXT lives BELOW in its own block — the
+    //    themed "EP N" + the title on one line, then the chips in a
+    //    WRAPPING FlowRow so EVERY tag shows ("all the tags are considered
+    //    properly and handled properly"). ──
+    Column(
         modifier = modifier
-            .aspectRatio(16f / 9f)
-            .clip(RoundedCornerShape(12.dp))
-            .then(
-                if (isCurrent) {
-                    Modifier.border(
-                        2.dp,
-                        MaterialTheme.colorScheme.primary,
-                        RoundedCornerShape(12.dp),
-                    )
-                } else {
-                    Modifier
-                },
-            )
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onToggleWatched ?: {},
             ),
     ) {
-        if (data.thumbnailUrl != null) {
-            AsyncImage(
-                model = data.thumbnailUrl,
-                contentDescription = data.displayTitle,
-                contentScale = ContentScale.Crop,
-                colorFilter = if (watchedGray || currentTinted) grayscale else null,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            // No thumbnail — the centered number tile keeps the cell honest.
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = data.episodeNumberText,
-                    fontFamily = RobotoFamily,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        // ── The image plate — pure imagery + the over-image treatments ──
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(12.dp))
+                .then(
+                    if (isCurrent) {
+                        Modifier.border(
+                            2.dp,
+                            MaterialTheme.colorScheme.primary,
+                            RoundedCornerShape(12.dp),
+                        )
+                    } else {
+                        Modifier
+                    },
                 )
-            }
-        }
-
-        // ── ROUND 105: the CURRENT-TINT wash — "if the user has selected
-        //    theme, then the whole thumbnail image will be tinted": the
-        //    (grayscaled) imagery under a themed wash; the ring stays. ──
-        if (currentTinted) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.50f)),
-            )
-        }
-
-        // ── Watched: the centered check (the toggleable treatment). ──
-        if (watchedGray) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(34.dp)
-                    .background(Color.Black.copy(alpha = 0.45f), CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = "Watched",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp),
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+        ) {
+            if (data.thumbnailUrl != null) {
+                AsyncImage(
+                    model = data.thumbnailUrl,
+                    contentDescription = data.displayTitle,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = if (watchedGray || currentTinted) grayscale else null,
+                    modifier = Modifier.fillMaxSize(),
                 )
-            }
-        }
-
-        // ── Current: the centered play glyph (the PLAY style; TINT replaces
-        //    it with the themed wash above). ──
-        if (isCurrent && display.gridCurrentStyle == PlayerGridCurrentStyle.PLAY) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(40.dp)
-                    .background(MaterialTheme.colorScheme.primary, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = "Playing",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-        }
-
-        // ── The bottom scrim (ROUND 105: the pills row + the toggleable
-        //    title line — "EP N" + the title, the number's home since the
-        //    top-left badge retired). ──
-        if (display.gridTitles || pills.isNotEmpty()) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f)),
-                        ),
+            } else {
+                // No thumbnail — the centered number tile keeps the cell honest.
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = data.episodeNumberText,
+                        fontFamily = RobotoFamily,
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // ROUND 105: the details' pills ABOVE the name — the
-                    // same overlay language the BANNER wears (the Pill()
-                    // vocabulary, the episode-list vibe).
-                    if (pills.isNotEmpty()) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            pills.forEach { pill -> Pill(pill) }
-                        }
-                        if (display.gridTitles) {
-                            Spacer(Modifier.height(4.dp))
-                        }
-                    }
-                    if (display.gridTitles) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                text = "EP ${data.episodeNumberText}",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White.copy(alpha = 0.92f),
-                                maxLines = 1,
-                                softWrap = false,
-                            )
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                text = data.displayTitle,
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
                 }
             }
-        }
 
-        // The scroll-arrival pulse (the current cell only).
-        val pulseAlpha = rememberArrivalPulseAlpha(arrivalPulse, data.isCurrent)
-        if (pulseAlpha > 0.005f) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .graphicsLayer { this.alpha = pulseAlpha }
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)),
-            )
+            // ── ROUND 105: the CURRENT-TINT wash — "if the user has selected
+            //    theme, then the whole thumbnail image will be tinted": the
+            //    (grayscaled) imagery under a themed wash; the ring stays. ──
+            if (currentTinted) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.50f)),
+                )
+            }
+
+            // ── Watched: the centered check (the toggleable treatment). ──
+            if (watchedGray) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(34.dp)
+                        .background(Color.Black.copy(alpha = 0.45f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "Watched",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+
+            // ── Current: the centered play glyph (the PLAY style; TINT
+            //    replaces it with the themed wash above). ──
+            if (isCurrent && display.gridCurrentStyle == PlayerGridCurrentStyle.PLAY) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(40.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = "Playing",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+
+            // ── ROUND 106 (WS-D): the download badge (top-end, translucent —
+            //    the details grid's placement). ──
+            if (display.showDownloadButton && data.downloadState != null &&
+                downloadActions != null
+            ) {
+                PlayerEpisodeDownloadBadge(
+                    state = data.downloadState,
+                    actions = downloadActions,
+                    translucent = true,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(5.dp),
+                )
+            }
+
+            // ── The thin progress bar (partial watches). ──
+            if (data.progressFraction > 0f && !data.isWatched && display.showProgressBar) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth(data.progressFraction.coerceIn(0f, 1f))
+                        .height(3.dp)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
+
+            // The scroll-arrival pulse (the current cell only).
+            val pulseAlpha = rememberArrivalPulseAlpha(arrivalPulse, data.isCurrent)
+            if (pulseAlpha > 0.005f) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .graphicsLayer { this.alpha = pulseAlpha }
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)),
+                )
+            }
+        }
+        // ── The text block — the EP + title line (gridTitles), then the
+        //    wrapping chips (every tag, never clipped). ──
+        if (display.gridTitles || pills.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            if (display.gridTitles) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 2.dp),
+                ) {
+                    Text(
+                        text = "EP ${data.episodeNumberText}",
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = data.displayTitle,
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            if (pills.isNotEmpty()) {
+                Spacer(Modifier.height(5.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 2.dp),
+                ) {
+                    pills.forEach { pill -> Pill(pill) }
+                }
+            }
         }
     }
 }
@@ -1161,6 +1418,7 @@ private fun PlayerEpisodeGridCell(
 //      (the dispatcher's centered width fraction), never the height alone.
 // ════════════════════════════════════════════════════════════════════════════
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlayerEpisodeBannerCard(
     data: PlayerEpisodeRowData,
@@ -1168,10 +1426,16 @@ private fun PlayerEpisodeBannerCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     arrivalPulse: Long = 0L,
+    downloadActions: PlayerEpisodeDownloadActions? = null,
 ) {
     val isCurrent = data.isCurrent
     val watchedGray = data.isWatched && display.dimWatched && !isCurrent
     val grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+    // ROUND 106 (WS-D): the BANNER's currently-playing treatment — the
+    // GRID's knob, ported: "the grid view has the ability to select between
+    // play button and the themed tint, but the banner does not have it. So
+    // I want you to implement it there properly too."
+    val currentTinted = isCurrent && display.bannerCurrentStyle == PlayerBannerCurrentStyle.TINT
 
     Box(
         modifier = modifier
@@ -1199,7 +1463,7 @@ private fun PlayerEpisodeBannerCard(
                 model = data.thumbnailUrl,
                 contentDescription = data.displayTitle,
                 contentScale = ContentScale.Crop,
-                colorFilter = if (watchedGray) grayscale else null,
+                colorFilter = if (watchedGray || currentTinted) grayscale else null,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -1212,6 +1476,16 @@ private fun PlayerEpisodeBannerCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+
+        // ── ROUND 106 (WS-D): the CURRENT-TINT wash (the port) — the
+        //    (grayscaled) imagery under a themed wash; the ring stays. ──
+        if (currentTinted) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.50f)),
+            )
         }
 
         // ── THE BIG EPISODE NUMBER — toggleable (ROUND 104), positioned
@@ -1309,8 +1583,9 @@ private fun PlayerEpisodeBannerCard(
             }
         }
 
-        // ── Current: the centered play glyph ──
-        if (isCurrent) {
+        // ── Current: the centered play glyph (the PLAY style; the ported
+        //    TINT replaces it with the themed wash above). ──
+        if (isCurrent && display.bannerCurrentStyle == PlayerBannerCurrentStyle.PLAY) {
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -1325,6 +1600,28 @@ private fun PlayerEpisodeBannerCard(
                     modifier = Modifier.size(28.dp),
                 )
             }
+        }
+
+        // ── ROUND 106 (WS-D): the download badge — the top corner OPPOSITE
+        //    the big number (never colliding with the number-position knob;
+        //    top-end when the number is hidden or top-start). ──
+        if (display.showDownloadButton && data.downloadState != null &&
+            downloadActions != null
+        ) {
+            // The number hidden → the badge takes its natural top-end.
+            val badgeCorner = when {
+                !display.showEpisodeNumber -> Alignment.TopEnd
+                display.bannerNumberPosition == PlayerBannerNumberPosition.TOP_START -> Alignment.TopEnd
+                else -> Alignment.TopStart
+            }
+            PlayerEpisodeDownloadBadge(
+                state = data.downloadState,
+                actions = downloadActions,
+                translucent = true,
+                modifier = Modifier
+                    .align(badgeCorner)
+                    .padding(6.dp),
+            )
         }
 
         // ── The bottom scrim (ROUND 105: INVERTED) — the DETAILS' pills
@@ -1345,14 +1642,18 @@ private fun PlayerEpisodeBannerCard(
             Column(modifier = Modifier.fillMaxWidth()) {
                 val chips = buildList {
                     if (display.showDatePill && data.dateText != null) add(data.dateText)
-                    addAll(data.audioLabels)
-                    if (data.subDubLabel != null) add(data.subDubLabel)
-                    addAll(data.flavorLabels)
+                    if (display.showAudioPills) {
+                        addAll(data.audioLabels)
+                        if (data.subDubLabel != null) add(data.subDubLabel)
+                        addAll(data.flavorLabels)
+                    }
                 }
                 if (chips.isNotEmpty()) {
-                    Row(
+                    // ROUND 106 (WS-D): the chips WRAP — the tags are data,
+                    // never clipped.
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         chips.forEach { chip -> Pill(chip) }
                     }
