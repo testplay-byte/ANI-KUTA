@@ -356,10 +356,22 @@ FlowRows, the OptIns); `PlayerDownloadController.kt` (NEW, core/download);
 row, the BANNER's Currently playing row, the preview's demo badge, the
 anchor shift); `SettingsSearchIndex.kt` (the entry).
 
-## 5. The CI history (the D-472 ledger)
+## 5. The CI history (the D-472 ledger — 2 runs, WITHIN the ≤2 budget)
 
-- CI run 1 (**36622858251**, Build APK on d028b8a0): pending at ledger
-  time — the record completes below.
+- CI run 1 (**36622858251**, Build APK on d028b8a0): **FAILURE** — ONE
+  error, `:app:compileDebugKotlin`:
+  `AndroidPlayerDownloadController.kt:92:24 Argument type mismatch:
+  actual type is 'String?', but 'String' was expected` —
+  `DownloadEpisodeInfo.name` is non-null while the controller's neutral
+  `EpisodeInfo.name` is `String?`; the extracted chain's own
+  `episode.name ?: ""` fallback is the fix (af7f3887). A NEW trap class
+  (the bridge's neutral tuple vs the engine's non-null contract) — swept:
+  the other tuple consumers all take nullable.
+- CI run 2 (**36623851282**, Build APK on af7f3887): **GREEN** — within
+  the D-472 ≤2 budget.
+- PROCESS DISCLOSED: the ledger files mid-write (decisions D-708..D-711,
+  changelog, progress, lessons, doc 88's execution record) rode the
+  CI-fix commit via a careless `git add -A` (the round-105 slip's repeat).
 
 ## 6. The sub-agent audits (the standing ≥2 order, D-689)
 
