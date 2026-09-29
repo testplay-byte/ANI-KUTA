@@ -544,8 +544,19 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10160
+    const val versionName = "1.1.60"
+    // v1.1.60 (round 103 — D-696..D-699): the menu's second pass (the crimped
+    // inset sections, the round-101 icon discs, the side-by-side data-source
+    // chips — left "AniList" / right the extension's own name — with the
+    // unlink folded below, "Open in Web View", the Tracking row's grey↔green
+    // color states), the tracking feel (the heading gone, the Status/Progress/
+    // Score pickers as the link-sources WHEEL + vibration ticks, Save
+    // sync-only + the new Start Tracking carrying the opt-in), the honest
+    // scroll (a snap-free glide that centers the current episode in the list's
+    // own viewport, edges clamped), and the player's four paradigms
+    // (Detailed/Compact/Grid/Banner through one shared renderer, the
+    // actual-data settings preview, ascending/descending-only sort).
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
