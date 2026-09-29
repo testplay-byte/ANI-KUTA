@@ -535,7 +535,9 @@ fun EpisodeListSettingsScreen(
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(
-                title = "Episode list",
+                // ROUND 105 (WS-C): retitled to match the Appearance entry
+                // ("name the first one… as details page").
+                title = "Details page",
                 collapsed = collapsed,
                 onBack = onBack,
             )

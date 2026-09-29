@@ -40,13 +40,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -95,9 +101,10 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 //    properly, it is not customizable… add a density slider too, like I can
 //    select what the size of them should be easily, and it would properly
 //    show in live view": [PlayerEpisodeListDisplay.showEpisodeNumber] toggles
-//    the ghost numeral; [PlayerEpisodeListDisplay.bannerDensity] (0f…1f)
-//    drives the aspect (21:9 flat strips → 4:3 tall cards; 0.5 ≈ the classic
-//    16:9).
+//    the big numeral. (ROUND 105 re-aimed the size knob: the aspect is FIXED
+//    16:9 and [PlayerEpisodeListDisplay.bannerSize] scales the ITEM — see
+//    the banner section below; the round-104 aspect-driven density is
+//    retired.)
 //
 //  • SWIPE + the ARRIVAL PULSE — "on the player episodes list there should
 //    be the swipe functionality too, exactly like how it is on the details
@@ -182,21 +189,113 @@ data class PlayerEpisodeListDisplay(
     val dimWatched: Boolean = true,
     /** ROUND 104: the BANNER's ghost episode number toggle. */
     val showEpisodeNumber: Boolean = true,
+    /** ROUND 105: the thin watch-progress bar/underline (DETAILED + TRACKLIST). */
+    val showProgressBar: Boolean = true,
     /**
-     * ROUND 104: the BANNER's density — 0f (21:9 flat strips) … 1f (4:3
-     * tall cards); 0.5f ≈ the classic 16:9. See [bannerAspectRatio].
+     * ROUND 105: the BANNER's ITEM SIZE — 0f (small: ≈66% width, centered,
+     * breathing room between cards) … 1f (full-bleed, the classic look).
+     * See [bannerWidthFraction] / [bannerVerticalPadding].
      */
-    val bannerDensity: Float = 0.5f,
+    val bannerSize: Float = 1f,
+    /** ROUND 105: the BANNER's number corner. */
+    val bannerNumberPosition: PlayerBannerNumberPosition = PlayerBannerNumberPosition.TOP_END,
+    /** ROUND 105: the BANNER's number treatment (frosted glass / solid). */
+    val bannerNumberStyle: PlayerBannerNumberStyle = PlayerBannerNumberStyle.FROSTED,
+    /** ROUND 105: the GRID's watched treatment (the checkmark, not the dim). */
+    val gridWatchedCheckmark: Boolean = true,
+    /** ROUND 105: the GRID's currently-playing treatment. */
+    val gridCurrentStyle: PlayerGridCurrentStyle = PlayerGridCurrentStyle.PLAY,
+    /** ROUND 105: the GRID's bottom-scrim title line. */
+    val gridTitles: Boolean = true,
+    /**
+     * ROUND 105: the TRACKLIST's column-sizing reference — the LIST's widest
+     * episode-number text, pre-formatted by the caller (e.g. "24" for a
+     * 24-episode list). The row measures it once and sizes the number column
+     * exactly, so the digit hugs the left edge with no dead padding and the
+     * spine stays list-stable. Default "00" = a two-digit fit.
+     */
+    val tracklistReferenceNumber: String = "00",
 )
 
 /**
- * The BANNER's aspect ratio from the density knob — a linear blend from the
- * flat 21:9 cinematic strip (density 0) to the tall 4:3 preview card
- * (density 1); the 0.5 default lands at ≈16.5:9 (the classic look).
+ * ROUND 105: the BANNER's number corner — "there should be the option to
+ * select where the episode number should show, whether it should show on
+ * the top right side or on the top left side." Lenient fromKey (the rowStyle
+ * doctrine): unknown values fold to the default TOP_END.
  */
-fun bannerAspectRatio(density: Float): Float {
-    val t = density.coerceIn(0f, 1f)
-    return (21f / 9f) + ((4f / 3f) - (21f / 9f)) * t
+enum class PlayerBannerNumberPosition {
+    TOP_START,
+    TOP_END;
+
+    companion object {
+        fun fromKey(key: String?): PlayerBannerNumberPosition =
+            if (key?.trim()?.equals("TOP_START", ignoreCase = true) == true) {
+                TOP_START
+            } else {
+                TOP_END
+            }
+    }
+}
+
+/**
+ * ROUND 105: the BANNER's number treatment — "should it be shown in solid
+ * themed color, or should it be shown in a frosted theme color?" (FROSTED =
+ * the two-copy blurred-glass text, the details page's CINEMA D-559
+ * treatment; SOLID = the straight themed numeral, D-558. Both THEMED — the
+ * round-104 white ghost is gone.)
+ */
+enum class PlayerBannerNumberStyle {
+    FROSTED,
+    SOLID;
+
+    companion object {
+        fun fromKey(key: String?): PlayerBannerNumberStyle =
+            if (key?.trim()?.equals("SOLID", ignoreCase = true) == true) {
+                SOLID
+            } else {
+                FROSTED
+            }
+    }
+}
+
+/**
+ * ROUND 105: the GRID's currently-playing treatment — "the option between
+ * showing the play button on the currently playing or rather theme the
+ * currently playing episode list or cover image or such in the themed
+ * color."
+ */
+enum class PlayerGridCurrentStyle {
+    PLAY,
+    TINT;
+
+    companion object {
+        fun fromKey(key: String?): PlayerGridCurrentStyle =
+            if (key?.trim()?.equals("TINT", ignoreCase = true) == true) {
+                TINT
+            } else {
+                PLAY
+            }
+    }
+}
+
+/**
+ * ROUND 105: the BANNER's item-width fraction from the size knob — 1f =
+ * full-bleed (the classic look); 0f = 66% of the row width, centered (the
+ * "padding on the left and right sides" the device round described).
+ */
+fun bannerWidthFraction(size: Float): Float {
+    val t = size.coerceIn(0f, 1f)
+    return 0.66f + (1f - 0.66f) * t
+}
+
+/**
+ * ROUND 105: the BANNER's per-item vertical padding from the size knob —
+ * 4dp at full size (today's rhythm) growing to 10dp at the smallest (the
+ * "padding between each individual episodes themselves").
+ */
+fun bannerVerticalPadding(size: Float): Dp {
+    val t = size.coerceIn(0f, 1f)
+    return 4.dp + (1f - t) * 6.dp
 }
 
 /**
@@ -241,14 +340,28 @@ fun PlayerEpisodeListEntry(
         }
         PlayerEpisodeListStyle.GRID ->
             PlayerEpisodeGridCell(data, display, onClick, modifier, onToggleWatched, arrivalPulse)
-        PlayerEpisodeListStyle.BANNER -> SwipeableEntry(
-            data = data,
-            onToggleWatched = onToggleWatched,
-            modifier = modifier,
-            verticalPadding = 4.dp,
-            backgroundShape = RoundedCornerShape(14.dp),
-        ) { entryModifier ->
-            PlayerEpisodeBannerCard(data, display, onClick, entryModifier, arrivalPulse)
+        // ROUND 105 (WS-D): THE BANNER'S ITEM SIZE — the swipe wrapper
+        // narrows to the size's width fraction and CENTERS inside the row
+        // ("some padding on the left and right sides"), while its vertical
+        // padding grows with the shrink ("padding between each individual
+        // episodes themselves"). At size 1f the geometry is byte-identical
+        // to the round-104 full-bleed banner.
+        PlayerEpisodeListStyle.BANNER -> {
+            val sizeFraction = bannerWidthFraction(display.bannerSize)
+            Box(
+                modifier = modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                SwipeableEntry(
+                    data = data,
+                    onToggleWatched = onToggleWatched,
+                    modifier = Modifier.fillMaxWidth(sizeFraction),
+                    verticalPadding = bannerVerticalPadding(display.bannerSize),
+                    backgroundShape = RoundedCornerShape(14.dp),
+                ) { entryModifier ->
+                    PlayerEpisodeBannerCard(data, display, onClick, entryModifier, arrivalPulse)
+                }
+            }
         }
     }
 }
@@ -566,8 +679,9 @@ private fun PlayerEpisodeRow(
                     }
                 }
                 // ── The thin watch-progress bar — partial watches only (fully
-                // watched rows dim instead). ──
-                if (data.progressFraction > 0f && !data.isWatched) {
+                // watched rows dim instead). ROUND 105: toggleable
+                // ("show or hide the progress bar"). ──
+                if (data.progressFraction > 0f && !data.isWatched && display.showProgressBar) {
                     Spacer(Modifier.height(6.dp))
                     Box(
                         modifier = Modifier
@@ -593,10 +707,22 @@ private fun PlayerEpisodeRow(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  TRACKLIST (ROUND 104 — replaces COMPACT) — the typographic, number-forward
-//  list: the episode NUMBER as the hero (a fixed ghost-muted numeral column),
-//  a hairline spine, the title + pills to its right; never a thumbnail, never
-//  a synopsis. The number is the identity — big, calm, scannable.
+//  TRACKLIST (ROUND 104 — replaces COMPACT; ROUND 105 refines) — the
+//  typographic, number-forward list: the episode NUMBER as the hero, a
+//  hairline spine, the title + pills + an optional two-line synopsis to its
+//  right; never a thumbnail.
+//
+//  ROUND 105 (WS-D) — THE NUMBER COLUMN'S ROOT-CAUSE FIX: the v1.1.61
+//  device round: "the episode number was shown on the left side, but there
+//  was some padding on the left too. Like there was way too much padding,
+//  and then the actual episode number showed. And also the episode number
+//  should be made a little bit bigger." The round-104 column was a FIXED
+//  52dp with TextAlign.End — a single-digit numeral sat ~39dp into its
+//  column before the glyph even started. The column now EXACTLY FITS the
+//  list's widest number (the caller's tracklistReferenceNumber, measured
+//  once via TextMeasurer) and the digits are LEFT-aligned: the numeral
+//  hugs the row's 10dp start padding (the pressed-tracklist typography —
+//  the spine stays list-stable), and the number grew 21sp → 24sp.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -621,6 +747,31 @@ private fun PlayerTracklistRow(
         if (data.subDubLabel != null) add(data.subDubLabel)
         addAll(data.flavorLabels)
     }
+    // ROUND 105: the optional synopsis ("there was no option to turn on or
+    // show the synopsis or turn off the synopsis. So I need a toggle… in
+    // this area") — the same knob the DETAILED row reads.
+    val synopsis = if (display.showSynopsis) data.synopsis?.takeIf { it.isNotBlank() } else null
+
+    // ROUND 105: the EXACT-FIT number column — the LIST's widest number
+    // (the reference text), measured once in the row's own typography. All
+    // rows of one list share the same display → the same column → aligned
+    // spines; the digit itself hugs the left edge.
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val numberColumnWidth = remember(textMeasurer, display.tracklistReferenceNumber, density) {
+        val measured = textMeasurer.measure(
+            text = display.tracklistReferenceNumber,
+            style = TextStyle(
+                fontFamily = RobotoFamily,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+            ),
+        )
+        with(density) {
+            // +2dp of optical tolerance so the widest numeral never clips.
+            measured.size.width.toDp() + 2.dp
+        }
+    }
 
     Surface(
         color = when {
@@ -643,34 +794,35 @@ private fun PlayerTracklistRow(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(start = 10.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
                 ) {
-                    // ── The NUMBER hero — a fixed-width right-aligned
-                    //    numeral, the row's identity (SA2-F3: TextAlign.End
-                    //    so "1"/"10"/"100" right-align in the column). ──
+                    // ── The NUMBER hero — LEFT-aligned in the exact-fit
+                    //    column (ROUND 105: no dead left padding; the digit
+                    //    starts at the row's 10dp inset). ──
                     Text(
                         text = data.episodeNumberText,
                         fontFamily = RobotoFamily,
-                        fontSize = 21.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = numberTone,
-                        textAlign = TextAlign.End,
+                        textAlign = TextAlign.Start,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.width(52.dp),
+                        softWrap = false,
+                        modifier = Modifier.width(numberColumnWidth),
                     )
                     Spacer(Modifier.width(12.dp))
                     // ── The hairline spine — the track-list's rail. ──
                     Box(
                         modifier = Modifier
                             .width(1.dp)
-                            .height(30.dp)
+                            .height(34.dp)
                             .background(
                                 MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                             ),
                     )
                     Spacer(Modifier.width(12.dp))
-                    // ── The title + pills. ──
+                    // ── The title + pills (+ the optional synopsis). ──
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -692,6 +844,18 @@ private fun PlayerTracklistRow(
                                 pills.forEach { pill -> Pill(pill) }
                             }
                         }
+                        if (synopsis != null) {
+                            Text(
+                                text = synopsis,
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                lineHeight = 15.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                     // ── The trailing state glyph — the current row's play;
                     //    a watched row's quiet check. ──
@@ -712,8 +876,9 @@ private fun PlayerTracklistRow(
                         )
                     }
                 }
-                // ── The thin watch-progress underline — partial watches only. ──
-                if (data.progressFraction > 0f && !data.isWatched) {
+                // ── The thin watch-progress underline — partial watches only
+                //    (ROUND 105: toggleable with the DETAILED row's knob). ──
+                if (data.progressFraction > 0f && !data.isWatched && display.showProgressBar) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -761,8 +926,22 @@ private fun Pill(text: String) {
 //  GRID — one cell of the two-across poster wall. ROUND 104: the top-left
 //  EP badge is GONE ("remove them. It should only be kept in the detailed
 //  view") — the number rides the bottom scrim's title line instead; the
-//  watched/current language stays (grayscale + check / ring + play); the
 //  cell long-presses to toggle watched (the details page's GRID parity).
+//
+//  ROUND 105 (WS-D) — THE REAL KNOBS: "in the grid layout there were not
+//  much options there at all… for the watched episode, it only gives the
+//  user one option, whether to dim the watched episodes or not. But it
+//  should properly give the user one option, which is to show the
+//  checkmark on the watched episodes or not… And there should be the same
+//  thing for the currently playing episode too… between showing the play
+//  button… or rather theme the… cover image… in the themed color":
+//    • WATCHED = the CHECKMARK toggle (grayscale + check together — the
+//      dim knob no longer applies to the GRID).
+//    • CURRENT = PLAY (the disc) or TINT (the grayscale imagery under a
+//      themed wash; the ring stays).
+//    • The scrim gained the date/audio pills row (the same showDatePill
+//      knob the other styles read — the doc-86 noted gap) and its title
+//      line is toggleable (gridTitles — the clean image wall).
 // ════════════════════════════════════════════════════════════════════════════
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -776,10 +955,18 @@ private fun PlayerEpisodeGridCell(
     arrivalPulse: Long = 0L,
 ) {
     val isCurrent = data.isCurrent
-    // Watched = grayscale + the centered check (the details page's GRID
-    // language); the current episode's ring + play always wins visually.
-    val watchedGray = data.isWatched && display.dimWatched && !isCurrent
+    // ROUND 105: the watched treatment is the CHECKMARK knob (grayscale +
+    // the centered check, one unit — the dim knob retired from the GRID);
+    // the current episode's treatment always wins visually.
+    val watchedGray = data.isWatched && display.gridWatchedCheckmark && !isCurrent
+    val currentTinted = isCurrent && display.gridCurrentStyle == PlayerGridCurrentStyle.TINT
     val grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+    val pills = buildList {
+        if (display.showDatePill && data.dateText != null) add(data.dateText)
+        addAll(data.audioLabels)
+        if (data.subDubLabel != null) add(data.subDubLabel)
+        addAll(data.flavorLabels)
+    }
 
     Box(
         modifier = modifier
@@ -807,7 +994,7 @@ private fun PlayerEpisodeGridCell(
                 model = data.thumbnailUrl,
                 contentDescription = data.displayTitle,
                 contentScale = ContentScale.Crop,
-                colorFilter = if (watchedGray) grayscale else null,
+                colorFilter = if (watchedGray || currentTinted) grayscale else null,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -823,7 +1010,18 @@ private fun PlayerEpisodeGridCell(
             }
         }
 
-        // ── Watched: the centered check ──
+        // ── ROUND 105: the CURRENT-TINT wash — "if the user has selected
+        //    theme, then the whole thumbnail image will be tinted": the
+        //    (grayscaled) imagery under a themed wash; the ring stays. ──
+        if (currentTinted) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.50f)),
+            )
+        }
+
+        // ── Watched: the centered check (the toggleable treatment). ──
         if (watchedGray) {
             Box(
                 modifier = Modifier
@@ -841,8 +1039,9 @@ private fun PlayerEpisodeGridCell(
             }
         }
 
-        // ── Current: the centered play glyph ──
-        if (isCurrent) {
+        // ── Current: the centered play glyph (the PLAY style; TINT replaces
+        //    it with the themed wash above). ──
+        if (isCurrent && display.gridCurrentStyle == PlayerGridCurrentStyle.PLAY) {
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -859,43 +1058,64 @@ private fun PlayerEpisodeGridCell(
             }
         }
 
-        // ── The bottom scrim: "EP N" + the title (the number's new home —
-        //    the top-left badge is retired per the v1.1.60 order). ──
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f)),
-                    ),
-                )
-                .padding(horizontal = 8.dp, vertical = 5.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
+        // ── The bottom scrim (ROUND 105: the pills row + the toggleable
+        //    title line — "EP N" + the title, the number's home since the
+        //    top-left badge retired). ──
+        if (display.gridTitles || pills.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f)),
+                        ),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
             ) {
-                Text(
-                    text = "EP ${data.episodeNumberText}",
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White.copy(alpha = 0.92f),
-                    maxLines = 1,
-                    softWrap = false,
-                )
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    text = data.displayTitle,
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // ROUND 105: the details' pills ABOVE the name — the
+                    // same overlay language the BANNER wears (the Pill()
+                    // vocabulary, the episode-list vibe).
+                    if (pills.isNotEmpty()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            pills.forEach { pill -> Pill(pill) }
+                        }
+                        if (display.gridTitles) {
+                            Spacer(Modifier.height(4.dp))
+                        }
+                    }
+                    if (display.gridTitles) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = "EP ${data.episodeNumberText}",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White.copy(alpha = 0.92f),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                text = data.displayTitle,
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -913,9 +1133,28 @@ private fun PlayerEpisodeGridCell(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  BANNER — the full-bleed card (the thumbnail AS the card). ROUND 104: the
-//  ghost episode number is TOGGLEABLE (showEpisodeNumber) and the aspect is
-//  DENSITY-DRIVEN (bannerDensity: 21:9 flat strips → 4:3 tall cards).
+//  BANNER — the banner card (the thumbnail AS the card). ROUND 104: the
+//  ghost episode number is TOGGLEABLE (showEpisodeNumber).
+//
+//  ROUND 105 (WS-D) — THE OVERHAUL the v1.1.61 round ordered:
+//    • THE OVERLAY — "at the bottom left, the name of the current episode
+//      should be shown, and above it the details should be shown, and also
+//      the details need to be shown in a better-looking tag, just like how
+//      they are being shown in the episode list vibe": the pills (the
+//      shared Pill() vocabulary — the episode-list look) sit ABOVE the
+//      episode NAME now.
+//    • THE NUMBER — "there should be the option to select where the
+//      episode number should show, whether it should show on the top right
+//      side or on the top left side… in what format… solid themed color, or
+//      frosted theme color? Because currently it is not showing in any of
+//      those formats": the position knob (TOP_START / TOP_END) + the
+//      treatment port — VERBATIM — from the details page's CINEMA card
+//      (D-558/D-559): SOLID = the straight primary numeral with a soft dark
+//      shadow; FROSTED = two stacked copies (a blurred primary halo on S+
+//      under a crisp translucent primary copy). Both THEMED — the round-104
+//      white ghost is gone.
+//    • THE ASPECT IS FIXED at 16:9 — the size knob now scales the ITEM
+//      (the dispatcher's centered width fraction), never the height alone.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -933,7 +1172,9 @@ private fun PlayerEpisodeBannerCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(bannerAspectRatio(display.bannerDensity))
+            // ROUND 105: FIXED 16:9 — the size knob scales the item's width
+            // (the dispatcher's centered fraction), never the aspect.
+            .aspectRatio(16f / 9f)
             .clip(RoundedCornerShape(14.dp))
             .then(
                 if (isCurrent) {
@@ -969,19 +1210,83 @@ private fun PlayerEpisodeBannerCard(
             }
         }
 
-        // ── The GHOST episode number (top-end, huge, translucent) —
-        //    TOGGLEABLE since ROUND 104 ("it is not customizable"). ──
+        // ── THE BIG EPISODE NUMBER — toggleable (ROUND 104), positioned
+        //    (ROUND 105: top-left / top-right) and THEMED (ROUND 105:
+        //    solid / frosted — the CINEMA port; the white ghost is gone). ──
         if (display.showEpisodeNumber) {
-            Text(
-                text = data.episodeNumberText,
-                fontFamily = RobotoFamily,
-                fontSize = 56.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.White.copy(alpha = 0.20f),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 2.dp, end = 10.dp),
-            )
+            val numberCorner = when (display.bannerNumberPosition) {
+                PlayerBannerNumberPosition.TOP_START -> Alignment.TopStart
+                PlayerBannerNumberPosition.TOP_END -> Alignment.TopEnd
+            }
+            if (display.bannerNumberStyle == PlayerBannerNumberStyle.FROSTED) {
+                // FROSTED (the CINEMA D-559 treatment, verbatim) — the halo
+                // copy behind (blurred on S+; a plain low-alpha under-copy
+                // below S) + the crisp translucent copy on top: the frost
+                // lives IN the glyphs; the imagery shows through.
+                Box(
+                    modifier = Modifier
+                        .align(numberCorner)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = data.episodeNumberText,
+                        fontFamily = RobotoFamily,
+                        fontSize = 48.sp,
+                        lineHeight = 56.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.graphicsLayer {
+                            alpha = 0.45f
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                renderEffect = BlurEffect(14f, 14f)
+                            }
+                        },
+                    )
+                    Text(
+                        text = data.episodeNumberText,
+                        fontFamily = RobotoFamily,
+                        fontSize = 48.sp,
+                        lineHeight = 56.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.58f),
+                        maxLines = 1,
+                        softWrap = false,
+                        style = TextStyle(
+                            shadow = Shadow(
+                                color = Color.Black.copy(alpha = 0.45f),
+                                blurRadius = 14f,
+                                offset = Offset(1f, 1f),
+                            ),
+                        ),
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                }
+            } else {
+                // SOLID (the CINEMA D-558 treatment) — the straight themed
+                // numeral with a soft dark shadow for legibility.
+                Text(
+                    text = data.episodeNumberText,
+                    fontFamily = RobotoFamily,
+                    fontSize = 56.sp,
+                    lineHeight = 56.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    style = TextStyle(
+                        shadow = Shadow(
+                            color = Color.Black.copy(alpha = 0.55f),
+                            blurRadius = 18f,
+                            offset = Offset(2f, 2f),
+                        ),
+                    ),
+                    modifier = Modifier
+                        .align(numberCorner)
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
         }
 
         // ── Watched: the check chip (top-start) ──
@@ -1018,7 +1323,10 @@ private fun PlayerEpisodeBannerCard(
             }
         }
 
-        // ── The bottom scrim: the title + the translucent chips ──
+        // ── The bottom scrim (ROUND 105: INVERTED) — the DETAILS' pills
+        //    ABOVE, the episode NAME at the bottom-left; the pills wear the
+        //    shared Pill() vocabulary ("a better-looking tag, just like how
+        //    they are being shown in the episode list vibe"). ──
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -1031,6 +1339,23 @@ private fun PlayerEpisodeBannerCard(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
+                val chips = buildList {
+                    if (display.showDatePill && data.dateText != null) add(data.dateText)
+                    addAll(data.audioLabels)
+                    if (data.subDubLabel != null) add(data.subDubLabel)
+                    addAll(data.flavorLabels)
+                }
+                if (chips.isNotEmpty()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        chips.forEach { chip -> Pill(chip) }
+                    }
+                    Spacer(Modifier.height(5.dp))
+                }
+                // The NAME — at the very bottom ("at the bottom left, the
+                // name of the current episode should be shown").
                 Text(
                     text = data.displayTitle,
                     fontFamily = RobotoFamily,
@@ -1040,37 +1365,6 @@ private fun PlayerEpisodeBannerCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                val chips = buildList {
-                    if (display.showDatePill && data.dateText != null) add(data.dateText)
-                    addAll(data.audioLabels)
-                    if (data.subDubLabel != null) add(data.subDubLabel)
-                    addAll(data.flavorLabels)
-                }
-                if (chips.isNotEmpty()) {
-                    Spacer(Modifier.height(4.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        chips.forEach { chip ->
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = Color.White.copy(alpha = 0.18f),
-                            ) {
-                                Text(
-                                    text = chip,
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
 

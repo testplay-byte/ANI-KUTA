@@ -12,6 +12,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
@@ -33,10 +34,15 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -63,13 +69,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.HapticHelper
@@ -85,48 +97,45 @@ import java.util.Locale
 import kotlin.math.abs
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ROUND 103 (WS-2) → ROUND 104 (WS-B): TrackSheet — the STATUS + the feel.
+//  ROUND 103 (WS-2) → ROUND 104 (WS-B) → ROUND 105 (WS-B): TrackSheet — the
+//  STATUS + the feel + the side buttons.
 // ════════════════════════════════════════════════════════════════════════════
 //
-//  The v1.1.60 device round approved the round-103 CONTRACT (the wheel, the
-//  Save/Start split, the unlinking — all confirmed working) and ordered the
-//  status + feel refinements:
+//  The v1.1.61 device round approved the round-104 contract (the status
+//  chip, the half-width wheel, the ticks, the toasts — all confirmed) and
+//  ordered the quality-of-life pass:
 //
-//  • THE SYNC-STATUS CHIP — "at the top, just left of the delete button, the
-//    trash can icon, there should be the text which should show the current
-//    status… you need to decide on what it should actually display, how it
-//    should actually display." THE DESIGN: a compact dot + label pill at the
-//    top-LEFT, deriving entirely from the sheet's existing state —
-//      isSaving  → "Syncing…"             (primary tone, a spinner as the dot)
-//      error     → "Not synced"            (error tone)
-//      isTracked → "Tracking on"            (the success green)
-//      else      → "Not tracking"          (muted)
+//  • THE WHEEL-SCROLL CONTAINMENT — "if I try to swipe down from that menu,
+//    then it will not close the tracking menu… It should not happen if I
+//    scroll down on that area": the wheel's Surface now carries a
+//    nested-scroll fence (see TrackingWheelPicker) — the sheet can no
+//    longer be dragged or flung closed from the wheel; every other area of
+//    the sheet keeps the standard dismiss-by-drag.
 //
-//  • THE WHEEL'S WIDTH — "it is taking up almost all the width, but… it
-//    should take almost half of the device's width, like it should calculate
-//    that and handle it properly as such": the picker Surface centers at
-//    HALF THE SCREEN WIDTH (computed from LocalConfiguration, never
-//    hard-coded).
+//  • THE SIDE BUTTONS — "the right and left sides are apparently empty… add
+//    a plus or minus buttons for the progress and for the scores there…
+//    they will adapt based on the available space… their height will be the
+//    same as the normal one": the wheel's flanks fill with the steppers
+//    (PROGRESS ±1 episode; SCORE ±1.0 on the display scale); the STATUS row
+//    carries the quick-sets instead (Watching / Completed) — "for the
+//    status, it will not show plus or minus buttons, but instead… better
+//    suitable button options."
 //
-//  • THE EFFECTS — "implement properly, like vibrations and other kinds of
-//    effects for it properly": the picker cells TICK on open/close (on top
-//    of the wheel's scroll/tap ticks from round 103).
+//  • THE SAVE BUTTON (not tracked) — "improve that save button… a bit
+//    better and a bit more proper": the outlined secondary (transparent
+//    fill + hairline stroke + the Save glyph) next to the filled Start
+//    Tracking — the Material filled/outlined pair.
 //
-//  • THE HEIGHT — "you can increase the height of it a little bit more. Not
-//    too much, but just slightly more": the status row + a breathing pass
-//    (taller cells, wider dividers, a deeper bottom spacer).
+//  Everything else keeps the round-103/104 anatomy: the bottom-up form, the
+//  three summary cells, the status chip, the date rows, the trash-can
+//  confirm, the inline error surface, the discard-on-close draft, the
+//  toasts.
+// ════════════════════════════════════════════════════════════════════════════
 //
-//  • THE CONFIRMATIONS — "properly formatted with proper line breaking where
-//    needed": both dialogs render structured bullet lines instead of one
-//    run-on string.
-//
-//  • THE TOASTS — Start Tracking's completion and Remove From Tracking's
-//    completion now surface a beautiful in-app toast (see TrackingToastHost
-//    at this file's bottom — the ViewModel's one-shot notice drives it).
-//
-//  Everything else keeps the round-103 anatomy: the bottom-up form, the
-//  three summary cells, the date rows, the trash-can confirm, the inline
-//  error surface, the discard-on-close draft.
+//  (The round-104 record — the status chip's four states, the half-width
+//  wheel, the picker ticks, the breathing pass, the bullet-line dialogs, the
+//  TrackingToastHost — lives in doc 86 §4; all of it confirmed working by the
+//  v1.1.61 device round and kept byte-identical here.)
 // ════════════════════════════════════════════════════════════════════════════
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -151,6 +160,9 @@ fun TrackSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = screenHeight * 0.85f
+    // ROUND 105 (WS-B): the side buttons' haptic layer — the sheet-level
+    // context (the wheel and the picker cells keep their own).
+    val context = LocalContext.current
     var expandedPicker by remember { mutableStateOf<ExpandedPicker?>(null) }
     var showRemoveConfirm by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -254,40 +266,115 @@ fun TrackSheet(
             // wheel now — the D-628/D-636 contract (snap, blur falloff,
             // center highlight, scroll-driven selection) + the ordered
             // vibration. One wheel at a time, below the cells.
-            // ROUND 104 (WS-B): the wheel CENTERS at half the screen width
-            // ("it should take almost half of the device's width, like it
-            // should calculate that and handle it properly as such"). ──
+            // ROUND 104 (WS-B): the wheel CENTERS at half the screen width.
+            // ROUND 105 (WS-B): THE SIDE BUTTONS — "the right and left sides
+            // are apparently empty… add a plus or minus buttons for the
+            // progress and for the scores there… they will adapt based on
+            // the available space… their height will be the same as the
+            // normal one." PROGRESS ±1 episode; SCORE ±1.0 on the display
+            // scale (±10 wheel indices — the AniYomi stepper's step); the
+            // STATUS row carries quick-set buttons instead (Watching /
+            // Completed — the two statuses anyone actually switches to; a
+            // prev/next cycler over an unordered enum would be noise). ──
             AnimatedVisibility(
                 visible = expandedPicker != null,
                 enter = expandVertically(tween(300)) + fadeIn(tween(300)),
                 exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
             ) {
-                Box(
+                Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    contentAlignment = Alignment.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     when (expandedPicker) {
-                        ExpandedPicker.STATUS -> TrackingWheelPicker(
-                            items = TrackStatus.entries.map { it.displayLabel() },
-                            selectedIndex = TrackStatus.entries.indexOf(draft.status),
-                            onIndexSelected = { index ->
-                                draft = draft.copy(status = TrackStatus.entries[index])
-                            },
-                        )
-                        ExpandedPicker.PROGRESS -> TrackingWheelPicker(
-                            items = (0..effectiveTotal).map { if (it == 0) "Not started" else it.toString() },
-                            selectedIndex = draft.progress.coerceIn(0, effectiveTotal),
-                            onIndexSelected = { index ->
-                                draft = draft.copy(progress = index)
-                            },
-                        )
-                        ExpandedPicker.SCORE -> TrackingWheelPicker(
-                            items = (0..100).map { if (it == 0) "—" else String.format("%.1f", it / 10.0) },
-                            selectedIndex = (draft.score ?: 0).coerceIn(0, 100),
-                            onIndexSelected = { index ->
-                                draft = draft.copy(score = if (index == 0) null else index)
-                            },
-                        )
+                        ExpandedPicker.STATUS -> {
+                            TrackStatusQuickButton(
+                                status = TrackStatus.WATCHING,
+                                active = draft.status == TrackStatus.WATCHING,
+                                onClick = {
+                                    HapticHelper.lightTick(context)
+                                    draft = draft.copy(status = TrackStatus.WATCHING)
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                            TrackingWheelPicker(
+                                items = TrackStatus.entries.map { it.displayLabel() },
+                                selectedIndex = TrackStatus.entries.indexOf(draft.status),
+                                onIndexSelected = { index ->
+                                    draft = draft.copy(status = TrackStatus.entries[index])
+                                },
+                            )
+                            TrackStatusQuickButton(
+                                status = TrackStatus.COMPLETED,
+                                active = draft.status == TrackStatus.COMPLETED,
+                                onClick = {
+                                    HapticHelper.lightTick(context)
+                                    draft = draft.copy(status = TrackStatus.COMPLETED)
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        ExpandedPicker.PROGRESS -> {
+                            TrackStepperButton(
+                                icon = Icons.Filled.Remove,
+                                enabled = draft.progress > 0,
+                                onClick = {
+                                    HapticHelper.lightTick(context)
+                                    draft = draft.copy(progress = draft.progress - 1)
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                            TrackingWheelPicker(
+                                items = (0..effectiveTotal).map { if (it == 0) "Not started" else it.toString() },
+                                selectedIndex = draft.progress.coerceIn(0, effectiveTotal),
+                                onIndexSelected = { index ->
+                                    draft = draft.copy(progress = index)
+                                },
+                            )
+                            TrackStepperButton(
+                                icon = Icons.Filled.Add,
+                                enabled = draft.progress < effectiveTotal,
+                                onClick = {
+                                    HapticHelper.lightTick(context)
+                                    draft = draft.copy(progress = draft.progress + 1)
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        ExpandedPicker.SCORE -> {
+                            TrackStepperButton(
+                                icon = Icons.Filled.Remove,
+                                enabled = (draft.score ?: 0) > 0,
+                                onClick = {
+                                    HapticHelper.lightTick(context)
+                                    val stepped = ((draft.score ?: 0) - SCORE_STEPPER_STEP)
+                                        .coerceAtLeast(0)
+                                    draft = draft.copy(score = if (stepped <= 0) null else stepped)
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                            TrackingWheelPicker(
+                                items = (0..100).map { if (it == 0) "—" else String.format("%.1f", it / 10.0) },
+                                selectedIndex = (draft.score ?: 0).coerceIn(0, 100),
+                                onIndexSelected = { index ->
+                                    draft = draft.copy(score = if (index == 0) null else index)
+                                },
+                            )
+                            TrackStepperButton(
+                                icon = Icons.Filled.Add,
+                                enabled = (draft.score ?: 0) < 100,
+                                onClick = {
+                                    HapticHelper.lightTick(context)
+                                    // From "—" (null) the first step lands on
+                                    // 1.0 — the scale's start, not a midpoint
+                                    // presumption.
+                                    val stepped = ((draft.score ?: 0) + SCORE_STEPPER_STEP)
+                                        .coerceAtMost(100)
+                                    draft = draft.copy(score = if (stepped <= 0) null else stepped)
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                         null -> {}
                     }
                 }
@@ -361,12 +448,24 @@ fun TrackSheet(
                         modifier = Modifier.weight(1f),
                     )
                 } else {
+                    // ROUND 105 (WS-B): the NOT-TRACKED Save — "improve that
+                    // save button… a bit better and a bit more proper." The
+                    // flat grey fill read as an equal-weight peer of Start
+                    // Tracking; the proper secondary is the OUTLINED pair
+                    // member: transparent fill + the hairline stroke + the
+                    // quiet text + the Save glyph — the Material
+                    // filled/outlined language, hierarchy intact.
                     TrackSheetButton(
                         text = if (isSaving) "Saving…" else "Save",
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        color = Color.Transparent,
                         textColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         enabled = !isSaving,
                         showSpinner = isSaving,
+                        border = BorderStroke(
+                            1.25.dp,
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+                        ),
+                        leadingIcon = if (!isSaving) Icons.Outlined.Save else null,
                         onClick = { onSave(draft) },
                         modifier = Modifier.weight(1f),
                     )
@@ -553,6 +652,11 @@ private fun ConfirmBulletLines(lines: List<String>) {
 
 private enum class ExpandedPicker { STATUS, PROGRESS, SCORE }
 
+/** ROUND 105 (WS-B): the score stepper's step — 10 wheel indices = ±1.0 on
+ * the 0.0–10.0 display scale (the AniYomi tracker stepper's step; the wheel
+ * stays the fine 0.1 control). */
+private const val SCORE_STEPPER_STEP = 10
+
 // ════════════════════════════════════════════════════════════════════════════
 //  ROUND 103 (WS-2): TrackingWheelPicker — the LINK-SOURCES WHEEL, verbatim
 //  contract (ManualSearchSheet's D-628/D-636 geometry), player-agnostic:
@@ -565,6 +669,23 @@ private enum class ExpandedPicker { STATUS, PROGRESS, SCORE }
 //    • VIBRATION — HapticHelper.lightTick on every centered-row change while
 //      the user scrolls ("add some vibration effects to the scrolling of
 //      it"), and on every tap-select (a selection is a tick).
+//  ROUND 105 (WS-B) adds TWO contracts:
+//    • THE SCROLL CONTAINMENT — "if I try to swipe down from that menu, then
+//      it will not close the tracking menu… It should not happen if I scroll
+//      down on that area": a nested-scroll connection on the wheel's Surface
+//      that eats every LEFTOVER the wheel cannot consume (the exact deltas
+//      that used to leak into the ModalBottomSheet's own connection and
+//      start its dismissal drag — the "at episode 1 / not started, scroll
+//      down, the sheet starts closing" report), plus the edge-matched fling
+//      fence (a fling aimed where the wheel cannot scroll never reaches the
+//      sheet; a fling the wheel CAN consume passes through and only its
+//      leftover is eaten). The sheet stays closable from every OTHER area.
+//    • THE EXTERNAL RE-CENTERING — the +/− steppers and the status quick
+//      buttons change the selection from OUTSIDE the wheel; the wheel now
+//      glides the new selection to the center (the same suppression the
+//      taps use — no double selection, no stray tick). This also closes the
+//      round-104 F3 gap: a background draft re-seed while a wheel is open
+//      now re-centers instead of jumping the selection nakedly.
 // ════════════════════════════════════════════════════════════════════════════
 
 /** The wheel geometry — ManualSearchSheet's constants, kept identical. */
@@ -620,14 +741,15 @@ private fun TrackingWheelPicker(
         }
     }
 
-    // ── The tap-centering suppression: while a TAP's centering animation
-    // runs, the centered-index events are the animation's OWN passing
-    // traffic — the tap already set the selection (and ticked). ──
-    var tapCenteringCount by remember { mutableStateOf(0) }
+    // ── The tap/programmatic-centering suppression: while a TAP's — or a
+    // +/− stepper's, or a quick-set's — centering animation runs, the
+    // centered-index events are the animation's OWN passing traffic; the
+    // source already set the selection (and ticked). ──
+    var programmaticCenteringCount by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         var lastEmitted: Int? = null
         snapshotFlow { centeredIndex }.collect { idx ->
-            if (idx != null && hasScrolled && tapCenteringCount == 0) {
+            if (idx != null && hasScrolled && programmaticCenteringCount == 0) {
                 if (idx != lastEmitted) {
                     // ROUND 103 (WS-2): the ordered wheel-tick — one light
                     // vibration per centered-row change while scrolling.
@@ -639,21 +761,87 @@ private fun TrackingWheelPicker(
         }
     }
 
-    // ── The seed centering: scroll the seeded row to the EXACT vertical
-    // center (the draft's current value opens centered). Runs once per
-    // composition of this wheel; waits for the first layout pass. ──
-    LaunchedEffect(items) {
+    // ── ROUND 105 (WS-B): THE SEED + THE EXTERNAL RE-CENTER — ONE effect.
+    // On first layout it centers the seeded row INSTANTLY (the approved
+    // no-flash open, byte-identical to the round-103/104 seed). On every
+    // LATER selectedIndex change — a +/− stepper tap, a status quick-set,
+    // or the background draft re-seed — it GLIDES the new selection to the
+    // center under the programmatic-centering suppression. Waits for a
+    // laid-out, idle list first (a user scroll in flight owns the wheel;
+    // after its snap settles the centered row IS the selection — a no-op). ──
+    var hasSeeded by remember { mutableStateOf(false) }
+    LaunchedEffect(items, selectedIndex) {
         if (selectedIndex > 0 && items.isNotEmpty()) {
-            snapshotFlow { listState.layoutInfo.visibleItemsInfo.any { it.index == selectedIndex } }
-                .first { it }
+            snapshotFlow {
+                listState.layoutInfo.totalItemsCount > 0 && !listState.isScrollInProgress
+            }.first { it }
             val info = listState.layoutInfo
             val item = info.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
-                ?: return@LaunchedEffect
-            val viewportCenter = (info.viewportStartOffset + info.viewportEndOffset) / 2
-            val centerDelta = (item.offset + item.size / 2) - viewportCenter
-            if (centerDelta != 0) {
-                listState.scrollBy(centerDelta.toFloat())
+            if (item != null) {
+                val viewportCenter = (info.viewportStartOffset + info.viewportEndOffset) / 2
+                val centerDelta = (item.offset + item.size / 2) - viewportCenter
+                if (abs(centerDelta) > 1) {
+                    if (!hasSeeded) {
+                        // The seed: instant, no flash (the approved open).
+                        listState.scrollBy(centerDelta.toFloat())
+                    } else {
+                        programmaticCenteringCount++
+                        try {
+                            listState.animateScrollBy(centerDelta.toFloat())
+                        } finally {
+                            programmaticCenteringCount--
+                        }
+                    }
+                }
+            } else if (hasSeeded) {
+                // An off-screen jump (a large +/− step past the viewport):
+                // (index, 0) IS the centered position under the
+                // half-viewport contentPadding (the D-636 tap fix's math).
+                programmaticCenteringCount++
+                try {
+                    listState.animateScrollToItem(selectedIndex)
+                } finally {
+                    programmaticCenteringCount--
+                }
             }
+            hasSeeded = true
+        }
+    }
+
+    // ── ROUND 105 (WS-B): THE SCROLL CONTAINMENT — the fence between the
+    // wheel and the sheet. The wheel scrolls FIRST (pre-consumption is
+    // always zero); whatever it CANNOT consume is eaten HERE, so the
+    // ModalBottomSheet's own nested-scroll connection never sees a
+    // wheel-area delta and the sheet can never be dragged closed from the
+    // wheel. The fling fence is edge-matched: a fling aimed where the wheel
+    // has nowhere to go (its top/bottom edge) is eaten whole (the sheet
+    // must not turn it into dismissal momentum); a fling the wheel can
+    // consume passes through untouched, and only its leftover is eaten. ──
+    val scrollContainment = remember(listState) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+                Offset.Zero
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset = available
+
+            override suspend fun onPreFling(available: Velocity): Velocity = when {
+                // Finger-down fling while the wheel is at its TOP edge
+                // ("episode 1 / not started"): the wheel cannot use it — eat
+                // it before the sheet turns it into a dismissal.
+                available.y < 0f && !listState.canScrollBackward -> available
+                // Finger-up fling while the wheel is at its BOTTOM edge:
+                // same fence, the other direction.
+                available.y > 0f && !listState.canScrollForward -> available
+                // The wheel can consume this fling — pass it through.
+                else -> Velocity.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+                available
         }
     }
 
@@ -666,8 +854,12 @@ private fun TrackingWheelPicker(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)),
         shape = RoundedCornerShape(18.dp),
-        // ROUND 104 (WS-B): half the screen, centered by the parent Box.
-        modifier = Modifier.width(halfScreenWidth),
+        // ROUND 104 (WS-B): half the screen, centered by the parent Row.
+        // ROUND 105 (WS-B): the containment rides the Surface — the fence
+        // sits between the wheel's LazyColumn and the sheet's connection.
+        modifier = Modifier
+            .width(halfScreenWidth)
+            .nestedScroll(scrollContainment),
     ) {
         LazyColumn(
             state = listState,
@@ -694,7 +886,7 @@ private fun TrackingWheelPicker(
                         // the wheel's "selected is always centered" contract.
                         HapticHelper.lightTick(context)
                         onIndexSelected(index)
-                        tapCenteringCount++
+                        programmaticCenteringCount++
                         scope.launch {
                             try {
                                 // ZERO offset: with the half-viewport
@@ -702,7 +894,7 @@ private fun TrackingWheelPicker(
                                 // position (the D-636 tap fix).
                                 listState.animateScrollToItem(index)
                             } finally {
-                                tapCenteringCount--
+                                programmaticCenteringCount--
                             }
                         }
                     },
@@ -781,6 +973,11 @@ private fun TrackingWheelRow(
 
 // ── The contextual button (one shape for all four buttons of the bar) ──────
 
+/**
+ * ROUND 105 (WS-B): [border] renders the OUTLINED secondary (the not-tracked
+ * Save — transparent fill + hairline stroke); [leadingIcon] rides ahead of
+ * the label (the Save glyph). Both default to the filled look's nothing.
+ */
 @Composable
 private fun TrackSheetButton(
     text: String,
@@ -791,12 +988,15 @@ private fun TrackSheetButton(
     modifier: Modifier = Modifier,
     fontWeight: FontWeight = FontWeight.Medium,
     showSpinner: Boolean = false,
+    border: BorderStroke? = null,
+    leadingIcon: ImageVector? = null,
 ) {
     Surface(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .clickable(enabled = enabled, onClick = onClick),
         color = color,
+        border = border,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
@@ -810,6 +1010,14 @@ private fun TrackSheetButton(
                     color = textColor,
                 )
                 Spacer(Modifier.width(8.dp))
+            } else if (leadingIcon != null) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    tint = textColor,
+                    modifier = Modifier.size(17.dp),
+                )
+                Spacer(Modifier.width(8.dp))
             }
             Text(
                 text,
@@ -817,6 +1025,137 @@ private fun TrackSheetButton(
                 fontWeight = fontWeight,
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 105 (WS-B): THE SIDE BUTTONS — the wheel's empty flanks, filled.
+//  "The current area for selecting the progress or the rating is quite
+//  proper, like it is centered, but the right and left sides are apparently
+//  empty… add a plus or minus buttons… The buttons itself will be adaptable
+//  buttons, like they will adapt based on the available space… They will
+//  adapt their width, and their height will be the same as the normal one."
+//
+//  Both wear the WHEEL'S OWN SHELL (the surfaceVariant wash, the hairline
+//  border, the 18dp corners) so the trio reads as one control; the height is
+//  the wheel's 168dp viewport ("the same as the normal one"); the width is
+//  whatever the Row's weight(1f) leaves beside the centered half-screen
+//  wheel (adaptive by construction).
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * One +/− stepper — the progress ±1 episode, the score ±1.0. [enabled] is
+ * the bound state (the glyph dims and the press dies at the scale's edge);
+ * the press ticks and the draft edit drives the wheel's re-centering.
+ */
+@Composable
+private fun TrackStepperButton(
+    icon: ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)),
+        shape = RoundedCornerShape(18.dp),
+        modifier = modifier
+            .height(TRACK_WHEEL_VIEWPORT_HEIGHT)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxWidth().height(TRACK_WHEEL_VIEWPORT_HEIGHT),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (enabled) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                },
+                modifier = Modifier.size(28.dp),
+            )
+        }
+    }
+}
+
+/**
+ * One status quick-set (LEFT Watching / RIGHT Completed) — "for the status,
+ * it will not show plus or minus buttons, but instead it will show… better
+ * suitable button options there." An icon disc + the label, vertically
+ * centered; [active] wears the wheel's SELECTED-ROW language (the primary
+ * wash + ring + tone) so the pair reads as part of the same control.
+ */
+@Composable
+private fun TrackStatusQuickButton(
+    status: TrackStatus,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val label = status.displayLabel()
+    val icon = when (status) {
+        TrackStatus.WATCHING -> Icons.Filled.PlayArrow
+        else -> Icons.Filled.Check
+    }
+    val tint = if (active) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)),
+        shape = RoundedCornerShape(18.dp),
+        modifier = modifier
+            .height(TRACK_WHEEL_VIEWPORT_HEIGHT)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth().height(TRACK_WHEEL_VIEWPORT_HEIGHT),
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(
+                        if (active) tint.copy(alpha = 0.16f)
+                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+                        CircleShape,
+                    )
+                    .then(
+                        if (active) {
+                            Modifier.border(
+                                1.5.dp,
+                                tint.copy(alpha = 0.55f),
+                                CircleShape,
+                            )
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = tint,
+                    modifier = Modifier.size(21.dp),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 11.5.sp,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                color = tint,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

@@ -98,26 +98,32 @@ fun AppearanceScreen(
                         }
                     }
                     item {
-                        SettingsSectionLabel("Episode List")
-                        // D-554: the row retitles to match the new dedicated page
-                        // (the poster-row parallel: "Notification poster" /
-                        // "Templates + live preview").
+                        // ROUND 105 (WS-C): the section holds BOTH pages' episode
+                        // lists — the plural reads honestly next to the two
+                        // page-named rows below.
+                        SettingsSectionLabel("Episode Lists")
+                        // D-554 → ROUND 105 (WS-C): the row retitled to name
+                        // the PAGE it configures (the v1.1.61 order: "name the
+                        // first one, which is currently named as episode list,
+                        // as details page").
                         SettingsHighlightTarget(anchorId = "episode_list", activeAnchor = highlightAnchor) {
                             MoreListRow(
                                 icon = Icons.Filled.Tune,
-                                title = "Episode list",
-                                subtitle = "Layout, elements, and live preview",
+                                title = "Details page",
+                                subtitle = "The episode list — layouts, elements, live preview",
                                 onClick = onOpenEpisodeSettings,
                             )
                         }
-                        // ROUND 102 (WS-G): the PLAYER page's twin — the same
-                        // dedicated-page experience for the player's episode
-                        // list (the round-101 in-player sheet's replacement).
+                        // ROUND 102 (WS-G) → ROUND 105 (WS-C): the PLAYER page's
+                        // twin, retitled to match ("the bottom one, which is
+                        // currently named as player episode list, as player
+                        // page"); the subtitle no longer claims a "filter"
+                        // (retired in round 104).
                         SettingsHighlightTarget(anchorId = "player_episode_list", activeAnchor = highlightAnchor) {
                             MoreListRow(
                                 icon = Icons.Filled.PlayCircle,
-                                title = "Player episode list",
-                                subtitle = "Row style, filter, and sort for the player",
+                                title = "Player page",
+                                subtitle = "The player's episode list — layouts and elements",
                                 onClick = onOpenPlayerEpisodeSettings,
                             )
                         }
@@ -127,11 +133,16 @@ fun AppearanceScreen(
                         // bottom group — the App Icon row sits directly below
                         // it as the very last item (the user's exact spec:
                         // "at the very bottom, just below the Details page").
+                        // ROUND 105 (WS-C): retitled "Details background" — the
+                        // v1.1.61 rename of the episode-list row to "Details
+                        // page" would have left TWO rows with the same title on
+                        // this screen; the background one takes the precise
+                        // name (its subtitle already says what it is).
                         SettingsSectionLabel("Details")
                         SettingsHighlightTarget(anchorId = "details_page", activeAnchor = highlightAnchor) {
                             MoreListRow(
                                 icon = Icons.Filled.Image,
-                                title = "Details page",
+                                title = "Details background",
                                 subtitle = "Background image, tint, and animation",
                                 onClick = onOpenDetailsPage,
                             )

@@ -1653,7 +1653,7 @@ private fun MinimizedMode(
     // The in-player gear + search are RETIRED (the user's round-102 order:
     // "I don't want you to give the search option there, or even give the
     // settings option there at all"). The customization itself lives in the
-    // dedicated Settings page now (Appearance → "Player episode list") — the
+    // dedicated Settings page now (Appearance → "Player page") — the
     // SAME PlayerEpisodeListPreferences keys, read here exactly as before,
     // so the list stays fully styleable/sortable/filterable — just from the
     // settings surface instead of mid-playback.
@@ -1672,14 +1672,55 @@ private fun MinimizedMode(
     val dimWatched by playerListPrefs.dimWatched.changes.collectAsState(initial = playerListPrefs.dimWatched.get())
     // ROUND 104 (WS-D): the BANNER's controls — the ghost-number toggle +
     // the density knob (both live in the shared display bundle now).
+    // ROUND 105 (WS-D): the density knob re-aimed at the item SIZE + the
+    // number position/style + the progress bar + the GRID's three knobs.
     val showEpisodeNumber by playerListPrefs.showEpisodeNumber.changes.collectAsState(
         initial = playerListPrefs.showEpisodeNumber.get(),
     )
-    val bannerDensity by playerListPrefs.bannerDensity.changes.collectAsState(
-        initial = playerListPrefs.bannerDensity.get(),
+    val showProgressBar by playerListPrefs.showProgressBar.changes.collectAsState(
+        initial = playerListPrefs.showProgressBar.get(),
     )
+    val bannerSize by playerListPrefs.bannerSize.changes.collectAsState(
+        initial = playerListPrefs.bannerSize.get(),
+    )
+    val bannerNumberPositionKey by playerListPrefs.bannerNumberPosition.changes.collectAsState(
+        initial = playerListPrefs.bannerNumberPosition.get(),
+    )
+    val bannerNumberPosition = remember(bannerNumberPositionKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerNumberPosition
+            .fromKey(bannerNumberPositionKey)
+    }
+    val bannerNumberStyleKey by playerListPrefs.bannerNumberStyle.changes.collectAsState(
+        initial = playerListPrefs.bannerNumberStyle.get(),
+    )
+    val bannerNumberStyle = remember(bannerNumberStyleKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerNumberStyle
+            .fromKey(bannerNumberStyleKey)
+    }
+    val gridWatchedCheckmark by playerListPrefs.gridWatchedCheckmark.changes.collectAsState(
+        initial = playerListPrefs.gridWatchedCheckmark.get(),
+    )
+    val gridCurrentStyleKey by playerListPrefs.gridCurrentStyle.changes.collectAsState(
+        initial = playerListPrefs.gridCurrentStyle.get(),
+    )
+    val gridCurrentStyle = remember(gridCurrentStyleKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerGridCurrentStyle
+            .fromKey(gridCurrentStyleKey)
+    }
+    val gridTitles by playerListPrefs.gridTitles.changes.collectAsState(
+        initial = playerListPrefs.gridTitles.get(),
+    )
+    // ROUND 105 (WS-D): the TRACKLIST's column-sizing reference — the LIST's
+    // widest episode number, pre-formatted (the row measures it once and the
+    // number column exactly fits; the digit hugs the left edge).
+    val tracklistReferenceNumber = remember(episodeList) {
+        val maxNumber = episodeList.maxOfOrNull { it.episodeNumber } ?: 0f
+        formatEpisodeNumber(maxNumber)
+    }
     val liveListDisplay = remember(
-        listStyle, showSynopsis, showDatePill, dimWatched, showEpisodeNumber, bannerDensity,
+        listStyle, showSynopsis, showDatePill, dimWatched, showEpisodeNumber,
+        showProgressBar, bannerSize, bannerNumberPosition, bannerNumberStyle,
+        gridWatchedCheckmark, gridCurrentStyle, gridTitles, tracklistReferenceNumber,
     ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = listStyle,
@@ -1687,7 +1728,14 @@ private fun MinimizedMode(
             showDatePill = showDatePill,
             dimWatched = dimWatched,
             showEpisodeNumber = showEpisodeNumber,
-            bannerDensity = bannerDensity,
+            showProgressBar = showProgressBar,
+            bannerSize = bannerSize,
+            bannerNumberPosition = bannerNumberPosition,
+            bannerNumberStyle = bannerNumberStyle,
+            gridWatchedCheckmark = gridWatchedCheckmark,
+            gridCurrentStyle = gridCurrentStyle,
+            gridTitles = gridTitles,
+            tracklistReferenceNumber = tracklistReferenceNumber,
         )
     }
     // ROUND 104 (WS-D): the watched FILTER is RETIRED (the v1.1.60 order:
@@ -2242,7 +2290,7 @@ private fun MinimizedMode(
 
             // ROUND 102 (WS-F): the in-player episode-list settings sheet is
             // RETIRED — the customization moved to the dedicated Settings page
-            // (Appearance → "Player episode list").
+            // (Appearance → "Player page").
 
             // ScrollBlurOverlay — gradient at the top edge of the scrollable content,
             // creating a smooth fade where content meets the player.

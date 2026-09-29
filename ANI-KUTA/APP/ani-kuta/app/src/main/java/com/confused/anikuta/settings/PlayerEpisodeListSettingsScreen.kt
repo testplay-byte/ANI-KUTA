@@ -56,6 +56,8 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.EpisodeTitleParser
+import com.confused.anikuta.settings.search.SettingsHighlightTarget
+import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.datacache.DataCacheRepository
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
@@ -65,7 +67,6 @@ import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisode
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListEntry
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeRowData
-import com.confused.anikuta.core.designsystem.component.playerlist.bannerAspectRatio
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences
 import kotlinx.coroutines.Dispatchers
@@ -127,6 +128,9 @@ fun PlayerEpisodeListSettingsScreen(
     playerListPrefs: PlayerEpisodeListPreferences = koinInject(),
     contentRepository: ContentRepository = koinInject(),
     dataCacheRepository: DataCacheRepository = koinInject(),
+    // ROUND 105 (WS-C): the search-landing anchor (the page joined the
+    // settings search index this round).
+    highlightAnchor: String? = null,
 ) {
     // ── The reactive reads — the SAME prefs both player pages collect. Every
     // write below updates the pref; `changes` re-emits; the preview AND the
@@ -149,24 +153,44 @@ fun PlayerEpisodeListSettingsScreen(
     val showEpisodeNumber by playerListPrefs.showEpisodeNumber.changes.collectAsState(
         initial = playerListPrefs.showEpisodeNumber.get(),
     )
-    val bannerDensity by playerListPrefs.bannerDensity.changes.collectAsState(
-        initial = playerListPrefs.bannerDensity.get(),
+    // ROUND 105 (WS-D): the re-aimed size + the position/style + the progress
+    // bar + the GRID's three knobs.
+    val showProgressBar by playerListPrefs.showProgressBar.changes.collectAsState(
+        initial = playerListPrefs.showProgressBar.get(),
+    )
+    val bannerSize by playerListPrefs.bannerSize.changes.collectAsState(
+        initial = playerListPrefs.bannerSize.get(),
+    )
+    val bannerNumberPositionKey by playerListPrefs.bannerNumberPosition.changes.collectAsState(
+        initial = playerListPrefs.bannerNumberPosition.get(),
+    )
+    val bannerNumberPosition = remember(bannerNumberPositionKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerNumberPosition
+            .fromKey(bannerNumberPositionKey)
+    }
+    val bannerNumberStyleKey by playerListPrefs.bannerNumberStyle.changes.collectAsState(
+        initial = playerListPrefs.bannerNumberStyle.get(),
+    )
+    val bannerNumberStyle = remember(bannerNumberStyleKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerNumberStyle
+            .fromKey(bannerNumberStyleKey)
+    }
+    val gridWatchedCheckmark by playerListPrefs.gridWatchedCheckmark.changes.collectAsState(
+        initial = playerListPrefs.gridWatchedCheckmark.get(),
+    )
+    val gridCurrentStyleKey by playerListPrefs.gridCurrentStyle.changes.collectAsState(
+        initial = playerListPrefs.gridCurrentStyle.get(),
+    )
+    val gridCurrentStyle = remember(gridCurrentStyleKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerGridCurrentStyle
+            .fromKey(gridCurrentStyleKey)
+    }
+    val gridTitles by playerListPrefs.gridTitles.changes.collectAsState(
+        initial = playerListPrefs.gridTitles.get(),
     )
     val sortDescending by playerListPrefs.sortDescending.changes.collectAsState(
         initial = playerListPrefs.sortDescending.get(),
     )
-    val display = remember(
-        style, showSynopsis, showDatePill, dimWatched, showEpisodeNumber, bannerDensity,
-    ) {
-        com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
-            style = style,
-            showSynopsis = showSynopsis,
-            showDatePill = showDatePill,
-            dimWatched = dimWatched,
-            showEpisodeNumber = showEpisodeNumber,
-            bannerDensity = bannerDensity,
-        )
-    }
 
     // ── THE ACTUAL-DATA PREVIEW — the details page's loader, verbatim (demo
     // samples first for the instant paint, then a RANDOM qualifying library
@@ -180,6 +204,35 @@ fun PlayerEpisodeListSettingsScreen(
             runCatching { loadLibraryPreviewItems(contentRepository, dataCacheRepository) }.getOrNull()
         }
         if (loaded != null) previewItems = loaded
+    }
+    // ROUND 105 (WS-D): the preview's TRACKLIST column-sizing reference —
+    // the preview's own widest episode number (the real library set once it
+    // lands; the demo samples until then). Both stacks pass their own list's
+    // widest number the same way.
+    val tracklistReferenceNumber = remember(previewItems) {
+        val maxNumber = previewItems.maxOfOrNull { it.episode.episode_number } ?: 24f
+        EpisodeTitleParser.formatEpisodeNumber(maxNumber)
+    }
+    val display = remember(
+        style, showSynopsis, showDatePill, dimWatched, showEpisodeNumber,
+        showProgressBar, bannerSize, bannerNumberPosition, bannerNumberStyle,
+        gridWatchedCheckmark, gridCurrentStyle, gridTitles, tracklistReferenceNumber,
+    ) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
+            style = style,
+            showSynopsis = showSynopsis,
+            showDatePill = showDatePill,
+            dimWatched = dimWatched,
+            showEpisodeNumber = showEpisodeNumber,
+            showProgressBar = showProgressBar,
+            bannerSize = bannerSize,
+            bannerNumberPosition = bannerNumberPosition,
+            bannerNumberStyle = bannerNumberStyle,
+            gridWatchedCheckmark = gridWatchedCheckmark,
+            gridCurrentStyle = gridCurrentStyle,
+            gridTitles = gridTitles,
+            tracklistReferenceNumber = tracklistReferenceNumber,
+        )
     }
 
     // The preview's slot data — ordered by the LIVE direction; the WATCHED
@@ -207,6 +260,20 @@ fun PlayerEpisodeListSettingsScreen(
     val lazyListState = rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
+    // ROUND 105 (WS-C): the search-landing scroll — the page joined the
+    // settings search index; the anchors map to the options' items.
+    rememberSettingsAnchorScroll(
+        anchor = highlightAnchor,
+        anchorIndexFor = { anchor ->
+            when (anchor) {
+                "player_episode_list", "player_layout" -> 0
+                "player_elements" -> 1
+                "player_sort" -> 2
+                else -> null
+            }
+        },
+        listState = lazyListState,
+    )
 
     // ══════════════════════════════════════════════════════════════════════
     //  ROUND 104 (WS-D): THE D-557/D-558 PRIORITY SCROLL — the details page's
@@ -408,7 +475,9 @@ fun PlayerEpisodeListSettingsScreen(
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(
-                title = "Player episode list",
+                // ROUND 105 (WS-C): retitled to match the Appearance entry
+                // ("the bottom one… as player page").
+                title = "Player page",
                 collapsed = collapsed,
                 onBack = onBack,
             )
@@ -525,41 +594,65 @@ fun PlayerEpisodeListSettingsScreen(
                     ),
                 ) {
                     // ── Layout — THE FOUR PARADIGMS (ROUND 104: the compact
-                    //    slot's replacement is the TRACKLIST) ──
+                    //    slot's replacement is the TRACKLIST). ROUND 105: the
+                    //    card label IS the title (the duplicated inner heading
+                    //    is gone — "the options are not that well formatted"),
+                    //    and a per-style caption speaks the paradigm's shape. ──
                     item {
+                        SettingsHighlightTarget(anchorId = "player_layout", activeAnchor = highlightAnchor) {
+                        SettingsHighlightTarget(anchorId = "player_episode_list", activeAnchor = highlightAnchor) {
                         PlayerListCard(label = "Layout") {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                             ) {
-                                Text(
-                                    text = "Layout",
-                                    fontFamily = RobotoFamily,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Medium,
+                                SegmentedToggle(
+                                    options = listOf("Detailed", "Tracklist", "Grid", "Banner"),
+                                    selectedIndex = style.ordinal,
+                                    onSelect = { idx ->
+                                        playerListPrefs.rowStyle.set(
+                                            PlayerEpisodeListStyle.entries[idx].name,
+                                        )
+                                    },
                                 )
-                                Box(modifier = Modifier.padding(top = 10.dp)) {
-                                    SegmentedToggle(
-                                        options = listOf("Detailed", "Tracklist", "Grid", "Banner"),
-                                        selectedIndex = style.ordinal,
-                                        onSelect = { idx ->
-                                            playerListPrefs.rowStyle.set(
-                                                PlayerEpisodeListStyle.entries[idx].name,
-                                            )
-                                        },
-                                    )
-                                }
+                                Text(
+                                    text = when (style) {
+                                        PlayerEpisodeListStyle.DETAILED ->
+                                            "Thumbnail, pills and a two-line synopsis"
+                                        PlayerEpisodeListStyle.TRACKLIST ->
+                                            "The big number, a spine, and the title"
+                                        PlayerEpisodeListStyle.GRID ->
+                                            "A two-across wall of covers"
+                                        PlayerEpisodeListStyle.BANNER ->
+                                            "Full-width cinematic cover cards"
+                                    },
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 10.dp, start = 2.dp),
+                                )
                             }
+                        }
+                        }
                         }
                     }
 
                     // ── Elements — STYLE-AWARE with the smooth appear/
                     //    disappear ("should properly adjust accordingly and
                     //    should disappear or appear smoothly depending on
-                    //    what's available to edit"). ──
+                    //    what's available to edit"). ROUND 105: every row
+                    //    gained its one-line description ("add small short
+                    //    descriptions to the elements"), the TRACKLIST gained
+                    //    the synopsis + progress knobs, the GRID gained its
+                    //    checkmark/current/titles knobs (the dim retired
+                    //    here), and the BANNER gained the position/style
+                    //    rows (nested under the number toggle) + the re-aimed
+                    //    size slider. ──
                     item {
+                        SettingsHighlightTarget(anchorId = "player_elements", activeAnchor = highlightAnchor) {
                         PlayerListCard(label = "Elements") {
                             Column(
                                 modifier = Modifier
@@ -568,44 +661,154 @@ fun PlayerEpisodeListSettingsScreen(
                                         animationSpec = tween(300, easing = FastOutSlowInEasing),
                                     ),
                             ) {
-                                // Synopsis — DETAILED only.
-                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.DETAILED) {
+                                // ── DETAILED + TRACKLIST: the synopsis
+                                //    (ROUND 105 widens it from DETAILED-only —
+                                //    "there was no option to turn on or show
+                                //    the synopsis… in this area"). ──
+                                AnimatedStyleRow(
+                                    visible = style == PlayerEpisodeListStyle.DETAILED ||
+                                        style == PlayerEpisodeListStyle.TRACKLIST,
+                                ) {
                                     PlayerSwitchRow(
                                         title = "Synopsis",
+                                        description = "The two-line description under the title",
                                         checked = showSynopsis,
                                         onChecked = { playerListPrefs.showSynopsis.set(it) },
                                     )
                                 }
-                                // Date pill — DETAILED, TRACKLIST + BANNER.
+                                // ── The date pill — every style (the GRID's
+                                //    scrim joined ROUND 105; the doc-86 gap). ──
+                                PlayerSwitchRow(
+                                    title = "Date pill",
+                                    description = when (style) {
+                                        PlayerEpisodeListStyle.GRID -> "The date pill on each cell"
+                                        PlayerEpisodeListStyle.BANNER -> "The date pill above the title"
+                                        else -> "The release date pill"
+                                    },
+                                    checked = showDatePill,
+                                    onChecked = { playerListPrefs.showDatePill.set(it) },
+                                )
+                                // ── The progress bar — DETAILED + TRACKLIST
+                                //    (ROUND 105: "I should be given an option
+                                //    there to show or hide the progress bar"). ──
                                 AnimatedStyleRow(
-                                    visible = style != PlayerEpisodeListStyle.GRID,
+                                    visible = style == PlayerEpisodeListStyle.DETAILED ||
+                                        style == PlayerEpisodeListStyle.TRACKLIST,
                                 ) {
                                     PlayerSwitchRow(
-                                        title = "Date pill",
-                                        checked = showDatePill,
-                                        onChecked = { playerListPrefs.showDatePill.set(it) },
+                                        title = "Progress bar",
+                                        description = when (style) {
+                                            PlayerEpisodeListStyle.TRACKLIST ->
+                                                "The thin underline on partially watched rows"
+                                            else ->
+                                                "The thin bar on partially watched rows"
+                                        },
+                                        checked = showProgressBar,
+                                        onChecked = { playerListPrefs.showProgressBar.set(it) },
                                     )
                                 }
-                                // Episode number — BANNER only (ROUND 104).
-                                AnimatedStyleRow(
-                                    visible = style == PlayerEpisodeListStyle.BANNER,
-                                ) {
+                                // ── The GRID's own knobs (ROUND 105 — "in the
+                                //    grid layout there were not much options
+                                //    there at all"). ──
+                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.GRID) {
+                                    PlayerSwitchRow(
+                                        title = "Watched checkmark",
+                                        description = "Grayscale and a check on watched episodes",
+                                        checked = gridWatchedCheckmark,
+                                        onChecked = { playerListPrefs.gridWatchedCheckmark.set(it) },
+                                    )
+                                }
+                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.GRID) {
+                                    PlayerSegmentedRow(
+                                        title = "Currently playing",
+                                        description = "How the playing episode is highlighted",
+                                        options = listOf("Play button", "Themed tint"),
+                                        selectedIndex = if (gridCurrentStyle ==
+                                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerGridCurrentStyle.TINT
+                                        ) 1 else 0,
+                                        onSelect = { idx ->
+                                            playerListPrefs.gridCurrentStyle.set(
+                                                if (idx == 1) "TINT" else "PLAY",
+                                            )
+                                        },
+                                    )
+                                }
+                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.GRID) {
+                                    PlayerSwitchRow(
+                                        title = "Titles",
+                                        description = "The \"EP · title\" strip on each cell",
+                                        checked = gridTitles,
+                                        onChecked = { playerListPrefs.gridTitles.set(it) },
+                                    )
+                                }
+                                // ── Dim watched — DETAILED + TRACKLIST +
+                                //    BANNER (the GRID reads its checkmark
+                                //    instead, above). ──
+                                AnimatedStyleRow(visible = style != PlayerEpisodeListStyle.GRID) {
+                                    PlayerSwitchRow(
+                                        title = "Dim watched episodes",
+                                        description = "Fade and grayscale watched episodes",
+                                        checked = dimWatched,
+                                        onChecked = { playerListPrefs.dimWatched.set(it) },
+                                    )
+                                }
+                                // ── The BANNER's number block (ROUND 105: the
+                                //    toggle + the nested position/style rows). ──
+                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.BANNER) {
                                     PlayerSwitchRow(
                                         title = "Episode number",
+                                        description = "The big number on the banner",
                                         checked = showEpisodeNumber,
                                         onChecked = { playerListPrefs.showEpisodeNumber.set(it) },
                                     )
                                 }
-                                // Dim watched — every style.
-                                PlayerSwitchRow(
-                                    title = "Dim watched episodes",
-                                    checked = dimWatched,
-                                    onChecked = { playerListPrefs.dimWatched.set(it) },
-                                )
-                                // The density slider — BANNER only (ROUND 104):
-                                // "add a density slider too, like I can select
-                                // what the size of them should be easily, and
-                                // it would properly show in live view."
+                                AnimatedStyleRow(
+                                    visible = style == PlayerEpisodeListStyle.BANNER && showEpisodeNumber,
+                                    modifier = Modifier.padding(start = 12.dp),
+                                ) {
+                                    PlayerSegmentedRow(
+                                        title = "Number position",
+                                        description = "Which top corner carries the number",
+                                        options = listOf("Top left", "Top right"),
+                                        selectedIndex = if (bannerNumberPosition ==
+                                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerNumberPosition.TOP_START
+                                        ) 0 else 1,
+                                        onSelect = { idx ->
+                                            playerListPrefs.bannerNumberPosition.set(
+                                                if (idx == 0) "TOP_LEFT" else "TOP_RIGHT",
+                                            )
+                                        },
+                                    )
+                                }
+                                AnimatedStyleRow(
+                                    visible = style == PlayerEpisodeListStyle.BANNER && showEpisodeNumber,
+                                    modifier = Modifier.padding(start = 12.dp),
+                                ) {
+                                    PlayerSegmentedRow(
+                                        title = "Number style",
+                                        description = "Solid themed or frosted glass",
+                                        options = listOf("Frosted", "Solid"),
+                                        selectedIndex = if (bannerNumberStyle ==
+                                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerNumberStyle.SOLID
+                                        ) 1 else 0,
+                                        onSelect = { idx ->
+                                            playerListPrefs.bannerNumberStyle.set(
+                                                if (idx == 1) "SOLID" else "FROSTED",
+                                            )
+                                        },
+                                    )
+                                }
+                                // ── The BANNER's SIZE slider (ROUND 105,
+                                //    re-aimed): "It should not change the
+                                //    height of the banner, but what it should
+                                //    change is the actual size of the whole
+                                //    thumbnail cover image banner itself… If
+                                //    the user has selected it to be smaller,
+                                //    then there will be some padding on the
+                                //    left and right sides and also some
+                                //    padding between each individual episodes
+                                //    themselves." The ends speak the truth
+                                //    now; the live value is the width %. ──
                                 AnimatedStyleRow(
                                     visible = style == PlayerEpisodeListStyle.BANNER,
                                     modifier = Modifier.padding(bottom = 4.dp),
@@ -626,16 +829,25 @@ fun PlayerEpisodeListSettingsScreen(
                                                 modifier = Modifier.weight(1f),
                                             )
                                             Text(
-                                                text = aspectLabel(bannerDensity),
+                                                text = "${(bannerSize.coerceIn(0f, 1f) * 100).toInt()}%",
                                                 fontFamily = RobotoFamily,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = MaterialTheme.colorScheme.primary,
                                             )
                                         }
+                                        Text(
+                                            text = "How wide each banner sits on the page",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 12.sp,
+                                            lineHeight = 16.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(top = 2.dp),
+                                        )
                                         ThinSlider(
-                                            value = bannerDensity,
-                                            onValueChange = { playerListPrefs.bannerDensity.set(it) },
+                                            value = bannerSize,
+                                            onValueChange = { playerListPrefs.bannerSize.set(it) },
                                             valueRange = 0f..1f,
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -647,14 +859,14 @@ fun PlayerEpisodeListSettingsScreen(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                         ) {
                                             Text(
-                                                text = "Flat",
+                                                text = "Small",
                                                 fontFamily = RobotoFamily,
                                                 fontSize = 10.5.sp,
                                                 fontWeight = FontWeight.Medium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                             Text(
-                                                text = "Tall",
+                                                text = "Full",
                                                 fontFamily = RobotoFamily,
                                                 fontSize = 10.5.sp,
                                                 fontWeight = FontWeight.Medium,
@@ -665,37 +877,41 @@ fun PlayerEpisodeListSettingsScreen(
                                 }
                             }
                         }
+                        }
                     }
 
                     // (ROUND 104 (WS-D): THE WATCHED FILTER CARD IS RETIRED —
                     // "Most definitely not needed, and it is apparently
                     // unnecessary… It should be completely removed.")
 
-                    // ── Sort — DIRECTION ONLY ──
+                    // ── Sort — DIRECTION ONLY (ROUND 105: the card label is
+                    //    the title; the description carries the key). ──
                     item {
+                        SettingsHighlightTarget(anchorId = "player_sort", activeAnchor = highlightAnchor) {
                         PlayerListCard(label = "Sort") {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                             ) {
-                                Text(
-                                    text = "Sort episodes",
-                                    fontFamily = RobotoFamily,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Medium,
+                                SegmentedToggle(
+                                    options = listOf("Ascending", "Descending"),
+                                    selectedIndex = if (sortDescending) 1 else 0,
+                                    onSelect = { idx ->
+                                        playerListPrefs.sortDescending.set(idx == 1)
+                                    },
                                 )
-                                Box(modifier = Modifier.padding(top = 10.dp)) {
-                                    SegmentedToggle(
-                                        options = listOf("Ascending", "Descending"),
-                                        selectedIndex = if (sortDescending) 1 else 0,
-                                        onSelect = { idx ->
-                                            playerListPrefs.sortDescending.set(idx == 1)
-                                        },
-                                    )
-                                }
+                                Text(
+                                    text = "The episode number's order",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 10.dp, start = 2.dp),
+                                )
                             }
+                        }
                         }
                     }
                 }
@@ -742,16 +958,9 @@ private fun AnimatedStyleRow(
 /**
  * The density slider's live aspect label — the known cinematic ratios snap to
  * their names (21:9 / 16:9 / 4:3); everything in between renders one decimal.
+ * ROUND 105: RETIRED with the aspect-driven knob (the size slider speaks in
+ * width % inline now).
  */
-private fun aspectLabel(density: Float): String {
-    val aspect = bannerAspectRatio(density)
-    return when {
-        kotlin.math.abs(aspect - 21f / 9f) < 0.06f -> "21:9"
-        kotlin.math.abs(aspect - 16f / 9f) < 0.06f -> "16:9"
-        kotlin.math.abs(aspect - 4f / 3f) < 0.06f -> "4:3"
-        else -> String.format(Locale.US, "%.1f:1", aspect)
-    }
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ROUND 103 (WS-4): the preview's mapping — a REAL library PreviewItem into
@@ -832,12 +1041,18 @@ private fun PlayerListCard(
     }
 }
 
-/** The switch row — title + switch (no descriptions; the live preview is the description). */
+/**
+ * ROUND 105 (WS-D): the switch row GREW its one-line description ("add small
+ * short descriptions to the elements, like for the synopsis, the date pill,
+ * the dim watched episodes, and such") — the details page's
+ * EpisodeListSwitchRow vocabulary.
+ */
 @Composable
 private fun PlayerSwitchRow(
     title: String,
     checked: Boolean,
     onChecked: (Boolean) -> Unit,
+    description: String? = null,
 ) {
     Row(
         modifier = Modifier
@@ -846,11 +1061,69 @@ private fun PlayerSwitchRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (description != null) {
+                Text(
+                    text = description,
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = onChecked)
+    }
+}
+
+/**
+ * ROUND 105 (WS-D): the segmented elements row — the label + description
+ * ABOVE the toggle (the details page's "Number style" pattern, the settings
+ * vocabulary the user already knows).
+ */
+@Composable
+private fun PlayerSegmentedRow(
+    title: String,
+    description: String?,
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
         Text(
             text = title,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Switch(checked = checked, onCheckedChange = onChecked)
+        if (description != null) {
+            Text(
+                text = description,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                lineHeight = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Box(modifier = Modifier.padding(top = 10.dp)) {
+            SegmentedToggle(
+                options = options,
+                selectedIndex = selectedIndex,
+                onSelect = onSelect,
+            )
+        }
     }
 }

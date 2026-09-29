@@ -62,6 +62,9 @@ import com.confused.anikuta.core.share.ShareTargetKind
 //  • THE WIDTH — "it is way too wide, even more wider than it should
 //    actually be": the content column shrinks 300dp → 264dp on BOTH pages
 //    (the main menu + the share submenu — one width, one anchor rhythm).
+//    ROUND 105 (WS-A): the v1.1.61 round approved everything but asked for
+//    "a little bit smaller, like a bit more" — 264dp → 240dp, the last
+//    crimp; every other metric untouched.
 //
 //  • THE COLOR HIERARCHY — "the background color is a bit on the lighter
 //    side, while the actual buttons are on the darker side, which is
@@ -160,7 +163,7 @@ fun DetailsActionMenu(
     ) {
         Column(
             modifier = Modifier
-                .width(264.dp)
+                .width(240.dp)
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
@@ -277,7 +280,7 @@ fun DetailsActionMenu(
     ) {
         Column(
             modifier = Modifier
-                .width(264.dp)
+                .width(240.dp)
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {

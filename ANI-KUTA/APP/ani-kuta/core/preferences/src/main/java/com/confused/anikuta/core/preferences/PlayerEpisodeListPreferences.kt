@@ -14,19 +14,14 @@ package com.confused.anikuta.core.preferences
  * player list favors compactness and quick switching — so each surface keeps
  * its own independent settings, both persisted, both reactive.
  *
- * **Categories (ROUND 104 / D-703):**
+ * **Categories (ROUND 105 / D-707):**
  * 1. **Row appearance** — the FOUR layout paradigms
  *    (DETAILED / TRACKLIST / GRID / BANNER, see [rowStyle]) + the synopsis,
- *    date-pill, banner-number and density knobs within each style's frame.
- *    The round-103 COMPACT ("just trash… completely remove it") is REPLACED
- *    by TRACKLIST — the from-scratch typographic paradigm (the number as the
- *    hero); the lenient migration folds the retired COMPACT/MINIMAL keys
- *    into TRACKLIST (the slot's replacement inherits its users).
- * 2. **Watched treatment** — dim watched rows. THE WATCHED FILTER IS GONE
- *    (the v1.1.60 round: "the option for watch filter as off, show watched
- *    and hide watched is most definitely not good. It should be completely
- *    removed") — the pref, both stacks' filter branches, and the settings
- *    card all retired together.
+ *    date-pill, progress-bar, banner-number/position/style, banner-size,
+ *    grid-checkmark/current/titles knobs within each style's frame.
+ * 2. **Watched treatment** — dim watched rows (DETAILED + TRACKLIST +
+ *    BANNER; the GRID has its own checkmark knob instead — the v1.1.62
+ *    round: "rather than showing the user the dim option here").
  * 3. **Sort** — DIRECTION ONLY (ascending / descending over the episode
  *    number; the round-101 sort modes retired since round 103).
  *
@@ -44,7 +39,7 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
      * different STRUCTURE (the details page's D-555 doctrine, player-scoped;
      * rendered through the ONE shared dispatcher in
      * `:core:designsystem/component/playerlist/PlayerEpisodeListLayouts.kt`
-     * that BOTH player stacks AND the Appearance → "Player episode list"
+     * that BOTH player stacks AND the Appearance → "Player page"
      * live preview call — the D-481 one-source-of-truth):
      *
      * - `"DETAILED"` (default = the look the player list has always been):
@@ -52,15 +47,20 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
      *     ONLY style that keeps the EP tag on the thumbnail (the v1.1.60
      *     round: the tags "should only be kept in the detailed view").
      * - `"TRACKLIST"` (ROUND 104 — replaces COMPACT): the typographic list —
-     *     the episode NUMBER as the hero element, a hairline spine, the
-     *     title + pills to its right; never a thumbnail, never a synopsis.
+     *     the episode NUMBER as the hero element (ROUND 105: exact-fit
+     *     column + 24sp — no dead left padding), a hairline spine, the
+     *     title + pills + an optional two-line synopsis to its right; never
+     *     a thumbnail.
      * - `"GRID"`: the two-across poster wall — full-bleed 16:9 cells; the
      *     episode number rides the bottom scrim's title line (the top-left
-     *     tag is gone); watched = grayscale + check, current = ring + play.
-     * - `"BANNER"`: the full-bleed banner card — the thumbnail AS the card,
-     *     a bottom scrim, an OPTIONAL ghost episode number (see
-     *     [showEpisodeNumber]), overlaid title + chips, a DENSITY-driven
-     *     aspect (see [bannerDensity]).
+     *     tag is gone); watched = the checkmark treatment (see
+     *     [gridWatchedCheckmark]); current = the play disc or the themed
+     *     tint (see [gridCurrentStyle]).
+     * - `"BANNER"`: the banner card — the thumbnail AS the card, a bottom
+     *     scrim, an OPTIONAL big episode number with its position + style
+     *     knobs (see [showEpisodeNumber], [bannerNumberPosition],
+     *     [bannerNumberStyle]), overlaid title + pills, and an item-SIZE
+     *     scale (see [bannerSize]; the aspect is fixed 16:9).
      *
      * LENIENT migration (the D-529 lesson): the retired round-101/103 keys
      * (COMPACT, MINIMAL — the density variations the v1.1.60 round called
@@ -71,42 +71,114 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
         KEY_ROW_STYLE, "DETAILED", StringSerializer,
     )
 
-    /** Show the two-line synopsis under the title (DETAILED only). */
+    /**
+     * Show the two-line synopsis under the title (DETAILED + TRACKLIST —
+     * ROUND 105 widens it from DETAILED-only: "there was no option to turn
+     * on or show the synopsis or turn off the synopsis" in the Tracklist).
+     */
     val showSynopsis = store.preference(
         KEY_SHOW_SYNOPSIS, true, BooleanSerializer,
     )
 
-    /** Show the release-date pill (DETAILED + TRACKLIST + BANNER). */
+    /** Show the release-date pill (DETAILED + TRACKLIST + GRID + BANNER). */
     val showDatePill = store.preference(
         KEY_SHOW_DATE_PILL, true, BooleanSerializer,
     )
 
     /**
-     * Show the BANNER's ghost episode number (the huge translucent numeral,
-     * top-end). ROUND 104 / D-703: "the episode number is not shown
-     * properly, it is not customizable" — now it is a live toggle.
+     * Show the thin watch-progress bar / underline (DETAILED + TRACKLIST) —
+     * ROUND 105: "I should be given an option there to show or hide the
+     * progress bar."
+     */
+    val showProgressBar = store.preference(
+        KEY_SHOW_PROGRESS_BAR, true, BooleanSerializer,
+    )
+
+    /**
+     * Show the BANNER's big episode number (top corner). ROUND 104 / D-703
+     * made it a live toggle; ROUND 105 adds the position + the style knobs.
      */
     val showEpisodeNumber = store.preference(
         KEY_SHOW_EPISODE_NUMBER, true, BooleanSerializer,
     )
 
     /**
-     * The BANNER's density — 0f (flat, 21:9 cinematic strips) … 1f (tall,
-     * 4:3 preview cards); 0.5f ≈ the classic 16:9. ROUND 104 / D-703: "add
-     * a density slider too, like I can select what the size of them should
-     * be easily, and it would properly show in live view."
+     * The BANNER's episode-number corner — "TOP_LEFT" (start) or "TOP_RIGHT"
+     * (end, the default). Lenient parse through the display bundle's
+     * fromKey (unknown values fold to the default).
      */
-    val bannerDensity = store.preference(
-        KEY_BANNER_DENSITY, 0.5f, FloatSerializer,
+    val bannerNumberPosition = store.preference(
+        KEY_BANNER_NUMBER_POSITION, "TOP_RIGHT", StringSerializer,
+    )
+
+    /**
+     * The BANNER's episode-number style — "FROSTED" (the default; the
+     * two-copy blurred-glass text, the details page's CINEMA D-559
+     * treatment) or "SOLID" (the straight themed numeral, D-558).
+     */
+    val bannerNumberStyle = store.preference(
+        KEY_BANNER_NUMBER_STYLE, "FROSTED", StringSerializer,
+    )
+
+    /**
+     * The BANNER's ITEM SIZE — 0f (small: the cards sit at 66% of the row
+     * width, centered, with breathing room between them) … 1f (full-bleed,
+     * the classic look; the DEFAULT). ROUND 105 re-aims the round-104 knob:
+     * "It should not change the height of the banner, but what it should
+     * change is the actual size of the whole thumbnail cover image banner
+     * itself… If the user has selected it to be smaller, then there will be
+     * some padding on the left and right sides and also some padding
+     * between each individual episodes themselves." The aspect is FIXED at
+     * 16:9 now; the old aspect-driven bannerDensity is retired (its stored
+     * semantics are incompatible — the D-529 tombstone lesson).
+     */
+    val bannerSize = store.preference(
+        KEY_BANNER_SIZE, 1f, FloatSerializer,
     )
 
     // ════════════════════════════════════════════════════════════════════════
     //  2. Watched treatment
     // ════════════════════════════════════════════════════════════════════════
 
-    /** Dim watched episodes (the alpha treatment; the player twin of D-554). */
+    /**
+     * Dim watched episodes (DETAILED + TRACKLIST + BANNER — the alpha
+     * treatment; the player twin of D-554). The GRID reads
+     * [gridWatchedCheckmark] instead (ROUND 105: "it should properly give
+     * the user one option, which is to show the checkmark on the watched
+     * episodes or not, rather than showing the user the dim option here").
+     */
     val dimWatched = store.preference(
         KEY_DIM_WATCHED, true, BooleanSerializer,
+    )
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  2b. The GRID's own treatments (ROUND 105 / D-707)
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * The GRID's watched treatment — the grayscale + the centered check
+     * together (default on). Replaces the dim knob on this style.
+     */
+    val gridWatchedCheckmark = store.preference(
+        KEY_GRID_WATCHED_CHECKMARK, true, BooleanSerializer,
+    )
+
+    /**
+     * The GRID's currently-playing treatment — "PLAY" (the default: the
+     * centered play disc, today's look) or "TINT" ("if the user has selected
+     * theme, then the whole thumbnail image will be tinted" — the grayscale
+     * imagery under a themed wash + the ring).
+     */
+    val gridCurrentStyle = store.preference(
+        KEY_GRID_CURRENT_STYLE, "PLAY", StringSerializer,
+    )
+
+    /**
+     * The GRID's title strip — the bottom scrim's "EP N · Title" line
+     * (default on; off = the clean image wall).
+     */
+    val gridTitles = store.preference(
+        KEY_GRID_TITLES, true, BooleanSerializer,
     )
 
     // (ROUND 104 / D-703: the watched FILTER — Off / Show watched / Hide
@@ -131,14 +203,28 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_ROW_STYLE = "pref_player_episode_list_row_style"
         private const val KEY_SHOW_SYNOPSIS = "pref_player_episode_list_show_synopsis"
         private const val KEY_SHOW_DATE_PILL = "pref_player_episode_list_show_date_pill"
+        private const val KEY_SHOW_PROGRESS_BAR = "pref_player_episode_list_show_progress_bar"
         private const val KEY_SHOW_EPISODE_NUMBER =
             "pref_player_episode_list_show_episode_number"
-        private const val KEY_BANNER_DENSITY = "pref_player_episode_list_banner_density"
+        private const val KEY_BANNER_NUMBER_POSITION =
+            "pref_player_episode_list_banner_number_position"
+        private const val KEY_BANNER_NUMBER_STYLE =
+            "pref_player_episode_list_banner_number_style"
+        private const val KEY_BANNER_SIZE = "pref_player_episode_list_banner_size"
+        private const val KEY_GRID_WATCHED_CHECKMARK =
+            "pref_player_episode_list_grid_watched_checkmark"
+        private const val KEY_GRID_CURRENT_STYLE =
+            "pref_player_episode_list_grid_current_style"
+        private const val KEY_GRID_TITLES = "pref_player_episode_list_grid_titles"
         private const val KEY_DIM_WATCHED = "pref_player_episode_list_dim_watched"
-        // Tombstones (no longer read): the round-101 sort mode + the
-        // round-102/103 watched filter.
+        // Tombstones (no longer read): the round-101 sort mode, the
+        // round-102/103 watched filter, and the round-104 aspect-driven
+        // banner density (ROUND 105 re-aimed the knob at the item SIZE —
+        // the old key's stored semantics are incompatible; default 1f
+        // preserves the full-bleed look).
         private const val KEY_SORT_MODE = "pref_player_episode_list_sort_mode"
         private const val KEY_WATCHED_FILTER = "pref_player_episode_list_watched_filter"
+        private const val KEY_BANNER_DENSITY = "pref_player_episode_list_banner_density"
         private const val KEY_SORT_DESCENDING = "pref_player_episode_list_sort_descending"
     }
 }

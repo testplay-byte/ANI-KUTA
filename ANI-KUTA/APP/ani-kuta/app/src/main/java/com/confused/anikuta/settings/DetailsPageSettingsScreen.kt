@@ -71,7 +71,10 @@ fun DetailsPageSettingsScreen(
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(
-                title = "Details page",
+                // ROUND 105 (WS-C): retitled — the episode-list settings row
+                // took the "Details page" name this round, so the background
+                // screen takes the precise one (no two same-titled rows).
+                title = "Details background",
                 collapsed = collapsed,
                 onBack = onBack,
             )

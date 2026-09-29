@@ -148,7 +148,7 @@ internal fun CsWatchPage(
     // ── ROUND 102 (WS-F): the PLAYER episode-list customization's new home ──
     // The in-player gear + search are RETIRED (the user's round-102 order —
     // same as the MPV stack's twin): the customization lives in the dedicated
-    // Settings page now (Appearance → "Player episode list"), the SAME shared
+    // Settings page now (Appearance → "Player page"), the SAME shared
     // PlayerEpisodeListPreferences driving both player pages.
     val playerListPrefs = koinInject<com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences>()
     // ROUND 103 (WS-4): the raw key resolves through the lenient lookup; the
@@ -163,15 +163,59 @@ internal fun CsWatchPage(
     val csDimWatched by playerListPrefs.dimWatched.changes.collectAsState(initial = playerListPrefs.dimWatched.get())
     // ROUND 104 (WS-D): the BANNER's controls — the ghost-number toggle +
     // the density knob (both live in the shared display bundle now).
+    // ROUND 105 (WS-D): the density knob re-aimed at the item SIZE + the
+    // number position/style + the progress bar + the GRID's three knobs.
     val csShowEpisodeNumber by playerListPrefs.showEpisodeNumber.changes.collectAsState(
         initial = playerListPrefs.showEpisodeNumber.get(),
     )
-    val csBannerDensity by playerListPrefs.bannerDensity.changes.collectAsState(
-        initial = playerListPrefs.bannerDensity.get(),
+    val csShowProgressBar by playerListPrefs.showProgressBar.changes.collectAsState(
+        initial = playerListPrefs.showProgressBar.get(),
     )
+    val csBannerSize by playerListPrefs.bannerSize.changes.collectAsState(
+        initial = playerListPrefs.bannerSize.get(),
+    )
+    val csBannerNumberPositionKey by playerListPrefs.bannerNumberPosition.changes.collectAsState(
+        initial = playerListPrefs.bannerNumberPosition.get(),
+    )
+    val csBannerNumberPosition = remember(csBannerNumberPositionKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerNumberPosition
+            .fromKey(csBannerNumberPositionKey)
+    }
+    val csBannerNumberStyleKey by playerListPrefs.bannerNumberStyle.changes.collectAsState(
+        initial = playerListPrefs.bannerNumberStyle.get(),
+    )
+    val csBannerNumberStyle = remember(csBannerNumberStyleKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerNumberStyle
+            .fromKey(csBannerNumberStyleKey)
+    }
+    val csGridWatchedCheckmark by playerListPrefs.gridWatchedCheckmark.changes.collectAsState(
+        initial = playerListPrefs.gridWatchedCheckmark.get(),
+    )
+    val csGridCurrentStyleKey by playerListPrefs.gridCurrentStyle.changes.collectAsState(
+        initial = playerListPrefs.gridCurrentStyle.get(),
+    )
+    val csGridCurrentStyle = remember(csGridCurrentStyleKey) {
+        com.confused.anikuta.core.designsystem.component.playerlist.PlayerGridCurrentStyle
+            .fromKey(csGridCurrentStyleKey)
+    }
+    val csGridTitles by playerListPrefs.gridTitles.changes.collectAsState(
+        initial = playerListPrefs.gridTitles.get(),
+    )
+    // ROUND 105 (WS-D): the TRACKLIST's column-sizing reference — the LIST's
+    // widest DISPLAY number (the per-flavor ordinal where present, the raw
+    // number otherwise), pre-formatted the same way toRowData formats it.
+    val csTracklistReferenceNumber = remember(uiState.episodes, flavorOrdinals) {
+        val maxDisplay = uiState.episodes.maxOfOrNull { ep ->
+            flavorOrdinals[ep.data]?.toFloat() ?: ep.episodeNumber
+        } ?: 0f
+        com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(maxDisplay)
+    }
     val csListDisplay = remember(
         csListStyle, csShowSynopsis, csShowDatePill, csDimWatched,
-        csShowEpisodeNumber, csBannerDensity,
+        csShowEpisodeNumber, csShowProgressBar, csBannerSize,
+        csBannerNumberPosition, csBannerNumberStyle,
+        csGridWatchedCheckmark, csGridCurrentStyle, csGridTitles,
+        csTracklistReferenceNumber,
     ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = csListStyle,
@@ -179,7 +223,14 @@ internal fun CsWatchPage(
             showDatePill = csShowDatePill,
             dimWatched = csDimWatched,
             showEpisodeNumber = csShowEpisodeNumber,
-            bannerDensity = csBannerDensity,
+            showProgressBar = csShowProgressBar,
+            bannerSize = csBannerSize,
+            bannerNumberPosition = csBannerNumberPosition,
+            bannerNumberStyle = csBannerNumberStyle,
+            gridWatchedCheckmark = csGridWatchedCheckmark,
+            gridCurrentStyle = csGridCurrentStyle,
+            gridTitles = csGridTitles,
+            tracklistReferenceNumber = csTracklistReferenceNumber,
         )
     }
     // ROUND 104 (WS-D): the watched FILTER is RETIRED (the v1.1.60 order —
@@ -613,7 +664,7 @@ internal fun CsWatchPage(
 
             // ROUND 102 (WS-F): the in-player episode-list settings sheet is
             // RETIRED — the customization moved to the dedicated Settings page
-            // (Appearance → "Player episode list"; the shared
+            // (Appearance → "Player page"; the shared
             // PlayerEpisodeListPreferences drive BOTH player stacks).
 
             // ScrollBlurOverlay — the gradient where content meets the player

@@ -186,11 +186,12 @@ object SettingsSearchIndex {
             ),
         )
 
-        // ── Appearance → Episode list (the live-preview page) ───────────
+        // ── Appearance → Details page (the episode-list live-preview page;
+        //    ROUND 105 (WS-C): retitled with its row) ────────────────────
         add(
             SettingsSearchEntry(
                 id = "episodelist.page",
-                title = "Episode list",
+                title = "Details page",
                 page = SettingsSearchPage.EPISODE_LIST,
                 anchor = "episode_list",
                 // D-559: the episode list RENDERS episode thumbnails, so the
@@ -301,11 +302,56 @@ object SettingsSearchIndex {
             ),
         )
 
-        // ── Appearance → Details page ────────────────────────────────────
+        // ── Appearance → Player page (ROUND 105 (WS-C): the page joins the
+        //    index — the round-102 gap; retitled with its row) ────────────
+        add(
+            SettingsSearchEntry(
+                id = "playerepisodelist.page",
+                title = "Player page",
+                page = SettingsSearchPage.PLAYER_EPISODE_LIST,
+                anchor = "player_episode_list",
+                keywords = listOf("player", "episode", "episodes", "list", "layout",
+                    "row", "preview", "live preview", "appearance", "style", "grid",
+                    "banner", "tracklist", "detailed", "watch"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "playerepisodelist.layout",
+                title = "Layout",
+                page = SettingsSearchPage.PLAYER_EPISODE_LIST,
+                anchor = "player_layout",
+                keywords = listOf("layout", "detailed", "tracklist", "grid", "banner",
+                    "style", "view", "design", "episode", "player"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "playerepisodelist.elements",
+                title = "Elements",
+                page = SettingsSearchPage.PLAYER_EPISODE_LIST,
+                anchor = "player_elements",
+                keywords = listOf("synopsis", "date", "pill", "dim", "watched",
+                    "checkmark", "progress", "number", "size", "elements", "player"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "playerepisodelist.sort",
+                title = "Sort",
+                page = SettingsSearchPage.PLAYER_EPISODE_LIST,
+                anchor = "player_sort",
+                keywords = listOf("sort", "ascending", "descending", "order",
+                    "episode", "player"),
+            ),
+        )
+
+        // ── Appearance → Details background (ROUND 105 (WS-C): retitled —
+        //    the episode-list page took the "Details page" name) ──────────
         add(
             SettingsSearchEntry(
                 id = "detailspage.page",
-                title = "Details page",
+                title = "Details background",
                 page = SettingsSearchPage.DETAILS_PAGE,
                 anchor = "details_page",
                 keywords = listOf("details", "background", "banner", "anime page"),

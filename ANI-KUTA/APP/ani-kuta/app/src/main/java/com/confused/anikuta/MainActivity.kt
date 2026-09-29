@@ -371,7 +371,7 @@ object DetailsPageSettingsKey : NavKey
 object EpisodeSettingsKey : NavKey
 
 // ROUND 102 (WS-G): the PLAYER page's episode-list customization page
-// (Settings → Appearance → "Player episode list") — the details page's
+// (Settings → Appearance → "Player page") — the details page's
 // EpisodeSettingsKey twin, backed by the shared PlayerEpisodeListPreferences.
 @Serializable
 object PlayerEpisodeSettingsKey : NavKey
@@ -1505,6 +1505,12 @@ fun AppRoot() {
                             backstack.add(AppearanceKey)
                             backstack.add(EpisodeSettingsKey)
                         }
+                        // ROUND 105 (WS-C): the player page joins the search
+                        // routing (the round-102 gap, closed with its rename).
+                        SettingsSearchPage.PLAYER_EPISODE_LIST -> {
+                            backstack.add(AppearanceKey)
+                            backstack.add(PlayerEpisodeSettingsKey)
+                        }
                         SettingsSearchPage.DETAILS_PAGE -> {
                             backstack.add(AppearanceKey)
                             backstack.add(DetailsPageSettingsKey)
@@ -1791,6 +1797,11 @@ fun AppRoot() {
             // stacks.
             is PlayerEpisodeSettingsKey -> PlayerEpisodeListSettingsScreen(
                 onBack = pop,
+                // ROUND 105 (WS-C): the search-landing anchor (the page
+                // joined the index this round).
+                highlightAnchor = remember {
+                    SettingsSearchNavigator.takeAnchor(SettingsSearchPage.PLAYER_EPISODE_LIST)
+                },
             )
             is PlayerSettingsKey -> PlayerSettingsScreen(
                 onBack = pop,

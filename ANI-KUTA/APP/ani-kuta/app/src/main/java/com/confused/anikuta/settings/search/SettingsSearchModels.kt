@@ -30,8 +30,14 @@ enum class SettingsSearchPage(
     SETTINGS("Settings", "Settings"),
     APPEARANCE("Appearance", "Settings → Appearance"),
     APPEARANCE_GENERAL("General", "Settings → Appearance → General"),
-    EPISODE_LIST("Episode list", "Settings → Appearance → Episode list"),
-    DETAILS_PAGE("Details page", "Settings → Appearance → Details page"),
+    // ROUND 105 (WS-C): the display titles follow the Appearance rows'
+    // renames — the enum NAMES and anchors stay (zero churn, the D-554
+    // ids are internal). "Episode list" → "Details page"; the background
+    // screen takes "Details background" (no two same-titled rows); the
+    // player page joins the index (the round-102 gap).
+    EPISODE_LIST("Details page", "Settings → Appearance → Details page"),
+    DETAILS_PAGE("Details background", "Settings → Appearance → Details background"),
+    PLAYER_EPISODE_LIST("Player page", "Settings → Appearance → Player page"),
     APP_ICON("App Icon", "Settings → Appearance → App Icon"),
     EXTENSIONS("Extensions", "Settings → Extensions"),
     AUTO_LINK("Auto-Link", "Settings → Auto-Link"),
