@@ -227,3 +227,16 @@ applied: the "Hard Sub" edge, the five-places consolidation note.
 7. Font-scale spot-check: at a larger system font scale the DETAILED rows
    grow gracefully (the thumbnail top-anchors; the title/pills stack
    never clips).
+
+## 8. The release record (the D-565 loop)
+
+Released **v1.1.64 / 10164**: `release/1.1.64` cut from the green
+mainline head 7d004e18 (Build APK run 36664738397 GREEN FIRST-TRY on
+40da8f66; the ledger commit is docs-only); the bump (10120→10164,
+1.1.20→1.1.64) rode the branch per D-430; the annotated tag `v1.1.64`
+carries the honest bullet body (D-466); **Release APK run 36665616572
+GREEN FIRST-TRY → v1.1.64 LIVE** (published 2026-09-30T03:46:58Z,
+stable latest, arm64-v8a debug APK 60.6 MB + SHA256SUMS.txt — verified
+via the API: the tag, the latest flag, the assets). The mainline twin
+(the docs-only mirror, no version bump per D-430) lands immediately
+after this record. Awaiting the user's device round (checklist §7).
