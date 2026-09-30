@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -125,6 +126,29 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 //  preview shows is what the player draws. The stacks keep their own
 //  identity/progress/ordinal logic and map it into [PlayerEpisodeRowData];
 //  this file renders and nothing else.
+//
+//  ROUND 107 (D-712): THE ROBUST LAYOUT RULES — the detailed layout's
+//  line-breaking contract + the simplified tag model (doc 89):
+//
+//  • THE LINE-BREAKING RULES — the DETAILED + GRID titles wrap to TWO
+//    lines (ellipsis past the second); the TRACKLIST keeps its one-line
+//    compact identity; the BANNER's scrim name keeps one line; synopses
+//    run two lines; the pills WRAP (the round-106 "tags are data"
+//    contract stands); and NUMBERS NEVER BREAK — the EP tag, the fallback
+//    tiles (which now GROW via defaultMinSize instead of wrapping
+//    mid-number), the TRACKLIST hero's exact-fit column, the big BANNER
+//    numeral. A 2-line title + a 1-line pill row (65dp) still fits the
+//    68dp thumbnail → the DETAILED row's height stays STABLE through the
+//    common wrap cases.
+//
+//  • THE TAG MODEL — [buildRowTags] is the ONE builder for every layout's
+//    metadata pills (it replaced the four ad-hoc buildLists that
+//    concatenated the labels RAW): deduped case-insensitively (a CS "Sub"
+//    scanlator + a "SUB" flavor is ONE pill), normalized to the canonical
+//    SUB/DUB/HSUB vocabulary (a containing label like "Kitauji Subs"
+//    yields its token — the MPV parse's semantics, shared by the CS path
+//    now), ordered date → SUB → DUB → HSUB → others (first-seen, original
+//    casing), and NEVER CLIPPED.
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -385,6 +409,66 @@ fun bannerVerticalPadding(size: Float): Dp {
     return (4f + (1f - t) * 6f).dp
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 107 (WS-2): THE TAG MODEL — ONE builder for every layout's
+//  metadata pills ("simplifying the tags"). It replaced the four ad-hoc
+//  buildLists that concatenated audioLabels + subDubLabel + flavorLabels
+//  RAW: a CS row whose scanlator said "Sub" while its flavors said "SUB"
+//  rendered the SAME fact twice, in different casing, in no guaranteed
+//  order. The rules (doc 89 §2):
+//    R-T1 DEDUPE — case-insensitive; one fact, one pill.
+//    R-T2 NORMALIZE — the SUB/DUB/HSUB vocabulary renders canonically;
+//      a label that CONTAINS a token ("Kitauji Subs") yields that token
+//      (the MPV parse's semantics, shared by the CS scanlator path now).
+//    R-T3 ORDER — the date leads, then SUB → DUB → HSUB, then the other
+//      labels (first-seen, original casing — no data loss).
+//    R-T4 NEVER CLIPPED — the builder returns every tag; the FlowRows
+//      wrap (the round-106 contract stands).
+// ════════════════════════════════════════════════════════════════════════════
+
+/** The canonical audio-tag order (the R-T3 sequence). */
+private val AUDIO_TOKEN_ORDER = listOf("SUB", "DUB", "HSUB")
+
+/**
+ * The row's metadata pills under the tag model. [dateText] is the
+ * ALREADY-KNOB-GATED date (null = hidden); [showAudio] gates the audio
+ * vocabulary AND the other labels (the shared audio-pills knob — a row
+ * with the knob off shows the date alone, never a stranded provider
+ * label).
+ */
+private fun buildRowTags(
+    dateText: String?,
+    showAudio: Boolean,
+    audioLabels: List<String>,
+    subDubLabel: String?,
+    flavorLabels: List<String>,
+): List<String> {
+    if (!showAudio) return listOfNotNull(dateText)
+    val audio = mutableSetOf<String>()
+    val others = LinkedHashMap<String, String>()
+    fun classify(raw: String) {
+        val label = raw.trim()
+        if (label.isEmpty()) return
+        val upper = label.uppercase()
+        when {
+            // HSUB/HARDSUB first — "HSUB" also contains "SUB" (the MPV
+            // parse's precedence, preserved).
+            upper.contains("HSUB") || upper.contains("HARDSUB") -> audio += "HSUB"
+            upper.contains("SUB") -> audio += "SUB"
+            upper.contains("DUB") -> audio += "DUB"
+            else -> others.getOrPut(upper) { label }
+        }
+    }
+    audioLabels.forEach { label -> classify(label) }
+    subDubLabel?.let { label -> classify(label) }
+    flavorLabels.forEach { label -> classify(label) }
+    return buildList {
+        if (dateText != null) add(dateText)
+        AUDIO_TOKEN_ORDER.forEach { token -> if (token in audio) add(token) }
+        others.values.forEach { label -> add(label) }
+    }
+}
+
 /**
  * THE DISPATCHER — one episode entry in whichever of the four paradigms
  * [display.style] selects. Row styles (DETAILED/TRACKLIST) and the BANNER
@@ -583,6 +667,13 @@ private fun BoxScope.ArrivalPulseOverlay(pulseAlpha: Float, shape: androidx.comp
 //  DETAILED — the player row (the look the player list has always been):
 //  thumbnail + the ONLY surviving EP tag + title + pills + synopsis. The
 //  watched dim is the REAL one now (whole-card alpha + grayscale thumbnail).
+//
+//  ROUND 107 (WS-1): THE ROBUST RULES — the title wraps to TWO lines
+//  (ellipsis past the second; a 2-line title + 1-line pills still fits
+//  the 68dp thumbnail, so the row's height stays stable), the pills come
+//  from the shared TAG MODEL, the EP tag slims, the fallback number tile
+//  GROWS instead of wrapping mid-number, and the synopsis's dead Row
+//  wrapper (the retired download hint's skeleton) is gone.
 // ════════════════════════════════════════════════════════════════════════════
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -603,20 +694,18 @@ private fun PlayerEpisodeRow(
     val grayscale = dimmed
     val description = if (!display.showSynopsis) null else data.synopsis
     val dateText = if (display.showDatePill) data.dateText else null
-    // ROUND 106 (WS-D): the audio pills respect their own knob now, and the
-    // old inert download HINT glyph is RETIRED (the real badge below
-    // replaces it — a glyph that looks like a button but does nothing was
-    // the lie the round-104 review flagged).
-    val audioPills = if (display.showAudioPills) {
-        buildList {
-            addAll(data.audioLabels)
-            if (data.subDubLabel != null) add(data.subDubLabel)
-            addAll(data.flavorLabels)
-        }
-    } else {
-        emptyList()
-    }
-    val pillsVisible = dateText != null || audioPills.isNotEmpty()
+    // ROUND 107 (WS-2): the pills come from the shared TAG MODEL now —
+    // deduped, normalized, ordered (the round-106 audio knob is honored
+    // INSIDE the builder; the old inert download HINT glyph stays retired
+    // — the real badge below replaced it).
+    val pills = buildRowTags(
+        dateText = dateText,
+        showAudio = display.showAudioPills,
+        audioLabels = data.audioLabels,
+        subDubLabel = data.subDubLabel,
+        flavorLabels = data.flavorLabels,
+    )
+    val pillsVisible = pills.isNotEmpty()
     // ROUND 106 (WS-D): THE DOWNLOAD BADGE — the toggle + the row's state +
     // the wired actions together decide it.
     val showDownloadBadge = display.showDownloadButton &&
@@ -664,19 +753,22 @@ private fun PlayerEpisodeRow(
                                     )
                                 } else null,
                             )
+                            // ── ROUND 107 (WS-1): the EP tag, slimmed —
+                            //    10sp / 5-2dp padding / corner 5dp; the
+                            //    identity anchor stays, the weight drops. ──
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
+                                shape = RoundedCornerShape(5.dp),
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
                             ) {
                                 Text(
                                     text = "EP ${data.episodeNumberText}",
                                     fontFamily = RobotoFamily,
-                                    fontSize = 11.sp,
-                                    lineHeight = 14.sp,
+                                    fontSize = 10.sp,
+                                    lineHeight = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                                     maxLines = 1,
                                     softWrap = false,
                                 )
@@ -684,12 +776,19 @@ private fun PlayerEpisodeRow(
                         }
                         Spacer(Modifier.width(10.dp))
                     } else {
-                        // The number box (the thumbnail-less fallback tile).
+                        // ── ROUND 107 (WS-1): the number box (the
+                        //    thumbnail-less fallback tile) now GROWS for
+                        //    wide numbers (defaultMinSize) instead of
+                        //    soft-wrapping mid-number — numbers never
+                        //    break. ──
                         Surface(
                             color = if (isCurrent) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.surfaceVariant,
                             shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.size(width = 44.dp, height = 32.dp),
+                            modifier = Modifier.defaultMinSize(
+                                minWidth = 44.dp,
+                                minHeight = 32.dp,
+                            ),
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(
@@ -699,6 +798,8 @@ private fun PlayerEpisodeRow(
                                     fontWeight = FontWeight.ExtraBold,
                                     color = if (isCurrent) MaterialTheme.colorScheme.onPrimary
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    softWrap = false,
                                 )
                             }
                         }
@@ -718,9 +819,16 @@ private fun PlayerEpisodeRow(
                                 text = data.displayTitle,
                                 fontFamily = RobotoFamily,
                                 fontSize = 14.sp,
+                                lineHeight = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
+                                // ── ROUND 107 (WS-1): THE TITLE WRAPS to
+                                //    two lines (ellipsis past the second) —
+                                //    long titles stop hard-cutting at one
+                                //    line; two lines + one pill row still
+                                //    fit the 68dp thumbnail, so the row
+                                //    stays stable. ──
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             )
@@ -730,15 +838,13 @@ private fun PlayerEpisodeRow(
                             // ROUND 106 (WS-D): the pills WRAP — the tags are
                             // data, never clipped ("all the tags are
                             // considered properly and handled properly").
+                            // ROUND 107: the shared TAG MODEL feeds them.
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                if (dateText != null) {
-                                    Pill(dateText)
-                                }
-                                audioPills.forEach { label -> Pill(label) }
+                                pills.forEach { label -> Pill(label) }
                             }
                         }
                     }
@@ -754,31 +860,27 @@ private fun PlayerEpisodeRow(
                         )
                     }
                 }
-                // ── Synopsis + the download hint at its end ──
+                // ── Synopsis — the retired download hint's dead Row
+                //    wrapper is GONE (ROUND 107); the plate stands alone,
+                //    two lines + ellipsis. ──
                 if (!description.isNullOrBlank()) {
                     Spacer(Modifier.height(8.dp))
-                    Row(
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Bottom,
                     ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(
-                                text = description,
-                                fontFamily = RobotoFamily,
-                                fontSize = 12.sp,
-                                lineHeight = 15.sp,
-                                fontWeight = FontWeight.Normal,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                            )
-                        }
-
+                        Text(
+                            text = description,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            lineHeight = 15.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        )
                     }
                 }
                 // ── The thin watch-progress bar — partial watches only (fully
@@ -846,15 +948,15 @@ private fun PlayerTracklistRow(
         else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
     }
     val dateText = if (display.showDatePill) data.dateText else null
-    // ROUND 106 (WS-D): the audio pills respect their own knob.
-    val pills = buildList {
-        if (dateText != null) add(dateText)
-        if (display.showAudioPills) {
-            addAll(data.audioLabels)
-            if (data.subDubLabel != null) add(data.subDubLabel)
-            addAll(data.flavorLabels)
-        }
-    }
+    // ROUND 107 (WS-2): the shared TAG MODEL (deduped, normalized,
+    // ordered — the knobs honored inside the builder).
+    val pills = buildRowTags(
+        dateText = dateText,
+        showAudio = display.showAudioPills,
+        audioLabels = data.audioLabels,
+        subDubLabel = data.subDubLabel,
+        flavorLabels = data.flavorLabels,
+    )
     // ROUND 105: the optional synopsis ("there was no option to turn on or
     // show the synopsis or turn off the synopsis. So I need a toggle… in
     // this area") — the same knob the DETAILED row reads.
@@ -1023,11 +1125,14 @@ private fun PlayerTracklistRow(
     }
 }
 
-/** One quiet outline pill (the row's date/audio vocabulary). */
+/** One quiet outline pill (the row's date/audio vocabulary). ROUND 107:
+ *  tightened — 7dp side padding + corner 5dp (the simplified-tag rhythm;
+ *  the solid fill stays: the BANNER's pills sit on a dark scrim where
+ *  translucent fills lose text contrast). */
 @Composable
 private fun Pill(text: String) {
     Surface(
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(5.dp),
         color = MaterialTheme.colorScheme.outlineVariant,
     ) {
         Text(
@@ -1037,7 +1142,7 @@ private fun Pill(text: String) {
             lineHeight = 14.sp,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
             maxLines = 1,
             softWrap = false,
         )
@@ -1185,15 +1290,15 @@ private fun PlayerEpisodeGridCell(
     val watchedGray = data.isWatched && display.gridWatchedCheckmark && !isCurrent
     val currentTinted = isCurrent && display.gridCurrentStyle == PlayerGridCurrentStyle.TINT
     val grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
-    // ROUND 106 (WS-D): the audio pills respect their own knob.
-    val pills = buildList {
-        if (display.showDatePill && data.dateText != null) add(data.dateText)
-        if (display.showAudioPills) {
-            addAll(data.audioLabels)
-            if (data.subDubLabel != null) add(data.subDubLabel)
-            addAll(data.flavorLabels)
-        }
-    }
+    // ROUND 107 (WS-2): the shared TAG MODEL (deduped, normalized,
+    // ordered — the knobs honored inside the builder).
+    val pills = buildRowTags(
+        dateText = if (display.showDatePill) data.dateText else null,
+        showAudio = display.showAudioPills,
+        audioLabels = data.audioLabels,
+        subDubLabel = data.subDubLabel,
+        flavorLabels = data.flavorLabels,
+    )
 
     // ── ROUND 106 (WS-D): THE REWORK — "I am not satisfied with the grid UI
     //    at all. Like the things are not managed properly. Like the date
@@ -1245,7 +1350,8 @@ private fun PlayerEpisodeGridCell(
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                // No thumbnail — the centered number tile keeps the cell honest.
+                // No thumbnail — the centered number tile keeps the cell
+                // honest (ROUND 107: numbers never break).
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         text = data.episodeNumberText,
@@ -1253,6 +1359,8 @@ private fun PlayerEpisodeGridCell(
                         fontSize = 26.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false,
                     )
                 }
             }
@@ -1473,6 +1581,9 @@ private fun PlayerEpisodeBannerCard(
                     fontSize = 30.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // ROUND 107: numbers never break.
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
         }
@@ -1623,14 +1734,15 @@ private fun PlayerEpisodeBannerCard(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                val chips = buildList {
-                    if (display.showDatePill && data.dateText != null) add(data.dateText)
-                    if (display.showAudioPills) {
-                        addAll(data.audioLabels)
-                        if (data.subDubLabel != null) add(data.subDubLabel)
-                        addAll(data.flavorLabels)
-                    }
-                }
+                // ROUND 107 (WS-2): the chips come from the shared TAG
+                // MODEL (deduped, normalized, ordered).
+                val chips = buildRowTags(
+                    dateText = if (display.showDatePill) data.dateText else null,
+                    showAudio = display.showAudioPills,
+                    audioLabels = data.audioLabels,
+                    subDubLabel = data.subDubLabel,
+                    flavorLabels = data.flavorLabels,
+                )
                 // SA2-F4: the watched CHECK rides the chips flow's head —
                 // the old top-start chip collided with the download badge
                 // (and, pre-existing, with a top-start number); in the flow
