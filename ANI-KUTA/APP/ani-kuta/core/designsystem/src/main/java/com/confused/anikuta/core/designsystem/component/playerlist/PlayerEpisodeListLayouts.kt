@@ -134,12 +134,14 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 //    lines (ellipsis past the second); the TRACKLIST keeps its one-line
 //    compact identity; the BANNER's scrim name keeps one line; synopses
 //    run two lines; the pills WRAP (the round-106 "tags are data"
-//    contract stands); and NUMBERS NEVER BREAK — the EP tag, the fallback
-//    tiles (which now GROW via defaultMinSize instead of wrapping
-//    mid-number), the TRACKLIST hero's exact-fit column, the big BANNER
-//    numeral. A 2-line title + a 1-line pill row (65dp) still fits the
-//    68dp thumbnail → the DETAILED row's height stays STABLE through the
-//    common wrap cases.
+//    contract stands); and NUMBERS NEVER BREAK — the EP tag, the DETAILED
+//    fallback tile (which GROWS via defaultMinSize instead of wrapping
+//    mid-number; GRID/BANNER carry the never-break guard), the TRACKLIST
+//    hero's exact-fit column, the big BANNER numeral. A 2-line title + a
+//    1-line pill row stacks to EXACTLY the 68dp thumbnail at 1× font
+//    scale → the DETAILED row's height stays stable through the common
+//    wrap cases (larger font scales grow the row gracefully — the
+//    thumbnail top-anchors, nothing clips).
 //
 //  • THE TAG MODEL — [buildRowTags] is the ONE builder for every layout's
 //    metadata pills (it replaced the four ad-hoc buildLists that
@@ -431,9 +433,9 @@ private val AUDIO_TOKEN_ORDER = listOf("SUB", "DUB", "HSUB")
 
 /**
  * The row's metadata pills under the tag model. [dateText] is the
- * ALREADY-KNOB-GATED date (null = hidden); [showAudio] gates the audio
- * vocabulary AND the other labels (the shared audio-pills knob — a row
- * with the knob off shows the date alone, never a stranded provider
+ * ALREADY-KNOB-GATED date (null or blank = hidden); [showAudio] gates the
+ * audio vocabulary AND the other labels (the shared audio-pills knob — a
+ * row with the knob off shows the date alone, never a stranded provider
  * label).
  */
 private fun buildRowTags(
@@ -443,27 +445,34 @@ private fun buildRowTags(
     subDubLabel: String?,
     flavorLabels: List<String>,
 ): List<String> {
-    if (!showAudio) return listOfNotNull(dateText)
+    // SA1-F4 (round-107 audit): a blank date renders no pill — the same
+    // guard the labels get (the render-only contract stays robust against
+    // any caller).
+    val date = dateText?.takeIf { it.isNotBlank() }
+    if (!showAudio) return listOfNotNull(date)
     val audio = mutableSetOf<String>()
     val others = LinkedHashMap<String, String>()
     fun classify(raw: String) {
         val label = raw.trim()
         if (label.isEmpty()) return
         val upper = label.uppercase()
-        when {
-            // HSUB/HARDSUB first — "HSUB" also contains "SUB" (the MPV
-            // parse's precedence, preserved).
-            upper.contains("HSUB") || upper.contains("HARDSUB") -> audio += "HSUB"
-            upper.contains("SUB") -> audio += "SUB"
-            upper.contains("DUB") -> audio += "DUB"
-            else -> others.getOrPut(upper) { label }
-        }
+        // SA2-F1 (round-107 audit): the MPV parse's EXACT token semantics
+        // (WatchScreen's parseAudioAvailability) — HSUB/HARDSUB wins; SUB
+        // and DUB collect INDEPENDENTLY, so a merged label like "Sub/Dub"
+        // yields BOTH tokens, exactly as the MPV haystack parse would.
+        val hsub = upper.contains("HSUB") || upper.contains("HARDSUB")
+        val sub = upper.contains("SUB") && !hsub
+        val dub = upper.contains("DUB") && !hsub
+        if (hsub) audio += "HSUB"
+        if (sub) audio += "SUB"
+        if (dub) audio += "DUB"
+        if (!hsub && !sub && !dub) others.getOrPut(upper) { label }
     }
     audioLabels.forEach { label -> classify(label) }
     subDubLabel?.let { label -> classify(label) }
     flavorLabels.forEach { label -> classify(label) }
     return buildList {
-        if (dateText != null) add(dateText)
+        if (date != null) add(date)
         AUDIO_TOKEN_ORDER.forEach { token -> if (token in audio) add(token) }
         others.values.forEach { label -> add(label) }
     }
@@ -669,11 +678,12 @@ private fun BoxScope.ArrivalPulseOverlay(pulseAlpha: Float, shape: androidx.comp
 //  watched dim is the REAL one now (whole-card alpha + grayscale thumbnail).
 //
 //  ROUND 107 (WS-1): THE ROBUST RULES — the title wraps to TWO lines
-//  (ellipsis past the second; a 2-line title + 1-line pills still fits
-//  the 68dp thumbnail, so the row's height stays stable), the pills come
-//  from the shared TAG MODEL, the EP tag slims, the fallback number tile
-//  GROWS instead of wrapping mid-number, and the synopsis's dead Row
-//  wrapper (the retired download hint's skeleton) is gone.
+//  (ellipsis past the second; a 2-line title + 1-line pills stacks to
+//  exactly the 68dp thumbnail at 1× font scale, so the row's height
+//  stays stable), the pills come from the shared TAG MODEL, the EP tag
+//  slims, the fallback number tile GROWS instead of wrapping mid-number,
+//  and the synopsis's dead Row wrapper (the retired download hint's
+//  skeleton) is gone.
 // ════════════════════════════════════════════════════════════════════════════
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -805,10 +815,13 @@ private fun PlayerEpisodeRow(
                         }
                         Spacer(Modifier.width(10.dp))
                     }
-                    // ── Right column: title + pills ──
+                    // ── Right column: title + pills (a top-anchored
+                    //    stack — SA1-F3: the old SpaceBetween was INERT (a
+                    //    wrap-content Column has no free space to
+                    //    distribute); the pills sit directly under the
+                    //    title, the standard media-row rhythm). ──
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Surface(
                             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),

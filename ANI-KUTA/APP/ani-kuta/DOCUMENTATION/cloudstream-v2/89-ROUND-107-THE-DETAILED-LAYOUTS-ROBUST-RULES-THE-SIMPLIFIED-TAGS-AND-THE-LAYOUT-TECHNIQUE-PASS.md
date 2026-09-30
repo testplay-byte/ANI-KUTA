@@ -36,8 +36,8 @@ Decomposed:
   `TextOverflow.Ellipsis`) — a long episode title ("The One Where
   Something Very Long Happens") loses everything past the width while the
   row still has vertical room to spare (the 2-line title + 1-line pills
-  stack = 65dp ≤ the thumbnail's 68dp — the row height would NOT even
-  grow in the common case).
+  stack = EXACTLY the 68dp thumbnail height at 1× font scale — the row
+  height would NOT even grow in the common case).
 - **The fallback number tile can wrap mid-number** — the thumbnail-less
   branch sizes a FIXED `44×32dp` Surface but its `Text` has no
   `maxLines`/`softWrap` guard: a wide number ("1000.5" at 12sp
@@ -96,10 +96,15 @@ concatenating `audioLabels + subDubLabel + flavorLabels` RAW:
 | Pills / chips | wrap, never clipped | wrap, never clipped | wrap, never clipped | wrap, never clipped |
 | Numbers (EP tag, fallback tiles, the hero numeral) | never wrap | never wrap (exact-fit column) | never wrap | never wrap |
 
-Supporting techniques: a 2-line title + 1-line pill row = 65dp ≤ the
-68dp thumbnail → the DETAILED row's height stays STABLE through the
-common wrap cases (only 2-line-pills rows grow past it, and then the
-thumbnail top-anchors — the standard media-row behavior).
+Supporting techniques: a 2-line title + 1-line pill row stacks to
+EXACTLY the 68dp thumbnail at 1× font scale (SA1's corrected arithmetic:
+36sp title lines + 8dp title padding + 6dp spacer + 18dp pill row = 68dp)
+→ the DETAILED row's height stays STABLE through the common wrap cases
+(larger font scales grow the row gracefully — the thumbnail
+ top-anchors, nothing clips; the SA1-audited geometry). The right column
+is a TOP-ANCHORED stack: the pills sit directly under the title (the
+pre-existing `SpaceBetween` was INERT — a wrap-content column has no
+free space — and is now removed as dead code, zero visual delta).
 
 **THE TAG MODEL** (ONE builder — `buildRowTags` — replacing the four
 ad-hoc copies):
@@ -117,9 +122,11 @@ ad-hoc copies):
   wrap (the round-106 contract stands).
 
 **THE LEFTOVER CLEANUP** — the synopsis's dead `Row` wrapper goes; the
-fallback tiles grow (`defaultMinSize`) instead of wrapping; the EP tag
-slims (10sp, 5/2dp, corner 5dp); the `Pill` tightens (7/2dp, corner
-5dp).
+DETAILED fallback tile grows (`defaultMinSize`) while GRID/BANNER's
+fallbacks carry the never-break guard; the EP tag slims (10sp, 5/2dp,
+corner 5dp); the `Pill` tightens (7/2dp, corner 5dp); the inert
+`SpaceBetween` on the DETAILED right column is removed (SA1-F3 —
+zero visual delta).
 
 ## 3. The implementation plan (one file + the doc)
 
@@ -156,7 +163,50 @@ inherits every rule through the same renderer):
 
 ## 6. The sub-agent audits (the standing ≥2 order, D-689)
 
-(to be completed)
+**SA1 — the layouts file (rules + geometry + compile-logic):** PASS, NO
+HIGH, NO MEDIUM. Every task verified: the builder's Kotlin constructs
+compile-sound (`audio +=` on the captured val MutableSet, `getOrPut` on
+the LinkedHashMap, the local `classify` fun, zero unused imports after
+the dead-Row removal); the six tag-model traces all correct (the CS
+"Sub"+"SUB" dedup, "Kitauji Subs" → SUB, the knob-off date-only path,
+HSUB-once, blank-label no-crash, "dub"/"DUB" once); the four call sites
+wire the gated dates + the shared knob; the fallback tile verified
+against the material3 1.3.1 sources (Surface's propagateMinConstraints
+= true → the mins reach the center-Box; short numbers center, wide
+numbers grow); the synopsis removal clean; the regression sweep clean
+(4 @OptIn sites, TRACKLIST/BANNER 1-line titles, GRID 2-line,
+dispatcher/badge/pulse untouched). FIVE LOWs: the 65dp figure was wrong
+(the real stack is EXACTLY 68dp — corrected in §1.1/§2 and the file
+header); the "tiles grow" plural (only DETAILED grows — corrected);
+the PRE-EXISTING inert `SpaceBetween` on the right column (a
+wrap-content column has no free space — REMOVED as dead code, zero
+visual delta); the blank-date guard (APPLIED to the builder); the
+"Hard Sub" spaced-label edge (consistent with the MPV parse —
+documented, not fixed).
+
+**SA2 — the callers + parity (blast radius):** PASS, NO HIGH, NO
+MEDIUM. The public surface is byte-identical (comment-stripped diff:
+one import + two private members + private-body edits only); the MPV
+caller (canonical single-token labels) can never duplicate; the CS
+caller's four traces verified (the headline "Sub"+["SUB","DUB"] →
+[SUB, DUB] fix; "Crunchyroll" survives as an other-label; "Kitauji
+Subs" → SUB = the cross-stack parity; "HSUB" once); the settings
+preview inherits everything through the public entry points with zero
+changes; the repo sweep found NO other consumer of the changed
+symbols; the behavior ledger maps every change to the ordered scope
+(the GRID's 2-line title pre-existed; the BANNER's check-chip lead and
+the dim/badge geometry untouched). THREE LOWs: the merged-label gap
+("Sub/Dub" yielded [SUB] vs the MPV parse's [SUB, DUB] — FIXED with
+the exact MPV token semantics in `classify`); the provider-name
+folding is a visible CS-only change beyond the dedup (documented in
+§7); the token-matching semantics now live in five places repo-wide
+(a future consolidation candidate — the designsystem already depends
+on core:common — NOT done this round, scope discipline).
+
+**Lead-verified + applied:** the MPV-parity `classify` rewrite
+(SA2-F1), the blank-date guard (SA1-F4), the inert-SpaceBetween
+removal (SA1-F3), and both doc figure corrections. Documented, not
+applied: the "Hard Sub" edge, the five-places consolidation note.
 
 ## 7. The round-108 checklist (the device round on v1.1.64)
 
@@ -170,3 +220,8 @@ inherits every rule through the same renderer):
    on the BANNER's scrim chips.
 5. Thumbnail-less rows (if any): the number tile grows for wide numbers,
    never wraps mid-number.
+6. A MERGED audio label ("Sub/Dub") on the CS stack: BOTH pills (SUB and
+   DUB) — the MPV parse's exact semantics (SA2-F1's fix).
+7. Font-scale spot-check: at a larger system font scale the DETAILED rows
+   grow gracefully (the thumbnail top-anchors; the title/pills stack
+   never clips).
