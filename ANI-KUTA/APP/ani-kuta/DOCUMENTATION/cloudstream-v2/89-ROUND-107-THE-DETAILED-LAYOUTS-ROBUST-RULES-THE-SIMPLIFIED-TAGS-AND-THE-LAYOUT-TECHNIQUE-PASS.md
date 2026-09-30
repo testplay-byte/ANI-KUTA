@@ -157,9 +157,11 @@ inherits every rule through the same renderer):
   other Pill/tag consumers).
 - CI: push → poll → fix (≤2 runs, D-472).
 
-## 5. The CI history (the D-472 ledger)
+## 5. The CI history (the D-472 ledger — 1 run, WITHIN the ≤2 budget)
 
-(to be completed)
+- CI run 1 (**36664738397**, Build APK on 40da8f66): **GREEN
+  FIRST-TRY** — the two read-only audits before the push paid for
+  themselves again (zero compile blockers, zero logic defects at CI).
 
 ## 6. The sub-agent audits (the standing ≥2 order, D-689)
 
