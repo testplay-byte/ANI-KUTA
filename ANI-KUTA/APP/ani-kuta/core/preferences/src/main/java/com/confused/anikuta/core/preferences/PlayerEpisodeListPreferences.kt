@@ -182,11 +182,12 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
     // ════════════════════════════════════════════════════════════════════════
 
     /**
-     * Dim watched episodes (DETAILED + TRACKLIST + BANNER — the alpha
-     * treatment; the player twin of D-554). The GRID reads
-     * [gridWatchedCheckmark] instead (ROUND 105: "it should properly give
-     * the user one option, which is to show the checkmark on the watched
-     * episodes or not, rather than showing the user the dim option here").
+     * Dim watched episodes (ALL FOUR styles — DETAILED, TRACKLIST, BANNER,
+     * and GRID; the player twin of D-554). ROUND 109 (D-720): the GRID
+     * rejoined this knob — it owns the grayscale + the dim overlay there
+     * now, DECOUPLED from [gridWatchedCheckmark] (the v1.1.65 device round:
+     * "if I remove the checkmark, then the grayness of it also gets
+     * removed, which is not good").
      */
     val dimWatched = store.preference(
         KEY_DIM_WATCHED, true, BooleanSerializer,
@@ -197,8 +198,12 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
     // ════════════════════════════════════════════════════════════════════════
 
     /**
-     * The GRID's watched treatment — the grayscale + the centered check
-     * together (default on). Replaces the dim knob on this style.
+     * The GRID's watched CHECK bubble — and ONLY the check (default on).
+     * ROUND 109 (D-720): the round-105 coupling (grayscale + check as one
+     * unit) is decoupled — the grayscale + dim overlay follow [dimWatched]
+     * (the same knob the other three styles read), so removing the
+     * checkmark KEEPS the grayness (the v1.1.65 device round's order). The
+     * bubble itself is the details grid's bottom-start look.
      */
     val gridWatchedCheckmark = store.preference(
         KEY_GRID_WATCHED_CHECKMARK, true, BooleanSerializer,

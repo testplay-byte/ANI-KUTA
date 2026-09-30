@@ -81,6 +81,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.common.HapticHelper
+// ROUND 109 (D-719): the shared meta pieces — the chips, the progress pill,
+// and the short date formatter now live in :core:designsystem's episodelist
+// package (EpisodeMetaChips.kt) so the player page's grid renders the exact
+// same components (the local internal copies are deleted; the calls below
+// are unchanged).
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeAudioChip
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeDateChip
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeWatchProgressBar
+import com.confused.anikuta.core.designsystem.component.episodelist.formatShortDate
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import eu.kanade.tachiyomi.animesource.model.SEpisode
@@ -137,59 +146,12 @@ import kotlinx.coroutines.launch
  * primary-tinted, DUB tertiary-tinted, HSUB outline-tinted — so availability
  * reads at a glance and the chips match the app's design language instead of
  * fighting it. Shared by CLASSIC + GRID (the two layouts the user flagged).
+ *
+ * ROUND 109 (D-719): the implementations MOVED to
+ * `:core:designsystem`'s episodelist package (EpisodeMetaChips.kt) so the
+ * PLAYER page's grid renders the exact same pieces — one implementation,
+ * two pages, no drift; these imports are the details module's only change.
  */
-@Composable
-internal fun EpisodeDateChip(text: String, modifier: Modifier = Modifier) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.surface,
-        modifier = modifier,
-    ) {
-        Text(
-            text = text,
-            fontFamily = RobotoFamily,
-            fontSize = 10.sp,
-            lineHeight = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.3.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            maxLines = 1,
-            softWrap = false,
-        )
-    }
-}
-
-@Composable
-internal fun EpisodeAudioChip(label: String, modifier: Modifier = Modifier) {
-    val accent = when (label.trim().uppercase(java.util.Locale.US)) {
-        "SUB" -> MaterialTheme.colorScheme.primary
-        "DUB" -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.onSurfaceVariant // HSUB + unknowns stay neutral
-    }
-    val container = when (label.trim().uppercase(java.util.Locale.US)) {
-        "HSUB" -> MaterialTheme.colorScheme.outlineVariant
-        else -> accent
-    }
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = container.copy(alpha = 0.16f),
-        modifier = modifier,
-    ) {
-        Text(
-            text = label,
-            fontFamily = RobotoFamily,
-            fontSize = 10.sp,
-            lineHeight = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.4.sp,
-            color = accent,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            maxLines = 1,
-            softWrap = false,
-        )
-    }
-}
 
 /**
  * D-557: the shared EPISODE NUMBER label — the number OFF the imagery. The
@@ -268,37 +230,11 @@ internal fun EpisodeNumberLabel(
  * visually overflowed the image. The pill is fully rounded and rides a
  * translucent track; callers INSET it from the imagery's edges via their own
  * padding — YouTube's treatment, glitch-free on any radius.
+ *
+ * ROUND 109 (D-719): the implementation MOVED to `:core:designsystem`'s
+ * episodelist package (EpisodeMetaChips.kt) — the player grid renders the
+ * same pill now; these imports are the details module's only change.
  */
-@Composable
-internal fun EpisodeWatchProgressBar(
-    fraction: Float,
-    modifier: Modifier = Modifier,
-    progressColor: Color = MaterialTheme.colorScheme.primary,
-    trackColor: Color = Color.White.copy(alpha = 0.30f),
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(4.dp)
-            .clip(RoundedCornerShape(2.dp))
-            .background(trackColor),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(fraction.coerceIn(0.02f, 1f))
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(progressColor),
-        )
-    }
-}
-
-/** The short date label ("Jan 1") — the GRID chip + the TIMELINE node label. */
-internal fun formatShortDate(epochMillis: Long): String {
-    if (epochMillis <= 0) return ""
-    val sdf = java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault())
-    return sdf.format(java.util.Date(epochMillis))
-}
 
 /**
  * The TIMELINE node label: the air date is the schedule's PRIMARY element —

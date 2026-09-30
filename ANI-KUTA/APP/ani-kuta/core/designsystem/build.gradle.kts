@@ -24,5 +24,9 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     // D-223: Logger for color extraction logging.
     implementation(project(":core:common"))
+    // ROUND 109 (D-721): the DownloadVideoPickerSheet's model types
+    // (ResolverServer/ResolverVideo — pure Kotlin data classes, no Compose
+    // deps by design; :core:video-resolver is a model-level dependency).
+    implementation(project(":core:video-resolver"))
     debugImplementation(libs.androidx.ui.tooling)
 }

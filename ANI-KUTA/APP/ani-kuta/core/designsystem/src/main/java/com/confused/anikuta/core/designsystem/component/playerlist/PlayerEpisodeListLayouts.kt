@@ -69,6 +69,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+// ROUND 109 (D-719): the shared meta pieces — the GRID renders the details
+// page's own chips (SUB primary / DUB tertiary / HSUB neutral capsules, the
+// quiet date capsule) and the inset progress pill through these, so the two
+// grids can never drift.
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeAudioChip
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeDateChip
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeWatchProgressBar
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -201,6 +208,13 @@ data class PlayerEpisodeRowData(
     val thumbnailUrl: String?,
     /** The pre-formatted release date ("Oct 12, 2025"), or null. */
     val dateText: String?,
+    /**
+     * ROUND 109 (D-719): the SHORT release date ("Oct 12") — the GRID chip's
+     * text, the details grid's own shape (the v1.1.65 round: the two grids
+     * must read identically — the rows keep the long date, exactly like the
+     * details page's classic-vs-grid split).
+     */
+    val dateTextShort: String? = null,
     /** Audio pills (SUB / DUB / HSUB) — the MPV stack's parse. */
     val audioLabels: List<String> = emptyList(),
     /** The CS stack's scanlator sub/dub pill text, or null. */
@@ -1353,20 +1367,21 @@ private fun PlayerEpisodeDownloadBadge(
 //  plate (the details grid's anatomy); the cell long-presses to toggle
 //  watched (the details page's GRID parity).
 //
-//  ROUND 105 (WS-D) — THE REAL KNOBS: "in the grid layout there were not
-//  much options there at all… for the watched episode, it only gives the
-//  user one option, whether to dim the watched episodes or not. But it
-//  should properly give the user one option, which is to show the
-//  checkmark on the watched episodes or not… And there should be the same
-//  thing for the currently playing episode too… between showing the play
-//  button… or rather theme the… cover image… in the themed color":
-//    • WATCHED = the CHECKMARK toggle (grayscale + check together — the
-//      dim knob no longer applies to the GRID).
-//    • CURRENT = PLAY (the disc) or TINT (the grayscale imagery under a
-//      themed wash; the ring stays).
-//    • The scrim gained the date/audio pills row (the same showDatePill
-//      knob the other styles read — the doc-86 noted gap) and its title
-//      line is toggleable (gridTitles — the clean image wall).
+//  ROUND 105 (WS-D) — the real knobs arrived (the checkmark toggle, the
+//  current-episode PLAY/TINT choice).
+//
+//  ROUND 109 (D-719/D-720) — THE DETAILS GRID, VERBATIM: the v1.1.65 device
+//  round ordered the two grids to "look and feel exactly the same": the
+//  16dp PURE plate (no background box), the 22sp quiet number tile, the
+//  DECOUPLED watched treatment (the DIM knob owns grayscale + the 0.32
+//  overlay; the CHECK knob owns ONLY the bottom-start check bubble — "if I
+//  remove the checkmark, then the grayness of it also gets removed, which
+//  is not good" is fixed), the inset shared progress pills (the full-bleed
+//  3dp edge bars retired), the 13sp/16sp title with the watched 0.55 dim,
+//  and the shared chips (the color-coded SUB/DUB capsules + the SHORT-date
+//  capsule — the details page's own components, one implementation).
+//  CURRENT keeps the player's own treatment (the PLAY disc or the TINT
+//  wash + the ring + the arrival pulse).
 // ════════════════════════════════════════════════════════════════════════════
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
@@ -1381,21 +1396,36 @@ private fun PlayerEpisodeGridCell(
     downloadActions: PlayerEpisodeDownloadActions? = null,
 ) {
     val isCurrent = data.isCurrent
-    // ROUND 105: the watched treatment is the CHECKMARK knob (grayscale +
-    // the centered check, one unit — the dim knob retired from the GRID);
-    // the current episode's treatment always wins visually.
-    val watchedGray = data.isWatched && display.gridWatchedCheckmark && !isCurrent
+    // ── ROUND 109 (D-720): THE CHECKMARK DECOUPLING — the v1.1.65 device
+    //    round: "there is no option to remove the checkmark from the
+    //    watched episodes. If I remove the checkmark, then the grayness of
+    //    it also gets removed, which is not good." The round-105 coupling
+    //    (one knob = grayscale + check together) is DEAD: the DIM knob
+    //    (dimWatched, default on — the same knob the other three styles
+    //    read) owns the grayscale + the dim overlay, and the CHECK knob
+    //    (gridWatchedCheckmark) owns ONLY the check bubble. Removing the
+    //    checkmark keeps the grayness; turning the dim off keeps the check.
+    //    The current episode's treatment always wins visually. ──
+    val watchedDim = data.isWatched && display.dimWatched && !isCurrent
+    val watchedCheck = data.isWatched && display.gridWatchedCheckmark && !isCurrent
     val currentTinted = isCurrent && display.gridCurrentStyle == PlayerGridCurrentStyle.TINT
     val grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
-    // ROUND 107 (WS-2): the shared TAG MODEL (deduped, normalized,
-    // ordered — the knobs honored inside the builder).
-    val pills = buildRowTags(
-        dateText = if (display.showDatePill) data.dateText else null,
+    // ── ROUND 109 (D-719): THE GRID'S TRUE PARITY — the tag model still
+    //    builds the AUDIO pills (deduped, normalized, ordered — the date is
+    //    rendered SEPARATELY now, as the details grid's own quiet date
+    //    capsule carrying the SHORT date shape). ──
+    val audioPills = buildRowTags(
+        dateText = null,
         showAudio = display.showAudioPills,
         audioLabels = data.audioLabels,
         subDubLabel = data.subDubLabel,
         flavorLabels = data.flavorLabels,
     )
+    val dateChipText = if (display.showDatePill) {
+        data.dateTextShort?.takeIf { it.isNotBlank() }
+    } else {
+        null
+    }
 
     // ── ROUND 106 (WS-D): THE REWORK — "I am not satisfied with the grid UI
     //    at all. Like the things are not managed properly. Like the date
@@ -1419,43 +1449,49 @@ private fun PlayerEpisodeGridCell(
                 onLongClick = onToggleWatched ?: {},
             ),
     ) {
-        // ── The image plate — pure imagery + the over-image treatments ──
+        // ── The image plate — the details grid's PURE plate (ROUND 109:
+        //    16dp radius, no background box, nothing covering the imagery
+        //    except the treatments + the badge + the inset progress pill). ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(16.dp))
                 .then(
                     if (isCurrent) {
                         Modifier.border(
                             2.dp,
                             MaterialTheme.colorScheme.primary,
-                            RoundedCornerShape(12.dp),
+                            RoundedCornerShape(16.dp),
                         )
                     } else {
                         Modifier
                     },
-                )
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                ),
         ) {
             if (data.thumbnailUrl != null) {
                 AsyncImage(
                     model = data.thumbnailUrl,
                     contentDescription = data.displayTitle,
                     contentScale = ContentScale.Crop,
-                    colorFilter = if (watchedGray || currentTinted) grayscale else null,
+                    colorFilter = if (watchedDim || currentTinted) grayscale else null,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                // No thumbnail — the centered number tile keeps the cell
-                // honest (ROUND 107: numbers never break).
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                // The bare plate — the details grid's quiet number tile (no
+                // fake imagery, no pill; ROUND 107: numbers never break).
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
                         text = data.episodeNumberText,
                         fontFamily = RobotoFamily,
-                        fontSize = 26.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
                         maxLines = 1,
                         softWrap = false,
                     )
@@ -1473,20 +1509,34 @@ private fun PlayerEpisodeGridCell(
                 )
             }
 
-            // ── Watched: the centered check (the toggleable treatment). ──
-            if (watchedGray) {
+            // ── ROUND 109 (D-719/D-720): the watched treatment — the details
+            //    grid's exact look, DECOUPLED: the dim overlay rides the DIM
+            //    knob (black 0.32, the details grid's own wash)… ──
+            if (watchedDim) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(34.dp)
-                        .background(Color.Black.copy(alpha = 0.45f), CircleShape),
-                    contentAlignment = Alignment.Center,
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.32f)),
+                )
+            }
+            // ── …and the quiet check bubble rides the CHECK knob — the
+            //    details grid's bottom-start bubble (the round-105 centered
+            //    34dp disc retired; the bubble keeps the meta legible). ──
+            if (watchedCheck) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.45f),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Check,
+                        imageVector = Icons.Filled.CheckCircle,
                         contentDescription = "Watched",
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier
+                            .padding(4.dp)
+                            .size(16.dp),
                     )
                 }
             }
@@ -1511,7 +1561,7 @@ private fun PlayerEpisodeGridCell(
             }
 
             // ── ROUND 106 (WS-D): the download badge (top-end, translucent —
-            //    the details grid's placement). ──
+            //    the details grid's placement + its 6dp inset, ROUND 109). ──
             if (display.showDownloadButton && data.downloadState != null &&
                 downloadActions != null
             ) {
@@ -1521,31 +1571,32 @@ private fun PlayerEpisodeGridCell(
                     translucent = true,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(5.dp),
+                        .padding(6.dp),
                 )
             }
 
-            // ── The thin progress bar (partial watches) — ROUND 108: while a
-            //    download runs, the DETERMINATE tertiary download bar takes
-            //    the edge instead (the details grid's new language; the
-            //    watch bar returns once the download leaves Downloading). ──
+            // ── ROUND 109 (D-719): THE INSET PROGRESS PILLS — the details
+            //    grid's own language (the full-bleed 3dp edge bars retired):
+            //    while a download runs, the DETERMINATE tertiary pill takes
+            //    the watch pill's spot; otherwise the thin primary watch pill
+            //    renders under the showProgressBar knob. ──
             val downloading = data.downloadState is PlayerDownloadRenderState.Downloading
             if (downloading) {
                 val progress = (data.downloadState as PlayerDownloadRenderState.Downloading).progress
-                Box(
+                EpisodeWatchProgressBar(
+                    fraction = progress / 100f,
+                    progressColor = MaterialTheme.colorScheme.tertiary,
+                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .fillMaxWidth((progress / 100f).coerceIn(0.01f, 1f))
-                        .height(3.dp)
-                        .background(MaterialTheme.colorScheme.tertiary),
+                        .padding(horizontal = 9.dp, vertical = 8.dp),
                 )
             } else if (data.progressFraction > 0f && !data.isWatched && display.showProgressBar) {
-                Box(
+                EpisodeWatchProgressBar(
+                    fraction = data.progressFraction,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .fillMaxWidth(data.progressFraction.coerceIn(0f, 1f))
-                        .height(3.dp)
-                        .background(MaterialTheme.colorScheme.primary),
+                        .padding(horizontal = 9.dp, vertical = 8.dp),
                 )
             }
 
@@ -1577,11 +1628,17 @@ private fun PlayerEpisodeGridCell(
         } else {
             com.confused.anikuta.core.common.gridShowableTitle(data.displayTitle)
         }
-        // The number label — the themed "EP N" mini-label, its own line,
-        // ALWAYS present: the details grid's contract (the number line never
-        // depends on the title gate or the pills — SA2-F2, the round-108
-        // audit: a gated-out title + empty pills must not eat it).
-        Spacer(Modifier.height(6.dp))
+        // ── ROUND 109 (D-719): THE TEXT BLOCK — the details grid's anatomy
+        //    VERBATIM now (the v1.1.65 round: "looks and feels exactly the
+        //    same"): the 7dp spacer, the themed "EP N" line (always
+        //    present), the 13sp/16sp title (dimmed 0.55 when watched+dim,
+        //    like the details grid), and the chips FlowRow at the details'
+        //    own (4,4) rhythm — the DATE capsule (the shared EpisodeDateChip,
+        //    carrying the SHORT date) leading, then the color-coded AUDIO
+        //    capsules (the shared EpisodeAudioChip: SUB primary, DUB
+        //    tertiary, HSUB neutral — the v1.1.65 round's tag complaint:
+        //    "how the sub and dub episode tags are shown"). ──
+        Spacer(Modifier.height(7.dp))
         Text(
             text = "EP ${data.episodeNumberText}",
             fontFamily = RobotoFamily,
@@ -1594,34 +1651,34 @@ private fun PlayerEpisodeGridCell(
             softWrap = false,
             modifier = Modifier.padding(horizontal = 2.dp),
         )
-        if (titleLine != null || pills.isNotEmpty()) {
-            if (titleLine != null) {
-                Spacer(Modifier.height(1.dp))
-                Text(
-                    text = titleLine,
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    lineHeight = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = if (display.gridTitleMode ==
-                        com.confused.anikuta.core.common.GridTitleMode.ONE_LINE
-                    ) 1 else 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 2.dp),
-                )
-            }
-            if (pills.isNotEmpty()) {
-                Spacer(Modifier.height(5.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 2.dp),
-                ) {
-                    pills.forEach { pill -> Pill(pill) }
-                }
+        if (titleLine != null) {
+            Spacer(Modifier.height(1.dp))
+            Text(
+                text = titleLine,
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+                    .let { if (watchedDim) it.copy(alpha = 0.55f) else it },
+                maxLines = if (display.gridTitleMode ==
+                    com.confused.anikuta.core.common.GridTitleMode.ONE_LINE
+                ) 1 else 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+        }
+        if (dateChipText != null || audioPills.isNotEmpty()) {
+            Spacer(Modifier.height(5.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp),
+            ) {
+                dateChipText?.let { text -> EpisodeDateChip(text = text) }
+                audioPills.forEach { label -> EpisodeAudioChip(label = label) }
             }
         }
     }

@@ -168,7 +168,20 @@ class DownloadOrchestrator(
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private suspend fun resolveServers(
+    /**
+     * Resolves an episode's videos into the 3-tier server hierarchy — WITHOUT
+     * downloading anything.
+     *
+     * ROUND 109 (D-721): public now (was the private step under
+     * [enqueueDownload]) — the player page's download flow resolves first
+     * and shows the picker sheet (the details page's flow); the user's pick
+     * then goes through [enqueueSpecific]. The old player bridge
+     * auto-picked inside this module — dead per the v1.1.65 device round.
+     *
+     * @throws RuntimeException on a resolver Error state (the caller's
+     *   runCatching surfaces the message).
+     */
+    suspend fun resolveServers(
         source: AnimeHttpSource,
         episode: SEpisode,
     ): List<ResolverServer> {

@@ -18,13 +18,15 @@ import kotlin.coroutines.cancellation.CancellationException
  * modules cannot reach :app's classes; this impl lives where the
  * orchestrator + the content repository already live).
  *
- * The chain is byte-for-byte the details page's: mainId → the content row →
- * the content identity (getContentDetails' cover + the FK fallbacks) → the
- * extension source lookup → the CS-bridged guard → the orchestrator's
- * auto-download engine. The ShowPicker (ASK fallback) branch becomes a
- * BEST-EFFORT pick — the first server's first audio version's first video
- * (the details page's sheet-less auto path has the same behavior; the
- * player has no picker sheet, and the ordered UX is "the download starts").
+ * ROUND 109 (D-721): THE AUTO-PICK IS DEAD here. The old `enqueueClassic`
+ * resolved and auto-picked — the auto-download engine's choice, or (on its
+ * ShowPicker fallback) a BEST-EFFORT first-video grab. The v1.1.65 device
+ * round: "it automatically selects one of the video streams and starts
+ * downloading it automatically, which is not a good idea… how it gets
+ * handled on the details page." The contract is now the details page's
+ * OWN flow: [resolveForPicker] hands the FULL server hierarchy up (the page
+ * shows the picker sheet) and [enqueuePicked] runs the video the USER
+ * picked. Nothing enqueues without an explicit pick.
  */
 class AndroidPlayerDownloadController(
     private val orchestrator: DownloadOrchestrator,
@@ -35,112 +37,160 @@ class AndroidPlayerDownloadController(
         private const val TAG = "Anikuta:PlayerDownload"
     }
 
-    override suspend fun enqueueClassic(
+    /**
+     * The shared prelude — the content row + the SEpisode adapter + the
+     * extension source + the CS-bridged guard (the details page's exact
+     * chain, steps 1-4 of the old enqueueClassic).
+     */
+    private suspend fun prelude(
+        mainId: String,
+        episode: PlayerDownloadController.EpisodeInfo,
+    ): Prelude? {
+        if (mainId.isBlank()) return null
+
+        // 1. The content identity (the details page's exact builder).
+        val content = contentRepository.getMainEntryByMainId(mainId) ?: return null
+
+        // 2. The episode identity (the SEpisode adapter the engine
+        //    expects, from the controller's neutral tuple).
+        val sEpisode = SEpisode.create().apply {
+            url = episode.episodeKey
+            name = episode.name ?: ""
+            episode_number = episode.episodeNumber
+        }
+
+        // 3. The extension source lookup (MainActivity's Koin path).
+        val source = content.sourceId?.let {
+            GlobalContext.get().get<ExtensionManager>().getSource(it) as?
+                eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+        }
+
+        // 4. The CS-bridged guard — the classic resolver path cannot
+        //    serve bridged sources (defense in depth; the player's CS
+        //    stack routes through its own flow and never calls this).
+        if (source != null && source.isCloudStreamBridged) {
+            Logger.w(TAG) { "prelude — CS-bridged source ${source.name}" }
+            return Prelude.Bridged
+        }
+
+        if (source == null) {
+            Logger.w(TAG) { "prelude — no extension source for mainId=$mainId" }
+            return null
+        }
+
+        return Prelude.Ready(content, sEpisode, source)
+    }
+
+    /** [prelude]'s result — the null + the bridged + the ready triple. */
+    private sealed interface Prelude {
+        /** No content row or no extension source — nothing to serve. */
+        data object Bridged : Prelude
+
+        data class Ready(
+            val content: com.confused.anikuta.core.content.ContentRecord,
+            val sEpisode: SEpisode,
+            val source: eu.kanade.tachiyomi.animesource.online.AnimeHttpSource,
+        ) : Prelude
+    }
+
+    override suspend fun resolveForPicker(
         mainId: String,
         episode: PlayerDownloadController.EpisodeInfo,
     ): PlayerDownloadController.Outcome {
-        if (mainId.isBlank()) return PlayerDownloadController.Outcome.NoSource
-
         return try {
-            // 1. The content identity (the details page's exact builder).
-            val content = contentRepository.getMainEntryByMainId(mainId)
-                ?: return PlayerDownloadController.Outcome.NoSource
-            val contentInfo = buildContentInfo(content) {
-                contentRepository.getContentDetails(mainId)
-            } ?: return PlayerDownloadController.Outcome.NoSource
-
-            // 2. The episode identity (the SEpisode adapter the engine
-            //    expects, from the controller's neutral tuple).
-            val sEpisode = SEpisode.create().apply {
-                url = episode.episodeKey
-                name = episode.name ?: ""
-                episode_number = episode.episodeNumber
-            }
-
-            // 3. The extension source lookup (MainActivity's Koin path).
-            val sourceId = content.sourceId
-            val source = sourceId?.let {
-                GlobalContext.get().get<ExtensionManager>().getSource(it) as?
-                    eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-            }
-
-            // 4. The CS-bridged guard — the classic resolver path cannot
-            //    serve bridged sources (defense in depth; the player's CS
-            //    stack routes through its own flow and never calls this).
-            if (source != null && source.isCloudStreamBridged) {
-                Logger.w(TAG) { "enqueueClassic — CS-bridged source ${source.name}" }
-                return PlayerDownloadController.Outcome.CsBridged
-            }
-
-            if (source == null) {
-                Logger.w(TAG) { "enqueueClassic — no extension source for mainId=$mainId" }
-                return PlayerDownloadController.Outcome.NoSource
-            }
-
-            // 5. The description fallback (the metadata cache — the same
-            //    lookup handleDownloadEpisode makes; the tuple carries only
-            //    the name).
-            val effectiveDescription = runCatching {
-                GlobalContext.get().get<DataCacheRepository>()
-                    .getEpisodeMetadata(mainId)
-                    .firstOrNull { it.episodeUrl == episode.episodeKey }
-                    ?.description
-            }.getOrNull()
-            val episodeInfo = DownloadEpisodeInfo(
-                episodeKey = episode.episodeKey,
-                episodeNumber = episode.episodeNumber,
-                // CI run-1 fix: DownloadEpisodeInfo.name is non-null; the
-                // controller's neutral tuple carries String? — the empty
-                // fallback mirrors MainActivity's `episode.name ?: ""`.
-                name = episode.name ?: "",
-                description = effectiveDescription,
-            )
-
-            // 6. Enqueue through the auto-download engine.
-            when (val result = orchestrator.enqueueDownload(
-                source = source,
-                episode = sEpisode,
-                content = contentInfo,
-                episodeInfo = episodeInfo,
-            )) {
-                is EnqueueResult.Success -> {
-                    Logger.i(TAG) { "enqueueClassic — enqueued taskId=${result.taskId}" }
-                    PlayerDownloadController.Outcome.Started(result.taskId)
-                }
-                is EnqueueResult.ShowPicker -> {
-                    // BEST-EFFORT (the player has no picker sheet): the
-                    // first server's first audio version's first video.
-                    val video = result.servers.firstOrNull()
-                        ?.audioVersions?.firstOrNull()
-                        ?.videos?.firstOrNull()
-                    if (video != null) {
-                        val picked = orchestrator.enqueueSpecific(
-                            source = source,
-                            episode = sEpisode,
-                            content = contentInfo,
-                            episodeInfo = episodeInfo,
-                            video = video,
-                            serverName = result.servers.first().name,
-                            audioLabel = "",
-                            allServers = result.servers,
-                        )
-                        if (picked is EnqueueResult.Success) {
-                            Logger.i(TAG) { "enqueueClassic — best-effort pick taskId=${picked.taskId}" }
-                            PlayerDownloadController.Outcome.Started(picked.taskId)
-                        } else {
-                            PlayerDownloadController.Outcome.Error("No downloadable source was found")
-                        }
-                    } else {
+            when (val p = prelude(mainId, episode)) {
+                null -> PlayerDownloadController.Outcome.NoSource
+                Prelude.Bridged -> PlayerDownloadController.Outcome.CsBridged
+                is Prelude.Ready -> {
+                    // ROUND 109 (D-721): resolve ONLY — the full server
+                    // hierarchy rides up to the page's picker sheet; NO
+                    // download starts here (the user picks).
+                    val servers = orchestrator.resolveServers(p.source, p.sEpisode)
+                    if (servers.isEmpty()) {
+                        Logger.w(TAG) { "resolveForPicker — no servers resolved" }
                         PlayerDownloadController.Outcome.Error("No video sources available")
+                    } else {
+                        Logger.i(TAG) { "resolveForPicker — ${servers.size} server(s) for the picker" }
+                        PlayerDownloadController.Outcome.PickerReady(servers)
                     }
                 }
-                is EnqueueResult.NoSources -> PlayerDownloadController.Outcome.NoSource
-                is EnqueueResult.Error -> PlayerDownloadController.Outcome.Error(result.message)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Logger.e(TAG, e) { "enqueueClassic — exception" }
+            Logger.e(TAG, e) { "resolveForPicker — exception" }
+            PlayerDownloadController.Outcome.Error(e.message ?: "Resolve failed")
+        }
+    }
+
+    override suspend fun enqueuePicked(
+        mainId: String,
+        episode: PlayerDownloadController.EpisodeInfo,
+        video: com.confused.anikuta.core.videoresolver.ResolverVideo,
+        serverName: String,
+        audioLabel: String,
+    ): PlayerDownloadController.Outcome {
+        return try {
+            when (val p = prelude(mainId, episode)) {
+                null -> PlayerDownloadController.Outcome.NoSource
+                Prelude.Bridged -> PlayerDownloadController.Outcome.CsBridged
+                is Prelude.Ready -> {
+                    val contentInfo = buildContentInfo(p.content) {
+                        contentRepository.getContentDetails(mainId)
+                    } ?: return PlayerDownloadController.Outcome.NoSource
+
+                    // The description fallback (the metadata cache — the
+                    // same lookup handleDownloadEpisode makes; the tuple
+                    // carries only the name).
+                    val effectiveDescription = runCatching {
+                        GlobalContext.get().get<DataCacheRepository>()
+                            .getEpisodeMetadata(mainId)
+                            .firstOrNull { it.episodeUrl == episode.episodeKey }
+                            ?.description
+                    }.getOrNull()
+                    val episodeInfo = DownloadEpisodeInfo(
+                        episodeKey = episode.episodeKey,
+                        episodeNumber = episode.episodeNumber,
+                        // DownloadEpisodeInfo.name is non-null; the
+                        // controller's neutral tuple carries String? — the
+                        // empty fallback mirrors MainActivity's
+                        // `episode.name ?: ""`.
+                        name = episode.name ?: "",
+                        description = effectiveDescription,
+                    )
+
+                    // The USER'S pick — enqueueSpecific (the details page's
+                    // handleDownloadSpecificVideo chain, verbatim).
+                    when (val result = orchestrator.enqueueSpecific(
+                        source = p.source,
+                        episode = p.sEpisode,
+                        content = contentInfo,
+                        episodeInfo = episodeInfo,
+                        video = video,
+                        serverName = serverName,
+                        audioLabel = audioLabel,
+                    )) {
+                        is EnqueueResult.Success -> {
+                            Logger.i(TAG) {
+                                "enqueuePicked — enqueued taskId=${result.taskId} " +
+                                    "(server=$serverName, audio=$audioLabel)"
+                            }
+                            PlayerDownloadController.Outcome.Started(result.taskId)
+                        }
+                        // enqueueSpecific never returns ShowPicker (a manual
+                        // pick is already specific) — the honest branch.
+                        is EnqueueResult.ShowPicker ->
+                            PlayerDownloadController.Outcome.Error("No downloadable source was found")
+                        is EnqueueResult.NoSources -> PlayerDownloadController.Outcome.NoSource
+                        is EnqueueResult.Error ->
+                            PlayerDownloadController.Outcome.Error(result.message)
+                    }
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "enqueuePicked — exception" }
             PlayerDownloadController.Outcome.Error(e.message ?: "Download failed")
         }
     }

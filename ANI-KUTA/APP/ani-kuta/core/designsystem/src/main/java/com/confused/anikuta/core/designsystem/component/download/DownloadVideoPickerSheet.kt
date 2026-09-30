@@ -1,4 +1,4 @@
-package com.confused.anikuta.feature.download
+package com.confused.anikuta.core.designsystem.component.download
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +52,15 @@ import com.confused.anikuta.core.videoresolver.ResolverVideo
  * surfaceVariant cards. Mirrors the `VideoResolverSheet`'s `ShowContent`.
  *
  * D.5: Ported from the old project's `DownloadVideoPickerSheet.kt`.
+ *
+ * ROUND 109 (D-721): moved from `:feature:download` (where it had ZERO
+ * callers — a dormant component) into `:core:designsystem` so the PLAYER
+ * page can mount it too: the v1.1.65 device round ordered the player's
+ * download button to show the resolved-video list and let the USER pick
+ * ("it automatically selects one of the video streams and starts
+ * downloading it automatically, which is not a good idea") — the details
+ * page's flow, on the player page. First real caller: the watch screen;
+ * the sheet's contract is unchanged.
  *
  * @param servers The resolved server/audio/quality hierarchy.
  * @param animeTitle The anime title (for the sheet header).

@@ -634,11 +634,16 @@ fun CsWatchScreen(
             onEpisodeSwitch = { viewModel.selectEpisode(it) },
             currentEpisodeData = viewModel.currentEpisodeData(),
             mainId = key.mainId,
-            // ROUND 106 (WS-D): the download badge's source label.
-            sourceId = key.sourceId,
             // ROUND 108 (D-713): the cover rides the key — the rows'
             // thumbnail fallback.
             coverUrl = key.coverUrl,
+            // ROUND 109 (D-721): the FULL key — the download badge opens the
+            // CS resolve sheet in DOWNLOAD mode now (the details page's flow,
+            // player-side), and the sheet needs the per-episode key copies
+            // (provider, episode list, metadata — everything the resolution
+            // and the combined-mode handles read; the source id rides the key
+            // too, replacing the old separate param).
+            watchKey = key,
         )
 
         CsPlayerMode.FULLSCREEN -> Box(

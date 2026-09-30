@@ -1,5 +1,6 @@
 package com.confused.anikuta.feature.animedetails
 
+import com.confused.anikuta.core.designsystem.component.episodelist.formatShortDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

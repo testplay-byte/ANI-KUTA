@@ -1,6 +1,8 @@
 package com.confused.anikuta.core.download
 
 import com.confused.anikuta.core.download.cs.CsDownloadRequestBuilder
+import com.confused.anikuta.core.videoresolver.ResolverServer
+import com.confused.anikuta.core.videoresolver.ResolverVideo
 
 /**
  * ROUND 106 (WS-D / D-711): the PLAYER page's download bridge.
@@ -24,10 +26,21 @@ import com.confused.anikuta.core.download.cs.CsDownloadRequestBuilder
  * dependencies (feature/watch + feature/cs-watch already depend on
  * :core:download).
  *
+ * ROUND 109 (D-721): THE AUTO-PICK IS DEAD. The v1.1.65 device round:
+ * "it automatically selects one of the video streams and starts
+ * downloading it automatically, which is not a good idea… how it gets
+ * handled on the details page." The old [enqueueClassic] resolved and
+ * auto-picked (the auto-download engine's choice, or a best-effort
+ * first-video fallback when it returned ShowPicker) — the contract is now
+ * the details page's flow: [resolveForPicker] hands the FULL resolved
+ * server list up so the page can show the picker sheet, and [enqueuePicked]
+ * enqueues the video the USER picked. Nothing downloads without an
+ * explicit pick.
+ *
  * The CS-BRIDGED path needs no bridge method: the CS stack resolves its own
  * links (CloudstreamLinkResolver) and enqueues through
  * [CsDownloadRequestBuilder] + [DownloadManager.enqueueDownload] directly —
- * the builder moved into :core:download this round for exactly that.
+ * the builder moved into :core:download in round 106 for exactly that.
  */
 interface PlayerDownloadController {
 
@@ -40,7 +53,7 @@ interface PlayerDownloadController {
         val name: String?,
     )
 
-    /** The enqueue outcome — the player surfaces each branch honestly. */
+    /** The outcome — the player surfaces each branch honestly. */
     sealed interface Outcome {
         /** Enqueued — the queue + the badge states take it from here. */
         data class Started(val taskId: Long) : Outcome
@@ -56,17 +69,47 @@ interface PlayerDownloadController {
 
         /** The resolve/enqueue failed — the message is user-showable. */
         data class Error(val message: String) : Outcome
+
+        /**
+         * ROUND 109 (D-721): the episode's videos resolved — the FULL
+         * server/audio/quality hierarchy, ready for the picker sheet. NO
+         * download has started: the page shows the list, the USER picks, and
+         * only then does [enqueuePicked] run.
+         */
+        data class PickerReady(val servers: List<ResolverServer>) : Outcome
     }
 
     /**
-     * Enqueues a download through the CLASSIC path (the auto-download
-     * engine over the content's extension source) — the extracted,
-     * player-facing twin of MainActivity's `handleDownloadEpisode`.
+     * ROUND 109 (D-721): resolves the episode's videos WITHOUT downloading —
+     * the details page's resolve-then-pick flow, player-side. Returns
+     * [Outcome.PickerReady] with the full server list, or the honest
+     * failure branches ([Outcome.NoSource], [Outcome.CsBridged],
+     * [Outcome.Error]).
      *
      * @param mainId The content's mainId (the player stacks' identity).
      * @param episode The episode's identity (key/number/name).
      */
-    suspend fun enqueueClassic(mainId: String, episode: EpisodeInfo): Outcome
+    suspend fun resolveForPicker(mainId: String, episode: EpisodeInfo): Outcome
+
+    /**
+     * ROUND 109 (D-721): enqueues the video the USER picked from the picker
+     * sheet (the player-side twin of the details page's
+     * handleDownloadSpecificVideo).
+     *
+     * @param mainId The content's mainId.
+     * @param episode The episode's identity.
+     * @param video The user-selected video (from [Outcome.PickerReady]'s
+     *   servers).
+     * @param serverName The picked server's name (from the sheet).
+     * @param audioLabel The picked audio version's label (from the sheet).
+     */
+    suspend fun enqueuePicked(
+        mainId: String,
+        episode: EpisodeInfo,
+        video: ResolverVideo,
+        serverName: String,
+        audioLabel: String,
+    ): Outcome
 
     /**
      * The content identity for a CS-style request — the ONE builder so the

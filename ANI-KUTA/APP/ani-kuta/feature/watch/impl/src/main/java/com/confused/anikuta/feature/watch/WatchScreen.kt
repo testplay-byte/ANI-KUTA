@@ -1842,6 +1842,33 @@ private fun MinimizedMode(
     val enqueueInFlight = remember { mutableStateMapOf<String, Boolean>() }
     var scrollArrivalPulse by remember { mutableLongStateOf(0L) }
 
+    // ── ROUND 109 (D-721): THE DOWNLOAD PICKER — the v1.1.65 device round:
+    // "it directly, automatically started to load, and after loading, it
+    // apparently did not show me any bottom-up resolved video lists for it
+    // or anything like that, how it gets handled on the details page… it
+    // automatically selects one of the video streams and starts downloading
+    // it automatically, which is not a good idea." The badge's download tap
+    // now resolves and hands the FULL server list to THIS state; the picker
+    // sheet (mounted at the page's end) renders it; the USER'S pick — and
+    // only the pick — enqueues. The old auto-picking enqueueClassic path is
+    // retired from the controller's contract. ──
+    var downloadPickerEpisode by remember { mutableStateOf<SimpleEpisode?>(null) }
+    var downloadPickerServers by remember {
+        mutableStateOf<List<com.confused.anikuta.core.videoresolver.ResolverServer>>(emptyList())
+    }
+    // The download-folder gate (the details page's D-403 pre-check,
+    // player-side): the folder URI's persisted WRITE grant — checked before
+    // the sheet opens so a pick can never dead-end at an enqueue error.
+    val downloadPreferences = koinInject<com.confused.anikuta.core.download.DownloadPreferences>()
+    val downloadFolderContext = LocalContext.current
+    fun downloadFolderReady(): Boolean = runCatching {
+        val uriStr = downloadPreferences.downloadFolderUri.get()
+        if (uriStr.isBlank()) return@runCatching false
+        val uri = android.net.Uri.parse(uriStr)
+        downloadFolderContext.contentResolver.persistedUriPermissions
+            .any { it.uri == uri && it.isWritePermission }
+    }.getOrDefault(false)
+
     // Wrap in derivedStateOf to prevent excessive recompositions.
     val collapsed by remember {
         derivedStateOf {
@@ -2273,9 +2300,21 @@ private fun MinimizedMode(
                     return com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeDownloadActions(
                         onDownload = {
                             if (watchKey.mainId.isNotBlank()) {
+                                // ROUND 109 (D-721): THE DETAILS PAGE'S FLOW,
+                                // player-side — the folder gate first (the
+                                // D-403 twin), then RESOLVE-AND-SHOW. No
+                                // auto-pick: the resolved list rides up to
+                                // the picker sheet and the USER chooses.
+                                if (!downloadFolderReady()) {
+                                    com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                        "No download folder — pick one in Settings → Downloads first",
+                                        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                    )
+                                    return@PlayerEpisodeDownloadActions
+                                }
                                 enqueueInFlight[flowKey] = true
                                 pageScrollScope.launch {
-                                    val outcome = playerDownloadController.enqueueClassic(
+                                    val outcome = playerDownloadController.resolveForPicker(
                                         mainId = watchKey.mainId,
                                         episode = com.confused.anikuta.core.download.PlayerDownloadController.EpisodeInfo(
                                             episodeKey = ep.url,
@@ -2285,6 +2324,10 @@ private fun MinimizedMode(
                                     )
                                     enqueueInFlight[flowKey] = false
                                     when (outcome) {
+                                        is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.PickerReady -> {
+                                            downloadPickerEpisode = ep
+                                            downloadPickerServers = outcome.servers
+                                        }
                                         is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.Started -> Unit
                                         is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.NoSource ->
                                             com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
@@ -2366,6 +2409,13 @@ private fun MinimizedMode(
                             ?: watchKey.coverUrl.takeIf { it.isNotBlank() },
                         dateText = if (meta != null && meta.airDateMillis > 0) {
                             formatDate(meta.airDateMillis)
+                        } else null,
+                        // ROUND 109 (D-719): the SHORT date — the grid chip's
+                        // text (the details grid's own "Jan 1" shape; the
+                        // rows above keep the long date).
+                        dateTextShort = if (meta != null && meta.airDateMillis > 0) {
+                            com.confused.anikuta.core.designsystem.component.episodelist
+                                .formatShortDate(meta.airDateMillis)
                         } else null,
                         audioLabels = audio.labels,
                         synopsis = meta?.description,
@@ -2489,6 +2539,59 @@ private fun MinimizedMode(
                 modifier = Modifier.align(Alignment.TopCenter),
             )
         } // end Box
+    }
+
+    // ── ROUND 109 (D-721): THE DOWNLOAD PICKER SHEET — the bottom-up
+    //    resolved-video list the v1.1.65 device round ordered ("how it gets
+    //    handled on the details page"): the tap resolved the episode's
+    //    streams, THIS sheet shows the full server/audio/quality hierarchy,
+    //    and the download enqueues ONLY on the user's pick. Dismiss = no
+    //    download (cancel-on-dismiss, the CS sheet's own contract). ──
+    downloadPickerEpisode?.let { pickerEp ->
+        com.confused.anikuta.core.designsystem.component.download.DownloadVideoPickerSheet(
+            servers = downloadPickerServers,
+            animeTitle = watchKey.animeTitle,
+            episodeName = pickerEp.name,
+            onVideoSelected = { video, serverName, audioLabel ->
+                downloadPickerEpisode = null
+                if (watchKey.mainId.isNotBlank()) {
+                    pageScrollScope.launch {
+                        when (val outcome = playerDownloadController.enqueuePicked(
+                            mainId = watchKey.mainId,
+                            episode = com.confused.anikuta.core.download.PlayerDownloadController.EpisodeInfo(
+                                episodeKey = pickerEp.url,
+                                episodeNumber = pickerEp.episodeNumber,
+                                name = pickerEp.name,
+                            ),
+                            video = video,
+                            serverName = serverName,
+                            audioLabel = audioLabel,
+                        )) {
+                            // Started: the badge turns InFlight/Downloading on
+                            // its own (the queue row lands) — no toast needed.
+                            is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.Started -> Unit
+                            is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.NoSource ->
+                                com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                    "No download source for this episode",
+                                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                )
+                            is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.CsBridged ->
+                                com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                    "This episode streams through CloudStream — no classic download",
+                                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                )
+                            is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.Error ->
+                                com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                    "Download failed: ${outcome.message}",
+                                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                )
+                            is com.confused.anikuta.core.download.PlayerDownloadController.Outcome.PickerReady -> Unit
+                        }
+                    }
+                }
+            },
+            onDismiss = { downloadPickerEpisode = null },
+        )
     }
 }
 

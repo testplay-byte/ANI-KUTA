@@ -633,7 +633,10 @@ fun PlayerEpisodeListSettingsScreen(
                                 AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.GRID) {
                                     PlayerSwitchRow(
                                         title = "Watched checkmark",
-                                        description = "Grayscale and a check on watched episodes",
+                                        // ROUND 109 (D-720): the check ONLY — the
+                                        // grayness follows the Dim knob below
+                                        // (decoupled per the v1.1.65 round).
+                                        description = "The check bubble on watched thumbnails",
                                         checked = gridWatchedCheckmark,
                                         onChecked = { playerListPrefs.gridWatchedCheckmark.set(it) },
                                     )
@@ -684,17 +687,17 @@ fun PlayerEpisodeListSettingsScreen(
                                         },
                                     )
                                 }
-                                // ── Dim watched — DETAILED + TRACKLIST +
-                                //    BANNER (the GRID reads its checkmark
-                                //    instead, above). ──
-                                AnimatedStyleRow(visible = style != PlayerEpisodeListStyle.GRID) {
-                                    PlayerSwitchRow(
-                                        title = "Dim watched episodes",
-                                        description = "Fade and grayscale watched episodes",
-                                        checked = dimWatched,
-                                        onChecked = { playerListPrefs.dimWatched.set(it) },
-                                    )
-                                }
+                                // ── Dim watched — ALL FOUR styles (ROUND 109 /
+                                //    D-720: the GRID rejoined — the grayscale +
+                                //    dim overlay follow this knob, DECOUPLED from
+                                //    the GRID's own check bubble above: removing
+                                //    the checkmark keeps the grayness). ──
+                                PlayerSwitchRow(
+                                    title = "Dim watched episodes",
+                                    description = "Fade and grayscale watched episodes",
+                                    checked = dimWatched,
+                                    onChecked = { playerListPrefs.dimWatched.set(it) },
+                                )
                                 // ── The BANNER's number block (ROUND 105: the
                                 //    toggle + the nested position/style rows). ──
                                 AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.BANNER) {
@@ -1003,6 +1006,13 @@ private fun PreviewItem.toPlayerRowData(
         displayTitle = EpisodeTitleParser.getDisplayTitle(ep.name, ep.episode_number),
         thumbnailUrl = ep.preview_url ?: fallbackCoverUrl,
         dateText = if (ep.date_upload > 0) formatDate(ep.date_upload) else null,
+        // ROUND 109 (D-719): the SHORT date — the preview's GRID chip shows
+        // exactly what the player page's grid chip shows ("Jan 1", the
+        // details grid's shape).
+        dateTextShort = if (ep.date_upload > 0) {
+            com.confused.anikuta.core.designsystem.component.episodelist
+                .formatShortDate(ep.date_upload)
+        } else null,
         audioLabels = parseAudioLabels(ep.scanlator),
         synopsis = ep.summary,
         isCurrent = isCurrent,

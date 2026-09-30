@@ -42,7 +42,6 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -104,10 +103,6 @@ internal fun CsWatchPage(
     currentEpisodeData: String,
     ratingStore: com.confused.anikuta.core.ratings.RatingStore = koinInject(),
     mainId: String,
-    // ROUND 106 (WS-D): the bridged source's synthetic id — the download
-    // badge's enqueue labels the request with it (the caller passes the
-    // key's).
-    sourceId: Long = 0L,
     // ROUND 108 (D-713): the details page's COVER URL — the episode rows'
     // thumbnail fallback (the details page's own rule; blank = no fallback).
     coverUrl: String = "",
@@ -120,6 +115,19 @@ internal fun CsWatchPage(
      * the caller (CsWatchScreen) wires the VM's episodeProgress map.
      */
     progressByEpisodeKey: Map<String, com.confused.anikuta.core.watchprogress.WatchProgress> = emptyMap(),
+    /**
+     * ROUND 109 (D-721): the FULL watch key — the download badge opens the
+     * CS resolve sheet in DOWNLOAD mode now (the details page's flow: no
+     * auto-pick; the user picks the stream from the bottom-up resolved
+     * list). The sheet resolves per-episode key COPIES of this key.
+     */
+    watchKey: com.confused.anikuta.feature.cswatch.api.CsWatchKey = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+        providerName = "",
+        animeTitle = "",
+        episodeData = "",
+        episodeNumber = 0f,
+        episodeTitle = "",
+    ),
 ) {
     val listState = rememberLazyListState()
 
@@ -316,23 +324,41 @@ internal fun CsWatchPage(
     // ── ROUND 106 (WS-D): THE PLAYER PAGE'S DOWNLOADS (the CS stack) —
     // the badge's data + actions. The states ride the engine's map (keyed
     // "$mainId|$dataHandle" — the SAME key the details page's CS downloads
-    // write); the enqueue resolves the tapped episode's links ON DEMAND
-    // (the same CloudstreamLinkResolver the player resolves with), picks
-    // the stream (the current episode's server first, then the best
-    // quality), and enqueues through the moved CsDownloadRequestBuilder —
-    // the engine itself is source-agnostic from there. ──
+    // write).
+    //
+    // ROUND 109 (D-721): THE AUTO-PICK IS DEAD. The v1.1.65 device round:
+    // "it directly, automatically started to load, and after loading, it
+    // apparently did not show me any bottom-up resolved video lists for it
+    // or anything like that, how it gets handled on the details page… it
+    // automatically selects one of the video streams and starts downloading
+    // it automatically, which is not a good idea." The badge's download tap
+    // now opens the SAME CsResolveSheet the details page opens — in DOWNLOAD
+    // mode ("Download EP N", the progressive resolved list, the server /
+    // audio / resolution chips) — and only the USER'S pick enqueues, through
+    // the same CsDownloadRequestBuilder the details page's pick uses. The
+    // sheet resolves internally (its own event stream), so the tap itself is
+    // synchronous — no InFlight gap, no inline resolver. ──
     val csDownloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
     val csPlayerDownloadController = koinInject<com.confused.anikuta.core.download.PlayerDownloadController>()
-    val csLinkResolver = koinInject<com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver>()
     val csCoreDownloadStates by csDownloadManager.episodeDownloadStates.collectAsState()
     val csDownloadQueueSnapshot by csDownloadManager.getQueue().collectAsState()
-    val csEnqueueInFlight = remember { mutableStateMapOf<String, Boolean>() }
+    // The download-folder gate (the details page's D-403 pre-check,
+    // player-side) + the per-episode sheet state.
+    val csDownloadPreferences = koinInject<com.confused.anikuta.core.download.DownloadPreferences>()
+    val csDownloadFolderContext = androidx.compose.ui.platform.LocalContext.current
+    fun csDownloadFolderReady(): Boolean = runCatching {
+        val uriStr = csDownloadPreferences.downloadFolderUri.get()
+        if (uriStr.isBlank()) return@runCatching false
+        val uri = android.net.Uri.parse(uriStr)
+        csDownloadFolderContext.contentResolver.persistedUriPermissions
+            .any { it.uri == uri && it.isWritePermission }
+    }.getOrDefault(false)
+    var csDownloadSheetKey by remember {
+        mutableStateOf<com.confused.anikuta.feature.cswatch.api.CsWatchKey?>(null)
+    }
     fun csDownloadStateFor(ep: CsSimpleEpisode): com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState? {
         if (mainId.isBlank()) return null
         val key = "$mainId|${ep.data}"
-        if (csEnqueueInFlight[key] == true) {
-            return com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.InFlight
-        }
         val raw = csCoreDownloadStates[key]
             ?: return com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.NotDownloaded
         return when (raw.first) {
@@ -358,94 +384,27 @@ internal fun CsWatchPage(
         }?.id
     }
     fun csDownloadActionsFor(ep: CsSimpleEpisode): com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeDownloadActions {
-        val flowKey = "$mainId|${ep.data}"
         return com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeDownloadActions(
+            // ROUND 109 (D-721): the details page's flow — the folder gate,
+            // then the RESOLVE SHEET in download mode. The per-episode key
+            // copy carries the tapped episode's data handle (the sheet's
+            // resolution + the combined-mode handles read it); the sheet's
+            // pick hands the user-chosen link + subtitles + the full list to
+            // the enqueue below.
             onDownload = {
                 if (mainId.isBlank()) return@PlayerEpisodeDownloadActions
-                csEnqueueInFlight[flowKey] = true
-                csPageScrollScope.launch {
-                    try {
-                        val content = csPlayerDownloadController.contentInfoFor(mainId)
-                        if (content == null) {
-                            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
-                                "No download source for this episode",
-                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
-                            )
-                            return@launch
-                        }
-                        // Resolve the tapped episode's links on demand —
-                        // the same resolver + event stream the player uses.
-                        val provider = uiState.providerName
-                        var links: List<com.confused.anikuta.core.csplayer.CsVideoLink> = emptyList()
-                        var subtitles: List<com.confused.anikuta.core.csplayer.CsSubtitle> = emptyList()
-                        var failed: String? = null
-                        runCatching {
-                            csLinkResolver.resolve(provider, ep.data).collect { event ->
-                                when (event) {
-                                    is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.LinksSnapshot ->
-                                        links = event.links
-                                    is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.SubtitlesSnapshot ->
-                                        subtitles = event.subtitles
-                                    is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.Completed -> Unit
-                                    is com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver.CsResolveEvent.Failed ->
-                                        failed = event.message
-                                }
-                            }
-                        }
-                        if (links.isEmpty()) {
-                            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
-                                failed ?: "No streams found for this episode",
-                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
-                            )
-                            return@launch
-                        }
-                        // The pick: the CURRENT episode's server first (the
-                        // user is watching it — the natural choice), else
-                        // the highest declared quality.
-                        // The resolver already HIDES torrent/magnet links
-                        // (+DRM) before emitting — the snapshot is the
-                        // playable pool as-is.
-                        val currentServer = uiState.currentLink?.name
-                        val pool = links
-                        // SA2-F5: the raw quality INT ranks the pick (the
-                        // label says "4K"/"Auto" — a digit parse would
-                        // misrank them); 0 = Auto sorts lowest naturally.
-                        val pick = pool.firstOrNull { currentServer != null && it.name == currentServer }
-                            ?: pool.maxByOrNull { it.quality } ?: links.first()
-                        val request = com.confused.anikuta.core.download.cs.CsDownloadRequestBuilder.build(
-                            content = content,
-                            episode = com.confused.anikuta.core.download.DownloadEpisodeInfo(
-                                episodeKey = ep.data,
-                                episodeNumber = ep.episodeNumber,
-                                name = ep.name,
-                            ),
-                            link = pick,
-                            subtitles = subtitles,
-                            sourceId = sourceId,
-                            allLinks = pool,
-                        )
-                        val taskId = csDownloadManager.enqueueDownload(request)
-                        com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
-                            "Download queued: ${pick.qualityLabel} · ${pick.name}",
-                            com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
-                        )
-                        com.confused.anikuta.core.common.Logger.i("Anikuta:CS:Watch") {
-                            "player download enqueued taskId=$taskId (${pick.qualityLabel}, ${pick.name})"
-                        }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        com.confused.anikuta.core.common.Logger.e("Anikuta:CS:Watch", e) {
-                            "player download failed"
-                        }
-                        com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
-                            "Download failed: ${e.message}",
-                            com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
-                        )
-                    } finally {
-                        csEnqueueInFlight[flowKey] = false
-                    }
+                if (!csDownloadFolderReady()) {
+                    com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                        "No download folder — pick one in Settings → Downloads first",
+                        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                    )
+                    return@PlayerEpisodeDownloadActions
                 }
+                csDownloadSheetKey = watchKey.copy(
+                    episodeData = ep.data,
+                    episodeNumber = ep.episodeNumber,
+                    episodeTitle = ep.name,
+                )
             },
             onPause = {
                 csDownloadTaskIdFor(ep)?.let { id ->
@@ -794,6 +753,12 @@ internal fun CsWatchPage(
                             dateText = if (meta != null && meta.airDateMillis > 0) {
                                 formatDate(meta.airDateMillis)
                             } else null,
+                            // ROUND 109 (D-719): the SHORT date — the grid
+                            // chip's text (the details grid's own shape).
+                            dateTextShort = if (meta != null && meta.airDateMillis > 0) {
+                                com.confused.anikuta.core.designsystem.component.episodelist
+                                    .formatShortDate(meta.airDateMillis)
+                            } else null,
                             subDubLabel = meta?.scanlator?.takeIf { it.isNotBlank() },
                             flavorLabels = ep.flavors,
                             synopsis = meta?.description,
@@ -1047,6 +1012,74 @@ private fun CsCurrentlyPlayingSection(
                 }
             }
         }
+    }
+
+    // ── ROUND 109 (D-721): THE CS RESOLVE SHEET, DOWNLOAD MODE — the SAME
+    //    bottom-up resolved-video list the details page opens (Task 58's
+    //    download mode: the "Download EP N" header, the progressive stream
+    //    list, the server/audio/resolution chips), mounted right here in the
+    //    player's own module. The tap already resolved the folder gate; the
+    //    sheet resolves the streams itself; the USER'S pick — and only the
+    //    pick — enqueues through the same CsDownloadRequestBuilder chain the
+    //    details page's handleCsDownloadPick uses (D-550's sibling DASH
+    //    variants ride the full list; D-552's chosen height rides the pick).
+    //    Dismissal cancels the resolution and downloads nothing. ──
+    csDownloadSheetKey?.let { sheetKey ->
+        com.confused.anikuta.feature.cswatch.impl.CsResolveSheet(
+            key = sheetKey,
+            onDismiss = { csDownloadSheetKey = null },
+            onPlay = { csDownloadSheetKey = null },
+            onDownload = { pickedKey, link, subtitles, allLinks, chosenHeight ->
+                csDownloadSheetKey = null
+                if (mainId.isNotBlank()) {
+                    csPageScrollScope.launch {
+                        try {
+                            val content = csPlayerDownloadController.contentInfoFor(mainId)
+                            if (content == null) {
+                                com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                    "No download source for this episode",
+                                    com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                )
+                                return@launch
+                            }
+                            val request = com.confused.anikuta.core.download.cs.CsDownloadRequestBuilder.build(
+                                content = content,
+                                episode = com.confused.anikuta.core.download.DownloadEpisodeInfo(
+                                    episodeKey = pickedKey.episodeData,
+                                    episodeNumber = pickedKey.episodeNumber,
+                                    name = pickedKey.episodeTitle
+                                        .ifBlank { "Episode ${pickedKey.episodeNumber.toInt()}" },
+                                ),
+                                link = link,
+                                subtitles = subtitles,
+                                sourceId = pickedKey.sourceId.takeIf { it != 0L },
+                                allLinks = allLinks,
+                                chosenHeight = chosenHeight,
+                            )
+                            val taskId = csDownloadManager.enqueueDownload(request)
+                            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                "Download queued: ${link.qualityLabel} · ${link.name}",
+                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                            )
+                            com.confused.anikuta.core.common.Logger.i("Anikuta:CS:Watch") {
+                                "player download enqueued (user pick) taskId=$taskId " +
+                                    "(${link.qualityLabel}, ${link.name}${chosenHeight?.let { ", ${it}p" } ?: ""})"
+                            }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            com.confused.anikuta.core.common.Logger.e("Anikuta:CS:Watch", e) {
+                                "player download failed"
+                            }
+                            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                                "Download failed: ${e.message}",
+                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                            )
+                        }
+                    }
+                }
+            },
+        )
     }
 }
 

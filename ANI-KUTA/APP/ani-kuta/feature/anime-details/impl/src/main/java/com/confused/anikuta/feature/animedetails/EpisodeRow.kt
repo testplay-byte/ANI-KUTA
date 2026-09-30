@@ -37,6 +37,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+// ROUND 109 (D-719): the shared meta pieces (chips + progress pill + the
+// short date formatter) moved to :core:designsystem's episodelist package —
+// the classic row's calls are unchanged, only the import source moved.
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeAudioChip
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeDateChip
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeWatchProgressBar
+import com.confused.anikuta.core.designsystem.component.episodelist.formatShortDate
 import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
