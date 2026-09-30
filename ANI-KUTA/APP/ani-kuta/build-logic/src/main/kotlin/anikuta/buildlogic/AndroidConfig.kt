@@ -544,8 +544,24 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── D-430: the release-branch bump (round 109 — v1.1.66) ──────────────
+    // Cut from the green mainline head 3f23252a (Build APK run 36744466626
+    // GREEN after one fix round — the CS sheet mount's scope; the first run
+    // 36743722996 caught it). Carries on top of v1.1.65 THE ROUND-109 SET
+    // (D-719..D-721, doc 91): THE GRID'S TRUE UNION (the player grid = the
+    // details grid VERBATIM — the shared EpisodeMetaChips in :core:designsystem:
+    // the type-coded SUB/DUB/HSUB capsules, the quiet SHORT-date capsule, the
+    // inset progress pill; the 16dp pure plate, the quiet number tile, the
+    // 13sp/16sp title with the watched dim, the (4,4) chips FlowRow) + THE
+    // CHECKMARK'S FREEDOM (dimWatched owns the grayscale + dim on ALL FOUR
+    // player styles; gridWatchedCheckmark owns ONLY the check bubble —
+    // removing the checkmark keeps the grayness) + THE DOWNLOAD'S HONEST PICK
+    // (both stacks: the CS resolve sheet in DOWNLOAD mode over the playing
+    // page with the folder gate; the MPV stack's resolveForPicker +
+    // enqueuePicked contract with the DownloadVideoPickerSheet — nothing
+    // downloads without an explicit user pick).
+    const val versionCode = 10166
+    const val versionName = "1.1.66"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
