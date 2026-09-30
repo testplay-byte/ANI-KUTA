@@ -194,10 +194,70 @@ renders the centered check over the dim; everything else stays.
 - CI: push → poll → fix (≤2 runs, D-472).
 
 ## 4. The CI history (the D-472 ledger)
-(pending — filled as runs happen)
+- **Run 36733603418 (Build APK, commit 6ae67a01) — FAILURE**: the ONE
+  compile error of the round, PreviewCollapseScroll.kt:334 —
+  `delay(LOCK_BEAT_MS)` against the Int constant (Kotlin widens literals
+  to an expected Long, never a typed constant). Fixed by declaring the
+  beat as 140L (HIDE_ANIMATION_MS stays Int — tween's durationMillis).
+- **Run 36734330093 (Build APK, commit 0b92f506) — GREEN** in ~5m: the
+  audit-fix + CI-fix head, one fix round after the implementation push.
+
 
 ## 5. The sub-agent audits
-(pending — filled after SA1/SA2)
+**SA1 — the scroll/flick controller + both settings screens: PASS-WITH-FIXES**
+(performed by main after two sub-agent dispatch timeouts; the checklist
+walked every connection callback line by line):
+- **SA1-F1 (MAJOR, fixed)**: the new -350px/s floor still let down-flicks
+  in (0, -350) reach the list's own fling — which scrolls as SideEffect
+  and bypasses the connection entirely (the exact v1.1.64 "list scrolls
+  under an open preview" defect, narrowed but not closed). ANY downward
+  fling while open is consumed now: >= floor runs the full choreography,
+  below the floor is swallowed WITHOUT the sequence (a tap must never
+  hide the preview); the settle window eases the preview back.
+- SA1-F2 (none): the floor's old KDoc ("below it passes through
+  untouched") was misleading — rewritten with the fix.
+- SA1-F3 (verified sound): the GRID exemption is triple-covered
+  (connection early-return + remember(enabled) rebuild + reopen effect) —
+  a stale collapsed state under GRID cannot clip the preview.
+- SA1-F4 (verified sound): resetOnEntry's scroll is not held by
+  sequenceJob/settleJob, so the entry-time reopen cannot cancel it.
+- Compile-correctness: bracket balance 0/0 on all three files; the
+  removed inline copies used the identical SideEffect/onPreFling/Velocity
+  APIs (git diff of the deletions proves compile compatibility); the
+  unused-import scan flagged only getValue/setValue (needed by `by`
+  delegates).
+
+**SA2 — the badges, the title gate, the grid parity, the banner, the
+data transfer: PASS-WITH-FIXES** (all 16 touched files scripted):
+- **SA2-F1 (MINOR, fixed)**: three dead `val delim` locals left by the
+  extraction (DetailsScreen) — deleted.
+- **SA2-F2 (MINOR, fixed)**: the player GRID gated the ENTIRE text block
+  (number label included) on `titleLine != null || pills.isNotEmpty()` —
+  a gated-out title + empty pills ate the "EP N" line. The label is
+  hoisted: ALWAYS present (the details grid's contract).
+- **SA2-F3 (MINOR, fixed)**: bare "#12345"-shaped titles passed the gate
+  (parseTitle's hash detector only fires past its 10-char floor).
+  PLACEHOLDER_TITLE widened — "#12345" and "Episode #5" now hide
+  (12-case paper test: every placeholder shape HIDEs, real titles show,
+  "Episode 5 - Foo" shows).
+- **SA2-F4 (MINOR, fixed)**: the Downloads-page key builders did not
+  pass coverUrl — both (CsWatchKey CS-offline branch + WatchKey MPV
+  branch) now ride `downloaded?.content?.coverUrl ?: ""`.
+- SA2-F5/F6 (comment fixes, applied): the folded-sites count corrected
+  (six, not eight); the banner bar's comment now describes the actual
+  full-bleed edge bar, not a CINEMA inset.
+- SA2-F7/F8/F9 (NONE, accepted): the player grid's 12sp/15sp title
+  sizing; the download bars not gated on the badge knob; the legacy
+  gridTitles=false folding to TWO_LINES (the D-529 tombstone discipline).
+- Verified end-to-end: both badges' menus match the classic control's
+  contract (Play/Delete, Pause/Cancel, dismiss-before-action); onDelete
+  reaches downloadManager.deleteDownloadedEpisode on all three stacks;
+  progress is Int 0-100 everywhere and every consumer /100f-coerces; the
+  union serialization is lossless (Int-keyed distinct + sorted, extension
+  wins conflicts, date gap-filled by date_upload); the wire format is
+  byte-identical; coverUrl threaded through all 6 nav paths; zero live
+  gridTitles reads (tombstone confirmed).
+
 
 ## 6. The round-109 checklist (the device round on v1.1.65)
 1. Re-enter either episode-list settings screen after scrolling it halfway:
