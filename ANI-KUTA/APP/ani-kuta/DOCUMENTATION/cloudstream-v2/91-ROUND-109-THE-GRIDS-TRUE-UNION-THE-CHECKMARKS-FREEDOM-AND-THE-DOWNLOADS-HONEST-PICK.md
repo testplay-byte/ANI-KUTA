@@ -136,7 +136,12 @@ grab — the code even admitted it: "the player has no picker sheet."
    new anatomy live (chips, short date, the decoupled knobs).
 
 ## 4. The CI history (the D-472 ledger)
-(pending — filled as runs happen)
+- **Run 36743722996 (Build APK, commit 7641b6d1) — FAILURE**: the CS sheet
+  mount anchored on the description section's tail (identical-looking
+  closing braces) and landed inside `CsCurrentlyPlayingSection`, where the
+  page-level state does not exist — 12 unresolved references, one cause.
+  Fixed by moving the mount into CsWatchPage's own body (3f23252a).
+- **Run 36744466626 (Build APK, commit 3f23252a) — GREEN** in ~5m.
 
 ## 5. The audit record
 (the implementation was self-audited line-by-line this round: bracket
@@ -147,4 +152,13 @@ sites; the sheet callbacks' arities match the contracts; the label
 `return@PlayerEpisodeDownloadActions` follows the repo-proven pattern.)
 
 ## 6. The release record (the D-565 loop)
-(pending — v1.1.66 cut after CI green)
+Released **v1.1.66 / 10166**: `release/1.1.66` cut from the green mainline
+head 3f23252a (Build APK run 36744466626 GREEN after one fix round; the
+ledger commit is docs-only); the bump (10120→10166, 1.1.20→1.1.66) rode the
+branch per D-430; the annotated tag `v1.1.66` carries the honest bullet
+body (D-466); **Release APK run 36745155205 GREEN FIRST-TRY → v1.1.66
+LIVE** (published 2026-09-30T16:38:22Z, stable latest, arm64-v8a debug APK
+63.5 MB + SHA256SUMS.txt — verified via the API: the tag, the latest flag,
+the assets). The mainline twin (the docs-only mirror, no version bump per
+D-430) lands immediately after this record. Awaiting the user's device
+round (checklist §3).
