@@ -544,8 +544,34 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── D-430: the release-branch bump (round 108 — v1.1.65) ──────────────
+    // Cut from the green mainline head 6d9c45e0 (Build APK run 36734330093
+    // GREEN on 0b92f506 after one fix round — the LOCK_BEAT_MS Long type;
+    // the ledger commit is docs-only). Carries on top of v1.1.64 THE
+    // ROUND-108 SET (D-713..D-718, doc 90): THE SETTINGS' HONEST ENTRY (both
+    // episode-list settings screens open at the very top, preview open — the
+    // rememberSaveable offset no longer survives re-entry) + THE FLICK'S REAL
+    // CHOREOGRAPHY (ONE shared PreviewCollapseScroll controller: ANY
+    // down-flick while open is consumed — the SideEffect bypass is closed at
+    // every strength — then the smooth 260ms hide, the ~140ms lock beat, the
+    // velocity-proportional momentum handoff through the canonical
+    // scroll-scope decay; the drag two-phase snap unchanged; GRID exempt) +
+    // THE COMPACT LAYOUTS' FULL DOWNLOAD CONTRACT (details GRID/TIMELINE/
+    // CINEMA + player GRID/BANNER: determinate progress bars on the imagery,
+    // both badges offer Play/Delete + Pause/Cancel, the player's onDelete
+    // wired to the download manager) + THE TWO GRIDS' UNION (the player GRID
+    // adopts the details anatomy — the always-present EP N line, the
+    // mode-aware title gated to REAL English-readable names, the wrapping
+    // FlowRow chips; both settings gained the Off/One-line/Full segmented) +
+    // THE BANNER'S CINEMA TURN (2-line 16sp names, the watch/download
+    // progress bar, the watched-check knob) + THE TRANSFER'S CLOSED GAPS (the
+    // metadata serialization iterates the UNION — extension-only series keep
+    // their titles/thumbs/dates/audio pills; the six duplicated list
+    // serializations folded into ONE builder; coverUrl rides every watch-key
+    // path including the Downloads-origin builders, with the thumb -> cover
+    // -> number-tile fallback on both player stacks).
+    const val versionCode = 10165
+    const val versionName = "1.1.65"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
