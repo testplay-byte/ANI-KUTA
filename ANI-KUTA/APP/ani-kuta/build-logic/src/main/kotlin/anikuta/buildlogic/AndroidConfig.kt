@@ -544,8 +544,22 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── D-430: the release-branch bump (round 107 — v1.1.64) ──────────────
+    // Cut from the green mainline head 7d004e18 (Build APK run 36664738397
+    // GREEN FIRST-TRY on 40da8f66; the ledger commit is docs-only). Carries
+    // on top of v1.1.63 THE ROUND-107 SET (D-712, doc 89): the DETAILED
+    // layout's robust rules — the LINE-BREAKING RULES (DETAILED + GRID
+    // titles wrap to two lines; TRACKLIST one line; BANNER name one line;
+    // synopses two lines; pills wrap; NUMBERS NEVER BREAK — the fallback
+    // tile GROWS instead of wrapping mid-number) + THE TAG MODEL (ONE
+    // buildRowTags: ci-deduped, normalized to the canonical SUB/DUB/HSUB
+    // vocabulary with the MPV parse's exact token semantics, ordered
+    // date -> SUB -> DUB -> HSUB -> others, never clipped — the CS
+    // "Sub"+"SUB" duplication is dead) + the cleanup (the dead Row wrapper,
+    // the slimmer EP tag + Pill, the inert SpaceBetween, the blank-date
+    // guard).
+    const val versionCode = 10164
+    const val versionName = "1.1.64"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
