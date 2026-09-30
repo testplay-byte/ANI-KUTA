@@ -281,4 +281,14 @@ data transfer: PASS-WITH-FIXES** (all 16 touched files scripted):
    fall back to the cover image.
 
 ## 7. The release record (the D-565 loop)
-(pending — v1.1.65 cut after CI green)
+Released **v1.1.65 / 10165**: `release/1.1.65` cut from the green
+mainline head 6d9c45e0 (Build APK run 36734330093 GREEN on 0b92f506
+after one fix round — the LOCK_BEAT_MS Long type, run 36733603418 the
+failure; the ledger commit is docs-only); the bump (10120→10165,
+1.1.20→1.1.65) rode the branch per D-430; the annotated tag `v1.1.65`
+carries the honest bullet body (D-466); **Release APK run 36735225918
+GREEN FIRST-TRY → v1.1.65 LIVE** (published 2026-09-30T15:18:14Z,
+stable latest, arm64-v8a debug APK 63.5 MB + SHA256SUMS.txt — verified
+via the API: the tag, the latest flag, the assets). The mainline twin
+(the docs-only mirror, no version bump per D-430) lands immediately
+after this record. Awaiting the user's device round (checklist §6).
