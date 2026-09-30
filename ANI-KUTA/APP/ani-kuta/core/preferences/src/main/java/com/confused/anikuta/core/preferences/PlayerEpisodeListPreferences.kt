@@ -215,11 +215,44 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
     )
 
     /**
-     * The GRID's title strip — the bottom scrim's "EP N · Title" line
-     * (default on; off = the clean image wall).
+     * ROUND 105: the GRID's title strip — the bottom scrim's "EP N · Title"
+     * line (default on; off = the clean image wall).
+     *
+     * ROUND 108 (D-713): RETIRED in favor of [gridTitleMode] — the v1.1.64
+     * device round ordered the richer knob ("whether to show the episode
+     * title or not… or only one line"). The stored key is no longer read
+     * anywhere; kept as a tombstone so a future re-add does not silently
+     * inherit a stale mode (the D-529 discipline).
      */
     val gridTitles = store.preference(
         KEY_GRID_TITLES, true, BooleanSerializer,
+    )
+
+    /**
+     * ROUND 108 (D-713): the GRID's title-line mode — the details page's new
+     * knob, shared: "TWO" (the default — the player grid's two-line title,
+     * the details grid's anatomy), "ONE" (a single ellipsized line), "OFF"
+     * (no title line). ALWAYS resolved through
+     * [com.confused.anikuta.core.common.GridTitleMode.fromKey] (the D-529
+     * lesson). independently of the mode, the line only ever renders a REAL
+     * English-readable title — see
+     * [com.confused.anikuta.core.common.gridShowableTitle] (the
+     * "not available in English / only shows the episode number" gate).
+     */
+    val gridTitleMode = store.preference(
+        KEY_GRID_TITLE_MODE, "TWO", StringSerializer,
+    )
+
+    /**
+     * ROUND 108 (D-713): the BANNER's watched check mark — the details
+     * CINEMA's [EpisodeListPreferences.cinemaWatchedCheck] twin ("a similar
+     * kind of thing for the banner view too"): a centered circular check on
+     * watched banners, ON TOP of the dim/grayscale treatment the
+     * [dimWatched] knob already owns. Default OFF — the zero-prefs look is
+     * today's (dim only).
+     */
+    val bannerWatchedCheck = store.preference(
+        KEY_BANNER_WATCHED_CHECK, false, BooleanSerializer,
     )
 
     // (ROUND 104 / D-703: the watched FILTER — Off / Show watched / Hide
@@ -260,6 +293,9 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_GRID_CURRENT_STYLE =
             "pref_player_episode_list_grid_current_style"
         private const val KEY_GRID_TITLES = "pref_player_episode_list_grid_titles"
+        private const val KEY_GRID_TITLE_MODE = "pref_player_episode_list_grid_title_mode"
+        private const val KEY_BANNER_WATCHED_CHECK =
+            "pref_player_episode_list_banner_watched_check"
         private const val KEY_DIM_WATCHED = "pref_player_episode_list_dim_watched"
         // Tombstones (no longer read): the round-101 sort mode, the
         // round-102/103 watched filter, and the round-104 aspect-driven

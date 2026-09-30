@@ -97,6 +97,16 @@ data class WatchKey(
      * keep the app's global accent.
      */
     val coverAccentArgb: Long = 0L,
+
+    /**
+     * ROUND 108 (D-713): the details page's COVER URL — the player episode
+     * rows' thumbnail FALLBACK (the details page falls back to the cover;
+     * the player used to render a number-tile wall for thumbnail-less
+     * series — "a lot of other things… were not being transferred").
+     * Defaulted ("") so every existing constructor + persisted key keeps
+     * working; the rows treat a blank as "no fallback."
+     */
+    val coverUrl: String = "",
 ) : NavKey {
 
     /**

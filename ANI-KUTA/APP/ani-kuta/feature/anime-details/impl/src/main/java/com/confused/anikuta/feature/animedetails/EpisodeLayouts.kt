@@ -5,13 +5,13 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -37,6 +37,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -451,10 +453,19 @@ internal fun SwipeToToggleWatched(
 
 /**
  * D-555: the download control's compact sibling for the imagery layouts —
- * the same 8-state contract as [EpisodeDownloadControl] (tap actions match:
- * download/pause/resume/retry/play; the in-flight states cancel), drawn as
- * ONE 32dp circle so it can overlay a poster or a banner. [translucent]
- * renders the CINEMA variant (white-on-scrim over the image).
+ * the same 8-state contract as [EpisodeDownloadControl], drawn as ONE 32dp
+ * circle so it can overlay a poster or a banner. [translucent] renders the
+ * CINEMA variant (white-on-scrim over the image).
+ *
+ * ROUND 108 (D-713): THE OPTIONS MENUS — the v1.1.64 device round: "on the
+ * other modes… if I click the downloaded episode, it does not give me the
+ * option to select what it should do, whether it should start playing it,
+ * or whether it should start delete the downloaded episodes, or other key
+ * things like that." The badge now offers the CLASSIC CONTROL'S EXACT
+ * menus: a Downloaded tap opens **Play / Delete**, a Downloading tap opens
+ * **Pause / Cancel** — the same choices, the same wording, the same error
+ * red on the destructive row. [onDelete] is the badge's own delete (the
+ * layouts pass the shared actions bag's handler).
  */
 @Composable
 internal fun EpisodeDownloadBadge(
@@ -468,93 +479,150 @@ internal fun EpisodeDownloadBadge(
     modifier: Modifier = Modifier,
     translucent: Boolean = false,
     previewTapAll: (() -> Unit)? = null,
+    onDelete: () -> Unit = {},
 ) {
     val bg = if (translucent) Color.Black.copy(alpha = 0.45f)
     else MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
     val fg = if (translucent) Color.White else MaterialTheme.colorScheme.onSurface
     val accent = if (translucent) Color.White else MaterialTheme.colorScheme.primary
-    Box(
-        modifier = modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(bg)
-            .clickable {
-                // D-557: the settings preview passes previewTapAll — ONE tap
-                // target for ALL states so the demo cycle can walk every
-                // state (the user: "if I tap that exact same spinning one
-                // again, it does not change to the next state"). Production
-                // call sites pass null → the state contract below, unchanged.
-                val tap = previewTapAll
-                if (tap != null) {
-                    tap()
-                } else {
-                    when (state) {
-                        is EpisodeDownloadState.NotDownloaded -> onDownload()
-                        is EpisodeDownloadState.Downloading -> onPause()
-                        is EpisodeDownloadState.Paused -> onResume()
-                        is EpisodeDownloadState.Error -> onRetry()
-                        is EpisodeDownloadState.Downloaded -> onPlayDownloaded()
-                        // Resolving / Queued / Retrying — the cancellable in-flight states.
-                        else -> onCancel()
+    // ROUND 108: the options-menu anchor state (Downloaded → Play/Delete;
+    // Downloading → Pause/Cancel — the classic control's contract).
+    var showMenu by remember { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(bg)
+                .clickable {
+                    // D-557: the settings preview passes previewTapAll — ONE tap
+                    // target for ALL states so the demo cycle can walk every
+                    // state (the user: "if I tap that exact same spinning one
+                    // again, it does not change to the next state"). Production
+                    // call sites pass null → the state contract below, unchanged.
+                    val tap = previewTapAll
+                    if (tap != null) {
+                        tap()
+                    } else {
+                        when (state) {
+                            is EpisodeDownloadState.NotDownloaded -> onDownload()
+                            // ROUND 108: the two menu states — the tap opens the
+                            // options instead of firing the first action blind.
+                            is EpisodeDownloadState.Downloading -> showMenu = true
+                            is EpisodeDownloadState.Downloaded -> showMenu = true
+                            is EpisodeDownloadState.Paused -> onResume()
+                            is EpisodeDownloadState.Error -> onRetry()
+                            // Resolving / Queued / Retrying — the cancellable in-flight states.
+                            else -> onCancel()
+                        }
                     }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            when (state) {
+                is EpisodeDownloadState.NotDownloaded -> Icon(
+                    imageVector = Icons.Filled.Download,
+                    contentDescription = "Download",
+                    tint = fg,
+                    modifier = Modifier.size(18.dp),
+                )
+                is EpisodeDownloadState.Downloading -> Box(contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        progress = { (state.progress / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = accent,
+                        trackColor = fg.copy(alpha = 0.15f),
+                    )
+                    Text(
+                        text = "${state.progress}",
+                        fontFamily = RobotoFamily,
+                        fontSize = 7.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = fg,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
                 }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        when (state) {
-            is EpisodeDownloadState.NotDownloaded -> Icon(
-                imageVector = Icons.Filled.Download,
-                contentDescription = "Download",
-                tint = fg,
-                modifier = Modifier.size(18.dp),
-            )
-            is EpisodeDownloadState.Downloading -> Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    progress = { (state.progress / 100f).coerceIn(0f, 1f) },
-                    modifier = Modifier.size(24.dp),
+                is EpisodeDownloadState.Paused -> Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = "Resume download",
+                    tint = accent,
+                    modifier = Modifier.size(18.dp),
+                )
+                is EpisodeDownloadState.Error -> Icon(
+                    imageVector = Icons.Filled.Refresh,
+                    contentDescription = "Retry download",
+                    tint = accent,
+                    modifier = Modifier.size(18.dp),
+                )
+                is EpisodeDownloadState.Downloaded -> Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = "Downloaded — tap for options",
+                    tint = accent,
+                    modifier = Modifier.size(20.dp),
+                )
+                // Resolving / Queued / Retrying — the in-flight spinner.
+                else -> CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp,
                     color = accent,
-                    trackColor = fg.copy(alpha = 0.15f),
-                )
-                Text(
-                    text = "${state.progress}",
-                    fontFamily = RobotoFamily,
-                    fontSize = 7.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = fg,
-                    maxLines = 1,
-                    softWrap = false,
                 )
             }
-            is EpisodeDownloadState.Paused -> Icon(
-                imageVector = Icons.Filled.PlayArrow,
-                contentDescription = "Resume download",
-                tint = accent,
-                modifier = Modifier.size(18.dp),
-            )
-            is EpisodeDownloadState.Error -> Icon(
-                imageVector = Icons.Filled.Refresh,
-                contentDescription = "Retry download",
-                tint = accent,
-                modifier = Modifier.size(18.dp),
-            )
-            is EpisodeDownloadState.Downloaded -> Icon(
-                imageVector = Icons.Filled.CheckCircle,
-                contentDescription = "Downloaded — tap to play",
-                tint = accent,
-                modifier = Modifier.size(20.dp),
-            )
-            // Resolving / Queued / Retrying — the in-flight spinner.
-            else -> CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
-                color = accent,
-            )
+        }
+        // ROUND 108: THE OPTIONS MENUS — the classic control's exact dropdowns,
+        // anchored on the badge (32dp is room enough for a MENU, just not for
+        // gesture rows — the old NOTE's "delete stays on the downloads page"
+        // limit is dead: the choice is HERE now, one tap away).
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false },
+        ) {
+            if (state is EpisodeDownloadState.Downloading) {
+                DropdownMenuItem(
+                    text = { Text("Pause", fontFamily = RobotoFamily) },
+                    onClick = {
+                        showMenu = false
+                        onPause()
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "Cancel",
+                            fontFamily = RobotoFamily,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onCancel()
+                    },
+                )
+            } else if (state is EpisodeDownloadState.Downloaded) {
+                DropdownMenuItem(
+                    text = { Text("Play", fontFamily = RobotoFamily) },
+                    onClick = {
+                        showMenu = false
+                        onPlayDownloaded()
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "Delete",
+                            fontFamily = RobotoFamily,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onDelete()
+                    },
+                )
+            }
         }
     }
-    // NOTE: onDelete has no gesture room in a 32dp badge — the downloads page
-    // keeps that action (the D-555 plan §4). The layouts pass the shared
-    // actions bag's other handlers; delete stays where it already lives.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -581,7 +649,7 @@ internal fun EpisodeDownloadBadge(
  * Long-press toggles the watched state — a half-width cell cannot host the
  * horizontal swipe (the other three layouts keep it).
  */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun EpisodeGridCell(
     episode: SEpisode,
@@ -670,12 +738,32 @@ internal fun EpisodeGridCell(
                     onPlayDownloaded = actions.onPlayDownloaded,
                     translucent = true,
                     previewTapAll = actions.previewTapAll,
+                    // ROUND 108: the badge's own delete (the Play/Delete menu).
+                    onDelete = actions.onDelete,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(6.dp),
                 )
             }
-            if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
+            // ROUND 108 (D-713): THE VISIBLE DOWNLOAD PROGRESS — the v1.1.64
+            // device round: "there is no proper progress of downloading" on
+            // the non-classic layouts (the badge's 7sp numeral is illegible
+            // at arm's length). A determinate bar on the imagery's bottom
+            // edge — the same inset pill geometry the watch-progress bar
+            // wears, in the tertiary accent so the two never read alike. It
+            // takes the watch bar's place while the download runs (the
+            // download wins; the watch bar returns after).
+            val downloadingNow = downloadState is EpisodeDownloadState.Downloading
+            if (style.showDownloadControl && downloadingNow) {
+                EpisodeWatchProgressBar(
+                    fraction = (downloadState as EpisodeDownloadState.Downloading).progress / 100f,
+                    progressColor = MaterialTheme.colorScheme.tertiary,
+                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(horizontal = 9.dp, vertical = 8.dp),
+                )
+            } else if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
                 EpisodeWatchProgressBar(
                     fraction = progressFraction,
                     modifier = Modifier
@@ -684,39 +772,58 @@ internal fun EpisodeGridCell(
                 )
             }
         }
-        // ── The text block — number, title, chips ──
+        // ── The text block — number, title, chips. ROUND 108 (D-713): the
+        //    title line is MODE-AWARE (Off / one line / two lines — the new
+        //    knob) and GATED to a real English-readable title
+        //    (gridShowableTitle: the "Episode N" placeholder, hashes and
+        //    Japanese-only names render NO line — the number label above
+        //    already speaks); the chips WRAP now (the player grid's
+        //    round-106 "tags are data, never clipped" contract, unified —
+        //    the old single-line horizontalScroll hid every chip past the
+        //    cell's width). ──
         Spacer(Modifier.height(7.dp))
         EpisodeNumberLabel(
             episodeTag = episodeTag,
             epNumText = epNumText,
             modifier = Modifier.padding(horizontal = 2.dp),
         )
-        Spacer(Modifier.height(1.dp))
-        Text(
-            text = display.title,
-            fontFamily = RobotoFamily,
-            fontSize = 13.sp,
-            lineHeight = 16.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = (LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
-                ?: MaterialTheme.colorScheme.onSurface)
-                .let { if (isWatched && style.dimWatched) it.copy(alpha = 0.55f) else it },
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 2.dp),
-        )
+        val titleLine = if (style.gridTitleMode ==
+            com.confused.anikuta.core.common.GridTitleMode.OFF
+        ) {
+            null
+        } else {
+            com.confused.anikuta.core.common.gridShowableTitle(display.title)
+        }
+        if (titleLine != null) {
+            Spacer(Modifier.height(1.dp))
+            Text(
+                text = titleLine,
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = (LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
+                    ?: MaterialTheme.colorScheme.onSurface)
+                    .let { if (isWatched && style.dimWatched) it.copy(alpha = 0.55f) else it },
+                maxLines = if (style.gridTitleMode ==
+                    com.confused.anikuta.core.common.GridTitleMode.ONE_LINE
+                ) 1 else 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+        }
         val chips = buildList {
             if (style.showDatePill && display.shortDateText != null) add(display.shortDateText)
             if (style.showAudioPills) addAll(display.audioLabels)
         }
         if (chips.isNotEmpty()) {
             Spacer(Modifier.height(5.dp))
-            Row(
+            FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
+                    .padding(horizontal = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 chips.forEachIndexed { idx, chip ->
                     val isDateChip = idx == 0 && style.showDatePill && !display.shortDateText.isNullOrBlank()
@@ -881,6 +988,8 @@ internal fun EpisodeTimelineRow(
                             onRetry = actions.onRetry,
                             onPlayDownloaded = actions.onPlayDownloaded,
                             previewTapAll = actions.previewTapAll,
+                            // ROUND 108: the badge's own delete (the Play/Delete menu).
+                            onDelete = actions.onDelete,
                         )
                     }
                 }
@@ -942,7 +1051,21 @@ internal fun EpisodeTimelineRow(
                 )
             }
             // The watch-progress pill — below the bump zone, inside the card.
-            if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
+            // ROUND 108: while a download runs, the DETERMINATE download bar
+            // takes the pill's place (the tertiary accent — the same
+            // everywhere-else download progress language; the watch bar
+            // returns once the download leaves the Downloading state).
+            val downloadingNow = downloadState is EpisodeDownloadState.Downloading
+            if (style.showDownloadControl && downloadingNow) {
+                EpisodeWatchProgressBar(
+                    fraction = (downloadState as EpisodeDownloadState.Downloading).progress / 100f,
+                    progressColor = MaterialTheme.colorScheme.tertiary,
+                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = contentStart, end = 10.dp, bottom = 4.dp),
+                )
+            } else if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
                 EpisodeWatchProgressBar(
                     fraction = progressFraction,
                     modifier = Modifier
@@ -1289,12 +1412,28 @@ internal fun EpisodeCinemaCard(
                     onPlayDownloaded = actions.onPlayDownloaded,
                     translucent = true,
                     previewTapAll = actions.previewTapAll,
+                    // ROUND 108: the badge's own delete (the Play/Delete menu).
+                    onDelete = actions.onDelete,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(12.dp),
                 )
             }
-            if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
+            // ROUND 108 (D-713): THE VISIBLE DOWNLOAD PROGRESS on the cinema
+            // banner — the determinate tertiary bar takes the watch pill's
+            // place while the download runs (the same language as the grid
+            // + the timeline; the badge's ring stays as the pause control).
+            val downloadingNow = downloadState is EpisodeDownloadState.Downloading
+            if (style.showDownloadControl && downloadingNow) {
+                EpisodeWatchProgressBar(
+                    fraction = (downloadState as EpisodeDownloadState.Downloading).progress / 100f,
+                    progressColor = MaterialTheme.colorScheme.tertiary,
+                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            } else if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
                 EpisodeWatchProgressBar(
                     fraction = progressFraction,
                     modifier = Modifier

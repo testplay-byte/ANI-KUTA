@@ -108,6 +108,9 @@ internal fun CsWatchPage(
     // badge's enqueue labels the request with it (the caller passes the
     // key's).
     sourceId: Long = 0L,
+    // ROUND 108 (D-713): the details page's COVER URL — the episode rows'
+    // thumbnail fallback (the details page's own rule; blank = no fallback).
+    coverUrl: String = "",
     /**
      * Task 57 (round 17 — P1): the current content's watch-progress rows,
      * keyed by [CsWatchViewModel.episodeKey] — the episode rows below render
@@ -203,8 +206,16 @@ internal fun CsWatchPage(
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerGridCurrentStyle
             .fromKey(csGridCurrentStyleKey)
     }
-    val csGridTitles by playerListPrefs.gridTitles.changes.collectAsState(
-        initial = playerListPrefs.gridTitles.get(),
+    // ROUND 108 (D-713): the GRID's title-line MODE (the round-105 Boolean
+    // retired for the richer knob) + the BANNER's watched check mark.
+    val csGridTitleModeKey by playerListPrefs.gridTitleMode.changes.collectAsState(
+        initial = playerListPrefs.gridTitleMode.get(),
+    )
+    val csGridTitleMode = remember(csGridTitleModeKey) {
+        com.confused.anikuta.core.common.GridTitleMode.fromKey(csGridTitleModeKey)
+    }
+    val csBannerWatchedCheck by playerListPrefs.bannerWatchedCheck.changes.collectAsState(
+        initial = playerListPrefs.bannerWatchedCheck.get(),
     )
     // ROUND 106 (WS-D): the new knobs — the audio pills, the download
     // button, and the BANNER's currently-playing treatment.
@@ -235,7 +246,8 @@ internal fun CsWatchPage(
         csDimWatched, csShowEpisodeNumber, csShowProgressBar,
         csShowDownloadButton, csBannerSize, csBannerNumberPosition,
         csBannerNumberStyle, csBannerCurrentStyle, csGridWatchedCheckmark,
-        csGridCurrentStyle, csGridTitles, csTracklistReferenceNumber,
+        csGridCurrentStyle, csGridTitleMode, csTracklistReferenceNumber,
+        csBannerWatchedCheck,
     ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = csListStyle,
@@ -252,8 +264,9 @@ internal fun CsWatchPage(
             bannerCurrentStyle = csBannerCurrentStyle,
             gridWatchedCheckmark = csGridWatchedCheckmark,
             gridCurrentStyle = csGridCurrentStyle,
-            gridTitles = csGridTitles,
+            gridTitleMode = csGridTitleMode,
             tracklistReferenceNumber = csTracklistReferenceNumber,
+            bannerWatchedCheck = csBannerWatchedCheck,
         )
     }
     // ROUND 104 (WS-D): the watched FILTER is RETIRED (the v1.1.60 order —
@@ -460,6 +473,16 @@ internal fun CsWatchPage(
                 // stack's contract.
                 if (ep.data != currentEpisodeData) {
                     onEpisodeSwitch(ep)
+                }
+            },
+            // ROUND 108 (D-713): the badge's Downloaded menu offers
+            // Play / Delete — the delete lands here (the DownloadManager's
+            // own per-episode call; the CS episode key is the data handle).
+            onDelete = {
+                if (mainId.isNotBlank()) {
+                    csPageScrollScope.launch {
+                        csDownloadManager.deleteDownloadedEpisode(mainId, ep.data)
+                    }
                 }
             },
         )
@@ -764,7 +787,10 @@ internal fun CsWatchPage(
                             displayTitle = meta?.title
                                 ?: com.confused.anikuta.core.common.EpisodeTitleParser
                                     .getDisplayTitle(ep.name, displayNumber),
-                            thumbnailUrl = meta?.thumbnailUrl,
+                            // ROUND 108 (D-713): the COVER FALLBACK — the
+                            // details page's own thumbnail rule, ported.
+                            thumbnailUrl = meta?.thumbnailUrl
+                                ?: coverUrl.takeIf { it.isNotBlank() },
                             dateText = if (meta != null && meta.airDateMillis > 0) {
                                 formatDate(meta.airDateMillis)
                             } else null,

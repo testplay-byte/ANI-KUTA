@@ -1709,8 +1709,17 @@ private fun MinimizedMode(
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerGridCurrentStyle
             .fromKey(gridCurrentStyleKey)
     }
-    val gridTitles by playerListPrefs.gridTitles.changes.collectAsState(
-        initial = playerListPrefs.gridTitles.get(),
+    // ROUND 108 (D-713): the GRID's title-line MODE (the round-105 Boolean
+    // retired — "whether to show the episode title or not… or only one
+    // line"), + the BANNER's watched check mark (the CINEMA parity).
+    val gridTitleModeKey by playerListPrefs.gridTitleMode.changes.collectAsState(
+        initial = playerListPrefs.gridTitleMode.get(),
+    )
+    val gridTitleMode = remember(gridTitleModeKey) {
+        com.confused.anikuta.core.common.GridTitleMode.fromKey(gridTitleModeKey)
+    }
+    val bannerWatchedCheck by playerListPrefs.bannerWatchedCheck.changes.collectAsState(
+        initial = playerListPrefs.bannerWatchedCheck.get(),
     )
     // ROUND 106 (WS-D): the new knobs — the audio pills, the download
     // button, and the BANNER's currently-playing treatment.
@@ -1738,7 +1747,8 @@ private fun MinimizedMode(
         listStyle, showSynopsis, showDatePill, showAudioPills, dimWatched,
         showEpisodeNumber, showProgressBar, showDownloadButton, bannerSize,
         bannerNumberPosition, bannerNumberStyle, bannerCurrentStyle,
-        gridWatchedCheckmark, gridCurrentStyle, gridTitles, tracklistReferenceNumber,
+        gridWatchedCheckmark, gridCurrentStyle, gridTitleMode, tracklistReferenceNumber,
+        bannerWatchedCheck,
     ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = listStyle,
@@ -1755,8 +1765,9 @@ private fun MinimizedMode(
             bannerCurrentStyle = bannerCurrentStyle,
             gridWatchedCheckmark = gridWatchedCheckmark,
             gridCurrentStyle = gridCurrentStyle,
-            gridTitles = gridTitles,
+            gridTitleMode = gridTitleMode,
             tracklistReferenceNumber = tracklistReferenceNumber,
+            bannerWatchedCheck = bannerWatchedCheck,
         )
     }
     // ROUND 104 (WS-D): the watched FILTER is RETIRED (the v1.1.60 order:
@@ -2324,6 +2335,19 @@ private fun MinimizedMode(
                                 onEpisodeSwitch(ep)
                             }
                         },
+                        // ROUND 108 (D-713): the badge's Downloaded menu offers
+                        // Play / Delete — the delete lands here (the details
+                        // ViewModel's own call, player-side).
+                        onDelete = {
+                            if (watchKey.mainId.isNotBlank()) {
+                                pageScrollScope.launch {
+                                    downloadManager.deleteDownloadedEpisode(
+                                        watchKey.mainId,
+                                        ep.url,
+                                    )
+                                }
+                            }
+                        },
                     )
                 }
                 // The MPV stack's mapping into the render-only bundle.
@@ -2335,7 +2359,11 @@ private fun MinimizedMode(
                         displayTitle = meta?.title
                             ?: com.confused.anikuta.core.common.EpisodeTitleParser
                                 .getDisplayTitle(ep.name, ep.episodeNumber),
-                        thumbnailUrl = meta?.thumbnailUrl,
+                        // ROUND 108 (D-713): the COVER FALLBACK — the details
+                        // page's own thumbnail rule, ported (a thumbnail-less
+                        // episode shows the cover instead of a number tile).
+                        thumbnailUrl = meta?.thumbnailUrl
+                            ?: watchKey.coverUrl.takeIf { it.isNotBlank() },
                         dateText = if (meta != null && meta.airDateMillis > 0) {
                             formatDate(meta.airDateMillis)
                         } else null,

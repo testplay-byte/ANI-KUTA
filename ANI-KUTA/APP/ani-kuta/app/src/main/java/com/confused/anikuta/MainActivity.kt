@@ -1074,15 +1074,15 @@ fun AppRoot() {
                     is AnimeDetailsKey.AniList -> DetailsScreen(
                         detailsKey = currentKey,
                         onBack = pop,
-                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta, coverAccent ->
-                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta, coverAccentArgb = coverAccent))
+                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta, coverAccent, coverUrl ->
+                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta, coverAccentArgb = coverAccent, coverUrl = coverUrl))
                         },
                         // Task 52: CloudStream episodes → the resolve sheet
                         // (Task 53 / RC-6): the details page stays visible under
                         // an AnymeX-style bottom sheet; the selected stream + the
                         // full pre-resolved list hand off to the CS watch screen.
                         // The aniyomi watch stack is untouched by this branch.
-                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent ->
+                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent, coverUrl ->
                             csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                 providerName = providerName,
                                 animeTitle = animeTitle,
@@ -1095,6 +1095,8 @@ fun AppRoot() {
                                 episodeMetadataSerialized = epMeta,
                                 // ROUND 101 (WS-D): the details accent rides the key.
                                 coverAccentArgb = coverAccent,
+                                // ROUND 108 (D-713): the cover rides the key too.
+                                coverUrl = coverUrl,
                             )
                         },
                         // D-539 (D-548): a downloaded DASH episode plays through
@@ -1105,7 +1107,7 @@ fun AppRoot() {
                         // (NOT csResolveRequest: that opens the resolve sheet,
                         // which would re-resolve an already-downloaded episode
                         // online and dead-end it).
-                        onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent ->
+                        onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent, coverUrl ->
                             backstack.add(
                                 com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                     providerName = providerName,
@@ -1120,6 +1122,8 @@ fun AppRoot() {
                                     offlineMediaUri = offlineMediaUri,
                                     // ROUND 101 (WS-D): the details accent rides the key.
                                     coverAccentArgb = coverAccent,
+                                    // ROUND 108 (D-713): the cover rides the key too.
+                                    coverUrl = coverUrl,
                                 ),
                             )
                         },
@@ -1179,12 +1183,12 @@ fun AppRoot() {
                     is AnimeDetailsKey.Extension -> DetailsScreen(
                         detailsKey = currentKey,
                         onBack = pop,
-                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta, coverAccent ->
-                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta, coverAccentArgb = coverAccent))
+                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta, coverAccent, coverUrl ->
+                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta, coverAccentArgb = coverAccent, coverUrl = coverUrl))
                         },
                         // Task 52: CloudStream episodes → the resolve sheet
                         // (Task 53 / RC-6, AnymeX entry pattern).
-                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent ->
+                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent, coverUrl ->
                             csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                 providerName = providerName,
                                 animeTitle = animeTitle,
@@ -1197,6 +1201,8 @@ fun AppRoot() {
                                 episodeMetadataSerialized = epMeta,
                                 // ROUND 101 (WS-D): the details accent rides the key.
                                 coverAccentArgb = coverAccent,
+                                // ROUND 108 (D-713): the cover rides the key too.
+                                coverUrl = coverUrl,
                             )
                         },
                         // D-539 (D-548): a downloaded DASH episode plays through
@@ -1207,7 +1213,7 @@ fun AppRoot() {
                         // (NOT csResolveRequest: that opens the resolve sheet,
                         // which would re-resolve an already-downloaded episode
                         // online and dead-end it).
-                        onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent ->
+                        onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent, coverUrl ->
                             backstack.add(
                                 com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                     providerName = providerName,
@@ -1222,6 +1228,8 @@ fun AppRoot() {
                                     offlineMediaUri = offlineMediaUri,
                                     // ROUND 101 (WS-D): the details accent rides the key.
                                     coverAccentArgb = coverAccent,
+                                    // ROUND 108 (D-713): the cover rides the key too.
+                                    coverUrl = coverUrl,
                                 ),
                             )
                         },
@@ -2742,6 +2750,10 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
             sourceId = sourceId,
             episodeMetadataSerialized = epMetaStr,
             offlineMediaUri = offlineMediaPayload,
+            // SA2-F4 (round-108 audit): the cover rides the Downloads-origin
+            // hand-off too — the player's thumbnail fallback chain
+            // (episode thumb → cover → number tile) needs it.
+            coverUrl = downloaded?.content?.coverUrl ?: "",
         )
     }
 
@@ -2828,6 +2840,10 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
         subtitleTracksSerialized = subtitleTracksStr,
         audioTracksSerialized = "",
         episodeMetadataSerialized = epMetaStr,
+        // SA2-F4 (round-108 audit): the cover rides the Downloads-origin
+        // hand-off too — the player's thumbnail fallback chain
+        // (episode thumb → cover → number tile) needs it.
+        coverUrl = downloaded?.content?.coverUrl ?: "",
     )
 }
 

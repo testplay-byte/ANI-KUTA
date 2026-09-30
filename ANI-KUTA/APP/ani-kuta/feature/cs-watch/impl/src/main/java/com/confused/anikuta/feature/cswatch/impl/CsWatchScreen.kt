@@ -636,6 +636,9 @@ fun CsWatchScreen(
             mainId = key.mainId,
             // ROUND 106 (WS-D): the download badge's source label.
             sourceId = key.sourceId,
+            // ROUND 108 (D-713): the cover rides the key — the rows'
+            // thumbnail fallback.
+            coverUrl = key.coverUrl,
         )
 
         CsPlayerMode.FULLSCREEN -> Box(

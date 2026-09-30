@@ -2,11 +2,7 @@ package com.confused.anikuta.settings
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDecay
-import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -39,21 +35,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.EpisodeTitleParser
@@ -71,9 +61,6 @@ import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisode
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import java.text.SimpleDateFormat
@@ -189,8 +176,20 @@ fun PlayerEpisodeListSettingsScreen(
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerGridCurrentStyle
             .fromKey(gridCurrentStyleKey)
     }
-    val gridTitles by playerListPrefs.gridTitles.changes.collectAsState(
-        initial = playerListPrefs.gridTitles.get(),
+    // ROUND 108 (D-713): the GRID's title-line MODE — the round-105 Boolean
+    // (gridTitles) is retired for the richer knob ("whether to show the
+    // episode title or not… or only one line"), resolved through the
+    // lenient fromKey (the D-529 lesson).
+    val gridTitleModeKey by playerListPrefs.gridTitleMode.changes.collectAsState(
+        initial = playerListPrefs.gridTitleMode.get(),
+    )
+    val gridTitleMode = remember(gridTitleModeKey) {
+        com.confused.anikuta.core.common.GridTitleMode.fromKey(gridTitleModeKey)
+    }
+    // ROUND 108 (D-713): the BANNER's watched check mark (the details
+    // CINEMA's twin — "a similar kind of thing for the banner view too").
+    val bannerWatchedCheck by playerListPrefs.bannerWatchedCheck.changes.collectAsState(
+        initial = playerListPrefs.bannerWatchedCheck.get(),
     )
     // ROUND 106 (WS-D): the new knobs — the audio pills, the download
     // button, and the BANNER's currently-playing treatment.
@@ -236,7 +235,8 @@ fun PlayerEpisodeListSettingsScreen(
         style, showSynopsis, showDatePill, showAudioPills, dimWatched,
         showEpisodeNumber, showProgressBar, showDownloadButton, bannerSize,
         bannerNumberPosition, bannerNumberStyle, bannerCurrentStyle,
-        gridWatchedCheckmark, gridCurrentStyle, gridTitles, tracklistReferenceNumber,
+        gridWatchedCheckmark, gridCurrentStyle, gridTitleMode, tracklistReferenceNumber,
+        bannerWatchedCheck,
     ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = style,
@@ -253,8 +253,9 @@ fun PlayerEpisodeListSettingsScreen(
             bannerCurrentStyle = bannerCurrentStyle,
             gridWatchedCheckmark = gridWatchedCheckmark,
             gridCurrentStyle = gridCurrentStyle,
-            gridTitles = gridTitles,
+            gridTitleMode = gridTitleMode,
             tracklistReferenceNumber = tracklistReferenceNumber,
+            bannerWatchedCheck = bannerWatchedCheck,
         )
     }
 
@@ -336,202 +337,32 @@ fun PlayerEpisodeListSettingsScreen(
         listState = lazyListState,
     )
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  ROUND 104 (WS-D): THE D-557/D-558 PRIORITY SCROLL — the details page's
-    //  machinery, ported VERBATIM (the user: "the same kind of effect, same
-    //  scrolling, the same logics and everything like that to be exactly the
-    //  same"). The connection is SPLIT BY DIRECTION, which makes the order
-    //  deterministic BY CONSTRUCTION:
-    //  - DOWN while open (drag OR fling): the collapse consumes EVERYTHING
-    //    first — the list cannot move until the preview has snapped collapsed
-    //    ("one of them should get hidden"). After the snap the connection
-    //    RELEASES the same gesture: the remaining deltas flow into the list.
-    //    A consumed down-fling additionally HANDS ITS MOMENTUM to the list
-    //    through a decay scroll once the collapse settles.
-    //  - UP while collapsed: the connection never consumes pre-scroll — the
-    //    list scrolls first; only the LEFTOVER of an up-drag (the list is at
-    //    the very top) can expand the preview, with the same halfway snap.
-    //    An up-fling's leftover settles the expansion in onPostFling.
-    //  GRID is exempt (the details page's rule — already compressed enough).
-    // ══════════════════════════════════════════════════════════════════════
-    val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
-    var firstRowHeightPx by remember { mutableStateOf(0) }
-    val rowGapPx = with(density) { 8.dp.toPx() }
-    val collapseDistancePx = (firstRowHeightPx + rowGapPx).coerceAtLeast(1f)
-    val collapseProgress = remember { Animatable(0f) }
-    val collapseCollapsed = remember { mutableStateOf(false) }
-    val dragAccumulator = remember { mutableStateOf(0f) }
-    val collapseDistanceState = remember { mutableStateOf(collapseDistancePx) }
-    collapseDistanceState.value = collapseDistancePx
-    var settleJob by remember { mutableStateOf<Job?>(null) }
-    var flingJob by remember { mutableStateOf<Job?>(null) }
-    // The decay spec for the fling-momentum handoff — exponential decay (the
-    // factory that exists on EVERY Compose line; see the details page's note).
-    val flingDecay = remember { exponentialDecay<Float>() }
-    val nestedConnection = remember(style) {
-        object : NestedScrollConnection {
-            // D-557: the crossed latch — a single continuous drag crosses the
-            // halfway point EXACTLY ONCE. While latched, further deltas are
-            // consumed silently until the gesture ends (the settle window
-            // clears the latch).
-            private var crossedLatch = false
-
-            private fun clearGesture() {
-                crossedLatch = false
-                dragAccumulator.value = 0f
-            }
-
-            // The settle window: after the last delta of a gesture, clear the
-            // latch and settle the preview to its phase anchor.
-            private fun settleLater() {
-                settleJob?.cancel()
-                settleJob = scope.launch {
-                    delay(180)
-                    clearGesture()
-                    collapseProgress.animateTo(
-                        targetValue = if (collapseCollapsed.value) 1f else 0f,
-                        animationSpec = tween(200, easing = FastOutSlowInEasing),
-                    )
-                }
-            }
-
-            override fun onPreScroll(
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                // Programmatic scrolls pass through; GRID never engages.
-                if (source == NestedScrollSource.SideEffect) return Offset.Zero
-                if (style == PlayerEpisodeListStyle.GRID) return Offset.Zero
-                // DOWN while open: THE COLLAPSE PHASE — consume everything.
-                if (available.y < 0 && !collapseCollapsed.value) {
-                    settleJob?.cancel()
-                    flingJob?.cancel()
-                    if (!crossedLatch) {
-                        dragAccumulator.value += kotlin.math.abs(available.y)
-                        val halfway = collapseDistanceState.value / 2f
-                        if (dragAccumulator.value >= halfway) {
-                            // Snapped collapsed — settle there animated.
-                            crossedLatch = true
-                            collapseCollapsed.value = true
-                            dragAccumulator.value = 0f
-                            scope.launch {
-                                collapseProgress.animateTo(
-                                    targetValue = 1f,
-                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
-                                )
-                            }
-                        } else {
-                            val ratio = (dragAccumulator.value / halfway).coerceIn(0f, 1f)
-                            scope.launch { collapseProgress.snapTo(0.45f * ratio) }
-                        }
-                    }
-                    settleLater()
-                    // After the snap the connection RELEASES the same gesture.
-                    return if (crossedLatch) Offset.Zero else Offset(0f, available.y)
-                }
-                // UP (and everything else): never consume in PRE-scroll.
-                return Offset.Zero
-            }
-
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                if (source == NestedScrollSource.SideEffect) return Offset.Zero
-                if (style == PlayerEpisodeListStyle.GRID) return Offset.Zero
-                // UP-leftover: the list is at the very top and still has up
-                // delta left — THE ONLY DOOR to the expansion.
-                if (available.y > 0 && collapseCollapsed.value) {
-                    settleJob?.cancel()
-                    flingJob?.cancel()
-                    if (!crossedLatch) {
-                        dragAccumulator.value += available.y
-                        val halfway = collapseDistanceState.value / 2f
-                        if (dragAccumulator.value >= halfway) {
-                            crossedLatch = true
-                            collapseCollapsed.value = false
-                            dragAccumulator.value = 0f
-                            scope.launch {
-                                collapseProgress.animateTo(
-                                    targetValue = 0f,
-                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
-                                )
-                            }
-                        } else {
-                            val ratio = (dragAccumulator.value / halfway).coerceIn(0f, 1f)
-                            scope.launch { collapseProgress.snapTo(1f - 0.45f * ratio) }
-                        }
-                    }
-                    settleLater()
-                    return if (crossedLatch) Offset.Zero else Offset(0f, available.y)
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                if (style == PlayerEpisodeListStyle.GRID) return available
-                // DOWN-fling while open: a fast swipe must collapse the
-                // preview FIRST — however fast. Consume the fling, snap the
-                // collapse, then hand the momentum to the list.
-                if (available.y < -1000f && !collapseCollapsed.value) {
-                    val handoffVelocity = available.y
-                    collapseCollapsed.value = true
-                    clearGesture()
-                    flingJob = scope.launch {
-                        collapseProgress.animateTo(
-                            targetValue = 1f,
-                            animationSpec = tween(220, easing = FastOutSlowInEasing),
-                        )
-                        // THE MOMENTUM HANDOFF — a decay scroll on the options
-                        // list with the consumed fling's velocity.
-                        var lastValue = 0f
-                        AnimationState(
-                            initialValue = 0f,
-                            initialVelocity = handoffVelocity,
-                        ).animateDecay(flingDecay) {
-                            val delta = value - lastValue
-                            lastValue = value
-                            lazyListState.dispatchRawDelta(delta)
-                        }
-                    }
-                    return Velocity.Zero
-                }
-                return available
-            }
-
-            override suspend fun onPostFling(
-                consumed: Velocity,
-                available: Velocity,
-            ): Velocity {
-                // UP-fling leftover: the list's own fling finished at the
-                // very top with velocity to spare — settle the expansion now.
-                if (style != PlayerEpisodeListStyle.GRID &&
-                    collapseCollapsed.value &&
-                    available.y > 0f
-                ) {
-                    collapseCollapsed.value = false
-                    clearGesture()
-                    collapseProgress.animateTo(
-                        targetValue = 0f,
-                        animationSpec = tween(240, easing = FastOutSlowInEasing),
-                    )
-                    return available
-                }
-                return Velocity.Zero
-            }
-        }
-    }
+    // ═══ ROUND 108 (D-713): THE SHARED PREVIEW-COLLAPSE SCROLL ═══
+    // The round-104 port of the D-557/D-558 machinery is retired — BOTH
+    // episode-list settings screens mount the ONE shared controller now
+    // (PreviewCollapseScroll.kt), which fixes the v1.1.64 device round's
+    // two defects at the source: the entry scroll now ALWAYS opens at the
+    // very top with the preview open (the rememberSaveable restore used to
+    // bring the old offset back), and the flick runs the ordered
+    // choreography — the smooth hide, the lock beat ("it will not allow the
+    // user to scroll for a few bit for a few time"), then the automatic
+    // velocity-proportional scroll of the options (the canonical
+    // scroll-scope decay; the old dispatchRawDelta handoff never moved on
+    // device, and the old -1000px/s threshold let weaker flicks scroll the
+    // list under an OPEN preview). The drag semantics (the two-phase snap,
+    // the up-leftover expansion) are unchanged — the details page's
+    // machinery, still exactly the same, now literally one implementation.
+    val previewCollapse = rememberPreviewCollapseScroll(
+        listState = lazyListState,
+        enabled = !isGrid,
+    )
+    PreviewCollapseEntryReset(previewCollapse, hasAnchor = highlightAnchor != null)
     // A layout switch always re-opens the preview — a stale collapsed state
     // under GRID (whose connection never engages) would clip it forever.
-    LaunchedEffect(style) {
-        collapseCollapsed.value = false
-        collapseProgress.snapTo(0f)
-    }
-    // The first episode's measured height + the row gap = the exact shift
-    // that hides episode 1 and pins episode 2 at the clip's top edge.
-    val hidePx = collapseProgress.value * (firstRowHeightPx + rowGapPx)
+    LaunchedEffect(style) { previewCollapse.reopen() }
+    // The clip+shift layout's hide distance — the first episode's measured
+    // height + the row gap, scaled by the collapse fraction.
+    val hidePx = previewCollapse.hidePx
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -604,7 +435,7 @@ fun PlayerEpisodeListSettingsScreen(
                                 if (currentData != null) {
                                     Box(
                                         modifier = Modifier.onSizeChanged { size ->
-                                            firstRowHeightPx = size.height
+                                            previewCollapse.firstRowHeightPx = size.height.toFloat()
                                         },
                                     ) {
                                         PlayerEpisodeListEntry(
@@ -650,7 +481,7 @@ fun PlayerEpisodeListSettingsScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
                     state = lazyListState,
-                    modifier = Modifier.fillMaxSize().nestedScroll(nestedConnection),
+                    modifier = Modifier.fillMaxSize().nestedScroll(previewCollapse.connection),
                     contentPadding = PaddingValues(
                         start = 8.dp,
                         end = 8.dp,
@@ -775,7 +606,9 @@ fun PlayerEpisodeListSettingsScreen(
                                 AnimatedStyleRow(
                                     visible = style == PlayerEpisodeListStyle.DETAILED ||
                                         style == PlayerEpisodeListStyle.TRACKLIST ||
-                                        style == PlayerEpisodeListStyle.GRID,
+                                        style == PlayerEpisodeListStyle.GRID ||
+                                        // ROUND 108: the BANNER joined (the CINEMA parity).
+                                        style == PlayerEpisodeListStyle.BANNER,
                                 ) {
                                     PlayerSwitchRow(
                                         title = "Progress bar",
@@ -784,6 +617,9 @@ fun PlayerEpisodeListSettingsScreen(
                                                 "The thin underline on partially watched rows"
                                             PlayerEpisodeListStyle.GRID ->
                                                 "The thin bar at the cell's bottom edge"
+                                            // ROUND 108: the BANNER joined (the CINEMA parity).
+                                            PlayerEpisodeListStyle.BANNER ->
+                                                "The thin bar at the banner's bottom edge"
                                             else ->
                                                 "The thin bar on partially watched rows"
                                         },
@@ -817,12 +653,35 @@ fun PlayerEpisodeListSettingsScreen(
                                         },
                                     )
                                 }
+                                // ── ROUND 108 (D-713): THE GRID'S TITLE MODE —
+                                //    the round-105 Boolean is retired for the
+                                //    v1.1.64 order: "he can select whether to
+                                //    show the episode title or not, and also he
+                                //    can decide whether to show the full
+                                //    episode title or only one line" — ONE
+                                //    segmented speaks all three states. The
+                                //    line itself only ever renders a REAL
+                                //    English-readable title (the gate lives in
+                                //    the renderer, gridShowableTitle). ──
                                 AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.GRID) {
-                                    PlayerSwitchRow(
-                                        title = "Titles",
-                                        description = "The \"EP · title\" strip on each cell",
-                                        checked = gridTitles,
-                                        onChecked = { playerListPrefs.gridTitles.set(it) },
+                                    PlayerSegmentedRow(
+                                        title = "Episode titles",
+                                        description = "Only real English titles render the line",
+                                        options = listOf("Off", "1 line", "Full"),
+                                        selectedIndex = when (gridTitleMode) {
+                                            com.confused.anikuta.core.common.GridTitleMode.OFF -> 0
+                                            com.confused.anikuta.core.common.GridTitleMode.ONE_LINE -> 1
+                                            com.confused.anikuta.core.common.GridTitleMode.TWO_LINES -> 2
+                                        },
+                                        onSelect = { idx ->
+                                            playerListPrefs.gridTitleMode.set(
+                                                when (idx) {
+                                                    0 -> "OFF"
+                                                    1 -> "ONE"
+                                                    else -> "TWO"
+                                                },
+                                            )
+                                        },
                                     )
                                 }
                                 // ── Dim watched — DETAILED + TRACKLIST +
@@ -901,6 +760,22 @@ fun PlayerEpisodeListSettingsScreen(
                                                 if (idx == 1) "TINT" else "PLAY",
                                             )
                                         },
+                                    )
+                                }
+                                // ── ROUND 108 (D-713): the BANNER's watched
+                                //    check mark — the details CINEMA's knob,
+                                //    ported ("a similar kind of thing for the
+                                //    banner view too"): the dim/grayscale
+                                //    treatment rides the dim knob as always;
+                                //    the centered circular check is its OWN.
+                                //    Default OFF (the zero-prefs look is
+                                //    today's). ──
+                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.BANNER) {
+                                    PlayerSwitchRow(
+                                        title = "Watched check mark",
+                                        description = "The centered check on watched banners",
+                                        checked = bannerWatchedCheck,
+                                        onChecked = { playerListPrefs.bannerWatchedCheck.set(it) },
                                     )
                                 }
                                 // ── The BANNER's SIZE slider (ROUND 105,

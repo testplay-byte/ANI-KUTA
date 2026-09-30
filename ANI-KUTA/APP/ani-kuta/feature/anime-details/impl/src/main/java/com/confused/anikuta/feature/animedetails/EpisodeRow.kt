@@ -161,6 +161,18 @@ data class EpisodeListDisplayStyle(
      * regardless; only the badge is optional).
      */
     val cinemaWatchedCheckBadge: Boolean = false,
+    /**
+     * ROUND 108 (D-713): the GRID's title-line mode — "TWO" (the default —
+     * the grid's historical two-line title), "ONE" (a single ellipsized
+     * line), "OFF" (no title line). Resolved through
+     * [com.confused.anikuta.core.common.GridTitleMode.fromKey] by whichever
+     * screen builds this style; independently of the mode, the line only
+     * ever renders a REAL English-readable title
+     * ([com.confused.anikuta.core.common.gridShowableTitle] — the "not
+     * available in English / only shows the episode number" gate).
+     */
+    val gridTitleMode: com.confused.anikuta.core.common.GridTitleMode =
+        com.confused.anikuta.core.common.GridTitleMode.TWO_LINES,
 )
 
 /**

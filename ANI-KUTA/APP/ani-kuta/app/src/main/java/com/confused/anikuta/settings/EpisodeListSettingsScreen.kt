@@ -2,11 +2,7 @@ package com.confused.anikuta.settings
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDecay
-import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -36,24 +32,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.Velocity
 import com.confused.anikuta.R
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.datacache.CachedEpisodeMetadata
@@ -71,10 +61,8 @@ import com.confused.anikuta.feature.animedetails.EpisodeListRowStyle
 import com.confused.anikuta.settings.search.SettingsHighlightTarget
 import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
 import eu.kanade.tachiyomi.animesource.model.SEpisode
-import kotlinx.coroutines.Job
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 
@@ -241,6 +229,14 @@ fun EpisodeListSettingsScreen(
     val cinemaWatchedCheck by episodeListPrefs.cinemaWatchedCheck.changes.collectAsState(
         initial = episodeListPrefs.cinemaWatchedCheck.get(),
     )
+    // ── ROUND 108 (D-713): the GRID's title-line mode (the same reactive
+    // reads — the new knob, resolved through the lenient fromKey).
+    val gridTitleModeKey by episodeListPrefs.gridTitleMode.changes.collectAsState(
+        initial = episodeListPrefs.gridTitleMode.get(),
+    )
+    val gridTitleMode = remember(gridTitleModeKey) {
+        com.confused.anikuta.core.common.GridTitleMode.fromKey(gridTitleModeKey)
+    }
     // D-529 lesson: seed the toggle through the lenient fromKey so the
     // highlighted segment is ALWAYS the style the renderer will draw.
     val selectedStyle = EpisodeListRowStyle.fromKey(rowStyleKey)
@@ -256,6 +252,7 @@ fun EpisodeListSettingsScreen(
         cinemaNumberAtTopStart = cinemaNumberCorner.trim().equals("LEFT", ignoreCase = true),
         cinemaNumberFrosted = cinemaNumberStyle.trim().equals("FROSTED", ignoreCase = true),
         cinemaWatchedCheckBadge = cinemaWatchedCheck,
+        gridTitleMode = gridTitleMode,
     )
 
     // ── D-556: the preview's content — demo samples first (instant paint),
@@ -282,240 +279,43 @@ fun EpisodeListSettingsScreen(
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 
-    // ── D-557 → D-558: the collapse became a PRIORITY SCROLL. The v1.1.31
-    // device round kept the two-phase snap but exposed two blind spots:
-    // "if I quickly swipe up to scroll, then the top live preview does not
-    // scroll first. The bottom section scrolls" (fast flings slipped past
-    // the drag-only accumulator), and "if I have scrolled to the very bottom
-    // and then try to scroll up … the live preview starts to [expand]"
-    // (expansion was a PRE-scroll consumer, so it stole deltas while the
-    // list was still scrolled down).
-    //
-    // The v3 connection is SPLIT BY DIRECTION, which makes the order
-    // deterministic BY CONSTRUCTION:
-    //
-    // - DOWN while open (drag OR fling): the collapse consumes EVERYTHING
-    //   first — the list cannot move until the preview has snapped collapsed
-    //   ("no matter what happens, the first of all thing will be that the
-    //   live preview will move up"). After the snap the connection RELEASES
-    //   the same gesture: the remaining drag deltas flow into the list
-    //   ("and after that then the bottom section will begin to scroll
-    //   over"). A consumed down-fling additionally HANDS ITS MOMENTUM to
-    //   the list through a spline-decay scroll once the collapse settles —
-    //   a fast swipe collapses AND keeps scrolling instead of dying at the
-    //   snap.
-    //
-    // - UP while collapsed: the connection never consumes on the way up in
-    //   PRE-scroll — the list always scrolls first; only the LEFTOVER of an
-    //   up-drag (the list is at the very top) can expand the preview, with
-    //   the same halfway snap. An up-FLING's leftover (the list finished its
-    //   fling at the top) settles the expansion in onPostFling — "first of
-    //   all the bottom section should scroll to the very top" before the
-    //   preview opens.
-    //
-    // The halfway snap, the crossed latch (one flip per gesture), the
-    // animated settles, the GRID exemption and the layout-switch re-open
-    // carry over from the D-557 design unchanged.
-    val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
-    var firstRowHeightPx by remember { mutableStateOf(0) }
-    val rowGapPx = with(density) { 8.dp.toPx() }
-    val collapseDistancePx = (firstRowHeightPx + rowGapPx).coerceAtLeast(1f)
-    val collapseProgress = remember { Animatable(0f) }
-    val collapseCollapsed = remember { mutableStateOf(false) }
-    val dragAccumulator = remember { mutableStateOf(0f) }
-    val collapseDistanceState = remember { mutableStateOf(collapseDistancePx) }
-    collapseDistanceState.value = collapseDistancePx
-    var settleJob by remember { mutableStateOf<Job?>(null) }
-    var flingJob by remember { mutableStateOf<Job?>(null) }
-    // The decay spec for the fling-momentum handoff — exponential decay,
-    // the animation-core factory that exists on EVERY Compose line (the
-    // rememberSplineBasedDecay / rememberDecayAnimationSpec names both
-    // failed CI on the 1.10.4 pin). remember-wrapped so the spec is stable.
-    val flingDecay = remember { exponentialDecay<Float>() }
-    val nestedConnection = remember(selectedStyle) {
-        object : NestedScrollConnection {
-            // D-557: the crossed latch — a single continuous drag crosses the
-            // halfway point EXACTLY ONCE (the D-556-style accumulate-reset
-            // let a long drag cross twice: collapse → snap → animated-reopen
-            // bounce within one gesture). While latched, further deltas are
-            // consumed silently until the gesture ends (the 180ms settle
-            // window clears the latch).
-            private var crossedLatch = false
-
-            private fun clearGesture() {
-                crossedLatch = false
-                dragAccumulator.value = 0f
-            }
-
-            // The settle window: after the last delta of a gesture, clear
-            // the latch and settle the preview to its phase anchor — a drag
-            // that ended before the halfway point eases BACK instead of
-            // freezing midway.
-            private fun settleLater() {
-                settleJob?.cancel()
-                settleJob = scope.launch {
-                    kotlinx.coroutines.delay(180)
-                    clearGesture()
-                    collapseProgress.animateTo(
-                        targetValue = if (collapseCollapsed.value) 1f else 0f,
-                        animationSpec = tween(200, easing = FastOutSlowInEasing),
-                    )
-                }
-            }
-
-            override fun onPreScroll(
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                // Programmatic scrolls (scrollToItem etc.) pass through.
-                if (source == NestedScrollSource.SideEffect) return Offset.Zero
-                if (selectedStyle == EpisodeListRowStyle.GRID) return Offset.Zero
-                // DOWN while open: THE COLLAPSE PHASE. Consume everything —
-                // the list does not move until the preview has collapsed
-                // ("no matter what happens, the first of all thing will be
-                // that the live preview will move up").
-                if (available.y < 0 && !collapseCollapsed.value) {
-                    settleJob?.cancel()
-                    flingJob?.cancel()
-                    if (!crossedLatch) {
-                        dragAccumulator.value += kotlin.math.abs(available.y)
-                        val halfway = collapseDistanceState.value / 2f
-                        if (dragAccumulator.value >= halfway) {
-                            // Snapped collapsed — settle there animated.
-                            crossedLatch = true
-                            collapseCollapsed.value = true
-                            dragAccumulator.value = 0f
-                            scope.launch {
-                                collapseProgress.animateTo(
-                                    targetValue = 1f,
-                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
-                                )
-                            }
-                        } else {
-                            val ratio = (dragAccumulator.value / halfway).coerceIn(0f, 1f)
-                            scope.launch { collapseProgress.snapTo(0.45f * ratio) }
-                        }
-                    }
-                    settleLater()
-                    // After the snap the connection RELEASES the same gesture
-                    // (the latch is crossed) — the remaining deltas flow into
-                    // the list ("and after that then the bottom section will
-                    // begin to scroll over").
-                    return if (crossedLatch) Offset.Zero else Offset(0f, available.y)
-                }
-                // UP (and everything else): never consume in PRE-scroll —
-                // the list scrolls FIRST; the preview only expands from the
-                // POST-scroll leftover.
-                return Offset.Zero
-            }
-
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                if (source == NestedScrollSource.SideEffect) return Offset.Zero
-                if (selectedStyle == EpisodeListRowStyle.GRID) return Offset.Zero
-                // UP-leftover: the list is at the very top and still has up
-                // delta left — THE ONLY DOOR to the expansion.
-                if (available.y > 0 && collapseCollapsed.value) {
-                    settleJob?.cancel()
-                    flingJob?.cancel()
-                    if (!crossedLatch) {
-                        dragAccumulator.value += available.y
-                        val halfway = collapseDistanceState.value / 2f
-                        if (dragAccumulator.value >= halfway) {
-                            crossedLatch = true
-                            collapseCollapsed.value = false
-                            dragAccumulator.value = 0f
-                            scope.launch {
-                                collapseProgress.animateTo(
-                                    targetValue = 0f,
-                                    animationSpec = tween(260, easing = FastOutSlowInEasing),
-                                )
-                            }
-                        } else {
-                            val ratio = (dragAccumulator.value / halfway).coerceIn(0f, 1f)
-                            scope.launch { collapseProgress.snapTo(1f - 0.45f * ratio) }
-                        }
-                    }
-                    settleLater()
-                    return if (crossedLatch) Offset.Zero else Offset(0f, available.y)
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                if (selectedStyle == EpisodeListRowStyle.GRID) return available
-                // DOWN-fling while open: a fast swipe must collapse the
-                // preview FIRST — however fast. Consume the fling, snap the
-                // collapse, then hand the momentum to the list so the same
-                // swipe keeps scrolling ("after that then the bottom section
-                // will begin to scroll over"). Below the threshold the
-                // leftover is negligible — pass it through.
-                if (available.y < -1000f && !collapseCollapsed.value) {
-                    val handoffVelocity = available.y
-                    collapseCollapsed.value = true
-                    clearGesture()
-                    flingJob = scope.launch {
-                        collapseProgress.animateTo(
-                            targetValue = 1f,
-                            animationSpec = tween(220, easing = FastOutSlowInEasing),
-                        )
-                        // THE MOMENTUM HANDOFF — a spline-decay scroll on the
-                        // options list with the consumed fling's velocity
-                        // (the documented AnimationState.animateDecay fling
-                        // pattern; dispatchRawDelta bypasses the nested chain
-                        // — no re-entrancy).
-                        var lastValue = 0f
-                        AnimationState(
-                            initialValue = 0f,
-                            initialVelocity = handoffVelocity,
-                        ).animateDecay(flingDecay) {
-                            val delta = value - lastValue
-                            lastValue = value
-                            lazyListState.dispatchRawDelta(delta)
-                        }
-                    }
-                    return Velocity.Zero
-                }
-                return available
-            }
-
-            override suspend fun onPostFling(
-                consumed: Velocity,
-                available: Velocity,
-            ): Velocity {
-                // UP-fling leftover: the list's own fling finished at the
-                // very top with velocity to spare — settle the expansion now
-                // ("first of all the bottom section should scroll to the very
-                // top", THEN the preview opens).
-                if (selectedStyle != EpisodeListRowStyle.GRID &&
-                    collapseCollapsed.value &&
-                    available.y > 0f
-                ) {
-                    collapseCollapsed.value = false
-                    clearGesture()
-                    collapseProgress.animateTo(
-                        targetValue = 0f,
-                        animationSpec = tween(240, easing = FastOutSlowInEasing),
-                    )
-                    return available
-                }
-                return Velocity.Zero
-            }
-        }
-    }
+    // ═══ ROUND 108 (D-713): THE SHARED PREVIEW-COLLAPSE SCROLL ═══
+    // The D-557/D-558 machinery moved into ONE shared controller
+    // (PreviewCollapseScroll.kt) that BOTH episode-list settings screens
+    // mount — the v1.1.64 device round exposed two defects in the inline
+    // copies, both fixed at the source:
+    //  • THE ENTRY SCROLL — "whenever I enter the … episode list settings,
+    //    then it should always be scrolled to the very top … apparently
+    //    sometimes … they were scrolled to the very bottom. Like it
+    //    remembered the previous situations." The rememberSaveable-backed
+    //    list state restored the old offset on re-entry; the entry reset
+    //    now forces item 0 + an open preview (skipped only when a
+    //    settings-search anchor is steering).
+    //  • THE FLICK CHOREOGRAPHY — "if I flicked my finger, then it would not
+    //    scroll automatically to the bottom… it should smoothly go on and
+    //    scroll the top section first, and then by scrolling it one of the
+    //    episodes will hide, and it will hide properly and smoothly as such.
+    //    And after it has hidden, then it will not allow the user to scroll
+    //    for a few bit for a few time, and after that it will automatically
+    //    start scrolling the bottom section as it is. And it will depend on
+    //    how fast the user scrolled." The flick now runs the ordered
+    //    sequence — smooth hide → the lock beat → the momentum handoff
+    //    through the canonical scroll-scope decay (the old
+    //    dispatchRawDelta handoff never moved on device; the old -1000px/s
+    //    threshold let weaker flicks scroll the list under an OPEN preview).
+    // The drag semantics (the two-phase snap) are unchanged; see the
+    // controller's file header for the full contract.
+    val previewCollapse = rememberPreviewCollapseScroll(
+        listState = lazyListState,
+        enabled = selectedStyle != EpisodeListRowStyle.GRID,
+    )
+    PreviewCollapseEntryReset(previewCollapse, hasAnchor = highlightAnchor != null)
     // A layout switch always re-opens the preview — a stale collapsed state
     // under GRID (whose connection never engages) would clip it forever.
-    LaunchedEffect(selectedStyle) {
-        collapseCollapsed.value = false
-        collapseProgress.snapTo(0f)
-    }
-    // The first episode's measured height + the row gap = the exact shift
-    // that hides episode 1 and pins episode 2 at the clip's top edge.
-    val hidePx = collapseProgress.value * (firstRowHeightPx + rowGapPx)
+    LaunchedEffect(selectedStyle) { previewCollapse.reopen() }
+    // The clip+shift layout's hide distance — the first episode's measured
+    // height + the row gap, scaled by the collapse fraction.
+    val hidePx = previewCollapse.hidePx
 
     // ── D-558: the search-landing scroll (the anchor map is this screen's
     // half of the search contract: 0 layout · 1 cinema · 2 elements).
@@ -608,7 +408,7 @@ fun EpisodeListSettingsScreen(
                                 ) {
                                     Box(
                                         modifier = Modifier.onSizeChanged { size ->
-                                            firstRowHeightPx = size.height
+                                            previewCollapse.firstRowHeightPx = size.height.toFloat()
                                         },
                                     ) {
                                         PreviewEpisodeSlot(
@@ -642,7 +442,7 @@ fun EpisodeListSettingsScreen(
                     state = lazyListState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .nestedScroll(nestedConnection),
+                        .nestedScroll(previewCollapse.connection),
                     contentPadding = PaddingValues(
                         start = 8.dp,
                         end = 8.dp,
@@ -785,6 +585,87 @@ fun EpisodeListSettingsScreen(
                                                 onChecked = { episodeListPrefs.cinemaWatchedCheck.set(it) },
                                             )
                                         }
+                                    }
+                                }
+                            }
+                        }
+                        }
+                    }
+
+                    // ── ROUND 108 (D-713): the GRID customizability — the
+                    //    Cinema card's pattern, ported: a dedicated section
+                    //    that exists ONLY while the Grid layout is selected,
+                    //    with the same smooth appear/disappear. THE KNOB (the
+                    //    v1.1.64 device round's order): "he can select
+                    //    whether to show the episode title or not, and also
+                    //    he can decide whether to show the full episode title
+                    //    or only one line" — ONE segmented speaks all three
+                    //    states (and the title line itself only ever renders
+                    //    a REAL English-readable title — the gate lives in
+                    //    the renderer, gridShowableTitle).
+                    item {
+                        Column {
+                        AnimatedVisibility(
+                            visible = selectedStyle == EpisodeListRowStyle.GRID,
+                            enter = fadeIn(animationSpec = tween(300)) +
+                                expandVertically(
+                                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                                ),
+                            exit = fadeOut(animationSpec = tween(240)) +
+                                shrinkVertically(
+                                    animationSpec = tween(240, easing = FastOutSlowInEasing),
+                                ),
+                        ) {
+                            EpisodeListCard(label = "Grid") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                ) {
+                                    Text(
+                                        text = "Grid",
+                                        fontFamily = RobotoFamily,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                    Column(
+                                        modifier = Modifier.padding(top = 10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text(
+                                            text = "Episode titles",
+                                            fontFamily = RobotoFamily,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                        SegmentedToggle(
+                                            options = listOf("Off", "1 line", "Full"),
+                                            selectedIndex = when (gridTitleMode) {
+                                                com.confused.anikuta.core.common.GridTitleMode.OFF -> 0
+                                                com.confused.anikuta.core.common.GridTitleMode.ONE_LINE -> 1
+                                                com.confused.anikuta.core.common.GridTitleMode.TWO_LINES -> 2
+                                            },
+                                            onSelect = { idx ->
+                                                episodeListPrefs.gridTitleMode.set(
+                                                    when (idx) {
+                                                        0 -> "OFF"
+                                                        1 -> "ONE"
+                                                        else -> "TWO"
+                                                    },
+                                                )
+                                            },
+                                        )
+                                        Text(
+                                            text = "Only real English titles render the line — " +
+                                                "a bare episode number never does",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 11.sp,
+                                            lineHeight = 15.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(top = 2.dp),
+                                        )
                                     }
                                 }
                             }

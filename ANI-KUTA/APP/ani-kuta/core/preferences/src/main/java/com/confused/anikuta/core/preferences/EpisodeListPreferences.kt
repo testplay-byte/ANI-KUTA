@@ -302,6 +302,24 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
     )
 
     /**
+     * ROUND 108 (D-713): the GRID's title-line mode — "the user will be
+     * given the option to customize it too, like he can select whether to
+     * show the episode title or not, and also he can decide whether to show
+     * the full episode title or only one line." Stored vocabulary:
+     * "TWO" (the default — the grid's historical two-line title), "ONE"
+     * (a single ellipsized line), "OFF" (no title line — the number line +
+     * the chips alone). ALWAYS resolved through
+     * [com.confused.anikuta.core.common.GridTitleMode.fromKey] (the D-529
+     * lesson). independently of the mode, the line only ever renders a
+     * REAL English-readable title — see
+     * [com.confused.anikuta.core.common.gridShowableTitle] (the
+     * "not available in English / only shows the episode number" gate).
+     */
+    val gridTitleMode = store.preference(
+        KEY_GRID_TITLE_MODE, "TWO", StringSerializer,
+    )
+
+    /**
      * D-233: Reset all filters to their defaults (downloaded=OFF, watched=OFF,
      * audio=BOTH). Called when the user taps "Reset filters" on the empty-state.
      */
@@ -334,5 +352,6 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_CINEMA_NUMBER_CORNER = "pref_episode_list_cinema_number_corner"
         private const val KEY_CINEMA_NUMBER_STYLE = "pref_episode_list_cinema_number_style"
         private const val KEY_CINEMA_WATCHED_CHECK = "pref_episode_list_cinema_watched_check"
+        private const val KEY_GRID_TITLE_MODE = "pref_episode_list_grid_title_mode"
     }
 }

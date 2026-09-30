@@ -35,13 +35,18 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -247,6 +252,11 @@ sealed interface PlayerDownloadRenderState {
  * engine (enqueue / pause / resume / cancel / retry / play-downloaded);
  * [previewTapAll] is the settings preview's demo-cycle hook (the D-557
  * pattern — ONE tap target for ALL states).
+ *
+ * ROUND 108 (D-713): [onDelete] joins the bag — the badge's Downloaded menu
+ * offers Play / Delete now (the v1.1.64 device round: the compact layouts
+ * "do not give the option to select what it should do"), so the player
+ * pages can delete a download in place instead of dead-ending at play.
  */
 data class PlayerEpisodeDownloadActions(
     val onDownload: () -> Unit,
@@ -255,6 +265,7 @@ data class PlayerEpisodeDownloadActions(
     val onCancel: () -> Unit,
     val onRetry: () -> Unit,
     val onPlayDownloaded: () -> Unit,
+    val onDelete: () -> Unit = {},
     val previewTapAll: (() -> Unit)? = null,
 )
 
@@ -268,7 +279,9 @@ data class PlayerEpisodeListDisplay(
     val dimWatched: Boolean = true,
     /** ROUND 104: the BANNER's ghost episode number toggle. */
     val showEpisodeNumber: Boolean = true,
-    /** ROUND 105: the thin watch-progress bar/underline (DETAILED + TRACKLIST). */
+    /** ROUND 105: the thin watch-progress bar/underline (DETAILED + TRACKLIST
+     *  + GRID + BANNER — ROUND 108 widened it to the banner, the CINEMA
+     *  parity). */
     val showProgressBar: Boolean = true,
     /**
      * ROUND 106 (WS-D): THE DOWNLOAD BUTTON — the dedicated toggle (default
@@ -289,12 +302,24 @@ data class PlayerEpisodeListDisplay(
     /** ROUND 106 (WS-D): the BANNER's currently-playing treatment (the
      * GRID's PLAY/TINT knob, ported). */
     val bannerCurrentStyle: PlayerBannerCurrentStyle = PlayerBannerCurrentStyle.PLAY,
+    /** ROUND 108 (D-713): the BANNER's watched check mark — the details
+     * CINEMA's cinemaWatchedCheckBadge twin (default OFF; the dim/grayscale
+     * treatment stays owned by [dimWatched]). */
+    val bannerWatchedCheck: Boolean = false,
     /** ROUND 105: the GRID's watched treatment (the checkmark, not the dim). */
     val gridWatchedCheckmark: Boolean = true,
     /** ROUND 105: the GRID's currently-playing treatment. */
     val gridCurrentStyle: PlayerGridCurrentStyle = PlayerGridCurrentStyle.PLAY,
-    /** ROUND 105: the GRID's bottom-scrim title line. */
-    val gridTitles: Boolean = true,
+    /**
+     * ROUND 108 (D-713): the GRID's title-line mode — OFF / ONE_LINE /
+     * TWO_LINES (replaces the round-105 Boolean; the details grid's new knob,
+     * shared). The title line only ever renders a REAL English-readable
+     * title — [com.confused.anikuta.core.common.gridShowableTitle] gates it
+     * ("if the name is not available in English, or it only shows the
+     * episode number or such, then it will not be shown").
+     */
+    val gridTitleMode: com.confused.anikuta.core.common.GridTitleMode =
+        com.confused.anikuta.core.common.GridTitleMode.TWO_LINES,
     /**
      * ROUND 105: the TRACKLIST's column-sizing reference — the LIST's widest
      * episode-number text, pre-formatted by the caller (e.g. "24" for a
@@ -1183,91 +1208,150 @@ private fun PlayerEpisodeDownloadBadge(
     else MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
     val fg = if (translucent) Color.White else MaterialTheme.colorScheme.onSurface
     val accent = if (translucent) Color.White else MaterialTheme.colorScheme.primary
-    Box(
-        modifier = modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(bg)
-            .clickable {
-                // The settings preview passes previewTapAll — ONE tap target
-                // for ALL states so the demo cycle can walk every state (the
-                // D-557 pattern). Production call sites pass null → the
-                // state contract below.
-                val tap = actions.previewTapAll
-                if (tap != null) {
-                    tap()
-                } else {
-                    when (state) {
-                        is PlayerDownloadRenderState.NotDownloaded -> actions.onDownload()
-                        is PlayerDownloadRenderState.InFlight -> actions.onCancel()
-                        is PlayerDownloadRenderState.Downloading -> actions.onPause()
-                        is PlayerDownloadRenderState.Paused -> actions.onResume()
-                        is PlayerDownloadRenderState.Error -> actions.onRetry()
-                        is PlayerDownloadRenderState.Downloaded -> actions.onPlayDownloaded()
+    // ROUND 108: the options-menu anchor state (Downloaded → Play/Delete;
+    // Downloading → Pause/Cancel — the details control's contract, ported).
+    var showMenu by remember { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(bg)
+                .clickable {
+                    // The settings preview passes previewTapAll — ONE tap target
+                    // for ALL states so the demo cycle can walk every state (the
+                    // D-557 pattern). Production call sites pass null → the
+                    // state contract below.
+                    val tap = actions.previewTapAll
+                    if (tap != null) {
+                        tap()
+                    } else {
+                        when (state) {
+                            is PlayerDownloadRenderState.NotDownloaded -> actions.onDownload()
+                            is PlayerDownloadRenderState.InFlight -> actions.onCancel()
+                            // ROUND 108: the two menu states — the tap opens the
+                            // options instead of firing the first action blind.
+                            is PlayerDownloadRenderState.Downloading -> showMenu = true
+                            is PlayerDownloadRenderState.Paused -> actions.onResume()
+                            is PlayerDownloadRenderState.Error -> actions.onRetry()
+                            is PlayerDownloadRenderState.Downloaded -> showMenu = true
+                        }
                     }
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        when (state) {
-            is PlayerDownloadRenderState.NotDownloaded -> Icon(
-                imageVector = Icons.Filled.Download,
-                contentDescription = "Download",
-                tint = fg,
-                modifier = Modifier.size(18.dp),
-            )
-            is PlayerDownloadRenderState.InFlight -> CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
-                color = accent,
-            )
-            is PlayerDownloadRenderState.Downloading -> Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    progress = { (state.progress / 100f).coerceIn(0f, 1f) },
-                    modifier = Modifier.size(24.dp),
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            when (state) {
+                is PlayerDownloadRenderState.NotDownloaded -> Icon(
+                    imageVector = Icons.Filled.Download,
+                    contentDescription = "Download",
+                    tint = fg,
+                    modifier = Modifier.size(18.dp),
+                )
+                is PlayerDownloadRenderState.InFlight -> CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp,
                     color = accent,
-                    trackColor = fg.copy(alpha = 0.15f),
                 )
-                Text(
-                    text = "${state.progress}",
-                    fontFamily = RobotoFamily,
-                    fontSize = 7.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = fg,
-                    maxLines = 1,
-                    softWrap = false,
+                is PlayerDownloadRenderState.Downloading -> Box(contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        progress = { (state.progress / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = accent,
+                        trackColor = fg.copy(alpha = 0.15f),
+                    )
+                    Text(
+                        text = "${state.progress}",
+                        fontFamily = RobotoFamily,
+                        fontSize = 7.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = fg,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+                is PlayerDownloadRenderState.Paused -> Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = "Resume download",
+                    tint = accent,
+                    modifier = Modifier.size(18.dp),
+                )
+                is PlayerDownloadRenderState.Error -> Icon(
+                    imageVector = Icons.Filled.Refresh,
+                    contentDescription = "Retry download",
+                    tint = accent,
+                    modifier = Modifier.size(18.dp),
+                )
+                is PlayerDownloadRenderState.Downloaded -> Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = "Downloaded — tap for options",
+                    tint = accent,
+                    modifier = Modifier.size(20.dp),
                 )
             }
-            is PlayerDownloadRenderState.Paused -> Icon(
-                imageVector = Icons.Filled.PlayArrow,
-                contentDescription = "Resume download",
-                tint = accent,
-                modifier = Modifier.size(18.dp),
-            )
-            is PlayerDownloadRenderState.Error -> Icon(
-                imageVector = Icons.Filled.Refresh,
-                contentDescription = "Retry download",
-                tint = accent,
-                modifier = Modifier.size(18.dp),
-            )
-            is PlayerDownloadRenderState.Downloaded -> Icon(
-                imageVector = Icons.Filled.CheckCircle,
-                contentDescription = "Downloaded — tap to play",
-                tint = accent,
-                modifier = Modifier.size(20.dp),
-            )
+        }
+        // ROUND 108: THE OPTIONS MENUS — the details badge's exact dropdowns
+        // (the classic control's contract): Downloaded → Play / Delete;
+        // Downloading → Pause / Cancel. The player pages could only PLAY a
+        // finished download before — the delete now lives one tap away, in
+        // place, on every layout.
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false },
+        ) {
+            if (state is PlayerDownloadRenderState.Downloading) {
+                DropdownMenuItem(
+                    text = { Text("Pause", fontFamily = RobotoFamily) },
+                    onClick = {
+                        showMenu = false
+                        actions.onPause()
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "Cancel",
+                            fontFamily = RobotoFamily,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        actions.onCancel()
+                    },
+                )
+            } else if (state is PlayerDownloadRenderState.Downloaded) {
+                DropdownMenuItem(
+                    text = { Text("Play", fontFamily = RobotoFamily) },
+                    onClick = {
+                        showMenu = false
+                        actions.onPlayDownloaded()
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "Delete",
+                            fontFamily = RobotoFamily,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        actions.onDelete()
+                    },
+                )
+            }
         }
     }
-    // NOTE: onDelete has no gesture room in a 32dp badge — the downloads
-    // page keeps that action (the D-555 plan §4, carried forward).
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 //  GRID — one cell of the two-across poster wall. ROUND 104: the top-left
 //  EP badge is GONE ("remove them. It should only be kept in the detailed
-//  view") — the number rides the bottom scrim's title line instead; the
-//  cell long-presses to toggle watched (the details page's GRID parity).
+//  view") — ROUND 108: the number rides its OWN themed label line under the
+//  plate (the details grid's anatomy); the cell long-presses to toggle
+//  watched (the details page's GRID parity).
 //
 //  ROUND 105 (WS-D) — THE REAL KNOBS: "in the grid layout there were not
 //  much options there at all… for the watched episode, it only gives the
@@ -1441,8 +1525,21 @@ private fun PlayerEpisodeGridCell(
                 )
             }
 
-            // ── The thin progress bar (partial watches). ──
-            if (data.progressFraction > 0f && !data.isWatched && display.showProgressBar) {
+            // ── The thin progress bar (partial watches) — ROUND 108: while a
+            //    download runs, the DETERMINATE tertiary download bar takes
+            //    the edge instead (the details grid's new language; the
+            //    watch bar returns once the download leaves Downloading). ──
+            val downloading = data.downloadState is PlayerDownloadRenderState.Downloading
+            if (downloading) {
+                val progress = (data.downloadState as PlayerDownloadRenderState.Downloading).progress
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth((progress / 100f).coerceIn(0.01f, 1f))
+                        .height(3.dp)
+                        .background(MaterialTheme.colorScheme.tertiary),
+                )
+            } else if (data.progressFraction > 0f && !data.isWatched && display.showProgressBar) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -1463,39 +1560,56 @@ private fun PlayerEpisodeGridCell(
                 )
             }
         }
-        // ── The text block — the EP + title line (gridTitles), then the
-        //    wrapping chips (every tag, never clipped). ──
-        if (display.gridTitles || pills.isNotEmpty()) {
-            Spacer(Modifier.height(6.dp))
-            if (display.gridTitles) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 2.dp),
-                ) {
-                    Text(
-                        text = "EP ${data.episodeNumberText}",
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        softWrap = false,
-                    )
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        text = data.displayTitle,
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+        // ── ROUND 108 (D-713): THE TEXT BLOCK — the details grid's anatomy,
+        //    verbatim ("go with a similar kind of grid view for the player
+        //    page too, which is being used on the details page"): the themed
+        //    number label on its OWN line (the details grid's
+        //    EpisodeNumberLabel look), the title under it — ONLY a real
+        //    English-readable title, mode-aware (OFF / one line / two
+        //    lines: "if the name is not available in English, or it only
+        //    shows the episode number or such, then it will not be shown") —
+        //    then the WRAPPING chips (every tag, never clipped — the
+        //    round-106 contract stands). ──
+        val titleLine = if (display.gridTitleMode ==
+            com.confused.anikuta.core.common.GridTitleMode.OFF
+        ) {
+            null
+        } else {
+            com.confused.anikuta.core.common.gridShowableTitle(data.displayTitle)
+        }
+        // The number label — the themed "EP N" mini-label, its own line,
+        // ALWAYS present: the details grid's contract (the number line never
+        // depends on the title gate or the pills — SA2-F2, the round-108
+        // audit: a gated-out title + empty pills must not eat it).
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "EP ${data.episodeNumberText}",
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.5.sp,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 2.dp),
+        )
+        if (titleLine != null || pills.isNotEmpty()) {
+            if (titleLine != null) {
+                Spacer(Modifier.height(1.dp))
+                Text(
+                    text = titleLine,
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = if (display.gridTitleMode ==
+                        com.confused.anikuta.core.common.GridTitleMode.ONE_LINE
+                    ) 1 else 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 2.dp),
+                )
             }
             if (pills.isNotEmpty()) {
                 Spacer(Modifier.height(5.dp))
@@ -1709,6 +1823,22 @@ private fun PlayerEpisodeBannerCard(
             }
         }
 
+        // ── ROUND 108 (D-713): THE WATCHED CHECK — the details CINEMA's
+        //    cinemaWatchedCheckBadge twin ("a similar kind of thing for the
+        //    banner view too"): the dim/grayscale treatment rides the
+        //    dimWatched knob as always; the centered circular check is its
+        //    OWN knob (default OFF — the zero-prefs look is today's). ──
+        if (watchedGray && display.bannerWatchedCheck) {
+            Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = "Watched",
+                tint = Color.White,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(34.dp),
+            )
+        }
+
         // ── ROUND 106 (WS-D): the download badge — the top corner OPPOSITE
         //    the big number (never colliding with the number-position knob;
         //    top-end when the number is hidden or top-start). ──
@@ -1785,14 +1915,19 @@ private fun PlayerEpisodeBannerCard(
                     Spacer(Modifier.height(5.dp))
                 }
                 // The NAME — at the very bottom ("at the bottom left, the
-                // name of the current episode should be shown").
+                // name of the current episode should be shown"). ROUND 108
+                // (D-713): the CINEMA's title treatment — TWO lines at 16sp
+                // ("a similar kind of thing for the banner view too, like go
+                // with a similar kind of interface"); long names breathe
+                // instead of hard-cutting at one line.
                 Text(
                     text = data.displayTitle,
                     fontFamily = RobotoFamily,
-                    fontSize = 15.sp,
+                    fontSize = 16.sp,
+                    lineHeight = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -1806,6 +1941,34 @@ private fun PlayerEpisodeBannerCard(
                     .matchParentSize()
                     .graphicsLayer { this.alpha = pulseAlpha }
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)),
+            )
+        }
+
+        // ── ROUND 108 (D-713): THE PROGRESS BARS — the CINEMA parity (the
+        //    banner never carried one). While a download runs, the
+        //    DETERMINATE tertiary download bar takes the edge (the same
+        //    language as the player GRID); otherwise the thin primary watch
+        //    bar renders under the showProgressBar knob — full-bleed at the
+        //    banner's bottom edge, the player stack's own edge-bar look
+        //    (SA2-F6, the round-108 audit: not the details CINEMA's inset
+        //    treatment — the banner's imagery IS the card, edge to edge). ──
+        val downloading = data.downloadState is PlayerDownloadRenderState.Downloading
+        if (downloading) {
+            val progress = (data.downloadState as PlayerDownloadRenderState.Downloading).progress
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth((progress / 100f).coerceIn(0.01f, 1f))
+                    .height(3.dp)
+                    .background(MaterialTheme.colorScheme.tertiary),
+            )
+        } else if (display.showProgressBar && data.progressFraction > 0f && !data.isWatched) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(data.progressFraction.coerceIn(0f, 1f))
+                    .height(3.dp)
+                    .background(MaterialTheme.colorScheme.primary),
             )
         }
     }

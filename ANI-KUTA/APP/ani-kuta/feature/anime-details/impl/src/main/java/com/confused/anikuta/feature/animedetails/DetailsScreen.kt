@@ -137,7 +137,9 @@ import androidx.compose.material.icons.filled.StarBorder  // Phase 4
 fun DetailsScreen(
     detailsKey: AnimeDetailsKey,
     onBack: () -> Unit,
-    onNavigateToWatch: (mainId: String, videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String, coverAccentArgb: Long) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
+    // ROUND 108 (D-713): the trailing coverUrl — the player rows' thumbnail
+    // fallback (the details page's cover), riding the key like coverAccent.
+    onNavigateToWatch: (mainId: String, videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String, coverAccentArgb: Long, coverUrl: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     // Task 52 (round 12 — the playback port): CloudStream episode taps route
     // here INSTEAD of the classic resolver/watch pipeline. Primitives (not
     // CsWatchKey) to keep :feature:anime-details free of feature-to-feature
@@ -146,7 +148,7 @@ fun DetailsScreen(
     // episodeListSerialized, mainId, sourceId, episodeMetadataSerialized
     // (task 54 / round 14 — the CS watch page's per-episode metadata, same
     // wire format as the aniyomi watch key's field).
-    onNavigateToCsWatch: (String, String, String, Float, String, String, String, Long, String, Long) -> Unit = { _, _, _, _, _, _, _, _, _, _ -> },
+    onNavigateToCsWatch: (String, String, String, Float, String, String, String, Long, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _ -> },
     // Task 58 (round 18 — downloads): the CS download entry. SAME 9-arg
     // context as [onNavigateToCsWatch] (provider/title/handle/number/name/
     // list/mainId/sourceId/metadata) — the host opens the CS resolve sheet in
@@ -159,7 +161,7 @@ fun DetailsScreen(
     // episodeTitle, episodeListSerialized, mainId, sourceId, epMeta — the host
     // builds the CsWatchKey with offlineMediaUri set (the csdash: payload —
     // a legacy manifest URL or a D-548 .dashmeta sidecar uri).
-    onNavigateToCsOfflineWatch: (String, String, String, String, Float, String, String, String, Long, String, Long) -> Unit = { _, _, _, _, _, _, _, _, _, _, _ -> },
+    onNavigateToCsOfflineWatch: (String, String, String, String, Float, String, String, String, Long, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
     // D-209: Cloudflare manual solver — launched from the episode error card.
@@ -357,10 +359,19 @@ fun DetailsScreen(
     val cinemaWatchedCheckPref by episodeListPrefs.cinemaWatchedCheck.changes.collectAsState(
         initial = episodeListPrefs.cinemaWatchedCheck.get(),
     )
+    // ROUND 108 (D-713): the GRID's title-line mode (Off / one line / two
+    // lines) — resolved through the lenient fromKey (the D-529 lesson).
+    val gridTitleModeKey by episodeListPrefs.gridTitleMode.changes.collectAsState(
+        initial = episodeListPrefs.gridTitleMode.get(),
+    )
+    val gridTitleModePref = remember(gridTitleModeKey) {
+        com.confused.anikuta.core.common.GridTitleMode.fromKey(gridTitleModeKey)
+    }
     val episodeDisplayStyle = remember(
         rowStyleKey, showSynopsisPref, showDatePillPref, showAudioPillsPref,
         showWatchProgressPref, dimWatchedPref, showDownloadControlPref,
         cinemaNumberCornerPref, cinemaNumberStylePref, cinemaWatchedCheckPref,
+        gridTitleModePref,
     ) {
         EpisodeListDisplayStyle(
             rowStyle = EpisodeListRowStyle.fromKey(rowStyleKey),
@@ -373,6 +384,7 @@ fun DetailsScreen(
             cinemaNumberAtTopStart = cinemaNumberCornerPref.trim().equals("LEFT", ignoreCase = true),
             cinemaNumberFrosted = cinemaNumberStylePref.trim().equals("FROSTED", ignoreCase = true),
             cinemaWatchedCheckBadge = cinemaWatchedCheckPref,
+            gridTitleMode = gridTitleModePref,
         )
     }
 
@@ -557,9 +569,7 @@ fun DetailsScreen(
                         val ep = currentEpisode
                         if (anime != null && linked != null && ep != null) {
                             val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-                            val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
-                                "${e.url}${delim}${e.episode_number}${delim}${e.name}"
-                            } ?: ""
+                            val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.let(::buildEpisodeListSerialized) ?: ""
                             val subTracksStr = autoVideo.subtitleTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
                             val audioTracksStr = autoVideo.audioTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
                             // D-306: extension-first merge (shared with the episode rows).
@@ -588,6 +598,9 @@ fun DetailsScreen(
                                 epMetaStr,
                                 // ROUND 101 (WS-D): the details accent rides the nav.
                                 coverAccent?.toLong() ?: 0L,
+                                // ROUND 108 (D-713): the cover rides the nav — the player
+                                // rows' thumbnail fallback.
+                                ((state as? DetailsState.Success)?.anime?.coverUrl ?: ""),
                             )
                             viewModel.clearResolver()
                         }
@@ -735,10 +748,7 @@ fun DetailsScreen(
                             .payloadFromUri(localUri)
                         if (offlineMedia != null) {
                             val anime = (state as? DetailsState.Success)?.anime
-                            val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-                            val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
-                                "${e.url}${delim}${e.episode_number}${delim}${e.name}"
-                            } ?: ""
+                            val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.let(::buildEpisodeListSerialized) ?: ""
                             val epMetaStr = buildEpisodeMetadataSerialized(
                                 episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
                                 metadata = episodeMetadata,
@@ -760,6 +770,9 @@ fun DetailsScreen(
                                 epMetaStr,
                                 // ROUND 101 (WS-D): the details accent rides the nav.
                                 coverAccent?.toLong() ?: 0L,
+                                // ROUND 108 (D-713): the cover rides the nav — the player
+                                // rows' thumbnail fallback.
+                                ((state as? DetailsState.Success)?.anime?.coverUrl ?: ""),
                             )
                             return@onEpisodeClick
                         }
@@ -769,9 +782,7 @@ fun DetailsScreen(
                     }
                     val anime = (state as? DetailsState.Success)?.anime
                     val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-                    val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
-                        "${e.url}${delim}${e.episode_number}${delim}${e.name}"
-                    } ?: ""
+                    val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.let(::buildEpisodeListSerialized) ?: ""
                     // D-306: extension-first merge (shared with the episode rows).
                     val epMetaStr = buildEpisodeMetadataSerialized(
                         episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
@@ -820,6 +831,9 @@ fun DetailsScreen(
                             epMetaStr,
                             // ROUND 101 (WS-D): the details accent rides the nav.
                             coverAccent?.toLong() ?: 0L,
+                            // ROUND 108 (D-713): the cover rides the nav — the player
+                            // rows' thumbnail fallback.
+                            ((state as? DetailsState.Success)?.anime?.coverUrl ?: ""),
                         )
                     }
                     return@onEpisodeClick
@@ -832,10 +846,7 @@ fun DetailsScreen(
         // there. The classic resolver path (below) is aniyomi-only.
         if (viewModel.isLinkedSourceCloudStream()) {
             val anime = (state as? DetailsState.Success)?.anime
-            val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-            val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
-                "${e.url}${delim}${e.episode_number}${delim}${e.name}"
-            } ?: ""
+            val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.let(::buildEpisodeListSerialized) ?: ""
             // Task 54 (round 14): per-episode metadata for the CS watch page
             // (title/thumbnail/air date/description/sub-dub). Same builder as
             // the aniyomi hand-off — one format, both watch stacks consume it.
@@ -869,6 +880,9 @@ fun DetailsScreen(
                 csMetaStr,
                 // ROUND 101 (WS-D): the details accent rides the nav.
                 coverAccent?.toLong() ?: 0L,
+                // ROUND 108 (D-713): the cover rides the nav — the player
+                // rows' thumbnail fallback.
+                ((state as? DetailsState.Success)?.anime?.coverUrl ?: ""),
             )
             return@onEpisodeClick
         }
@@ -888,10 +902,7 @@ fun DetailsScreen(
     // mode and the picked link enqueues through the source-agnostic engine.
     val routeToCsDownload: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = { episode ->
         val anime = (state as? DetailsState.Success)?.anime
-        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-        val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
-            "${e.url}${delim}${e.episode_number}${delim}${e.name}"
-        } ?: ""
+        val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.let(::buildEpisodeListSerialized) ?: ""
         // Same tag-stripped metadata the play path builds (F3a) — the pill
         // carries the flavor, the title never repeats it.
         val csMetaStr = buildEpisodeMetadataSerialized(
@@ -1740,9 +1751,7 @@ fun DetailsScreen(
                     // CRITICAL: Uses \u001F (Unit Separator) as the delimiter
                     // instead of '|' because episode URLs can contain '|'.
                     val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-                    val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
-                        "${e.url}${delim}${e.episode_number}${delim}${e.name}"
-                    } ?: ""
+                    val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.let(::buildEpisodeListSerialized) ?: ""
                     // Serialize subtitle + audio tracks from the picked video.
                     // CRITICAL: Carrying these directly ensures subtitles are always
                     // available in WatchScreen (no ResolvedVideosRegistry lookup).
@@ -1776,6 +1785,9 @@ fun DetailsScreen(
                         epMetaStr,
                         // ROUND 101 (WS-D): the details accent rides the nav.
                         coverAccent?.toLong() ?: 0L,
+                        // ROUND 108 (D-713): the cover rides the nav — the player
+                        // rows' thumbnail fallback.
+                        ((state as? DetailsState.Success)?.anime?.coverUrl ?: ""),
                     )
                 }
                 showResolverSheet = false
@@ -3373,14 +3385,45 @@ private fun buildEpisodeMetadataSerialized(
 ): String {
     val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
     val byNumber = episodes.associateBy { it.episode_number.toInt() }
-    return metadata.entries.joinToString("\n") { (epNum, meta) ->
+    // ROUND 108 (D-713): THE UNION — every EPISODE renders a line
+    // (extension-first), plus any metadata-only numbers. The old iteration
+    // over metadata.entries shipped NOTHING for an extension-only series
+    // (no provider metadata → an EMPTY map → an EMPTY serialization), so
+    // the player page lost the per-episode titles, thumbnails, air dates,
+    // descriptions AND scanlators — the scanlator being exactly what the
+    // player's audio pills parse ("the available audio versions were not
+    // being transferred"). The date gains the extension's own upload date
+    // as the gap-filler (the details row's own priority: metadata air date
+    // first, then the extension's upload date).
+    val numbers = (byNumber.keys + metadata.keys).distinct().sorted()
+    return numbers.joinToString("\n") { epNum ->
         val ext = byNumber[epNum]
-        val title = ext?.let { EpisodeDisplayResolver.extensionTitle(it) } ?: meta.title ?: ""
-        val thumb = ext?.preview_url?.takeIf { it.isNotBlank() } ?: meta.thumbnailUrl ?: ""
-        val date = meta.airDate?.toString() ?: "0"
-        val desc = ext?.summary?.takeIf { it.isNotBlank() } ?: meta.description ?: ""
+        val meta = metadata[epNum]
+        val title = ext?.let { EpisodeDisplayResolver.extensionTitle(it) } ?: meta?.title ?: ""
+        val thumb = ext?.preview_url?.takeIf { it.isNotBlank() } ?: meta?.thumbnailUrl ?: ""
+        val dateMillis = meta?.airDate?.takeIf { it > 0 }
+            ?: ext?.date_upload?.takeIf { it > 0 }
+            ?: 0L
+        val desc = ext?.summary?.takeIf { it.isNotBlank() } ?: meta?.description ?: ""
         val scanlator = ext?.scanlator ?: currentScanlator ?: ""
-        "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
+        "$epNum${delim}$title${delim}$thumb${delim}$dateMillis${delim}$desc${delim}$scanlator"
+    }
+}
+
+/**
+ * ROUND 108 (D-713): the episode-list serialization — ONE builder (the six
+ * copy-pasted joinToString sites folded into it; the two MainActivity
+ * siblings build their lines from different first-field fallbacks and were
+ * correctly left alone). The WIRE FORMAT is unchanged ("url␟number␟name"
+ * lines, the ␟ unit separator) — old persisted keys parse identically; this
+ * only kills the drift risk of six copies.
+ */
+private fun buildEpisodeListSerialized(
+    episodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
+): String {
+    val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+    return episodes.joinToString("\n") { e ->
+        "${e.url}${delim}${e.episode_number}${delim}${e.name}"
     }
 }
 

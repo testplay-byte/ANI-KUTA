@@ -65,6 +65,14 @@ data class CsWatchKey(
      * constructors + persisted keys keep working unchanged.
      */
     val coverAccentArgb: Long = 0L,
+
+    /**
+     * ROUND 108 (D-713): the details page's COVER URL — the CS player
+     * episode rows' thumbnail FALLBACK (the WatchKey twin; blank = no
+     * fallback). Defaulted so existing constructors + persisted keys keep
+     * working unchanged.
+     */
+    val coverUrl: String = "",
 ) : NavKey {
 
     /** Parses [episodeListSerialized] into lightweight rows for the episodes sheet. */
