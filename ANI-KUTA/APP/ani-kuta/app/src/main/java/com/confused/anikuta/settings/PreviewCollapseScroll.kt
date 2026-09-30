@@ -82,6 +82,8 @@ import kotlinx.coroutines.launch
  *    drag-path snap's duration — one visual language for both entrances).
  * ② [LOCK_BEAT_MS] — the post-hide input lock ("a few bit for a few time"):
  *    ~140ms reads as a deliberate beat without testing the user's patience.
+ *    (A Long because [delay] takes one; [HIDE_ANIMATION_MS] feeds
+ *    [tween]'s Int durationMillis and stays Int.)
  * ③ [FLICK_MIN_VELOCITY] — the tap/noise floor separating a REAL flick
  *    from a tap / micro-drift. Below it the lift does NOT run the hide →
  *    lock → handoff choreography (a tap must never hide the preview) —
@@ -93,7 +95,7 @@ import kotlinx.coroutines.launch
  *    preview back and the list never moves.
  */
 private const val HIDE_ANIMATION_MS = 260
-private const val LOCK_BEAT_MS = 140
+private const val LOCK_BEAT_MS = 140L
 private const val FLICK_MIN_VELOCITY = 350f
 
 /** The gap between the preview's two rows (the screens' Arrangement.spacedBy). */
