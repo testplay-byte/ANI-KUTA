@@ -2333,3 +2333,9 @@ The round-107 order: robust layout rules for the player episode list's DETAILED 
 - THE CLASSIC ROW, ONE TRUTH: the player's detailed view IS the details page's Classic row now — one shared implementation (the quiet EP label + one-line title, no tag on the thumbnail, the disc fallback, the inset progress pill, the full-width download bar, the whole-card watched fade); the layout is renamed Classic on both pages (stored settings migrate silently).
 - The tracklist's currently-playing row no longer shows the redundant play glyph; the border + tint carry it.
 - THE ELEMENTS' GRID OF BUTTONS: both episode-list Elements cards render their on/off toggles as equal-width animated buttons (2 per row, no descriptions); tapping the "Elements" heading flips the grid to 3 per row (the session-local testing aid).
+
+## Round 112 (v1.1.69) — The crash's safe measure, the synopsis-off title's new home
+
+- THE CRASH FIX: the details page no longer crashes on entry with the TIMELINE layout — the meta line left BoxWithConstraints (a SubcomposeLayout that throws under intrinsic-measuring parents) for a plain custom Layout whose ladder measures the variants' true widths in the measure phase.
+- THE SYNOPSIS-OFF ARRANGEMENT: with the synopsis off, the classic row's title relocates below the thumbnail+details block (one single line, full width) with the download button at its end — the meta line never shares its row with the control, so the DUB tag always has its room.
+- THE ELEMENTS' QUIET PILLS: the elements toggles are simple centered text on themed pills — the check glyph and its reserved slot are gone.

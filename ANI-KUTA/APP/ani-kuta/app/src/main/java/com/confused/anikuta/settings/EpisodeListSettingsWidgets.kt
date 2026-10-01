@@ -2,7 +2,6 @@ package com.confused.anikuta.settings
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
@@ -14,12 +13,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -29,8 +24,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -243,8 +238,8 @@ internal data class ElementToggleEntry(
  * THE ELEMENTS' GRID — [entries] as equal-width toggle buttons, [columns]
  * per row (2 by default; the heading tap flips the player's testing aid to
  * 3). The container reflows smoothly (animateContentSize); each button's
- * state change animates its colors + the leading check. Short rows are
- * padded with spacers so the buttons keep the grid's equal widths.
+ * state change crossfades its colors. Short rows are padded with spacers
+ * so the buttons keep the grid's equal widths.
  */
 @Composable
 internal fun ElementToggleGrid(
@@ -278,11 +273,14 @@ internal fun ElementToggleGrid(
 }
 
 /**
- * ONE element button — the clean animation the round asked for: the
- * container + content colors crossfade between the quiet surface and the
- * primary-tinted state, and the leading check scales in (on) or out (off).
- * The M3 clickable Surface carries the ripple (bounded to the 10dp shape)
- * and the 48dp minimum touch target.
+ * ONE element button — ROUND 112 (D-732), the user's verdict on the
+ * round-111 design ("it was looking way too ugly … I wanted the UI to look
+ * like simple, like text with themed colored background, nothing else
+ * more than that. Or maybe you could give them a button-like feel"):
+ * a quiet PILL of centered text — the check glyph, its reserved slot, and
+ * the leading-icon row are GONE. The ON state wears the theme's primary
+ * tint; the OFF state stays on the neutral surface. The ripple (bounded
+ * to the pill) + the 220ms color crossfade carry the button feel.
  */
 @Composable
 private fun ElementToggleButton(
@@ -293,7 +291,7 @@ private fun ElementToggleButton(
     val checked = entry.checked
     val container by animateColorAsState(
         targetValue = if (checked) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
         } else {
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
         },
@@ -309,56 +307,27 @@ private fun ElementToggleButton(
         animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "element_content",
     )
-    val checkScale by animateFloatAsState(
-        targetValue = if (checked) 1f else 0.2f,
-        animationSpec = tween(220, easing = FastOutSlowInEasing),
-        label = "element_check_scale",
-    )
-    val checkAlpha by animateFloatAsState(
-        targetValue = if (checked) 1f else 0f,
-        animationSpec = tween(180, easing = FastOutSlowInEasing),
-        label = "element_check_alpha",
-    )
-    val shape = RoundedCornerShape(10.dp)
     val button: @Composable () -> Unit = {
         Surface(
             onClick = { entry.onToggle() },
             color = container,
-            shape = shape,
+            shape = RoundedCornerShape(50),
             modifier = modifier.fillMaxWidth(),
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-            ) {
-                Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-                    if (checkAlpha > 0.01f) {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = null,
-                            tint = content,
-                            modifier = Modifier
-                                .size(18.dp)
-                                .graphicsLayer {
-                                    scaleX = checkScale
-                                    scaleY = checkScale
-                                    alpha = checkAlpha
-                                },
-                        )
-                    }
-                }
-                Text(
-                    text = entry.title,
-                    fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
-                    lineHeight = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = content,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Text(
+                text = entry.title,
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = content,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+            )
         }
     }
     if (entry.anchorId != null) {

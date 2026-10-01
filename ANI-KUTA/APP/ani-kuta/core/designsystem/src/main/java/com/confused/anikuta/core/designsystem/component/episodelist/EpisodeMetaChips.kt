@@ -1,7 +1,6 @@
 package com.confused.anikuta.core.designsystem.component.episodelist
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,10 +15,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.MeasurePolicy
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -180,9 +179,9 @@ fun formatShortDate(epochMillis: Long): String {
 //  future too."
 //
 //  THE DENSITY LADDER (chosen automatically against the line's REAL
-//  available width — measured once per row through the text measurer, so
-//  narrow phones, landscape, and half-width grid cells all adapt on their
-//  own):
+//  available width — every variant is MEASURED for real in the layout
+//  phase, so narrow phones, landscape, and half-width grid cells all
+//  adapt on their own):
 //    FULL      — every chip at its full label ("Oct 12, 2025" + SUB + DUB …).
 //    INITIALS  — the audio tokens collapse to their first letters
 //                (SUB→S, DUB→D, HSUB→H — the user's exact spec); other
@@ -195,6 +194,19 @@ fun formatShortDate(epochMillis: Long): String {
 //  [EpisodeMetaDensity] is the future-customization hook the user asked
 //  for: AUTO (the ladder), or a pinned tier once the settings surface
 //  wants a knob.
+//
+//  ROUND 112 (D-731): THE SAFE MEASURE — the v1.1.68 crash taught the
+//  hard rule: the line lived in a BoxWithConstraints (a SubcomposeLayout),
+//  and the timeline's height(IntrinsicSize.Min) parent asked it for its
+//  min intrinsic height — "Asking for intrinsic measurements of
+//  SubcomposeLayout layouts is not supported" — killing the details page
+//  on entry. The line is now a PLAIN custom Layout (a fun-interface
+//  MeasurePolicy): the variants are measured as real placeables in the
+//  measure phase (their TRUE widths — text, letterSpacing, capsule
+//  padding; the old TextMeasurer estimate could drift a few dp and clip
+//  the trailing chip), and the plain MeasurePolicy answers intrinsic
+//  queries through the interface defaults (the max over the variant
+//  Rows = the chip height) — safe under ANY IntrinsicSize parent.
 // ══════════════════════════════════════════════════════════════════════
 
 /** The meta line's density — AUTO (the ladder) or a pinned tier. */
@@ -222,17 +234,6 @@ private fun isCoreAudioToken(label: String): Boolean =
     audioInitial(label) != null || label.trim().uppercase(Locale.US) in
         setOf("SUB", "DUB", "HSUB")
 
-/** The chip's horizontal padding — 8dp a side (EpisodeDateChip/EpisodeAudioChip). */
-private val MetaChipHorizontalPadding = 16.dp
-
-/** The chip text style — 10sp SemiBold Roboto (both chip components' own). */
-private val MetaChipTextStyle = TextStyle(
-    fontFamily = RobotoFamily,
-    fontSize = 10.sp,
-    lineHeight = 12.sp,
-    fontWeight = FontWeight.SemiBold,
-)
-
 /**
  * THE META LINE — the date capsule + the type-coded audio capsules in ONE
  * horizontal line that NEVER breaks. Both pages' rows, both grids, and the
@@ -245,6 +246,15 @@ private val MetaChipTextStyle = TextStyle(
  * [audioTags] are the ALREADY-GATED audio tags (the tag model's output —
  * SUB/DUB/HSUB + the other labels). The ladder picks the density under
  * [EpisodeMetaDensity.AUTO] unless the caller pins a tier.
+ *
+ * ROUND 112 (D-731): rendered through a PLAIN custom [Layout] — never a
+ * BoxWithConstraints/other SubcomposeLayout — so intrinsic-measuring
+ * parents (the timeline's height(IntrinsicSize.Min)) get a real answer
+ * instead of a crash, and the ladder's width comparison uses the variants'
+ * MEASURED placeable widths (the chips' true geometry — no estimate
+ * drift). See [metaLineLadderMeasurePolicy] (each variant Row bakes its
+ * own [spacing] in via Arrangement.spacedBy at composition — the policy
+ * itself needs no width math).
  */
 @Composable
 fun EpisodeMetaLine(
@@ -255,54 +265,92 @@ fun EpisodeMetaLine(
     density: EpisodeMetaDensity = EpisodeMetaDensity.AUTO,
 ) {
     val date = dateText?.takeIf { it.isNotBlank() }
+    if (date == null && audioTags.isEmpty()) {
+        // Defense in depth: a caller may weight an EMPTY line (a sibling
+        // must keep its end position) — compose the bare container so the
+        // modifier's obligations survive at zero size.
+        Box(modifier = modifier)
+        return
+    }
 
-    // The weighted container composes EVEN WHEN the line is empty (the
-    // classic row's download-only case: the meta line holds the row's
-    // weight so the control stays at the END — an early return BEFORE the
-    // Box would drop the weight and strand the control at the start).
-    BoxWithConstraints(modifier = modifier) {
-        if (date == null && audioTags.isEmpty()) return@BoxWithConstraints
+    // The ladder's variants, in priority order. Each is ONE measurable to
+    // the layout below; the measure policy keeps the FIRST that fits the
+    // incoming width, and the LAST is the floor (the core facts — they may
+    // clip in an ultra-tight cell, but they NEVER wrap and NEVER drop).
+    val fullLabels = audioTags
+    val initialLabels = audioTags.map { label -> audioInitial(label) ?: label }
+    val coreLabels = audioTags.filter { isCoreAudioToken(it) }
+        .map { label -> audioInitial(label) ?: label }
 
-        val textMeasurer = rememberTextMeasurer()
-        val densityScope = LocalDensity.current
-
-        /** One chip's outer width: text + the 16dp capsule padding. */
-        fun chipWidth(text: String): Dp = with(densityScope) {
-            textMeasurer.measure(text = text, style = MetaChipTextStyle).size.width.toDp() +
-                MetaChipHorizontalPadding
-        }
-
-        /** The whole line's width for a given label list (date + labels + gaps). */
-        fun lineWidth(resolvedDate: String?, labels: List<String>): Dp {
-            val chips = listOfNotNull(resolvedDate) + labels
-            val gaps = spacing * (chips.size - 1).coerceAtLeast(0)
-            return chips.fold(0.dp) { acc, chip -> acc + chipWidth(chip) } + gaps
-        }
-
-        // The ladder: FULL fits → FULL; the initials fit → INITIALS;
-        // otherwise the core facts alone (date + initials, others dropped).
-        val fullLabels = audioTags
-        val initialLabels = audioTags.map { label -> audioInitial(label) ?: label }
-        val coreLabels = audioTags.filter { isCoreAudioToken(it) }
-            .map { label -> audioInitial(label) ?: label }
-
-        val tier = when (density) {
-            EpisodeMetaDensity.FULL -> fullLabels
-            EpisodeMetaDensity.INITIALS -> initialLabels
-            EpisodeMetaDensity.AUTO -> when {
-                lineWidth(date, fullLabels) <= maxWidth -> fullLabels
-                lineWidth(date, initialLabels) <= maxWidth -> initialLabels
-                else -> coreLabels
+    Layout(
+        content = {
+            when (density) {
+                EpisodeMetaDensity.FULL -> MetaLineVariant(date, fullLabels, spacing)
+                EpisodeMetaDensity.INITIALS -> MetaLineVariant(date, initialLabels, spacing)
+                EpisodeMetaDensity.AUTO -> {
+                    MetaLineVariant(date, fullLabels, spacing)
+                    MetaLineVariant(date, initialLabels, spacing)
+                    MetaLineVariant(date, coreLabels, spacing)
+                }
             }
-        }
+        },
+        modifier = modifier,
+        measurePolicy = metaLineLadderMeasurePolicy(),
+    )
+}
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(spacing),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-        ) {
-            date?.let { text -> EpisodeDateChip(text = text) }
-            tier.forEach { label -> EpisodeAudioChip(label = label) }
-        }
+/** One density rung — the chips exactly as that tier renders them. */
+@Composable
+private fun MetaLineVariant(date: String?, labels: List<String>, spacing: Dp) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(spacing),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        date?.let { text -> EpisodeDateChip(text = text) }
+        labels.forEach { label -> EpisodeAudioChip(label = label) }
+    }
+}
+
+/**
+ * ROUND 112 (D-731): the ladder's measure policy. Every variant row is
+ * measured with UNBOUNDED width (its natural content width — the chips'
+ * true rendered widths, letterSpacing and capsule padding included; a
+ * bounded max would coerce an overflowing Row's report and break the
+ * comparison), and
+ * the first whose width fits the incoming maxWidth is the one placed; the
+ * LAST variant is the floor when nothing fits (the core facts stay, the
+ * line clips rather than wraps — by design).
+ *
+ * Being a plain [MeasurePolicy], intrinsic queries are answered by the
+ * interface defaults (the max over the variant rows — the chip height),
+ * which is exactly what the v1.1.68 crash demanded: the old
+ * BoxWithConstraints (a SubcomposeLayout) THREW
+ * "Asking for intrinsic measurements of SubcomposeLayout layouts is not
+ * supported" under the timeline's height(IntrinsicSize.Min) and killed the
+ * details page on entry.
+ */
+private fun metaLineLadderMeasurePolicy() = MeasurePolicy { measurables, constraints ->
+    if (measurables.isEmpty()) return@MeasurePolicy layout(0, 0) {}
+    // UNBOUNDED max width — the variant Rows must report their TRUE
+    // content widths. A finite maxWidth would coerce an overflowing Row's
+    // report back under the limit and the ladder would believe FULL
+    // always fits (the 5-b audit's catch: AUTO would silently equal FULL
+    // and tight lines would clip exactly like v1.1.68 did).
+    val loose = constraints.copy(
+        minWidth = 0,
+        minHeight = 0,
+        maxWidth = Constraints.Infinity,
+    )
+    val variants = measurables.map { it.measure(loose) }
+    val chosen = variants.firstOrNull { it.width <= constraints.maxWidth } ?: variants.last()
+    // Fill the incoming width when it is tight (a Row weight); wrap the
+    // content when it is loose (the grid cells) — the old Box behavior.
+    val width = maxOf(chosen.width, constraints.minWidth).coerceAtMost(constraints.maxWidth)
+    val height = chosen.height
+        .coerceAtLeast(constraints.minHeight)
+        .coerceAtMost(constraints.maxHeight)
+    layout(width, height) {
+        chosen.placeRelative(0, ((height - chosen.height) / 2).coerceAtLeast(0))
     }
 }
 

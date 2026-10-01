@@ -58,11 +58,15 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 //    • the right column (SpaceBetween): the quiet EPISODE NUMBER label
 //      (each page's own — the details' compound-capable EpisodeNumberLabel,
 //      the player's shared EpisodeNumberLabelPlain), the one-line title
-//      plate, and the META LINE ([EpisodeMetaLine] — the date + audio
-//      capsules, ONE line, never a break) with the download CONTROL at
-//      the row's end whenever the synopsis section is not rendered.
-//    • the synopsis section: the quiet plate + the control at its
-//      bottom-right.
+//      plate (ONLY while the synopsis renders below — round 112), and the
+//      META LINE ([EpisodeMetaLine] — the date + audio capsules, ONE line,
+//      never a break) as PURE meta: the download control NEVER joins this
+//      row (the v1.1.68 squeeze clipped the trailing DUB chip).
+//    • the BOTTOM section, always rendered: the SYNOPSIS plate when the
+//      synopsis is on; otherwise the TITLE relocated there (the round-112
+//      arrangement — "instead of the synopsis, it would show the title
+//      there in one single line") — with the download control at its end,
+//      exactly as it is in both cases.
 //    • the full-width 3dp download-progress bar across the card's bottom.
 //    • the watched treatment: the WHOLE card's animated 0.5 fade + the
 //      thumbnail's grayscale (the details' own treatment).
@@ -87,12 +91,16 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
  *   own — the details' compound-capable label, the player's plain one).
  * @param dateText the ALREADY-GATED release date (null = no date chip).
  * @param audioTags the ALREADY-GATED audio tags (the tag model's output).
- * @param synopsis the ALREADY-GATED synopsis (null = the section hidden;
- *   the download control moves to the meta line's end).
+ * @param synopsis the ALREADY-GATED synopsis (null = the TITLE relocates
+ *   to the bottom section's plate, one single line — the round-112
+ *   arrangement; the download control stays at that section's end).
  * @param pillsRowVisible the caller's meta-line row gate (the details'
- *   unit-locked pillsRowVisible algebra; the player's own).
+ *   unit-locked pillsRowVisible algebra; the player's own) — PURE meta:
+ *   date or audio, never the control.
  * @param downloadControl the page's own download control, rendered at the
- *   meta line's end (no synopsis) or the synopsis section's bottom-right.
+ *   BOTTOM section's end — beside the synopsis plate when the synopsis is
+ *   on, beside the relocated title plate when it is off (round 112: never
+ *   in the meta line's row).
  * @param showDownloadControl gates both control placements.
  * @param downloadProgress the 0..1 download fraction (null = no bar).
  * @param dimWatched the ALREADY-FOLDED dim gate (the player folds
@@ -238,25 +246,37 @@ fun EpisodeClassicRow(
                             verticalArrangement = Arrangement.SpaceBetween,
                         ) {
                             numberLabel()
-                            // The title plate — one line, ellipsized.
-                            Surface(
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(
-                                    text = displayTitle,
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = resolvedTitleColor,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                )
+                            // The title plate — one line, ellipsized. It
+                            // lives here ONLY while the synopsis section
+                            // renders below; with the synopsis off, the
+                            // round-112 arrangement relocates it to the
+                            // bottom section (the meta line keeps the
+                            // right column's full width for its chips).
+                            if (synopsis != null) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        text = displayTitle,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = resolvedTitleColor,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    )
+                                }
                             }
-                            // The meta line + (the download control when the
-                            // synopsis section is not rendered).
+                            // The meta line — PURE meta (round 112): the
+                            // download control NEVER joins this row. On
+                            // v1.1.68 the control squeezed the line's width
+                            // budget past the ladder's core floor and the
+                            // trailing DUB chip clipped — the user's report:
+                            // "when I hit the synopsis, then the dub episode
+                            // was not being shown".
                             if (pillsRowVisible) {
                                 Spacer(Modifier.height(6.dp))
                                 Row(
@@ -269,22 +289,23 @@ fun EpisodeClassicRow(
                                         audioTags = audioTags,
                                         modifier = Modifier.weight(1f),
                                     )
-                                    if (showDownloadControl && synopsis == null) {
-                                        downloadControl()
-                                    }
                                 }
                             }
                         }
                     }
 
-                    // ══ BOTTOM: the synopsis section (the control at its
-                    //    bottom-right) ══
-                    if (synopsis != null) {
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.Bottom,
-                        ) {
+                    // ══ BOTTOM: the wide section — ALWAYS rendered (round
+                    //    112): the SYNOPSIS plate when the synopsis is on;
+                    //    otherwise the TITLE relocated here — "instead of
+                    //    the synopsis, it would show the title there in one
+                    //    single line" — with the download control at its
+                    //    end, exactly as it is. ══
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        if (synopsis != null) {
                             Surface(
                                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
                                 shape = RoundedCornerShape(8.dp),
@@ -302,10 +323,29 @@ fun EpisodeClassicRow(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                                 )
                             }
-                            if (showDownloadControl) {
-                                Spacer(Modifier.width(8.dp))
-                                downloadControl()
+                        } else {
+                            // The relocated title plate — the SAME plate
+                            // styling as the right column's, one single line.
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(
+                                    text = displayTitle,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = resolvedTitleColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
                             }
+                        }
+                        if (showDownloadControl) {
+                            Spacer(Modifier.width(8.dp))
+                            downloadControl()
                         }
                     }
                 }

@@ -10,7 +10,8 @@ import org.junit.Test
  * D-554/D-555 — pure-JVM locks for the episode-list appearance algebra:
  * the lenient style-key seeding (now with the legacy-key migration), the
  * display-style defaults, the (style × content) pills-row visibility
- * function (the CLASSIC-path algebra), and the D-555 layout helpers (the
+ * function (the CLASSIC-path algebra — PURE meta since round 112), and
+ * the D-555 layout helpers (the
  * TIMELINE node label, the CINEMA ghost number, the short date). Extracted
  * from EpisodeRow.kt + EpisodeLayouts.kt so the gates lock WITHOUT Compose
  * (the D-552 sandbox-test pattern — CI runs assembleDebug only, so these
@@ -75,58 +76,52 @@ class EpisodeListStyleTest {
         rowStyle: EpisodeListRowStyle = EpisodeListRowStyle.CLASSIC,
         date: Boolean = true,
         audio: Boolean = true,
-        download: Boolean = true,
     ) = EpisodeListDisplayStyle(
         rowStyle = rowStyle,
         showDatePill = date,
         showAudioPills = audio,
-        showDownloadControl = download,
     )
 
     @Test
     fun `classic row with all content shows the pills row`() {
-        assertTrue(pillsRowVisible(style(), hasDate = true, hasAudio = true, showsSynopsis = false))
+        assertTrue(pillsRowVisible(style(), hasDate = true, hasAudio = true))
     }
 
     @Test
-    fun `pills row renders when ANY resident survives the gates`() {
-        // Date alone, audio alone, or the relocated download control alone.
-        assertTrue(pillsRowVisible(style(audio = false), hasDate = true, hasAudio = false, showsSynopsis = false))
-        assertTrue(pillsRowVisible(style(date = false), hasDate = false, hasAudio = true, showsSynopsis = false))
-        assertTrue(pillsRowVisible(style(date = false, audio = false), hasDate = false, hasAudio = false, showsSynopsis = false))
+    fun `pills row renders when either meta resident survives the gates`() {
+        // Date alone or audio alone (round 112: the row is PURE meta).
+        assertTrue(pillsRowVisible(style(audio = false), hasDate = true, hasAudio = false))
+        assertTrue(pillsRowVisible(style(date = false), hasDate = false, hasAudio = true))
     }
 
     @Test
-    fun `pills row hides when every resident is gated off`() {
-        // No date, no audio, no download control.
-        assertFalse(pillsRowVisible(style(date = false, audio = false, download = false), hasDate = false, hasAudio = false, showsSynopsis = false))
+    fun `pills row hides when both meta residents are gated off`() {
+        // No date and no audio — even with the download control ON: the
+        // control lives in the BOTTOM section beside the title/synopsis
+        // now (round 112), never in the pills row.
+        assertFalse(pillsRowVisible(style(date = false, audio = false), hasDate = false, hasAudio = false))
     }
 
     @Test
     fun `date pill respects the user toggle`() {
-        // The download control is OFF so the date-pill gate is isolated.
-        assertFalse(pillsRowVisible(style(date = false, audio = false, download = false), hasDate = true, hasAudio = false, showsSynopsis = false))
+        // Audio is OFF so the date-pill gate is isolated.
+        assertFalse(pillsRowVisible(style(date = false, audio = false), hasDate = true, hasAudio = false))
     }
 
     @Test
-    fun `download control relocates to the pills row only when synopsis is absent`() {
-        // Synopsis rendered → the download button lives in the synopsis
-        // section → the pills row must NOT also render one.
-        assertFalse(
-            pillsRowVisible(
-                style(date = false, audio = false),
-                hasDate = false, hasAudio = false, showsSynopsis = true,
-            ),
+    fun `the pills row is pure meta — the download control never joins it`() {
+        // ROUND 112 (D-731): with the synopsis off, the TITLE relocates to
+        // the bottom section and the control stays at that section's end —
+        // the meta line never shares its row with the control (the
+        // v1.1.68 squeeze that clipped the trailing DUB chip is
+        // structurally impossible now). The gate carries no synopsis or
+        // download term at all.
+        val gated = EpisodeListDisplayStyle(
+            showDatePill = false,
+            showAudioPills = false,
+            showDownloadControl = true,
         )
-        // Synopsis gated off (user toggle) → the control moves up — exactly
-        // the original description.isNullOrBlank() behavior, now driven by
-        // the computed flag.
-        assertTrue(
-            pillsRowVisible(
-                style(date = false, audio = false),
-                hasDate = false, hasAudio = false, showsSynopsis = false,
-            ),
-        )
+        assertFalse(pillsRowVisible(gated, hasDate = false, hasAudio = false))
     }
 
     // ── D-555: the GRID/TIMELINE/CINEMA helpers ──

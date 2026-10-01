@@ -165,11 +165,13 @@ data class EpisodeListDisplayStyle(
  * D-554: the pure (style × content) algebra behind the date/audio pills row's
  * visibility — extracted so the unit test locks it without Compose.
  *
- * The row renders when ANY of its three residents survives the gates: the
- * date pill, the audio pills, or the download control (which moves here
- * whenever the synopsis section is NOT rendered — including when the user
- * toggled the synopsis off or the style omits it, matching the original
- * description.isNullOrBlank() behavior).
+ * ROUND 112 (D-731): the row is PURE META now — it renders when the date
+ * pill or the audio pills survive their gates, and NOTHING else. The
+ * download control's old third residency is RETIRED: with the synopsis
+ * off, the TITLE relocates to the bottom section and the control stays at
+ * that section's end (the user's arrangement), so the meta line never
+ * shares its row with the control — the v1.1.68 squeeze that clipped the
+ * trailing DUB chip is structurally impossible now.
  *
  * D-555: this is the CLASSIC-path algebra only (GRID/TIMELINE/CINEMA draw
  * their own chips inline); the old MINIMAL style-level date gate died with
@@ -179,11 +181,10 @@ fun pillsRowVisible(
     style: EpisodeListDisplayStyle,
     hasDate: Boolean,
     hasAudio: Boolean,
-    showsSynopsis: Boolean,
 ): Boolean {
     val showDate = style.showDatePill && hasDate
     val showAudio = style.showAudioPills && hasAudio
-    return showDate || showAudio || (style.showDownloadControl && !showsSynopsis)
+    return showDate || showAudio
 }
 
 /**
@@ -524,7 +525,6 @@ fun EpisodeRow(
                 style = style,
                 hasDate = dateText != null,
                 hasAudio = audioLabels.isNotEmpty(),
-                showsSynopsis = showSynopsisSection,
             ),
             showWatchProgress = style.showWatchProgress,
             progressFraction = progressFraction,
