@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,17 +56,10 @@ import com.confused.anikuta.settings.search.SettingsHighlightTarget
  * screens carry the single 8dp gutter (the D-525 rule). The card label IS
  * the section's heading (the round-105 player-screen fix, now both
  * screens' rule — no duplicated inner headings).
- *
- * ROUND 111 (D-729): [onLabelClick] — the v1.1.67 device round's testing
- * aid: "when I click on the Elements heading at the top, the text at the
- * top, what it will do is that it will switch the grid layout to Three
- * buttons per row." A quiet ripple is the only affordance (the heading
- * stays visually identical — the user knows what it does).
  */
 @Composable
 internal fun EpisodeSettingsCard(
     label: String,
-    onLabelClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
@@ -75,17 +69,7 @@ internal fun EpisodeSettingsCard(
             color = MaterialTheme.colorScheme.primary,
             fontSize = 14.sp,
             fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier
-                .padding(start = 8.dp, bottom = 8.dp)
-                .let { base ->
-                    if (onLabelClick != null) {
-                        base
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable(onClick = onLabelClick)
-                    } else {
-                        base
-                    }
-                },
+            modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
         )
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -229,14 +213,25 @@ internal fun Caption(
 //  like how the buttons for the layout are, like each individual button
 //  for the layout, the currently selected one … apparently you gave them
 //  rounded corner, pill-shaped button-like feel, which is not good." The
-//  grid now wears the LAYOUT SELECTOR'S OWN anatomy (SegmentedToggle.kt):
+//  grid wears the LAYOUT SELECTOR'S OWN anatomy (SegmentedToggle.kt):
 //  ONE shared surfaceVariant container (12dp-rounded, the 4dp inner
 //  padding), the elements as 8dp-ROUNDED SEGMENTS — the ON state is the
 //  SOLID primary fill with onPrimary ExtraBold (the selected segment's
 //  exact look), the OFF state is TRANSPARENT over the container's tint
-//  with onSurfaceVariant Medium (the unselected segment's exact look),
-//  and the segment-height is the selector's own compact 8dp-vertical
-//  padding — no more fat 48dp pills reading "in a list format".
+//  with onSurfaceVariant Medium (the unselected segment's exact look).
+//
+//  ROUND 114 (D-737): THE HONEST GRID — the v1.1.70 verdict: (1) the
+//  details page's grid rendered as a LIST with half its buttons INVISIBLE
+//  — the RowScope weight rode the segment INSIDE the search-anchor
+//  wrapper, whose own Box was the Row's real child, so the weight never
+//  applied and each anchored segment filled the whole row (its sibling
+//  collapsed to zero). The weight now lands on the Row's DIRECT child —
+//  the anchor wrapper carries it, the segment fills it. (2) The D-729
+//  heading-tap column flip is RETIRED ("the values change too alongside
+//  with it, which is not a good experience") — the grid is a FIXED two
+//  buttons per row. (3) The segments carry a proper button height (44dp
+//  minimum — "they look way too much thin, both on the details page one
+//  and the player page one").
 // ════════════════════════════════════════════════════════════════════════
 
 /** One element's on/off state — a grid button's model. */
@@ -248,20 +243,25 @@ internal data class ElementToggleEntry(
     val anchorId: String? = null,
 )
 
+/** The grid's fixed column count — the D-737 verdict: two per row, always. */
+private const val ELEMENTS_PER_ROW = 2
+
 /**
  * THE ELEMENTS' GRID — [entries] as equal-width toggle SEGMENTS inside the
  * layout selector's own shared container (ROUND 113, D-733: the
  * SegmentedToggle anatomy — surfaceVariant@0.5, 12dp corners, the 4dp inner
- * padding, the 4dp inter-segment gaps). [columns] per row (2 by default;
- * the heading tap flips the testing aid to 3). The container reflows
- * smoothly (animateContentSize); each segment's state change crossfades its
- * colors. Short rows are padded with spacers so the segments keep the
- * grid's equal widths.
+ * padding, the 4dp inter-segment gaps). ROUND 114 (D-737): a FIXED two
+ * buttons per row — the D-729 heading-tap flip is retired (the v1.1.70
+ * verdict: the shifting counts and re-pairing read as broken, not as a
+ * testing aid) — and every segment is a proper 44dp-tall button (the
+ * "way too much thin" verdict). The container reflows smoothly
+ * (animateContentSize) for the style-gated entries; each segment's state
+ * change crossfades its colors. Short rows are padded with spacers so the
+ * segments keep the grid's equal widths.
  */
 @Composable
 internal fun ElementToggleGrid(
     entries: List<ElementToggleEntry>,
-    columns: Int,
     highlightAnchor: String? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -279,7 +279,7 @@ internal fun ElementToggleGrid(
                 .animateContentSize(animationSpec = tween(260, easing = FastOutSlowInEasing)),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            entries.chunked(columns.coerceAtLeast(1)).forEach { rowEntries ->
+            entries.chunked(ELEMENTS_PER_ROW).forEach { rowEntries ->
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     rowEntries.forEach { entry ->
                         ElementToggleButton(
@@ -288,7 +288,7 @@ internal fun ElementToggleGrid(
                             modifier = Modifier.weight(1f),
                         )
                     }
-                    repeat(columns.coerceAtLeast(1) - rowEntries.size) {
+                    repeat(ELEMENTS_PER_ROW - rowEntries.size) {
                         Spacer(Modifier.weight(1f))
                     }
                 }
@@ -298,22 +298,46 @@ internal fun ElementToggleGrid(
 }
 
 /**
- * ONE element segment — ROUND 113 (D-733), the v1.1.69 verdict: "the way I
- * wanted the elements to look like were just like how the buttons for the
- * layout are, like each individual button for the layout, the currently
- * selected one." The button IS a layout-selector segment now — the exact
- * SegmentToggle construct: a Box clipped to 8dp corners over the shared
- * container, ON = the SOLID primary fill + onPrimary ExtraBold (the
- * selected segment), OFF = TRANSPARENT (the container's tint shows through)
- * + onSurfaceVariant Medium, the selector's own compact 8dp vertical
- * padding, and the 220ms color crossfade. The round-112 pill
- * (RoundedCornerShape(50), the translucent tints, the M3 clickable
- * Surface's inflated touch minimum) is RETIRED.
+ * ONE element button — the WEIGHT HAND-OFF (ROUND 114, D-737): [modifier]
+ * carries the RowScope weight and MUST land on the Row's DIRECT child.
+ * When the button carries a search anchor, the anchor wrapper becomes that
+ * child — the wrapper takes the weight, the segment fills it. The round-113
+ * form applied the weighted modifier INSIDE the wrapper, where the Row
+ * never saw it: every anchored button went full-width and its row sibling
+ * collapsed to zero (the details page's "list format", half the entries
+ * invisible). The player page's un-anchored buttons always gridded
+ * correctly — the anchor wrapper is the only difference.
  */
 @Composable
 private fun ElementToggleButton(
     entry: ElementToggleEntry,
     activeAnchor: String?,
+    modifier: Modifier = Modifier,
+) {
+    if (entry.anchorId != null) {
+        SettingsHighlightTarget(
+            anchorId = entry.anchorId,
+            activeAnchor = activeAnchor,
+            modifier = modifier,
+        ) {
+            ElementSegment(entry = entry, modifier = Modifier.fillMaxWidth())
+        }
+    } else {
+        ElementSegment(entry = entry, modifier = modifier)
+    }
+}
+
+/**
+ * The segment's visuals — the D-733 anatomy (a Box clipped to 8dp corners,
+ * ON = the SOLID primary fill + onPrimary ExtraBold, OFF = TRANSPARENT over
+ * the container's tint + onSurfaceVariant Medium, the 220ms color
+ * crossfade) at the D-737 height: a 44dp-minimum button (the selector's own
+ * compact segments read "way too much thin" once they stood alone as grid
+ * buttons — the v1.1.70 verdict).
+ */
+@Composable
+private fun ElementSegment(
+    entry: ElementToggleEntry,
     modifier: Modifier = Modifier,
 ) {
     val checked = entry.checked
@@ -335,33 +359,23 @@ private fun ElementToggleButton(
         animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "element_content",
     )
-    val button: @Composable () -> Unit = {
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(container)
-                .clickable { entry.onToggle() },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = entry.title,
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                lineHeight = 16.sp,
-                fontWeight = if (checked) FontWeight.ExtraBold else FontWeight.Medium,
-                color = content,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
-        }
-    }
-    if (entry.anchorId != null) {
-        SettingsHighlightTarget(anchorId = entry.anchorId, activeAnchor = activeAnchor) {
-            button()
-        }
-    } else {
-        button()
+    Box(
+        modifier = modifier
+            .heightIn(min = 44.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(container)
+            .clickable { entry.onToggle() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = entry.title,
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            lineHeight = 16.sp,
+            fontWeight = if (checked) FontWeight.ExtraBold else FontWeight.Medium,
+            color = content,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

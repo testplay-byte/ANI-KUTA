@@ -27,7 +27,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -186,14 +185,6 @@ fun EpisodeListSettingsScreen(
     contentRepository: ContentRepository = koinInject(),
     dataCacheRepository: DataCacheRepository = koinInject(),
 ) {
-    // ── ROUND 111 (D-729): the Elements grid's per-row button count — the
-    //    heading-tap testing aid ("when I click on the Elements heading …
-    //    it will switch the grid layout to Three buttons per row. So make
-    //    sure to give this functionality so I can test out how the things
-    //    will overall look like"). Session-local (survives rotation, never
-    //    a pref — an experiment knob, not a setting). ──
-    var elementsThreePerRow by rememberSaveable { mutableStateOf(false) }
-
     // ── The reactive reads — the SAME prefs the details screen collects.
     // Every write below updates the pref; `changes` re-emits; the preview
     // AND the details list re-shape from the same emission (no local
@@ -656,18 +647,18 @@ fun EpisodeListSettingsScreen(
                     // ── the elements — ROUND 111 (D-729): THE GRID OF
                     //    BUTTONS ("a grid layout of buttons which I can click
                     //    and turn to toggle them on or to toggle them off …
-                    //    two options per row"), NO descriptions, the
-                    //    card-heading tap flipping 2 ↔ 3 buttons per row (the
-                    //    user's testing aid for the layout experiment), and
-                    //    the search anchors riding the buttons themselves.
+                    //    two options per row"), NO descriptions, and the
+                    //    search anchors riding the buttons themselves.
                     //    ROUND 113 (D-733): the buttons wear the LAYOUT
                     //    SELECTOR'S OWN segment anatomy; the GRID's watched
                     //    checkmark joins the style-filtered entries (D-736,
-                    //    the parity order). ──
+                    //    the parity order). ROUND 114 (D-737): the heading-tap
+                    //    column flip is RETIRED — the grid is a fixed two per
+                    //    row, and the weight now rides the Row's direct child
+                    //    (the anchor wrapper), so every button grids. ──
                     item {
                         EpisodeSettingsCard(
                             label = "Elements",
-                            onLabelClick = { elementsThreePerRow = !elementsThreePerRow },
                         ) {
                             ElementToggleGrid(
                                 entries = listOf(
@@ -720,7 +711,6 @@ fun EpisodeListSettingsScreen(
                                         anchorId = "el_download",
                                     ),
                                 ).filterNotNull(),
-                                columns = if (elementsThreePerRow) 3 else 2,
                                 highlightAnchor = highlightAnchor,
                             )
                         }

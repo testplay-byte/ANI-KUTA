@@ -28,7 +28,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -128,13 +127,6 @@ fun PlayerEpisodeListSettingsScreen(
         initial = playerListPrefs.rowStyle.get(),
     )
     val style = remember(rowStyleKey) { PlayerEpisodeListStyle.fromKey(rowStyleKey) }
-    // ── ROUND 111 (D-729): the Elements grid's per-row button count — the
-    //    heading-tap testing aid ("when I click on the Elements heading …
-    //    it will switch the grid layout to Three buttons per row. So make
-    //    sure to give this functionality so I can test out how the things
-    //    will overall look like"). Session-local (survives rotation, never
-    //    a pref — an experiment knob, not a setting). ──
-    var elementsThreePerRow by rememberSaveable { mutableStateOf(false) }
     val showSynopsis by playerListPrefs.showSynopsis.changes.collectAsState(
         initial = playerListPrefs.showSynopsis.get(),
     )
@@ -560,30 +552,31 @@ fun PlayerEpisodeListSettingsScreen(
                     //    lists layouts both should almost have similar
                     //    customizability"). The card stays STYLE-AWARE (its
                     //    entries filter to what the selected layout can
-                    //    draw — the ROUND 105 doctrine) and the heading tap
-                    //    keeps the 2 ↔ 3 testing aid (ROUND 111, D-729). ──
+                    //    draw — the ROUND 105 doctrine). ROUND 114 (D-737):
+                    //    the ROUND 111 heading-tap column flip is RETIRED —
+                    //    the grid is a fixed two per row, and the segments
+                    //    carry a proper 44dp button height. ──
                     item {
                         SettingsHighlightTarget(anchorId = "player_elements", activeAnchor = highlightAnchor) {
                         EpisodeSettingsCard(
                             label = "Elements",
-                            onLabelClick = { elementsThreePerRow = !elementsThreePerRow },
                         ) {
                                 // ── ROUND 111 (D-729): THE GRID OF BUTTONS —
                                 //    the on/off elements as 2-per-row toggle
                                 //    buttons ("a grid layout of buttons which
                                 //    I can click and turn to toggle them on or
                                 //    to toggle them off … two options per
-                                //    row"), NO descriptions, and the card-heading
-                                //    tap flipping 2 ↔ 3 per row (the testing
-                                //    aid). Style-filtered exactly as the old
-                                //    rows were; the element titles match the
-                                //    details page's own ("the similar
-                                //    naming, so that it's easier for us").
-                                //    ROUND 113 (D-733): the buttons wear the
-                                //    LAYOUT SELECTOR'S OWN segment anatomy;
+                                //    row"), NO descriptions. Style-filtered
+                                //    exactly as the old rows were; the element
+                                //    titles match the details page's own ("the
+                                //    similar naming, so that it's easier for
+                                //    us"). ROUND 113 (D-733): the buttons wear
+                                //    the LAYOUT SELECTOR'S OWN segment anatomy;
                                 //    the multi-state knobs are NOT on/off
                                 //    toggles — they live in the dedicated
-                                //    Grid / Banner cards now. —–
+                                //    Grid / Banner cards now. ROUND 114
+                                //    (D-737): fixed two per row — the heading-tap
+                                //    flip is retired. —–
                                 ElementToggleGrid(
                                     entries = buildList {
                                         if (style == PlayerEpisodeListStyle.CLASSIC ||
@@ -653,7 +646,6 @@ fun PlayerEpisodeListSettingsScreen(
                                             ),
                                         )
                                     },
-                                    columns = if (elementsThreePerRow) 3 else 2,
                                 )
                         }
                         }
