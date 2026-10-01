@@ -171,4 +171,16 @@ The round shipped THREE findings, one of them a **hard crash**:
 
 ## 7. Release record
 
-- (to be filled after the release)
+- **`release/1.1.69` cut from the green mainline head `240be10`** (the
+  ledger commit; the implementation `608861a1`'s Build APK run 36901785174
+  GREEN FIRST-TRY). The bump `461ba38` rides the branch per D-430:
+  10120 → **10169**, 1.1.20 → **1.1.69** (the D-430 comment block in
+  AndroidConfig.kt). No Build APK run on the branch — BY DESIGN (D-472).
+- **The annotated tag `v1.1.69`** pushed on the release branch — the FULL
+  user-facing bullet body per D-466 (the three round-112 bullets).
+- **Release APK run 36902691070 GREEN FIRST-TRY** (~4 min).
+- **v1.1.69 / 10169 is LIVE**: published 2026-10-01T17:57:00Z —
+  `ani-kuta-v1.1.69-debug-arm64-v8a.apk` (60.6 MB) + `SHA256SUMS.txt`,
+  stable latest, verified via the API.
+- The mainline twin (this commit) mirrors the record; the mainline
+  version stays 1.1.20/10120 (D-430 — do NOT "fix" this).
