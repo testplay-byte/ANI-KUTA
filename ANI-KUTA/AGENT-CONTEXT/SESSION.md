@@ -1,7 +1,7 @@
 # SESSION — Read This At The Start Of Every Session
 
 > A 60-second orientation. Read this FIRST, every time, before any work.
-> Refreshed in **Round 111 (2026-10-01)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
+> Refreshed in **Round 114 (2026-10-02)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
 
 ---
 
@@ -12,12 +12,12 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 
 ---
 
-## 📍 Current State (refreshed Round 113, 2026-10-01)
+## 📍 Current State (refreshed Round 114, 2026-10-02)
 
 - **Mainline branch:** `feature/round-57-cloudstream-downloads` — this IS the default branch. `main` was DELETED (D-552 — it had 0 unique commits). Other live branches: `release/1.1.3` (the professional release branch), `feature/test-controller-v5` (dormant, kept by user order).
-- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.63 / 10163** (round 106; the round-107 release v1.1.64 ships this session). **THE ROUND-107 SET (D-712):** the DETAILED layout's robust rules — the LINE-BREAKING RULES (DETAILED + GRID titles wrap to two lines; TRACKLIST one line; BANNER name one line; synopses two lines; pills wrap; NUMBERS NEVER BREAK — the fallback tile GROWS instead of wrapping mid-number) + the TAG MODEL (ONE `buildRowTags` builder: ci-deduped, normalized to the canonical SUB/DUB/HSUB vocabulary with the MPV parse's exact token semantics, ordered date → SUB → DUB → HSUB → others, never clipped — the CS "Sub"+"SUB" duplication is dead) + the cleanup (the dead Row wrapper, the slimmer EP tag + Pill, the inert SpaceBetween).
-- **Latest records:** Round 113 implemented (doc **95**, D-733..D-736 — the elements' segment anatomy (the layout selector's OWN look: the shared container, 8dp segments, ON = solid primary), the synopsis-off right side (everything beside the thumbnail, no bottom section, the control at the title line's end), the transfer's both channels (the CS rows union the serialized scanlator with the row's own pre-strip name tag; the serialization newline-flattened + the name-tag fallback), and the parity pass (the player's dedicated Grid/Banner cards + the details GRID's decoupled watched-checkmark); the audits converged on the stale search-landing anchor maps — repaired pre-push). Latest debug release: **v1.1.70 / 10170** (round 113 — LIVE 2026-10-01T19:34:35Z, stable latest; Build APK run 2 GREEN after the D-498 receiver repair, Release APK GREEN FIRST-TRY; the audits converged on the stale search-anchor maps — repaired pre-push). `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **96**; the next decision is **D-737**.
-- **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases. **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
+- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.71 / 10171** (round 114). Latest **professional** release: **v1.1.14 / 10114** (round 114 — the user's explicit version, the first professional release since v1.1.3; re-hosted to Confused-Creature-180/ANI-KUTA with the release-agent PAT the user provided, breaking the round-39/76 blocker). **THE ROUND-114 SET (D-737):** the Elements' honest grid — the RowScope weight rides the Row's DIRECT child (the anchor wrapper carries it, the segment fills it; the details page's list-format bug with half the buttons invisible is dead), the D-729 heading-tap column flip RETIRED (fixed two per row), the segments' proper 44dp height. THE LESSON: a weight modifier passed INTO a wrapper composable is dead parent data — wrappers must take it on their root (the compile audit's new standing check).
+- **Latest records:** Round 114 implemented (doc **96**, D-737; sub-agents 2-a 8/8 + 2-b 7/7 PASS; Build APK run 36925093812 GREEN FIRST-TRY). `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **97**; the next decision is **D-738**.
+- **THE CURRENT PHASE (D-565) — DEBUG-FIRST, professional line RESUMED by explicit order:** per-round DEBUG releases continue on the mainline loop; professional releases happen ONLY on the user's explicit order (D-425 version discipline unchanged — no bumps without the user's order). The official re-host routine: assets only (Ani-Kuta-<abi>.apk/.zip + SHA256SUMS), NEVER code, to Confused-Creature-180/ANI-KUTA + the website fallback refresh (the release PAT lives with the user — re-ask if the sandbox resets).
 - **The per-round loop is unchanged:** device feedback → implement on the mainline → CI green (≤2 runs/cycle, disclosed ledger, D-472) → `release/1.1.3N` cut from the green head → the bump rides that branch → tag `v1.1.3N` → the debug release publishes → LIVE-mirror docs → ntfy → the user's device round.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` pushes build NOTHING.
 - **THIS SESSION'S NOTIFICATION:** the user's standing per-task override continues — ntfy topic **TASK808DONE** for the round-106 completion (§11's THE-TASK-IS-DONE resumes when the user says so).
@@ -26,7 +26,7 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 1. Clone `https://github.com/testplay-byte/ANI-KUTA.git` (public — read needs no token). **PUSH** uses the credential helper that reads the PAT from `/home/z/.secrets/github-credentials` (repo-external, git-credential FORMAT — for raw API calls extract the `password=` line; NEVER commit it, NEVER paste it). If the sandbox lost the file, ask the user.
 2. Checkout the mainline `feature/round-57-cloudstream-downloads` (the default branch).
 3. Read `AGENT-CONTEXT/memory/progress.md` — the TOP **CURRENT STATUS** block first, then the newest `## Round NN` sections at the BOTTOM (the file grows downward; the middle "Historical session" paragraphs are old).
-4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-711** (round 106).
+4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-737** (round 114).
 5. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task type.
 6. Read `AGENT-CONTEXT/knowledge/` files on demand (architecture, module-map, tech-stack, ui-customization, emulator-testing…).
 
