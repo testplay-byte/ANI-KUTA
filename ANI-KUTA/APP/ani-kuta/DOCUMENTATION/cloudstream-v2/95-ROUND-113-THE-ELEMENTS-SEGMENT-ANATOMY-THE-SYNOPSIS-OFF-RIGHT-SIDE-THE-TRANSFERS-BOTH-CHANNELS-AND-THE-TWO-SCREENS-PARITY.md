@@ -175,4 +175,18 @@ stale comments — refreshed).
 
 ## 7. The release record
 
-(to be filled at the release)
+- **release/1.1.70** cut from the ledger head `2363f65`; the bump `7491b8c`
+  rides the branch per D-430 (10120→10170, 1.1.20→1.1.70, the comment
+  block carrying the round-113 set + the CI history). The annotated tag
+  **v1.1.70** (the full user-facing bullet body per D-466) → **Release APK
+  run 36914768297 GREEN** (~3.5 min).
+- **v1.1.70 / 10170 LIVE 2026-10-01T19:34:35Z** —
+  `ani-kuta-v1.1.70-debug-arm64-v8a.apk` (63,542,097 bytes ≈ 60.6 MB) +
+  `SHA256SUMS.txt`, stable latest, verified via the API (the releases list
+  reads v1.1.70 → v1.1.69 → v1.1.68). No Build APK on the release branch
+  (D-472 by design); the docs pushes triggered nothing (paths-ignore
+  verified — the ledger commit's push produced no run).
+- **Commit chain:** `b8055b2` (impl, CI run 1 FAILED — the D-498 receiver)
+  → `f3e9a67` (the repair, CI run 2 GREEN) → `2363f65` (the ledger) →
+  `7491b8c` (the release bump, on release/1.1.70) → tag **v1.1.70**
+  (Release GREEN) → the mainline twin (this commit).
