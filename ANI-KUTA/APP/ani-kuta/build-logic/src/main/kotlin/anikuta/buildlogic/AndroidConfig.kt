@@ -544,8 +544,29 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── D-430: the release-branch bump (round 111 — v1.1.68) ──────────────
+    // Cut from the green mainline head 41ce50a2 (the ledger commit; the
+    // repair bc40bb38's Build APK run 36872072375 GREEN — run 2 of 2, the
+    // run-1 pruned-import pair disclosed in doc 93 §4). Carries on top of
+    // v1.1.67 THE ROUND-111 SET (D-726..D-729, doc 93): THE META LINE'S ONE
+    // RULE (the release date + the SUB/DUB availability on ONE line that
+    // never breaks, on both pages' classic rows, both grids, and the
+    // timeline; when the space runs out the audio tokens collapse to their
+    // S/D/H initials on their own — the automatic density ladder, with the
+    // future-customization hook designed in) + THE CLASSIC ROW'S ONE TRUTH
+    // (the NEW shared EpisodeClassicRow — the details page's Classic
+    // anatomy verbatim on the player page too; the EP-tag overlay, the
+    // number-box fallback, the 2dp underline, the 0.4-alpha surface and the
+    // static 0.55 dim retired; the style RENAMED DETAILED → CLASSIC on both
+    // pages, migration-free via the lenient fromKey) + THE TRACKLIST'S
+    // HONEST END (the currently-playing row's redundant play glyph deleted
+    // — the primary border + tinted surface carry it) + THE ELEMENTS' GRID
+    // OF BUTTONS (both Elements cards' on/off toggles as equal-width
+    // animated buttons, 2 per row, no descriptions; tapping the "Elements"
+    // heading flips the grid 2 ↔ 3 per row — the session-local testing
+    // aid).
+    const val versionCode = 10168
+    const val versionName = "1.1.68"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
