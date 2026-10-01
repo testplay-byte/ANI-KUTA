@@ -1264,9 +1264,9 @@ private fun PlayerEpisodeGridCell(
     //    image plate carries ONLY the over-image treatments (the current
     //    disc/tint + ring, the watched check, the download badge, the
     //    progress bar), and the TEXT lives BELOW in its own block — the
-    //    themed "EP N" + the title on one line, then the chips in a
-    //    WRAPPING FlowRow so EVERY tag shows ("all the tags are considered
-    //    properly and handled properly"). ──
+    //    themed "EP N" + the title on one line, then the single-line meta
+    //    (D-726 — the S/D ladder keeps every core tag visible without a
+    //    wrap). ──
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -1444,8 +1444,8 @@ private fun PlayerEpisodeGridCell(
         //    today's anatomy (the themed "EP N" line always present, the
         //    gated mode-aware title under it), BESIDE_DETAILS rides the
         //    number label ON the title's line (the compact arrangement the
-        //    pre-108 player grid carried). The chips follow in their own
-        //    wrapping FlowRow either way. ──
+        //    pre-108 player grid carried). The single-line meta (D-726)
+        //    follows below either way — one line, never a break. ──
         val titleLine = if (display.gridTitleMode ==
             com.confused.anikuta.core.common.GridTitleMode.OFF
         ) {

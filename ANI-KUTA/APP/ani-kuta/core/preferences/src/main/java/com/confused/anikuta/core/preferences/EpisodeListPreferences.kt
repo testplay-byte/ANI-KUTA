@@ -206,31 +206,32 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
 
     /**
      * D-554: the row layout style. Rendered by the (shared) episode row —
-     * the SAME renderer the Appearance → "Episode list" settings page's live
-     * preview uses (the D-481 doctrine: what you tune is exactly what you
-     * get).
+     *     the SAME renderer the Appearance → "Episode list" settings page's live
+     *     preview uses (the D-481 doctrine: what you tune is exactly what you
+     *     get).
      *
-     * - `"DETAILED"` (default = the look that has always been): 120×68dp
-     *     thumbnail (when available), the date/audio pills, the up-to-2-line
-     *     synopsis, the download control.
-     * - `"COMPACT"`: a smaller 84×48dp thumbnail; the synopsis NEVER renders
-     *     (that is the style's point); pills + download control stay.
-     * - `"MINIMAL"`: no thumbnail at all (the number-disc path), no date
-     *     pill, no synopsis — number + title + audio pills + download.
+     * - `"CLASSIC"` (default = the look that has always been; the round-111
+     *     rename of the old "DETAILED" key — the stored legacy value parses
+     *     to CLASSIC, migration-free): the shared EpisodeClassicRow — 120×68dp
+     *     thumbnail (when available), the single-line meta (D-726), the
+     *     optional synopsis plate, the download control.
+     * - `"GRID"`: the two-column poster wall.
+     * - `"TIMELINE"`: the schedule spine.
+     * - `"CINEMA"`: the full-bleed banner card.
      *
      * Element toggles below are honored WITHIN the style's frame (a style
      * that never renders a section cannot be talked into rendering it).
      */
     val rowStyle = store.preference(
-        KEY_ROW_STYLE, "DETAILED", StringSerializer,
+        KEY_ROW_STYLE, "CLASSIC", StringSerializer,
     )
 
-    /** D-554: show the two-line synopsis under the title row (DETAILED only). */
+    /** D-554: show the synopsis plate under the title row (CLASSIC only). */
     val showSynopsis = store.preference(
         KEY_SHOW_SYNOPSIS, true, BooleanSerializer,
     )
 
-    /** D-554: show the release-date pill (DETAILED + COMPACT). */
+    /** D-554: show the release date — CLASSIC's meta line, GRID's chip, TIMELINE's node, CINEMA's joined pill. */
     val showDatePill = store.preference(
         KEY_SHOW_DATE_PILL, true, BooleanSerializer,
     )

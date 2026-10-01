@@ -5,7 +5,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -581,7 +580,7 @@ internal fun EpisodeDownloadBadge(
  * Long-press toggles the watched state — a half-width cell cannot host the
  * horizontal swipe (the other three layouts keep it).
  */
-@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun EpisodeGridCell(
     episode: SEpisode,
@@ -711,10 +710,11 @@ internal fun EpisodeGridCell(
         //    knob) and GATED to a real English-readable title
         //    (gridShowableTitle: the "Episode N" placeholder, hashes and
         //    Japanese-only names render NO line — the number label above
-        //    already speaks); the chips WRAP now (the player grid's
-        //    round-106 "tags are data, never clipped" contract, unified —
-        //    the old single-line horizontalScroll hid every chip past the
-        //    cell's width). ROUND 110 (D-723): the number-position knob —
+        //    already speaks); the chips render on ONE line (ROUND 111,
+        //    D-726 — the meta line's S/D ladder keeps the core tags visible
+        //    without ever breaking the line; the round-106 "tags are data,
+        //    never clipped" contract now lives in the ladder's CORE-ONLY
+        //    floor). ROUND 110 (D-723): the number-position knob —
         //    UNDER_THUMB keeps today's anatomy, BESIDE_DETAILS rides the
         //    number label on the title's line; both arrangements render
         //    through the shared per-side composables below (mirrored by the

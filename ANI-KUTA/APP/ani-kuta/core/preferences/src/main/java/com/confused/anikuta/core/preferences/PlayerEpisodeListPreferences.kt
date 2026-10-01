@@ -43,10 +43,11 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
      * live preview call — the D-481 one-source-of-truth):
      *
      * - `"CLASSIC"` (default; the round-111 rename of DETAILED — the details
-     *   page's own Classic row, shared):
-     *     thumbnail + EP tag + title + date/audio pills + synopsis — the
-     *     ONLY style that keeps the EP tag on the thumbnail (the v1.1.60
-     *     round: the tags "should only be kept in the detailed view").
+     *   page's own Classic row, shared): the shared EpisodeClassicRow —
+     *     120×68dp imagery-only thumbnail + the inset progress pill, the
+     *     40dp number-disc fallback, the quiet EP label + one-line title,
+     *     the single-line meta (D-726), the optional synopsis plate, the
+     *     full-width download bar — ONE implementation, both pages.
      * - `"TRACKLIST"` (ROUND 104 — replaces COMPACT): the typographic list —
      *     the episode NUMBER as the hero element (ROUND 105: exact-fit
      *     column + 24sp — no dead left padding), a hairline spine, the
