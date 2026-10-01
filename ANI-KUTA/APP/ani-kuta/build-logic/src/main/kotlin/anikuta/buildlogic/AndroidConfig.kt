@@ -544,8 +544,21 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── D-430: the release-branch bump (round 114 — v1.1.71) ──────────────
+    // Cut from the green mainline head 96a88ad (the ledger commit; the
+    // implementation eaf9445's Build APK run 36925093812 GREEN FIRST-TRY —
+    // both sub-agents audited pre-push: 2-a 8/8, 2-b 7/7). Carries on top
+    // of v1.1.70 THE ROUND-114 SET (D-737, doc 96): THE ELEMENTS' HONEST
+    // GRID — the weight hand-off (the RowScope weight rides the Row's
+    // DIRECT child: the anchor wrapper carries it, the segment fills it —
+    // the details page's "list format" with half its buttons invisible is
+    // dead; the player's un-anchored path unchanged) + THE RETIRED FLIP
+    // (the D-729 heading-tap 2↔3 column flip, the columns param, and both
+    // screens' elementsThreePerRow states deleted; the grid is a FIXED two
+    // per row) + THE 44DP BUTTON (heightIn(min = 44.dp) with centered
+    // content — the "way too much thin" verdict).
+    const val versionCode = 10171
+    const val versionName = "1.1.71"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
