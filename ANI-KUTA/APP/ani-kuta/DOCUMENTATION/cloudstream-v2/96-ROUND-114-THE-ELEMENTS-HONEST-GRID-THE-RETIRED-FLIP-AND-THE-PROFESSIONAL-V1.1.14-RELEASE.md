@@ -162,4 +162,46 @@ composable boundary whenever a wrapper gains weighted content.
 
 ## 7. The release record
 
-*(appended by the twin commit after both releases are LIVE)*
+**THE DEBUG LINE — v1.1.71/10171 LIVE (2026-10-01T21:07:08Z):**
+`release/1.1.71` cut from the ledger head 96a88ad → the bump 33dcdb2 (the
+D-430 doctrine) → the annotated tag v1.1.71 → **Release APK run
+36926038964 GREEN FIRST-TRY** → verified via the API: stable, `--latest`,
+`ani-kuta-v1.1.71-debug-arm64-v8a.apk` (63,542,097 bytes ≈ 60.6 MB) +
+`SHA256SUMS.txt`, the body = the tag bullets + the workflow's Install
+line. 10171 > 10170 → the debug app updates in place (D-440).
+
+**THE PROFESSIONAL LINE — v1.1.14/10114 LIVE (2026-10-01T21:20:20Z, the
+OFFICIAL repo Confused-Creature-180/ANI-KUTA):** `release/1.1.14` cut
+from the SAME green head 96a88ad → the professional bump bf0b4a2 (the
+user's explicit version; 10114 > 10103) → **Release Build (One-Time) run
+36926131795 GREEN FIRST-TRY** (dispatched tag=v1.1.14 +
+ref=release/1.1.14; every gate success: tag↔versionName, the
+keystore-from-secrets + keytool sanity, the all-ABI build, the 5-APK
+existence audit, the per-APK lib/ ABI audit, the per-APK apksigner gate —
+the CN=ANI-KUTA release signature) → the artifact
+`ani-kuta-v1.1.14-release-allabi` (526,911,086 bytes) downloaded and
+verified locally (`sha256sum -c` ALL OK; the per-APK ABI audit re-run —
+exact). **THE OFFICIAL RE-HOST** (the round-39/76 blocker cleared by the
+user's release-agent PAT): the GitHub release created on the official repo
+— tag v1.1.14 (target main), stable, `--latest`, **ZERO code pushed —
+assets only**: `Ani-Kuta-<abi>.apk` × 5 (arm64-v8a 62.1 MB / armeabi-v7a
+58.9 MB / x86 64.5 MB / x86_64 68.3 MB / universal 163.6 MB) +
+`Ani-Kuta-<abi>.zip` × 5 (each zip holds the byte-identical APK — verified
+by sha256 BEFORE and AFTER the upload) + `SHA256SUMS.txt` (all ten). The
+release list reads v1.1.14 → v1.1.3 → v1.1.2. **THE WEBSITE:** the
+gh-pages static fallback refreshed (the footer chip "v1.1.3 — latest
+release" → "v1.1.14 — latest release", commit 3810bccf — Pages built, the
+LIVE chip verified over HTTPS) + the README's five download links
+re-pointed at v1.1.14 (commit ccdd480d). **THE UPDATER SIMULATION:** the
+professional app's GitHubUpdateSource — v1.1.14 → the tuple (1,1,14) >
+the installed (1,1,3) → the update IS offered; the ABI-aware picker
+matches `Ani-Kuta-arm64-v8a.apk` via the `"-arm64-v8a."` contains-check
+(the universal fallback intact); the derived versionCode 10114 > 10103 →
+installs over v1.1.3. The debug app's updater is untouched:
+testplay-byte's latest stays the v1.1.71 debug APK (the release-signed
+set never became a release there — D-447 stands).
+
+**CI ledger this cycle: 3 runs, ALL first-try green** (the implementation
+36925093812 + the debug release 36926038964 + the all-ABI build
+36926131795) — the ≤2 budget superseded by the user's explicit
+both-releases order (the rounds-73-76 precedent, disclosed here).
