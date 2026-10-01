@@ -299,4 +299,19 @@ The search index gained the "classic" keyword on the two player entries.
 
 ## 7. Release record
 
-- (to be filled after the release)
+- **`release/1.1.68` cut from the green mainline head `41ce50a2`** (the
+  ledger commit; the repair `bc40bb38`'s Build APK run 36872072375 GREEN
+  — run 2 of 2). The bump `7a5d1582` rides the branch per D-430:
+  10120 → **10168**, 1.1.20 → **1.1.68** (the D-430 comment block in
+  AndroidConfig.kt). No Build APK run on the branch — BY DESIGN (D-472:
+  `release/**` is off the push trigger; the TAG's Release APK run builds
+  and gates the exact same code).
+- **The annotated tag `v1.1.68`** pushed on the release branch — the FULL
+  user-facing bullet body per D-466 (the four round-111 bullets, not the
+  fallback line).
+- **Release APK run 36874166103 GREEN FIRST-TRY** (~3.5 min).
+- **v1.1.68 / 10168 is LIVE**: published 2026-10-01T14:14:01Z —
+  `ani-kuta-v1.1.68-debug-arm64-v8a.apk` (60.6 MB) + `SHA256SUMS.txt`,
+  stable latest, verified via the API.
+- The mainline twin (this commit) mirrors the record; the mainline
+  version stays 1.1.20/10120 (D-430 — do NOT "fix" this).
