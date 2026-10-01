@@ -173,4 +173,11 @@ elements), and the fromKey leniency table.
 
 ## 7. The release record (the D-565 loop)
 
-(to be filled at the release)
+Released **v1.1.67 / 10167**: `release/1.1.67` cut from the green mainline
+head f1df67a9 (Build APK run 36804679730 GREEN FIRST-TRY; the ledger commit
+956a7fd7 is docs-only); the bump (10120→10167, 1.1.20→1.1.67) rode the
+branch per D-430; the annotated tag `v1.1.67` carries the honest bullet body
+(D-466); **Release APK run 36805228668 GREEN FIRST-TRY → v1.1.67 LIVE**
+(published 2026-10-01T02:22:16Z, stable latest, arm64-v8a debug APK
+63.5 MB + SHA256SUMS.txt — verified via the API). The mainline twin (this
+commit) carries the record home.
