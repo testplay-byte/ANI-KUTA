@@ -14,6 +14,10 @@
 | `14-architecture-recommendations.md` | Full synthesis + identity system redesign. |
 | `15-backup-research.md` | Backup/restore formats (Aniyomi, Mangayomi) + import strategy. |
 | `16-phase1-architecture-plan.md` | **The Phase 1 Architecture Plan** — full module tree, data flow, screen map, identity, backup, multi-extension, multi-content-type. |
+| `download-device-testing-checklist.md` | The download-system device checklist. |
+| `planning/` | The per-feature plan folders (data-management, debug-bubble, extension-details-page, watch-history-updates). |
+| `cloudstream-v2/` | **THE ROUND RECORDS** — docs 72-97 = rounds 90-115 (strictly sequential; next: 98) + the earlier CS-V2 era plans (00-71). Every modern round's full record: the orders, the implementation, the audits, the release record. |
+| `release/` | **The build & release guides** — `BUILD-AND-BRANCH-GUIDE.md` (the dev/release line split) + `RELEASE-PLAYBOOK.md` (the full release routines; rebuilt in-repo at round 115 after the round-80 repo-external original was lost; ⛔ DORMANT under D-738 — debug builds only until the user's explicit order). |
 
 ## Also in APP/ani-kuta/
 - `DESIGN-LANGUAGE.md` — the app's design language (colors, typography, components, UI patterns extracted from the old project).

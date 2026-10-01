@@ -12,7 +12,7 @@
 - **GitHub**: `testplay-byte/ANI-KUTA`
 - **App ID**: `com.confused.anikuta`
 - **Tech**: Kotlin 2.2.0 + Jetpack Compose (explicit 1.10.4-line pins — BOM REMOVED D-322; material3 1.3.1) + MPV (aniyomi-mpv-lib 1.18.n) + SQLDelight 2.0.2 + Koin 4.2.2 (primary DI) + Injekt (secondary, extension binary compat) + Coil 3.0.4 + OkHttp 5.0.0-alpha.14
-- **Builds**: GitHub Actions only — ARM `arm64-v8a` ONLY (D-251; test-only x86_64 emulator builds never ship). Never local. Never install Android SDK/JDK locally (CORE_RULES §8).
+- **Builds**: GitHub Actions only — the push path builds the DEBUG APK, `arm64-v8a` ONLY (D-445); shipped releases are ALL-ABI + universal, release-signed in CI (D-423). Under D-738 nothing ships without the user's explicit order. Never local. Never install Android SDK/JDK locally (CORE_RULES §8).
 - **SDK**: compileSdk 36, targetSdk 36, minSdk 24, JDK 17.
 
 ---
@@ -25,13 +25,13 @@ Per CORE_RULES §4, the repo root contains exactly ONE wrapper folder (`ANI-KUTA
 ANI-KUTA/                        ← repo root (git)
 ├── ANI-KUTA/                    ← SINGLE wrapper folder (all project zones inside)
 │   ├── AGENT-CONTEXT/           ← you are here (agent memory + rules, versioned in repo)
-│   ├── APP/ani-kuta/            ← Android app (50 Gradle modules, 408 .kt, 25 DB tables / 17 .sq files)
-│   ├── DASHBOARD/webpage/       ← Next.js dashboard (14 pages → GitHub Pages)
+│   ├── APP/ani-kuta/            ← Android app (57 Gradle modules, 634 .kt, 25 DB tables / 17 .sq files)
+│   ├── DASHBOARD/webpage/       ← Next.js dashboard (20 pages → GitHub Pages)
 │   └── REFERENCES/              ← old-kuta + animiru + webview-cloudflare-captcha (read-only)
 └── .github/workflows/           ← CI: build APK + deploy dashboard
 ```
 
-> ⚠️ Note: the repo root ALSO contains `skills/` (69 generic Z.ai sandbox skills) + a large `worklog.md` — these are accidentally-committed sandbox artifacts that violate CORE_RULES §4. They're tracked on `main`. Cleanup deferred per user (not a current concern). Don't confuse repo-root `skills/` with the real `AGENT-CONTEXT/skills/` (3 project skills: ponytail, subagent-review, README).
+> Note: an OLD warning about repo-root `skills/` + `worklog.md` sandbox artifacts lived here — that pollution is GONE (verified Round 115: the repo root is exactly `.gitattributes`/`.github`/`.gitignore`/`ANI-KUTA/`/`NEW_AGENT_SETUP.md`/`README.md`/`USER-UPLOADS/`). Don't confuse repo-root anything with the real `AGENT-CONTEXT/skills/` (3 project skills: ponytail, subagent-review, README).
 
 ---
 
@@ -40,7 +40,7 @@ ANI-KUTA/                        ← repo root (git)
 **Every session** (before any work):
 1. `SESSION.md` — 60-second quick-start (key rules + loop + end checklist)
 2. `master.md` (this file) — project orientation
-3. `CORE_RULES.md` — non-negotiable rules (**30 sections**)
+3. `CORE_RULES.md` — non-negotiable rules (**31 sections**)
 4. `memory/progress.md` — live status + blockers + Deferred Concerns (read the top "Current Phase" + "Known doc debt" sections first)
 
 **On demand**:
@@ -73,25 +73,14 @@ ANI-KUTA/                        ← repo root (git)
 
 ## Current Status
 
-- **Branch**: `feature/round-57-cloudstream-downloads` — the MAINLINE and the repo's default branch. `main` was DELETED (D-552 — it had 0 unique commits). Other live branches: `release/1.1.3` (professional), `feature/test-controller-v5` (dormant, kept by user order). Merges/main-branch operations stay USER-GATED (CORE_RULES §8).
-- **Phase**: **ALL MAJOR PHASES COMPLETE** + a long device-feedback polish loop (v0.2.x → v1.1.37) — and since Round 77 the project is in the **DEBUG-FIRST phase (D-565)**: new features/QoL land on the mainline and ship via per-round DEBUG releases (next: v1.1.38/10138); PROFESSIONAL releases pause until the user explicitly orders the next one.
-- **Release cadence**: each feedback batch ships as a tagged GitHub Release (in-app updater discovers it); the user device-tests every build on a real OnePlus phone. Latest LIVE releases: **debug v1.1.37/10137** (testplay-byte) + **professional v1.1.3/10103** (stable, published — the user verified it updates over 1.1.2 and is fully satisfactory). Mainline version stays 1.1.20/10120 (D-430: bumps ride release branches).
-- **Modules**: 56 Gradle modules (1 `:app` + 32 `:core:*` + 2 `:data:*` + 21 `:feature:*` with api/impl splits). 25 SQLDelight tables across 17 `.sq` files. 569 Kotlin files. Decisions D-001..D-565. 180+ lessons learned.
-- **Dashboard URL**: `https://testplay-byte.github.io/ANI-KUTA/` (status data refreshed Round 77; deep history stays representative — see D-565's disclosed debt).
-- **Current focus**: the debug-first device-round loop (features + fixes per user report → mainline → CI green → release/1.1.3N cut → tag v1.1.3N → the debug release → docs → ntfy). The professional line resumes only on the user's explicit order. The official re-host (Confused-Creature-180, D-440) stays blocked on a release-agent token.
+- **Branch**: `feature/round-57-cloudstream-downloads` — the MAINLINE and the repo's default branch (the remote's ONLY branch). `main` was DELETED (D-552 — it had 0 unique commits). `feature/test-controller-v5` stays dormant (kept by user order). Merges/main-branch operations stay USER-GATED (CORE_RULES §8).
+- **Phase**: **ALL MAJOR PHASES COMPLETE** + a long device-feedback polish loop (v0.2.x → v1.1.71 debug / v1.1.14 professional) — and since **Round 115 (D-738): DEBUG BUILDS ONLY** — every round ends at CI green (the Build APK debug run's artifact); ALL releases (debug + professional) are suspended until the user's explicit order. The release routines live warm in `APP/ani-kuta/DOCUMENTATION/release/RELEASE-PLAYBOOK.md`.
+- **Latest LIVE releases** (both round 114, 2026-10-01): **debug v1.1.71/10171** (testplay-byte — the in-app debug updater's line) + **professional v1.1.14/10114** (Confused-Creature-180/ANI-KUTA — the official re-host: 11 assets = 5 release-signed APKs + 5 ZIPs + SHA256SUMS, stable + latest, the website chip + the official README links refreshed). Mainline version stays 1.1.20/10120 (D-430: bumps ride release branches).
+- **Modules**: 57 Gradle modules (1 `:app` + 33 `:core:*` + 2 `:data:*` + 21 `:feature:*` = 12 features: 9 api/impl splits + 3 singles). 25 SQLDelight tables across 17 `.sq` files. 634 Kotlin files in APP/ani-kuta/. Decisions D-001..D-739. 350 lessons learned. Round records: cloudstream-v2 doc 97 (round 115) — next 98.
+- **Dashboard URL**: `https://testplay-byte.github.io/ANI-KUTA/` (status facts refreshed Round 115; deep history stays representative — see D-565's disclosed debt).
+- **Current focus**: the D-738 loop — the user's device-round feedback on v1.1.71/v1.1.14 (checklist doc 96 §5) → implement on the mainline → CI green → hand over the artifact + checklist → docs → ntfy. NO release steps until the user orders.
 - **Build sanity guard**: `:app` `checkDependencyAlignment` (D-322) fails any build whose packaged compose/lifecycle versions deviate from the pins in `gradle/libs.versions.toml`.
-- **Deferred Concerns** (saved in `memory/progress.md` → "Deferred Concerns"):
-  - `HttpDownloader.reResolver` orphaned (D-149) — built but not wired; `:app ReResolver` signatures mismatched.
-  - Main-thread `runBlocking` in Downloads→Watch SAF scan (MainActivity.kt:428) — ANR risk.
-  - `WatchKey` god-object (15 fields, 5 pre-serialized strings) — refactor to identifier-only (under analysis).
-  - Dead/unwired download code: `DownloadVideoPickerSheet`, `setRetryingStatus` (D-151).
-  - Nav backstack doesn't survive process death (R7, D-150 accepted limitation) — hybrid `rememberSaveable` fix possible.
-  - 4 god-class .kt files >2000 lines (LibraryScreen 2471, DetailsScreen 2277, DetailsViewModel 2159, WatchScreen 2017) — refactor candidates.
-  - DB migrations use `onOpen` instead of `.sqm` files — acceptable for debug (§30); needs `.sqm` before production.
-  - AniList tracker is a placeholder (OAuth/sync stubs — not yet implemented, expected).
-- **Open items** (see `memory/progress.md` → "What's Next"):
-  - Download-system device testing + future-phase gaps (D-149, D-151) — DEFERRED per user; plan in `download-research/FUTURE-PHASE-DL-GAPS.md`.
-  - Nav3: ✅ DECIDED (D-150) — keep hand-rolled nav. Nav3 fully REMOVED from all build files (not just "unused on classpath").
-  - Doc-debt sweep: ✅ DONE this session (knowledge/*, master.md, SESSION.md, navigation.md, dashboard data all updated; code comments cleaned).
+- **Deferred Concerns**: the round-54 historical table in `memory/progress.md` (kept for the record; many items long resolved — e.g. release signing, the updates engine, the notifications system, the AniList tracker) + the LIVE standing items (SESSION.md's Open Items + the round records' NOT-APPLIED sections). Highlights still open: `WatchKey` 17-field god-object; main-thread `runBlocking` in the Downloads→Watch SAF scan; the dead download code (`DownloadVideoPickerSheet`, `setRetryingStatus`); 4 god-class .kt files >2000 lines; DB migrations on `onOpen` (needs `.sqm` before production); the token-matching semantics living in five places.
+- **Handoff**: `AGENT-CONTEXT/HANDOFF-ROUND-115.md` — written by the round-115 agent for the next agent.
 
 See `memory/progress.md` for live status. See `navigation.md` for the full file map.

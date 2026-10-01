@@ -31,19 +31,21 @@ After CORE_RULES.md, read these files in order:
 1. **`AGENT-CONTEXT/navigation.md`** — file index, tells you what every file is for
 2. **`AGENT-CONTEXT/master.md`** — project orientation: what ANI-KUTA is, folder layout, tech stack
 3. **`AGENT-CONTEXT/workflow.md`** — the task execution loop + project phases
-4. **`AGENT-CONTEXT/SESSION.md`** — per-session bootstrap checklist
-5. **`AGENT-CONTEXT/memory/progress.md`** — what's done, what's next, blockers (read the top sections first)
-6. **`AGENT-CONTEXT/memory/decisions.md`** — all architecture decisions (D-001 through D-165). Read the "Pending Decisions" section + the latest decisions.
+4. **`AGENT-CONTEXT/SESSION.md`** — per-session bootstrap checklist (the current phase + standing orders live here — including the round-115 D-738 order: DEBUG BUILDS ONLY, no releases of any kind until the user's explicit order)
+5. **`AGENT-CONTEXT/memory/progress.md`** — what's done, what's next, blockers (read the top CURRENT STATUS block + the Round sections at the BOTTOM first — the middle is historical)
+6. **`AGENT-CONTEXT/memory/decisions.md`** — all architecture decisions (D-001 through D-739, newest at the top). Read the "Pending Decisions" section + the latest decisions.
 7. **`AGENT-CONTEXT/memory/changelog.md`** — high-level change history
-8. **`AGENT-CONTEXT/memory/lessons-learned.md`** — mistakes, corrections, insights, patterns
-9. **`AGENT-CONTEXT/knowledge/`** — read every file in this folder:
-   - `architecture.md` — the 43-module architecture
+8. **`AGENT-CONTEXT/memory/lessons-learned.md`** — mistakes, corrections, insights, patterns (grep for tags matching your task type)
+9. **`AGENT-CONTEXT/HANDOFF-ROUND-115.md`** — the previous agent's full handoff, written for YOU (the phase, the loop, the environment gotchas, the open items)
+10. **`AGENT-CONTEXT/knowledge/`** — read every file in this folder:
+   - `architecture.md` — the 57-module architecture
    - `tech-stack.md` — technologies used
-   - `module-map.md` — module dependency graph
+   - `module-map.md` — all 57 modules (name, job, deps, key files — re-verified round 115)
    - `project-overview.md`
    - `dashboard.md`
    - `old-vs-new.md`
    - `ui-customization.md`
+   - `emulator-testing.md` (before any emulator/adb work)
 
 Take your time. Read thoroughly. The goal is to build a complete mental model of:
 
@@ -60,11 +62,13 @@ Take your time. Read thoroughly. The goal is to build a complete mental model of
 
 After reading the documentation, explore the actual code structure:
 
-- `ANI-KUTA/APP/ani-kuta/` — look at `settings.gradle.kts` to see all modules
+- `ANI-KUTA/APP/ani-kuta/` — look at `settings.gradle.kts` to see all modules (57: 1 app + 33 core + 2 data + 21 feature)
 - `ANI-KUTA/APP/ani-kuta/core/` — the core modules (database, network, common, etc.)
-- `ANI-KUTA/APP/ani-kuta/feature/` — the feature modules (anime-details, anime-browse, watch, download, debug-bubble)
+- `ANI-KUTA/APP/ani-kuta/feature/` — the feature modules (12 features: anime-details, anime-browse, anime-library, anime-search, anime-history, watch, cs-watch, extensions-settings, updates, download, onboarding, debug-bubble)
 - `ANI-KUTA/APP/ani-kuta/app/` — the app module (wiring, MainActivity, navigation)
-- `ANI-KUTA/APP/ani-kuta/core/database/src/main/sqldelight/` — the SQLDelight `.sq` files (database schema)
+- `ANI-KUTA/APP/ani-kuta/core/database/src/main/sqldelight/` — the SQLDelight `.sq` files (database schema — 25 tables / 17 files)
+- `ANI-KUTA/APP/ani-kuta/DOCUMENTATION/cloudstream-v2/` — the round records (docs 72-97 = rounds 90-115; the newest = the current state)
+- `ANI-KUTA/APP/ani-kuta/DOCUMENTATION/release/` — the build & release guides (RELEASE-PLAYBOOK.md + BUILD-AND-BRANCH-GUIDE.md — dormant under D-738 until the user orders a release)
 
 You don't need to read every Kotlin file — just understand the module layout and how things connect. you can use multiple sub agents for this too
 

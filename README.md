@@ -13,19 +13,19 @@ Android application **ANI-KUTA**, rebuilt from scratch with proper planning, doc
 repo-root/
 ├── ANI-KUTA/                    ← single wrapper folder (all project zones inside)
 │   ├── AGENT-CONTEXT/           # Agent memory + rules (read SESSION.md first)
-│   ├── APP/ani-kuta/            # Android app (Gradle + Kotlin + Jetpack Compose)
+│   ├── APP/ani-kuta/            # Android app — 57 Gradle modules (Gradle + Kotlin + Jetpack Compose)
 │   ├── DASHBOARD/webpage/       # Next.js visualization dashboard → GitHub Pages
-│   └── REFERENCES/old-kuta/     # Old project reference + analysis docs
-└── .github/workflows/           # CI: build APK + deploy dashboard (repo-root level)
+│   └── REFERENCES/              # Read-only references (old-kuta + animiru + webview-cloudflare-captcha)
+└── .github/workflows/           # CI: build APK + release workflows + deploy dashboard (repo-root level)
 ```
 
 > New here? Read `ANI-KUTA/AGENT-CONTEXT/SESSION.md` first, then `ANI-KUTA/AGENT-CONTEXT/CORE_RULES.md`.
 
 ## Build
-- APKs are built **only** via GitHub Actions (`.github/workflows/build-apk.yml`).
-- Target ABIs: `arm64-v8a` and `armeabi-v7a` only (enforced in `ANI-KUTA/APP/ani-kuta/app/build.gradle.kts` + verified in CI).
-- App ID: `com.confused.anikuta`
+- APKs are built **only** via GitHub Actions (`.github/workflows/build-apk.yml`) — never locally.
+- The push path builds the **debug** APK, `arm64-v8a` only (D-445). Shipped releases are all-ABI (arm64-v8a / armeabi-v7a / x86 / x86_64 + universal), release-signed in CI (D-423).
+- App ID: `com.confused.anikuta` (debug builds carry the `.debug` suffix — co-installable).
 
 ## Status
-Phase 0 — Environment, rules, dashboard demo all done. Phase 5d (extension details + auto-link) complete.
-See `ANI-KUTA/AGENT-CONTEXT/memory/progress.md` for live status.
+All original build phases complete (0-5 + B/C/D/DL/WP/HI/UP/SC/TR/NOTIF/CW) + a long device-feedback polish loop — debug line at **v1.1.71**, professional line at **v1.1.14** (the official repo: Confused-Creature-180/ANI-KUTA + the website). Since round 115: **debug builds only — all releases paused until the user's explicit order** (D-738).
+See `ANI-KUTA/AGENT-CONTEXT/memory/progress.md` (top block) + `ANI-KUTA/AGENT-CONTEXT/HANDOFF-ROUND-115.md` for the live state.

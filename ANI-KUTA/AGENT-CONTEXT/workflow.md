@@ -120,6 +120,8 @@
 
 **Output:** CI-verified code on the feature branch. APK artifact available for device testing.
 
+> **D-738 (Round 115): the round ENDS here.** The CI debug run's `anikuta-apk` artifact IS the deliverable — hand the user the run/artifact link + the test checklist. NO release branch, NO version bump, NO tag, NO Release APK run, NO re-host, NO website bump — ALL releases are suspended until the user's explicit order. The release routines live warm in `APP/ani-kuta/DOCUMENTATION/release/RELEASE-PLAYBOOK.md` (execute only on the user's order).
+
 ### Step 9 — DOC UPDATE (keep docs in sync — CORE_RULES §6, §26)
 
 **Update documentation in the SAME session as the work. Not "later."**
@@ -138,10 +140,9 @@
 
 **Send a notification via `ntfy.sh` after each phase + at the end.**
 
-- Per-phase: `curl -fsSL -H "Title: ANI-KUTA Agent" -d "<short result>" https://ntfy.sh/TASKISDONE`.
-- At the end (if the user requested multiple notifications): send them one after another.
-- Topic: `TASKISDONE` (user-specified). No secrets in the message body.
-- **Never skip this.** The user relies on it to know when to check.
+- Per-phase: `curl -fsSL -H "Title: ANI-KUTA Agent" -d "<short result>" https://ntfy.sh/THE-TASK-IS-DONE`.
+- Topic: `THE-TASK-IS-DONE` (CORE_RULES §11 default). Recent rounds ran under the user's per-task override topic **`TASK808DONE`** — SESSION.md's "THIS SESSION'S NOTIFICATION" line says which is current. The topic 429s under load — retry with backoff, and keep messages SHORT.
+- No secrets in the message body. **Never skip this.** The user relies on it to know when to check.
 
 **Output:** The user is notified. The feedback loop is closed.
 
@@ -164,10 +165,9 @@
 
 ## Branch Discipline
 
-- **Create a feature branch** for each significant work session: `feature/<name>`.
-- **Stay on the branch** for the entire session. All commits go there.
-- **Do NOT merge to `main`** until the user explicitly says to. The user verifies on device first.
-- **Do NOT make changes to `main` directly.** Ever.
+- **The mainline IS the work branch:** `feature/round-57-cloudstream-downloads` (the repo's default + only remote branch; `main` no longer exists — D-552). All round work commits land there directly.
+- Release branches (`release/x.y.z`) are cut ONLY on the user's explicit release order (and under D-738, no releases happen at all) — see `APP/ani-kuta/DOCUMENTATION/release/RELEASE-PLAYBOOK.md`.
+- `feature/test-controller-v5` stays dormant (kept by user order — do not delete).
 - **Push frequently** — the sandbox is ephemeral (CORE_RULES §15). Unpushed work is lost.
 
 ---

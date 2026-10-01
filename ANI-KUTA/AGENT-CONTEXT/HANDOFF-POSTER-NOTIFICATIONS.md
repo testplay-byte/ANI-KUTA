@@ -1,4 +1,6 @@
-# HANDOFF — the poster-notification + preview issues (rounds 46-47, v1.1.9/v1.1.10 device findings)
+# HANDOFF — the poster-notification + preview issues (rounds 46-47, v1.1.9/V1.1.10 device findings)
+
+> ⛔ **HISTORICAL (Round 115 note):** this handoff describes the rounds-46-47 state of the poster-notification system. The notification/update system was FULLY REWORKED in Round 80 (doc `download-research/38-ROUND-80-NOTIFICATION-SYSTEM-REWORK.md`, D-566..D-569 — immediate audible "searching", live per-item progress, honest endings). The findings below are kept for the record only — do NOT act on them. The current handoff is `HANDOFF-ROUND-115.md`.
 
 > Written by the round-46/47 agent for the NEXT agent. Read this alongside
 > `SESSION.md` + `CORE_RULES.md`. The user tested v1.1.10 on device and the

@@ -5,16 +5,24 @@ the push path is now **DEBUG-ONLY on every branch** (the user's round-38
 instruction), and **R8 minification is retired from the release line**
 (D-436 — it broke the extension system on device).
 **Round 39 / Task 79 revision (D-439..D-442):** the release branch is now
-**cut FROM MAIN** (main carries everything the release needs; the branch is
-main + ONE version-bump commit), the in-app updater's repo follows the
+**cut FROM the mainline** (the mainline carries everything the release needs; the branch is
+mainline + ONE version-bump commit), the in-app updater's repo follows the
 BUILD TYPE at runtime, and the sandbox is LEAN (no local Android tooling —
 GitHub Actions is the only build machine; the local SDK/JDK/Gradle were
-deleted). This is the standing
+deleted).
+**Round 115 revision (D-738/D-739, 2026-10-02):** the mainline is
+`feature/round-57-cloudstream-downloads` (the default branch — `main` was
+deleted D-552, 0 unique commits). The user's standing order: **DEBUG BUILDS
+ONLY — all releases suspended until the explicit order** (rounds end at the
+CI debug artifact). The full release routines now live in
+**`RELEASE-PLAYBOOK.md`** (this folder) — the round-80 repo-external playbook
+and the REPO-SETUP-AND-SIGNING / RELEASE-AGENT-STARTER-PROMPT companions were
+lost to sandbox resets; the playbook is their in-repo replacement. This is the
+standing
 reference for how ANI-KUTA is built, which branch produces what, and how the
 release version and the debug version are tested side by side on one device.
-It is the companion to `REPO-SETUP-AND-SIGNING-GUIDE.md` (the published-repo
-routine) — this document covers the DEV side (the `main` branch + the CI push
-path).
+It is the companion to `RELEASE-PLAYBOOK.md` (the release routines) — this
+document covers the DEV side (the mainline + the CI push path).
 
 ---
 
@@ -22,10 +30,9 @@ path).
 
 | Branch | What it is | The debug bubble | CI on push | Used for |
 |---|---|---|---|---|
-| `main` | The DEV line — where features land and converge between releases. Carries the v1.1.x feature set + the round-39 fixes (D-439 crash hardening, D-440 the build-type updater, D-441 notifications-off) + EVERYTHING the release needs (the build line, the workflows — D-430/D-435/D-436). | **PRESENT** (the user's standing instruction: the bubble stays on main) | tests + assembleDebug — the **DEBUG APK only** (D-435) — downloadable as the CI artifact | Feature development + the debug test line + the source of every future release cut |
-| `release/1.1.2` | The PUBLISHABLE line — **cut FROM the round-39 main head** (D-442, the first release branch cut directly from main): main + ONE commit (AndroidConfig 1.1.2/10102 + the branch-point docs). | PRESENT (inherited from main — the release APK build itself excludes it via the source-set split; the co-install debug identity is the debug overlay) | The same DEBUG-ONLY push path; releases happen via the TAG path only: `v*` → release-apk.yml → ALL-ABI splits + universal + the ZIP + the GitHub release | Cutting actual releases |
-| `release/1.1.1` | The previous release line (kept for reference — the long-lived-branch model before round 39). | REMOVED (D-409) | Same push path | Reference only — do NOT build new releases here |
-| `feature/test-controller-v5` | A kept experiment line. | — | Same push path | Reference |
+| `feature/round-57-cloudstream-downloads` | **THE MAINLINE** (the default branch; the remote's only branch — `main` was deleted D-552) — where features land and converge between releases. Carries EVERYTHING a release needs (the build line, the workflows — D-430/D-435/D-436). Version: 1.1.20/10120 (D-430: bumps ride release branches). | **PRESENT** (the user's standing instruction: the bubble stays on the mainline) | tests + assembleDebug — the **DEBUG APK only** (D-435, arm64-v8a D-445) — downloadable as the CI artifact | Feature development + the debug test line + the source of every future release cut |
+| `release/<version>` (e.g. release/1.1.71, release/1.1.14) | The PUBLISHABLE lines — each **cut FROM the round's green mainline head** (D-442): mainline + ONE commit (the version bump + the branch-point docs). Cut only on the user's explicit order; under D-738 none are cut. | PRESENT (inherited from the mainline — the release APK build itself excludes it via the source-set split; the co-install debug identity is the debug overlay) | The same DEBUG-ONLY push path; releases happen via the TAG path only: `v*` → release-apk.yml (debug line) or the release-build-once.yml dispatch (professional line — D-564: the ref is the release branch) | Cutting actual releases |
+| `feature/test-controller-v5` | A kept experiment line (dormant, user order). | — | Same push path | Reference |
 
 Deleted in round 37 (per the user's instruction): `test-feature/video-cache-new-download`,
 `streaming/CLOUDSTREAM`, `streaming/CLOUDSTREAM-V2`, `functionality/improvements`.
@@ -41,13 +48,14 @@ release is cut. Main-branch pushes never trigger it.
 
 ### The DEBUG build (`assembleDebug`)
 - Package: **`com.confused.anikuta.debug`** (the `.debug` applicationId suffix, D-429/D-416)
-- Version name: `<base>-debug` (e.g. `0.4.20-debug` on main today)
-- Icon: **the old lime icon** + the label **"ANI-KUTA Debug"** (app/src/debug/res overlay)
+- Version name: `<base>-debug` (e.g. `1.1.20-debug` on the mainline today)
+- Icon: **the user-provided mascot artwork** (`USER-UPLOADS/IMG_20260918_233212.png`, D-444 — contain-fit, never cropped) + the label **"ANI-KUTA Debug"** (app/src/debug/res overlay); the release line keeps the kawaii-mouth icon set
 - Signing: the committed `anikuta-debug.keystore` (every debug build installs over every other debug build — no uninstall churn)
 - Contains: the debug bubble, full logging, all dev tooling
 - **The co-install point:** because the applicationId differs, the debug build installs
   and runs SIDE BY SIDE with the release install (`com.confused.anikuta`). The user
   tests the official release + the current dev build on the same device at the same time.
+- **D-674 (round 99): the debug line is NON-DEBUGGABLE** — no `adb run-as`, no debugger attach (the dev-repo gate / DEBUG logging / Developer-tools are keyed on IS_DEBUG_LINE + the `.debug` suffix, NOT BuildConfig.DEBUG).
 
 ### The RELEASE build (`assembleRelease`)
 - Package: `com.confused.anikuta` (no suffix)
@@ -95,37 +103,39 @@ installs is produced by GitHub Actions.
    per-APK lib verification → the HARD apksigner gate →
    ANI-KUTA-v<version>-RELEASE.zip + SHA256SUMS.txt → the stable GitHub release
    with the which-APK table` (no mapping.txt — D-436).
-   See `REPO-SETUP-AND-SIGNING-GUIDE.md` §4 for the full routine.
+   See `RELEASE-PLAYBOOK.md` (this folder) for the full release routines.
 
 ## 4. The side-by-side testing model (the user's workflow)
 
 1. Install the official release APK (from the GitHub Releases page) →
    `com.confused.anikuta` — the real user experience.
-2. Install the latest debug artifact from a main-branch CI run →
+2. Install the latest debug artifact from a mainline CI run →
    `com.confused.anikuta.debug` — the current dev build.
-3. Both run at the same time; the debug one is visually distinct (lime icon +
-   "ANI-KUTA Debug" label) and nominally distinct (`-debug` version suffix).
+3. Both run at the same time; the debug one is visually distinct (the mascot
+   icon + "ANI-KUTA Debug" label) and nominally distinct (`-debug` version suffix).
 4. Iterate: the committed debug keystore means each new debug artifact installs
-   directly over the previous one.
-5. The debug build's identity is consistent EVERYWHERE now (D-438, round 38):
-   the lime launcher icon at every density (the debug overlay's own
-   `ic_launcher.webp` rasters for pre-26 devices + the adaptive XMLs) AND the
-   in-app "current icon" display (the App Icon page hero) via the debug
-   overlay's own `drawable-nodpi/icon_current.png` — the debug build never
-   shows the release kawaii artwork anywhere.
+   directly over the previous one. **The D-738 wrinkle:** the mainline artifact
+   carries 10120 — it will NOT install over a debug RELEASE (e.g. v1.1.71/10171)
+   without `adb install -d` or an uninstall; when the user wants in-place device
+   updates, they order a debug release (RELEASE-PLAYBOOK.md Routine A).
+5. The debug build's identity is consistent EVERYWHERE now (D-438/D-444): the
+   mascot launcher icon at every density (the debug overlay's own
+   `ic_launcher.webp` rasters for pre-26 devices + the adaptive XMLs, contain-fit
+   per D-444) AND the in-app "current icon" display (the App Icon page hero) via
+   the debug overlay's own `drawable-nodpi/icon_current.png` — the debug build
+   never shows the release kawaii artwork anywhere.
 
 ## 5. Version discipline (D-425 — standing rule)
 
 The version NEVER moves without the user's explicit instruction:
-- `main` carries its own dev version (0.4.20 / 85 — main never takes a
-  release bump; the release BRANCH carries the bump).
-- `release/1.1.2` carries 1.1.2 / 10102 — the number the guide anticipated
-  for the first main-cut release ("a future release cut from main would take
-  the next number the USER chooses, e.g. 1.1.2"), cut by the user's explicit
-  round-39 instruction. It is monotonic over the installed v1.1.1 (10102 >
-  10101 — installs over it, no uninstall churn).
-- `release/1.1.1` carries 1.1.1 / 10101 (the same-version re-release model
-  of rounds 37/38 — historical).
+- The mainline carries its own dev version (**1.1.20 / 10120** — the mainline
+  never takes a release bump; the release BRANCH carries the bump). Don't
+  "fix" the gap between 1.1.20 and the shipped v1.1.71 — that's the doctrine.
+- `release/1.1.71` carries 1.1.71 / 10171 (the debug line's latest — cut from
+  the round-114 green head, one bump commit; 10171 > 10170 → the debug app
+  updates in place).
+- `release/1.1.14` carries 1.1.14 / 10114 (the professional line's latest —
+  10114 > 10103/v1.1.3 → installs over the previous professional release).
 
 ## 6. The division of labor (round 36 — standing)
 
@@ -134,12 +144,15 @@ The version NEVER moves without the user's explicit instruction:
 - **The repository agent** (the new agent on the published repo): ONLY creates
   and manages the GitHub releases + tags on the published repo
   (Confused-Creature-180/ANI-KUTA) — re-hosting the dev releases, managing the
-  icons/ catalog. It never builds. See `RELEASE-AGENT-STARTER-PROMPT.md`.
+  icons/ catalog. It never builds. (The old RELEASE-AGENT-STARTER-PROMPT.md
+  companion was lost to a sandbox reset — the re-host routine now lives in
+  `RELEASE-PLAYBOOK.md` Routine C.)
 - **Round-39 note:** when the user instructs the build agent to "manage
   everything" for a round, the build agent ALSO performs the re-host
   (the release-agent routine: download the dev release's assets → verify the
   SHA256SUMS → create the release on the published repo with the EXACT
-  version-prefixed asset names → set stable + latest) — as done for v1.1.2.
+  version-prefixed asset names → set stable + latest) — as done for v1.1.2,
+  v1.1.3, and (round 114) v1.1.14.
 
 ## 7. The lean-environment rule (round 39 — standing)
 
