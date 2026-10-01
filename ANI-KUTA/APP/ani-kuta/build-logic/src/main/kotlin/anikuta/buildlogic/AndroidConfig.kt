@@ -544,8 +544,27 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── D-430: the release-branch bump (round 110 — v1.1.67) ──────────────
+    // Cut from the green mainline head f1df67a9 (Build APK run 36804679730
+    // GREEN FIRST-TRY; the ledger commit 956a7fd7 is docs-only). Carries on
+    // top of v1.1.66 THE ROUND-110 SET (D-722..D-725, doc 92): THE TAGS
+    // UNIFIED EVERYWHERE (the player's DETAILED + TRACKLIST rows render the
+    // details page's own chip capsules — the quiet date capsule + the
+    // type-coded SUB/DUB/HSUB audio capsules; the old flat-gray Pill()
+    // retired) + THE NUMBER'S PLACE (the GridNumberPosition knob on BOTH
+    // grids — the EP label below the thumbnail or beside the title — plus
+    // the shared 12dp GridThumbnailCorner) + THE BANNER'S CINEMA TRUTH (the
+    // player banner rebuilt to the details CINEMA anatomy verbatim: the
+    // 3-stop scrim, the zero-padded ghost number, the meta column with the
+    // joined date-audio-WATCHED pill, the BottomEnd badge, the inset
+    // progress pills) + THE SETTINGS' ONE ANATOMY (the shared widget kit —
+    // both screens' five private widgets deleted, the duplicated inner
+    // headings out, the search-anchor off-by-one fixed, the new Episode
+    // number row on both Grid sections). The first implementation of this
+    // round was lost to a sandbox reset pre-push (doc 92's disclosure) —
+    // this build IS the redo.
+    const val versionCode = 10167
+    const val versionName = "1.1.67"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
