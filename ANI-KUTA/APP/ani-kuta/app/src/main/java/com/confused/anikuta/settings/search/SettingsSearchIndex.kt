@@ -332,7 +332,7 @@ object SettingsSearchIndex {
                 anchor = "player_episode_list",
                 keywords = listOf("player", "episode", "episodes", "list", "layout",
                     "row", "preview", "live preview", "appearance", "style", "grid",
-                    "banner", "tracklist", "detailed", "watch"),
+                    "banner", "tracklist", "classic", "detailed", "watch"),
             ),
         )
         add(
@@ -341,8 +341,8 @@ object SettingsSearchIndex {
                 title = "Layout",
                 page = SettingsSearchPage.PLAYER_EPISODE_LIST,
                 anchor = "player_layout",
-                keywords = listOf("layout", "detailed", "tracklist", "grid", "banner",
-                    "style", "view", "design", "episode", "player"),
+                keywords = listOf("layout", "classic", "detailed", "tracklist", "grid",
+                    "banner", "style", "view", "design", "episode", "player"),
             ),
         )
         add(

@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,7 +90,7 @@ import kotlin.math.roundToInt
  *    accordingly and should disappear or appear smoothly depending on what's
  *    available to edit or what's not available to edit"). ROUND 105 grew
  *    the per-style sets (every row carries a one-line description):
- *      DETAILED  = Synopsis · Date pill · Progress bar · Dim watched
+ *      CLASSIC   = Synopsis · Release date · Watch progress · Dim watched
  *      TRACKLIST = Synopsis · Date pill · Progress bar · Dim watched
  *      GRID      = Date pill · Watched checkmark · Currently playing · Titles
  *      BANNER    = Date pill · Dim watched · Episode number (+ the nested
@@ -126,6 +127,13 @@ fun PlayerEpisodeListSettingsScreen(
         initial = playerListPrefs.rowStyle.get(),
     )
     val style = remember(rowStyleKey) { PlayerEpisodeListStyle.fromKey(rowStyleKey) }
+    // ── ROUND 111 (D-729): the Elements grid's per-row button count — the
+    //    heading-tap testing aid ("when I click on the Elements heading …
+    //    it will switch the grid layout to Three buttons per row. So make
+    //    sure to give this functionality so I can test out how the things
+    //    will overall look like"). Session-local (survives rotation, never
+    //    a pref — an experiment knob, not a setting). ──
+    var elementsThreePerRow by rememberSaveable { mutableStateOf(false) }
     val showSynopsis by playerListPrefs.showSynopsis.changes.collectAsState(
         initial = playerListPrefs.showSynopsis.get(),
     )
@@ -507,7 +515,7 @@ fun PlayerEpisodeListSettingsScreen(
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                             ) {
                                 SegmentedToggle(
-                                    options = listOf("Detailed", "Tracklist", "Grid", "Banner"),
+                                    options = listOf("Classic", "Tracklist", "Grid", "Banner"),
                                     selectedIndex = style.ordinal,
                                     onSelect = { idx ->
                                         playerListPrefs.rowStyle.set(
@@ -517,8 +525,8 @@ fun PlayerEpisodeListSettingsScreen(
                                 )
                                 Caption(
                                     text = when (style) {
-                                        PlayerEpisodeListStyle.DETAILED ->
-                                            "Thumbnail, pills and a two-line synopsis"
+                                        PlayerEpisodeListStyle.CLASSIC ->
+                                            "The details page's Classic row, verbatim"
                                         PlayerEpisodeListStyle.TRACKLIST ->
                                             "The big number, a spine, and the title"
                                         PlayerEpisodeListStyle.GRID ->
@@ -544,10 +552,17 @@ fun PlayerEpisodeListSettingsScreen(
                     //    checkmark/current/titles knobs (the dim retired
                     //    here), and the BANNER gained the position/style
                     //    rows (nested under the number toggle) + the re-aimed
-                    //    size slider. ──
+                    //    size slider. ROUND 111 (D-729) SUPERSEDES the
+                    //    description part: the on/off toggles are the GRID OF
+                    //    BUTTONS now (no descriptions — the round's explicit
+                    //    order); the style-aware appear/disappear and the
+                    //    multi-state rows below keep the ROUND 105 rhythm. ──
                     item {
                         SettingsHighlightTarget(anchorId = "player_elements", activeAnchor = highlightAnchor) {
-                        EpisodeSettingsCard(label = "Elements") {
+                        EpisodeSettingsCard(
+                            label = "Elements",
+                            onLabelClick = { elementsThreePerRow = !elementsThreePerRow },
+                        ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -555,91 +570,92 @@ fun PlayerEpisodeListSettingsScreen(
                                         animationSpec = tween(300, easing = FastOutSlowInEasing),
                                     ),
                             ) {
-                                // ── DETAILED + TRACKLIST: the synopsis
-                                //    (ROUND 105 widens it from DETAILED-only —
-                                //    "there was no option to turn on or show
-                                //    the synopsis… in this area"). ──
-                                AnimatedStyleRow(
-                                    visible = style == PlayerEpisodeListStyle.DETAILED ||
-                                        style == PlayerEpisodeListStyle.TRACKLIST,
-                                ) {
-                                    SwitchRow(
-                                        title = "Synopsis",
-                                        description = "The two-line description under the title",
-                                        checked = showSynopsis,
-                                        onChecked = { playerListPrefs.showSynopsis.set(it) },
-                                    )
-                                }
-                                // ── The date pill — every style (the GRID's
-                                //    scrim joined ROUND 105; the doc-86 gap). ──
-                                SwitchRow(
-                                    title = "Date pill",
-                                    description = when (style) {
-                                        PlayerEpisodeListStyle.GRID -> "The date pill on each cell"
-                                        PlayerEpisodeListStyle.BANNER -> "The date pill above the title"
-                                        else -> "The release date pill"
+                                // ── ROUND 111 (D-729): THE GRID OF BUTTONS —
+                                //    the on/off elements as 2-per-row toggle
+                                //    buttons ("a grid layout of buttons which
+                                //    I can click and turn to toggle them on or
+                                //    to toggle them off … two options per
+                                //    row"), NO descriptions, the clean color
+                                //    + check animation, and the card-heading
+                                //    tap flipping 2 ↔ 3 per row (the testing
+                                //    aid). Style-filtered exactly as the old
+                                //    rows were; the element titles match the
+                                //    details page's own ("the similar
+                                //    naming, so that it's easier for us").
+                                //    The multi-state knobs (segmented rows +
+                                //    the size slider) are NOT on/off toggles
+                                //    — they stay rows below the grid. —–
+                                ElementToggleGrid(
+                                    entries = buildList {
+                                        if (style == PlayerEpisodeListStyle.CLASSIC ||
+                                            style == PlayerEpisodeListStyle.TRACKLIST
+                                        ) {
+                                            add(
+                                                ElementToggleEntry(
+                                                    title = "Synopsis",
+                                                    checked = showSynopsis,
+                                                    onToggle = { playerListPrefs.showSynopsis.set(!showSynopsis) },
+                                                ),
+                                            )
+                                        }
+                                        add(
+                                            ElementToggleEntry(
+                                                title = "Release date",
+                                                checked = showDatePill,
+                                                onToggle = { playerListPrefs.showDatePill.set(!showDatePill) },
+                                            ),
+                                        )
+                                        add(
+                                            ElementToggleEntry(
+                                                title = "Audio pills",
+                                                checked = showAudioPills,
+                                                onToggle = { playerListPrefs.showAudioPills.set(!showAudioPills) },
+                                            ),
+                                        )
+                                        add(
+                                            ElementToggleEntry(
+                                                title = "Watch progress",
+                                                checked = showProgressBar,
+                                                onToggle = { playerListPrefs.showProgressBar.set(!showProgressBar) },
+                                            ),
+                                        )
+                                        if (style == PlayerEpisodeListStyle.GRID) {
+                                            // ROUND 109 (D-720): the check ONLY —
+                                            // the grayness follows the Dim knob.
+                                            add(
+                                                ElementToggleEntry(
+                                                    title = "Watched checkmark",
+                                                    checked = gridWatchedCheckmark,
+                                                    onToggle = { playerListPrefs.gridWatchedCheckmark.set(!gridWatchedCheckmark) },
+                                                ),
+                                            )
+                                        }
+                                        if (style == PlayerEpisodeListStyle.BANNER) {
+                                            add(
+                                                ElementToggleEntry(
+                                                    title = "Episode number",
+                                                    checked = showEpisodeNumber,
+                                                    onToggle = { playerListPrefs.showEpisodeNumber.set(!showEpisodeNumber) },
+                                                ),
+                                            )
+                                            add(
+                                                ElementToggleEntry(
+                                                    title = "Watched check mark",
+                                                    checked = bannerWatchedCheck,
+                                                    onToggle = { playerListPrefs.bannerWatchedCheck.set(!bannerWatchedCheck) },
+                                                ),
+                                            )
+                                        }
+                                        add(
+                                            ElementToggleEntry(
+                                                title = "Dim watched",
+                                                checked = dimWatched,
+                                                onToggle = { playerListPrefs.dimWatched.set(!dimWatched) },
+                                            ),
+                                        )
                                     },
-                                    checked = showDatePill,
-                                    onChecked = { playerListPrefs.showDatePill.set(it) },
+                                    columns = if (elementsThreePerRow) 3 else 2,
                                 )
-                                // ── ROUND 106 (WS-D): the AUDIO pills' own
-                                //    knob (the details page's parity — "all
-                                //    the relevant options for each one of the
-                                //    layouts should be available and easily
-                                //    customizable"). The pills wrap now. ──
-                                SwitchRow(
-                                    title = "Audio pills",
-                                    description = when (style) {
-                                        PlayerEpisodeListStyle.GRID -> "The SUB/DUB chips under each cell"
-                                        PlayerEpisodeListStyle.BANNER -> "The SUB/DUB chips above the title"
-                                        else -> "The SUB/DUB chips beside the date"
-                                    },
-                                    checked = showAudioPills,
-                                    onChecked = { playerListPrefs.showAudioPills.set(it) },
-                                )
-                                // ── The progress bar — DETAILED + TRACKLIST
-                                //    (ROUND 105: "I should be given an option
-                                //    there to show or hide the progress bar";
-                                //    ROUND 106: the reworked GRID's plate
-                                //    carries the bar too). ──
-                                AnimatedStyleRow(
-                                    visible = style == PlayerEpisodeListStyle.DETAILED ||
-                                        style == PlayerEpisodeListStyle.TRACKLIST ||
-                                        style == PlayerEpisodeListStyle.GRID ||
-                                        // ROUND 108: the BANNER joined (the CINEMA parity).
-                                        style == PlayerEpisodeListStyle.BANNER,
-                                ) {
-                                    SwitchRow(
-                                        title = "Progress bar",
-                                        description = when (style) {
-                                            PlayerEpisodeListStyle.TRACKLIST ->
-                                                "The thin underline on partially watched rows"
-                                            PlayerEpisodeListStyle.GRID ->
-                                                "The thin bar at the cell's bottom edge"
-                                            // ROUND 108: the BANNER joined (the CINEMA parity).
-                                            PlayerEpisodeListStyle.BANNER ->
-                                                "The thin bar at the banner's bottom edge"
-                                            else ->
-                                                "The thin bar on partially watched rows"
-                                        },
-                                        checked = showProgressBar,
-                                        onChecked = { playerListPrefs.showProgressBar.set(it) },
-                                    )
-                                }
-                                // ── The GRID's own knobs (ROUND 105 — "in the
-                                //    grid layout there were not much options
-                                //    there at all"). ──
-                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.GRID) {
-                                    SwitchRow(
-                                        title = "Watched checkmark",
-                                        // ROUND 109 (D-720): the check ONLY — the
-                                        // grayness follows the Dim knob below
-                                        // (decoupled per the v1.1.65 round).
-                                        description = "The check bubble on watched thumbnails",
-                                        checked = gridWatchedCheckmark,
-                                        onChecked = { playerListPrefs.gridWatchedCheckmark.set(it) },
-                                    )
-                                }
                                 AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.GRID) {
                                     SegmentedRow(
                                         title = "Currently playing",
@@ -706,27 +722,6 @@ fun PlayerEpisodeListSettingsScreen(
                                         },
                                     )
                                 }
-                                // ── Dim watched — ALL FOUR styles (ROUND 109 /
-                                //    D-720: the GRID rejoined — the grayscale +
-                                //    dim overlay follow this knob, DECOUPLED from
-                                //    the GRID's own check bubble above: removing
-                                //    the checkmark keeps the grayness). ──
-                                SwitchRow(
-                                    title = "Dim watched episodes",
-                                    description = "Fade and grayscale watched episodes",
-                                    checked = dimWatched,
-                                    onChecked = { playerListPrefs.dimWatched.set(it) },
-                                )
-                                // ── The BANNER's number block (ROUND 105: the
-                                //    toggle + the nested position/style rows). ──
-                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.BANNER) {
-                                    SwitchRow(
-                                        title = "Episode number",
-                                        description = "The big number on the banner",
-                                        checked = showEpisodeNumber,
-                                        onChecked = { playerListPrefs.showEpisodeNumber.set(it) },
-                                    )
-                                }
                                 AnimatedStyleRow(
                                     visible = style == PlayerEpisodeListStyle.BANNER && showEpisodeNumber,
                                     modifier = Modifier.padding(start = 12.dp),
@@ -782,22 +777,6 @@ fun PlayerEpisodeListSettingsScreen(
                                                 if (idx == 1) "TINT" else "PLAY",
                                             )
                                         },
-                                    )
-                                }
-                                // ── ROUND 108 (D-713): the BANNER's watched
-                                //    check mark — the details CINEMA's knob,
-                                //    ported ("a similar kind of thing for the
-                                //    banner view too"): the dim/grayscale
-                                //    treatment rides the dim knob as always;
-                                //    the centered circular check is its OWN.
-                                //    Default OFF (the zero-prefs look is
-                                //    today's). ──
-                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.BANNER) {
-                                    SwitchRow(
-                                        title = "Watched check mark",
-                                        description = "The centered check on watched banners",
-                                        checked = bannerWatchedCheck,
-                                        onChecked = { playerListPrefs.bannerWatchedCheck.set(it) },
                                     )
                                 }
                                 // ── The BANNER's SIZE slider (ROUND 105,

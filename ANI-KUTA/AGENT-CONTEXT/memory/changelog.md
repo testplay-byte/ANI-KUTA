@@ -2325,3 +2325,11 @@ The round-107 order: robust layout rules for the player episode list's DETAILED 
 - The player BANNER rebuilt as the details CINEMA's twin: the 3-stop scrim, the zero-padded ghost number, the bottom-left name + one joined "date · audio · WATCHED" pill, the bottom-right badge, the inset progress pills.
 - Both episode-list settings screens share ONE widget anatomy (the shared kit); the details screen's duplicated inner headings are gone; the settings-search anchor off-by-one fixed; new search entries for the grid knobs.
 - (Process) the first implementation was lost to a sandbox reset before push — re-implemented and shipped after the credentials were restored; rounds 108/109's memory-file debt closed.
+
+
+## Round 111 (v1.1.68) — The meta line's one rule, the classic row's one truth
+
+- THE META LINE: the release date + the SUB/DUB availability render on ONE line, never a break, on both pages' classic rows, both grids, and the timeline — and when the space runs out the sub/dub chips collapse to S/D on their own (the automatic density ladder; a future density knob is designed in).
+- THE CLASSIC ROW, ONE TRUTH: the player's detailed view IS the details page's Classic row now — one shared implementation (the quiet EP label + one-line title, no tag on the thumbnail, the disc fallback, the inset progress pill, the full-width download bar, the whole-card watched fade); the layout is renamed Classic on both pages (stored settings migrate silently).
+- The tracklist's currently-playing row no longer shows the redundant play glyph; the border + tint carry it.
+- THE ELEMENTS' GRID OF BUTTONS: both episode-list Elements cards render their on/off toggles as equal-width animated buttons (2 per row, no descriptions); tapping the "Elements" heading flips the grid to 3 per row (the session-local testing aid).

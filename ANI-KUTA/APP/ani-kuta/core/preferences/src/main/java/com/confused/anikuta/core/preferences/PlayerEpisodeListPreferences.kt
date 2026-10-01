@@ -16,10 +16,10 @@ package com.confused.anikuta.core.preferences
  *
  * **Categories (ROUND 105 / D-707):**
  * 1. **Row appearance** — the FOUR layout paradigms
- *    (DETAILED / TRACKLIST / GRID / BANNER, see [rowStyle]) + the synopsis,
+ *    (CLASSIC / TRACKLIST / GRID / BANNER, see [rowStyle]) + the synopsis,
  *    date-pill, progress-bar, banner-number/position/style, banner-size,
  *    grid-checkmark/current/titles knobs within each style's frame.
- * 2. **Watched treatment** — dim watched rows (DETAILED + TRACKLIST +
+ * 2. **Watched treatment** — dim watched rows (CLASSIC + TRACKLIST +
  *    BANNER; the GRID has its own checkmark knob instead — the v1.1.62
  *    round: "rather than showing the user the dim option here").
  * 3. **Sort** — DIRECTION ONLY (ascending / descending over the episode
@@ -42,7 +42,8 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
      * that BOTH player stacks AND the Appearance → "Player page"
      * live preview call — the D-481 one-source-of-truth):
      *
-     * - `"DETAILED"` (default = the look the player list has always been):
+     * - `"CLASSIC"` (default; the round-111 rename of DETAILED — the details
+     *   page's own Classic row, shared):
      *     thumbnail + EP tag + title + date/audio pills + synopsis — the
      *     ONLY style that keeps the EP tag on the thumbnail (the v1.1.60
      *     round: the tags "should only be kept in the detailed view").
@@ -65,15 +66,16 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
      * LENIENT migration (the D-529 lesson): the retired round-101/103 keys
      * (COMPACT, MINIMAL — the density variations the v1.1.60 round called
      * "just trash") fold into TRACKLIST (the slot's replacement); unknown,
-     * null or blank → DETAILED.
+     * null or blank → CLASSIC (the stored legacy "DETAILED" value parses to
+     * CLASSIC too — the round-111 rename, migration-free).
      */
     val rowStyle = store.preference(
-        KEY_ROW_STYLE, "DETAILED", StringSerializer,
+        KEY_ROW_STYLE, "CLASSIC", StringSerializer,
     )
 
     /**
-     * Show the two-line synopsis under the title (DETAILED + TRACKLIST —
-     * ROUND 105 widens it from DETAILED-only: "there was no option to turn
+     * Show the two-line synopsis under the title (CLASSIC + TRACKLIST —
+     * ROUND 105 widens it from the classic-row-only: "there was no option to turn
      * on or show the synopsis or turn off the synopsis" in the Tracklist).
      */
     val showSynopsis = store.preference(
@@ -81,7 +83,7 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
     )
 
     /**
-     * Show the release-date pill (DETAILED + TRACKLIST + GRID + BANNER).
+     * Show the release-date pill (CLASSIC + TRACKLIST + GRID + BANNER).
      */
     val showDatePill = store.preference(
         KEY_SHOW_DATE_PILL, true, BooleanSerializer,
@@ -125,7 +127,7 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
     )
 
     /**
-     * Show the thin watch-progress bar / underline (DETAILED + TRACKLIST) —
+     * Show the thin watch-progress bar / underline (CLASSIC + TRACKLIST) —
      * ROUND 105: "I should be given an option there to show or hide the
      * progress bar."
      */
@@ -182,7 +184,7 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
     // ════════════════════════════════════════════════════════════════════════
 
     /**
-     * Dim watched episodes (ALL FOUR styles — DETAILED, TRACKLIST, BANNER,
+     * Dim watched episodes (ALL FOUR styles — CLASSIC, TRACKLIST, BANNER,
      * and GRID; the player twin of D-554). ROUND 109 (D-720): the GRID
      * rejoined this knob — it owns the grayscale + the dim overlay there
      * now, DECOUPLED from [gridWatchedCheckmark] (the v1.1.65 device round:

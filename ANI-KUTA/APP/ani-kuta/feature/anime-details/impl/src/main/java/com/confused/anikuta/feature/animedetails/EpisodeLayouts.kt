@@ -6,13 +6,11 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -85,9 +83,11 @@ import com.confused.anikuta.core.common.HapticHelper
 // and the short date formatter now live in :core:designsystem's episodelist
 // package (EpisodeMetaChips.kt) so the player page's grid renders the exact
 // same components (the local internal copies are deleted; the calls below
-// are unchanged).
-import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeAudioChip
-import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeDateChip
+// are unchanged). ROUND 111 (D-726): the chips themselves now render through
+// the shared EpisodeMetaLine — ONE line, never a break — and the number
+// label's plain branch delegates to the shared EpisodeNumberLabelPlain.
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeMetaLine
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeNumberLabelPlain
 import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeWatchProgressBar
 import com.confused.anikuta.core.designsystem.component.episodelist.GridThumbnailCorner
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
@@ -129,8 +129,9 @@ import kotlinx.coroutines.launch
  * actually be in the theme color"), TIMELINE's date node gained the BLOB
  * merge into its card (same-color organic union — the offset stays, the
  * user explicitly wanted it incorporated, not corrected), and the date/audio
- * TAGS were redesigned as the type-coded capsule chips
- * ([EpisodeDateChip]/[EpisodeAudioChip]) shared by CLASSIC + GRID.
+ * TAGS were redesigned as the type-coded capsule chips (EpisodeDateChip /
+ * EpisodeAudioChip — since ROUND 111 folded into the shared EpisodeMetaLine)
+ * shared by CLASSIC + GRID.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -204,17 +205,12 @@ internal fun EpisodeNumberLabel(
             softWrap = false,
         )
     } else {
-        Text(
+        // ROUND 111 (D-727): the plain branch delegates to the shared
+        // EpisodeNumberLabelPlain — the player page's classic row renders
+        // the IDENTICAL quiet label through the same implementation.
+        EpisodeNumberLabelPlain(
             text = "EP ${episodeTag?.number ?: epNumText}",
-            fontFamily = RobotoFamily,
-            fontSize = 11.sp,
-            lineHeight = 13.sp,
-            fontWeight = FontWeight.ExtraBold,
-            letterSpacing = 0.5.sp,
-            color = accent,
             modifier = modifier,
-            maxLines = 1,
-            softWrap = false,
         )
     }
 }
@@ -822,38 +818,29 @@ private fun GridCellTitleLine(
 
 /**
  * ROUND 110 (D-723): the details GRID's chips flow — extracted so the
- * cell's two number-position arrangements share ONE chips block: the
- * shared date capsule (the SHORT date) leading, then the type-coded audio
- * capsules, in the (4,4) wrapping FlowRow.
+ * cell's two number-position arrangements share ONE chips block. ROUND
+ * 111 (D-726): the block renders the shared [EpisodeMetaLine] — the date
+ * capsule (the SHORT date) + the type-coded audio capsules in ONE line
+ * that never breaks (the space-constrained S/D/H simplification is the
+ * meta line's own automatic ladder, tuned to the half-width cell).
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GridCellChips(
     style: EpisodeListDisplayStyle,
     display: EpisodeDisplayData,
 ) {
-    val chips = buildList {
-        if (style.showDatePill && display.shortDateText != null) add(display.shortDateText)
-        if (style.showAudioPills) addAll(display.audioLabels)
-    }
-    if (chips.isEmpty()) return
+    val date = if (style.showDatePill) display.shortDateText?.takeIf { it.isNotBlank() } else null
+    val audio = if (style.showAudioPills) display.audioLabels else emptyList()
+    if (date == null && audio.isEmpty()) return
     Spacer(Modifier.height(5.dp))
-    FlowRow(
+    EpisodeMetaLine(
+        dateText = date,
+        audioTags = audio,
+        spacing = 4.dp,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        chips.forEachIndexed { idx, chip ->
-            val isDateChip = idx == 0 && style.showDatePill && !display.shortDateText.isNullOrBlank()
-            if (isDateChip) {
-                EpisodeDateChip(text = chip)
-            } else {
-                EpisodeAudioChip(label = chip)
-            }
-        }
-    }
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -969,14 +956,16 @@ internal fun EpisodeTimelineRow(
                         )
                         if (style.showAudioPills && display.audioLabels.isNotEmpty()) {
                             Spacer(Modifier.height(4.dp))
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                display.audioLabels.forEach { label ->
-                                    EpisodeAudioChip(label = label)
-                                }
-                            }
+                            // ROUND 111 (D-726): the timeline's audio chips
+                            // join the shared META LINE — ONE line, never a
+                            // break (the round-111 rule; the card's width
+                            // makes the ladder's compact rung a non-issue,
+                            // exactly as the user predicted).
+                            EpisodeMetaLine(
+                                dateText = null,
+                                audioTags = display.audioLabels,
+                                spacing = 4.dp,
+                            )
                         }
                     }
                     if (display.thumbnailUrl != null) {

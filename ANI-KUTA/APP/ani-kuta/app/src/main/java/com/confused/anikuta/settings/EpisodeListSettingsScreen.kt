@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -185,6 +186,14 @@ fun EpisodeListSettingsScreen(
     contentRepository: ContentRepository = koinInject(),
     dataCacheRepository: DataCacheRepository = koinInject(),
 ) {
+    // ── ROUND 111 (D-729): the Elements grid's per-row button count — the
+    //    heading-tap testing aid ("when I click on the Elements heading …
+    //    it will switch the grid layout to Three buttons per row. So make
+    //    sure to give this functionality so I can test out how the things
+    //    will overall look like"). Session-local (survives rotation, never
+    //    a pref — an experiment knob, not a setting). ──
+    var elementsThreePerRow by rememberSaveable { mutableStateOf(false) }
+
     // ── The reactive reads — the SAME prefs the details screen collects.
     // Every write below updates the pref; `changes` re-emits; the preview
     // AND the details list re-shape from the same emission (no local
@@ -637,57 +646,61 @@ fun EpisodeListSettingsScreen(
                         }
                     }
 
-                    // ── the elements — switches with ONE-LINE descriptions ──
+                    // ── the elements — ROUND 111 (D-729): THE GRID OF
+                    //    BUTTONS ("a grid layout of buttons which I can click
+                    //    and turn to toggle them on or to toggle them off …
+                    //    two options per row"), NO descriptions, the clean
+                    //    color + check animation, and the card-heading tap
+                    //    flipping 2 ↔ 3 buttons per row (the user's testing
+                    //    aid for the layout experiment). The search anchors
+                    //    ride the buttons themselves now. ──
                     item {
-                        EpisodeSettingsCard(label = "Elements") {
-                            SettingsHighlightTarget(anchorId = "el_synopsis", activeAnchor = highlightAnchor) {
-                            SwitchRow(
-                                title = "Synopsis",
-                                checked = showSynopsis,
-                                onChecked = { episodeListPrefs.showSynopsis.set(it) },
-                                description = "The two-line description (Classic rows only)",
+                        EpisodeSettingsCard(
+                            label = "Elements",
+                            onLabelClick = { elementsThreePerRow = !elementsThreePerRow },
+                        ) {
+                            ElementToggleGrid(
+                                entries = listOf(
+                                    ElementToggleEntry(
+                                        title = "Synopsis",
+                                        checked = showSynopsis,
+                                        onToggle = { episodeListPrefs.showSynopsis.set(!showSynopsis) },
+                                        anchorId = "el_synopsis",
+                                    ),
+                                    ElementToggleEntry(
+                                        title = "Release date",
+                                        checked = showDatePill,
+                                        onToggle = { episodeListPrefs.showDatePill.set(!showDatePill) },
+                                        anchorId = "el_date",
+                                    ),
+                                    ElementToggleEntry(
+                                        title = "Audio pills",
+                                        checked = showAudioPills,
+                                        onToggle = { episodeListPrefs.showAudioPills.set(!showAudioPills) },
+                                        anchorId = "el_audio",
+                                    ),
+                                    ElementToggleEntry(
+                                        title = "Watch progress",
+                                        checked = showWatchProgress,
+                                        onToggle = { episodeListPrefs.showWatchProgress.set(!showWatchProgress) },
+                                        anchorId = "el_progress",
+                                    ),
+                                    ElementToggleEntry(
+                                        title = "Dim watched",
+                                        checked = dimWatched,
+                                        onToggle = { episodeListPrefs.dimWatched.set(!dimWatched) },
+                                        anchorId = "el_dim",
+                                    ),
+                                    ElementToggleEntry(
+                                        title = "Download buttons",
+                                        checked = showDownloadControl,
+                                        onToggle = { episodeListPrefs.showDownloadControl.set(!showDownloadControl) },
+                                        anchorId = "el_download",
+                                    ),
+                                ),
+                                columns = if (elementsThreePerRow) 3 else 2,
+                                highlightAnchor = highlightAnchor,
                             )
-                            }
-                            SettingsHighlightTarget(anchorId = "el_date", activeAnchor = highlightAnchor) {
-                            SwitchRow(
-                                title = "Release date",
-                                checked = showDatePill,
-                                onChecked = { episodeListPrefs.showDatePill.set(it) },
-                                description = "Shown in every layout where it fits",
-                            )
-                            }
-                            SettingsHighlightTarget(anchorId = "el_audio", activeAnchor = highlightAnchor) {
-                            SwitchRow(
-                                title = "Audio pills",
-                                checked = showAudioPills,
-                                onChecked = { episodeListPrefs.showAudioPills.set(it) },
-                                description = "SUB · DUB · HSUB availability",
-                            )
-                            }
-                            SettingsHighlightTarget(anchorId = "el_progress", activeAnchor = highlightAnchor) {
-                            SwitchRow(
-                                title = "Watch progress",
-                                checked = showWatchProgress,
-                                onChecked = { episodeListPrefs.showWatchProgress.set(it) },
-                                description = "The bar on the imagery's edge",
-                            )
-                            }
-                            SettingsHighlightTarget(anchorId = "el_dim", activeAnchor = highlightAnchor) {
-                            SwitchRow(
-                                title = "Dim watched",
-                                checked = dimWatched,
-                                onChecked = { episodeListPrefs.dimWatched.set(it) },
-                                description = "Fade and grayscale watched episodes",
-                            )
-                            }
-                            SettingsHighlightTarget(anchorId = "el_download", activeAnchor = highlightAnchor) {
-                            SwitchRow(
-                                title = "Download buttons",
-                                checked = showDownloadControl,
-                                onChecked = { episodeListPrefs.showDownloadControl.set(it) },
-                                description = "The control/badge on each episode",
-                            )
-                            }
                         }
                     }
 

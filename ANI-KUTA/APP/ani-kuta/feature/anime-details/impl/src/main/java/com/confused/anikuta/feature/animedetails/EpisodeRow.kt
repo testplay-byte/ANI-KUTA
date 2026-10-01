@@ -1,52 +1,20 @@
 package com.confused.anikuta.feature.animedetails
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 // ROUND 109 (D-719): the shared meta pieces (chips + progress pill + the
 // short date formatter) moved to :core:designsystem's episodelist package —
 // the classic row's calls are unchanged, only the import source moved.
-import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeAudioChip
-import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeDateChip
-import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeWatchProgressBar
+// ROUND 111 (D-727): the classic row's own ANATOMY moved there too
+// (EpisodeClassicRow) — one implementation, both pages.
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeClassicRow
 import com.confused.anikuta.core.designsystem.component.episodelist.formatShortDate
 import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
-import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import org.koin.compose.koinInject
 
@@ -523,261 +491,63 @@ fun EpisodeRow(
     val showDate = style.showDatePill && dateText != null
     val showAudio = style.showAudioPills && audioLabels.isNotEmpty()
 
-    // ── Phase WP: watched styling (IM4: alpha fade + grayscale on the thumbnail) ──
-    // D-554: the treatment is a USER TOGGLE now — dimWatched=false renders
-    // watched episodes at full strength.
-    val targetAlpha = if (isWatched && style.dimWatched) 0.5f else 1.0f
-    val alpha by animateFloatAsState(
-        targetValue = targetAlpha,
-        label = "watched_alpha",
-    )
-    val colorFilter = remember(isWatched, style.dimWatched) {
-        if (isWatched && style.dimWatched) {
-            ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
-                0.299f, 0.587f, 0.114f, 0f, 0f,
-                0.299f, 0.587f, 0.114f, 0f, 0f,
-                0.299f, 0.587f, 0.114f, 0f, 0f,
-                0f, 0f, 0f, 1f, 0f,
-            )))
-        } else null
-    }
-
-    // ── Card ── (D-555: the swipe-to-toggle gesture lives in
-    // SwipeToToggleWatched now — the same wrapper the TIMELINE + CINEMA
-    // layouts reuse; the watched alpha stays HERE because the CLASSIC dim
-    // treatment fades the WHOLE card, unlike the image-only fades of the
-    // other layouts. The D-211 download-progress overlay remains part of
-    // the card content.)
+    // ── ROUND 111 (D-727): THE CLASSIC ROW, ONE TRUTH — the body is the
+    //    shared EpisodeClassicRow now (the verbatim extraction of this very
+    //    anatomy into :core:designsystem), so the player page's classic
+    //    layout renders the EXACT same row. This adapter keeps what is the
+    //    details page's own: the display resolution, the gates, the
+    //    compound-capable number label, the EpisodeDownloadControl, and the
+    //    swipe-to-toggle wrapper (the animated watched fade + the grayscale
+    //    moved INTO the shared row). ──
     SwipeToToggleWatched(
         isWatched = isWatched,
         onToggleWatched = onToggleWatched,
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer { this.alpha = alpha },
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        // The actual card — opaque (NOT transparent). The wrapper carries
-        // the swipe offset + gesture + background icon; THIS Box keeps the
-        // surface + the click (the D-211 shape).
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .clickable(onClick = onClick),
-        ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
-        ) {
-            // ══ TOP SECTION: thumbnail (left) + title/meta (right) + download (far right) ══
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-            ) {
-                // ── Thumbnail (left) — imagery ONLY (D-557) ──
-                if (thumbnailUrl != null) {
-                    Box(
-                        modifier = Modifier.size(width = 120.dp, height = 68.dp),
-                    ) {
-                        AsyncImage(
-                            model = thumbnailUrl,
-                            contentDescription = displayTitle,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(10.dp)),
-                            contentScale = ContentScale.Crop,
-                            // Phase WP: grayscale when watched (IM4 — GPU-side, cheap).
-                            colorFilter = colorFilter,
-                        )
-                        // D-557: the EP pill is GONE from the imagery — the
-                        // v1.1.30 device round: the tags "are shown on the top
-                        // left corner of the image … the image gets covered way
-                        // too much, the UI looks bad". The number now lives
-                        // ABOVE THE TITLE in the text column
-                        // (EpisodeNumberLabel); the thumbnail renders only
-                        // imagery + the D-557 rounded inset watch-progress pill
-                        // (the old square-capped full-width indicator was the
-                        // user's "little bit glitch" — it overflowed the
-                        // rounded corners).
-                        if (style.showWatchProgress && progressFraction > 0f && !isWatched) {
-                            EpisodeWatchProgressBar(
-                                fraction = progressFraction,
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(horizontal = 6.dp, vertical = 5.dp),
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                } else {
-                    // No thumbnail — circle episode number (40dp disc)
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.size(40.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            // Task 56: the disc shows the same number the EP tag
-                            // would — the per-flavor ordinal for CS sub/dub rows.
-                            Text(
-                                text = episodeTag?.number ?: epNumText,
-                                fontFamily = RobotoFamily,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                }
-
-                // ── Right column: EP number label (D-557) + title (top) + date/audio pills (bottom) ──
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    // D-557: the episode number lives HERE now — a quiet themed
-                    // mini-label above the title (the compound "S-n/E-m" tag's
-                    // two-shade rendering moved with it). The imagery stays
-                    // uncovered.
-                    EpisodeNumberLabel(
-                        episodeTag = episodeTag,
-                        epNumText = epNumText,
-                        modifier = Modifier.padding(bottom = 3.dp),
-                    )
-                    // Title — with subtle background surface
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = displayTitle,
-                            fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        )
-                    }
-                    // Date + Audio pills + (download button if no synopsis)
-                    // D-554: the row shows when ANY resident survives the gates —
-                    // the algebra lives in pillsRowVisible (unit-tested) and is
-                    // mirrored here.
-                    if (pillsRowVisible(style, dateText != null, audioLabels.isNotEmpty(), showSynopsisSection)) {
-                        Spacer(Modifier.height(6.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            // Date capsule + audio capsules — the D-556 tag
-                            // redesign (EpisodeLayouts.kt): pill CAPSULES
-                            // with type-coded colors instead of the flat
-                            // outlineVariant surfaces the v1.1.29 device
-                            // round called "way too bad". The visibility
-                            // algebra above is unchanged.
-                            if (showDate) {
-                                EpisodeDateChip(text = dateText)
-                            }
-                            if (showAudio) {
-                                audioLabels.forEach { label ->
-                                    EpisodeAudioChip(label = label)
-                                }
-                            }
-                            // Download button — shown here (next to pills) when no synopsis.
-                            // D.6: replaced the placeholder toast button with the state-driven
-                            // EpisodeDownloadControl (7 states + AnimatedContent transitions).
-                            // D-554: it moves here whenever the synopsis section is NOT
-                            // rendered (no synopsis, toggled off, or a style without it),
-                            // and the download toggle can hide it entirely.
-                            if (style.showDownloadControl && !showSynopsisSection) {
-                                Spacer(Modifier.weight(1f))
-                                EpisodeDownloadControl(
-                                    state = downloadState,
-                                    onDownload = onDownload,
-                                    onPause = onPause,
-                                    onResume = onResume,
-                                    onCancel = onCancel,
-                                    onRetry = onRetry,
-                                    onDelete = onDelete,
-                                    onPlayDownloaded = onPlayDownloaded,
-                                    previewTapAll = previewTapAll,
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // (Download button moved to the synopsis section below, or to
-                //  the date/audio pills row if no synopsis)
-            }
-
-            // ══ BOTTOM SECTION: Synopsis (below thumbnail + title row) + download button ══
-            // If there IS a synopsis: download button goes at the bottom-right of synopsis.
-            // If there is NO synopsis: download button goes at the right of the date/audio pills row.
-            // D-554: the section is a USER TOGGLE within DETAILED — and the style
-            // frame (COMPACT/MINIMAL) never renders it.
-            if (showSynopsisSection) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            text = description,
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            lineHeight = 15.sp,
-                            fontWeight = FontWeight.Normal,
-                            color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                        )
-                    }
-                    if (style.showDownloadControl) {
-                        Spacer(Modifier.width(8.dp))
-                        EpisodeDownloadControl(
-                            state = downloadState,
-                            onDownload = onDownload,
-                            onPause = onPause,
-                            onResume = onResume,
-                            onCancel = onCancel,
-                            onRetry = onRetry,
-                            onDelete = onDelete,
-                            onPlayDownloaded = onPlayDownloaded,
-                            previewTapAll = previewTapAll,
-                        )
-                    }
-                }
-            } else {
-                // No synopsis — move download button up to the date/audio pills row.
-                // Show it at the end of the top section's right column.
-                // (Already rendered inline in the date/audio pills Row above if no synopsis.)
-            }
-        }
-        // D-211: full-width download progress bar overlay at the bottom of the card.
-        // Spans the ENTIRE card width (under the buttons too). Doesn't add height —
-        // it's an overlay on the Box, aligned BottomCenter. Only shows when downloading.
-        // D-554: NOT covered by the watch-progress toggle — transient state feedback.
-        if (downloadState is EpisodeDownloadState.Downloading) {
-            LinearProgressIndicator(
-                progress = { (downloadState.progress / 100f).coerceIn(0f, 1f) },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(3.dp),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-            )
-        }
+        EpisodeClassicRow(
+            thumbnailUrl = thumbnailUrl,
+            fallbackNumberText = episodeTag?.number ?: epNumText,
+            numberLabel = {
+                EpisodeNumberLabel(
+                    episodeTag = episodeTag,
+                    epNumText = epNumText,
+                    modifier = Modifier.padding(bottom = 3.dp),
+                )
+            },
+            displayTitle = displayTitle,
+            dateText = if (showDate) dateText else null,
+            audioTags = if (showAudio) audioLabels else emptyList(),
+            synopsis = if (showSynopsisSection) description else null,
+            pillsRowVisible = pillsRowVisible(
+                style = style,
+                hasDate = dateText != null,
+                hasAudio = audioLabels.isNotEmpty(),
+                showsSynopsis = showSynopsisSection,
+            ),
+            showWatchProgress = style.showWatchProgress,
+            progressFraction = progressFraction,
+            downloadControl = {
+                EpisodeDownloadControl(
+                    state = downloadState,
+                    onDownload = onDownload,
+                    onPause = onPause,
+                    onResume = onResume,
+                    onCancel = onCancel,
+                    onRetry = onRetry,
+                    onDelete = onDelete,
+                    onPlayDownloaded = onPlayDownloaded,
+                    previewTapAll = previewTapAll,
+                )
+            },
+            showDownloadControl = style.showDownloadControl,
+            downloadProgress = (downloadState as? EpisodeDownloadState.Downloading)
+                ?.progress?.div(100f),
+            isWatched = isWatched,
+            dimWatched = style.dimWatched,
+            onClick = onClick,
+            titleColor = LocalCardHeadingColor.current,
+            descriptionColor = LocalCardDescriptionColor.current,
+        )
     }
-    } // close SwipeToToggleWatched (the Phase WP gesture — D-555 extraction)
 }
+

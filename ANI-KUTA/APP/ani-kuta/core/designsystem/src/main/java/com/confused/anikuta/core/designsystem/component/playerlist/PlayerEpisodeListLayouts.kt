@@ -13,12 +13,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -72,8 +69,9 @@ import coil3.compose.AsyncImage
 // page's own chips (SUB primary / DUB tertiary / HSUB neutral capsules, the
 // quiet date capsule) and the inset progress pill through these, so the two
 // grids can never drift.
-import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeAudioChip
-import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeDateChip
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeClassicRow
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeMetaLine
+import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeNumberLabelPlain
 import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeWatchProgressBar
 import com.confused.anikuta.core.designsystem.component.episodelist.GridThumbnailCorner
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -101,18 +99,20 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 //    right, never a thumbnail, never a synopsis. A different STRUCTURE, not
 //    a variation of one row.
 //
-//  • THE EP TAG lives ONLY on the DETAILED row — "the tags, the episode tags
-//    which show on the top left corner of the thumbnail images. I don't like
-//    them, so remove them. It should only be kept in the detailed view." The
-//    GRID's number moved into the bottom scrim's title line; the TRACKLIST's
-//    number IS its hero; the BANNER keeps its top-end ghost numeral (not a
-//    top-left tag) and it is now TOGGLEABLE.
+//  • THE EP TAG IS GONE FROM THE ROW — round 111 (D-727): the classic
+//    row IS the details page's CLASSIC row now, whose D-557 verdict
+//    ("the tags … are shown on the top left corner of the thumbnail
+//    images … the image gets covered way too much") killed the on-image
+//    tag: the number lives in the quiet label line above the title. The
+//    GRID's number sits in the cell's text block (UNDER_THUMB or
+//    BESIDE_DETAILS); the TRACKLIST's number IS its hero; the BANNER keeps
+//    its toggleable top-corner ghost numeral (a numeral, not a tag).
 //
 //  • THE DIM is real now — the v1.1.60 round: "apparently on the details
 //    one, it does not have any functionality properly implemented for that,
-//    for dimming the watched episodes." The DETAILED row dims the WHOLE card
-//    (graphicsLayer alpha 0.55) + grayscales the thumbnail — the details
-//    page's CLASSIC treatment, exactly.
+//    for dimming the watched episodes." The CLASSIC row dims the WHOLE card
+//    (the shared row's animated 0.5 alpha) + grayscales the thumbnail —
+//    the details page's own treatment, verbatim.
 //
 //  • THE BANNER gained the controls — "the episode number is not shown
 //    properly, it is not customizable… add a density slider too, like I can
@@ -139,21 +139,20 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 //  identity/progress/ordinal logic and map it into [PlayerEpisodeRowData];
 //  this file renders and nothing else.
 //
-//  ROUND 107 (D-712): THE ROBUST LAYOUT RULES — the detailed layout's
-//  line-breaking contract + the simplified tag model (doc 89):
+//  ROUND 107 (D-712): THE ROBUST LAYOUT RULES — the layouts'
+//    line-breaking contract + the simplified tag model (doc 89):
 //
-//  • THE LINE-BREAKING RULES — the DETAILED + GRID titles wrap to TWO
-//    lines (ellipsis past the second); the TRACKLIST keeps its one-line
-//    compact identity; the BANNER's scrim name keeps one line; synopses
-//    run two lines; the pills WRAP (the round-106 "tags are data"
-//    contract stands); and NUMBERS NEVER BREAK — the EP tag, the DETAILED
-//    fallback tile (which GROWS via defaultMinSize instead of wrapping
-//    mid-number; GRID/BANNER carry the never-break guard), the TRACKLIST
-//    hero's exact-fit column, the big BANNER numeral. A 2-line title + a
-//    1-line pill row stacks to EXACTLY the 68dp thumbnail at 1× font
-//    scale → the DETAILED row's height stays stable through the common
-//    wrap cases (larger font scales grow the row gracefully — the
-//    thumbnail top-anchors, nothing clips).
+//  • THE LINE-BREAKING RULES — the GRID titles wrap to TWO lines (ellipsis
+//    past the second); the CLASSIC row keeps the details page's own ONE-line
+//    title (round 111: the shared row, verbatim); the TRACKLIST keeps its
+//    one-line compact identity; the BANNER's scrim name keeps one line;
+//    synopses run two lines; THE META LINE NEVER BREAKS (round 111, D-726:
+//    the date + SUB/DUB render on ONE line — the space-constrained S/D/H
+//    simplification is the meta line's own automatic ladder, so the
+//    round-106 "tags are data" contract stands WITHOUT wrapping); and
+//    NUMBERS NEVER BREAK — the GRID/BANNER glyphs carry the never-break
+//    guard, the TRACKLIST hero's exact-fit column, the big BANNER numeral,
+//    the CLASSIC row's number-disc fallback.
 //
 //  • THE TAG MODEL — [buildRowTags] is the ONE builder for every layout's
 //    metadata pills (it replaced the four ad-hoc buildLists that
@@ -170,9 +169,15 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
  * [com.confused.anikuta.core.preferences.PlayerEpisodeListPreferences.rowStyle];
  * ALWAYS resolved through [fromKey] so a stored legacy or unknown value maps
  * to the style the renderer will actually draw (the D-529 lesson).
+ *
+ * ROUND 111 (D-727): DETAILED is renamed CLASSIC — the row now IS the
+ * details page's Classic row (one shared [EpisodeClassicRow] anatomy,
+ * "we should make both of them the similar naming, so that it's easier
+ * for us"). The stored "DETAILED" strings (the old default included) parse
+ * to CLASSIC through the lenient lookup below — no migration needed.
  */
 enum class PlayerEpisodeListStyle {
-    DETAILED,
+    CLASSIC,
     TRACKLIST,
     GRID,
     BANNER;
@@ -181,14 +186,15 @@ enum class PlayerEpisodeListStyle {
         /**
          * The lenient lookup: the retired round-101/103 density keys
          * ("COMPACT", "MINIMAL" — the variations the v1.1.60 round retired)
-         * fold into TRACKLIST (the slot's from-scratch replacement); unknown,
-         * null or blank → DETAILED (the player list's default look).
+         * fold into TRACKLIST (the slot's from-scratch replacement); the
+         * retired "DETAILED" name (round-111's rename) folds into CLASSIC;
+         * unknown, null or blank → CLASSIC (the player list's default look).
          */
         fun fromKey(key: String?): PlayerEpisodeListStyle = when (key?.trim()?.uppercase()) {
             "TRACKLIST", "COMPACT", "MINIMAL" -> TRACKLIST
             "GRID" -> GRID
             "BANNER" -> BANNER
-            else -> DETAILED
+            else -> CLASSIC
         }
     }
 }
@@ -293,7 +299,7 @@ data class PlayerEpisodeListDisplay(
     val dimWatched: Boolean = true,
     /** ROUND 104: the BANNER's ghost episode number toggle. */
     val showEpisodeNumber: Boolean = true,
-    /** ROUND 105: the thin watch-progress bar/underline (DETAILED + TRACKLIST
+    /** ROUND 105: the thin watch-progress bar/underline (CLASSIC + TRACKLIST
      *  + GRID + BANNER — ROUND 108 widened it to the banner, the CINEMA
      *  parity). */
     val showProgressBar: Boolean = true,
@@ -471,8 +477,9 @@ fun bannerVerticalPadding(size: Float): Dp {
 //      (the MPV parse's semantics, shared by the CS scanlator path now).
 //    R-T3 ORDER — the date leads, then SUB → DUB → HSUB, then the other
 //      labels (first-seen, original casing — no data loss).
-//    R-T4 NEVER CLIPPED — the builder returns every tag; the FlowRows
-//      wrap (the round-106 contract stands).
+//    R-T4 NEVER CLIPPED — the builder returns every tag; the META LINE
+//      renders them all on ONE line (round 111: the density ladder
+//      simplifies BEFORE anything would ever clip or wrap).
 // ════════════════════════════════════════════════════════════════════════════
 
 /** The canonical audio-tag order (the R-T3 sequence). */
@@ -527,7 +534,7 @@ private fun buildRowTags(
 
 /**
  * THE DISPATCHER — one episode entry in whichever of the four paradigms
- * [display.style] selects. Row styles (DETAILED/TRACKLIST) and the BANNER
+ * [display.style] selects. Row styles (CLASSIC/TRACKLIST) and the BANNER
  * wrap in the shared swipe-to-toggle when [onToggleWatched] is provided
  * (carrying the entry's outer padding); GRID renders ONE CELL of the
  * two-across wall (the callers pair them through [PlayerEpisodeGridRow];
@@ -551,7 +558,7 @@ fun PlayerEpisodeListEntry(
     downloadActions: PlayerEpisodeDownloadActions? = null,
 ) {
     when (display.style) {
-        PlayerEpisodeListStyle.DETAILED -> SwipeableEntry(
+        PlayerEpisodeListStyle.CLASSIC -> SwipeableEntry(
             data = data,
             onToggleWatched = onToggleWatched,
             modifier = modifier,
@@ -721,20 +728,21 @@ private fun BoxScope.ArrivalPulseOverlay(pulseAlpha: Float, shape: androidx.comp
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DETAILED — the player row (the look the player list has always been):
-//  thumbnail + the ONLY surviving EP tag + title + pills + synopsis. The
-//  watched dim is the REAL one now (whole-card alpha + grayscale thumbnail).
-//
-//  ROUND 107 (WS-1): THE ROBUST RULES — the title wraps to TWO lines
-//  (ellipsis past the second; a 2-line title + 1-line pills stacks to
-//  exactly the 68dp thumbnail at 1× font scale, so the row's height
-//  stays stable), the pills come from the shared TAG MODEL, the EP tag
-//  slims, the fallback number tile GROWS instead of wrapping mid-number,
-//  and the synopsis's dead Row wrapper (the retired download hint's
-//  skeleton) is gone.
+//  CLASSIC (round 111, D-727 — born DETAILED, renamed to the shared
+//  vocabulary) — THE DETAILS PAGE'S OWN CLASSIC ROW, VERBATIM: the player
+//  renders through the same shared EpisodeClassicRow the details page
+//  renders through ("utilize the exact same classic layout of the details
+//  page on the player page too. So make sure that this is handled properly
+//  and make sure to link them together properly"). The imagery-only
+//  thumbnail (no EP overlay — the number lives in the quiet label line),
+//  the 40dp number-disc fallback, the one-line title, the META LINE (one
+//  line, never a break — D-726) with the download badge in the classic
+//  slots, the synopsis plate, the inset watch pill, the full-width download
+//  bar, and the whole-card animated watched fade. The player's own chrome
+//  rides the shared row's parameters: the current-episode tint + ring and
+//  the arrival-pulse overlay.
 // ════════════════════════════════════════════════════════════════════════════
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlayerEpisodeRow(
     data: PlayerEpisodeRowData,
@@ -745,20 +753,10 @@ private fun PlayerEpisodeRow(
     downloadActions: PlayerEpisodeDownloadActions? = null,
 ) {
     val isCurrent = data.isCurrent
-    // ROUND 104 (WS-D): the REAL dim — the whole card at 0.55 alpha + the
-    // grayscale thumbnail (the details page's CLASSIC treatment; the current
-    // row's highlight always wins).
     val dimmed = data.isWatched && display.dimWatched && !isCurrent
-    val grayscale = dimmed
-    val description = if (!display.showSynopsis) null else data.synopsis
+    val description = if (display.showSynopsis) data.synopsis?.takeIf { it.isNotBlank() } else null
     val dateText = if (display.showDatePill) data.dateText else null
-    // ROUND 110 (D-722): THE ROWS' SHARED CAPSULES — the v1.1.66 device
-    // round: "the tags are most definitely not good in the player page"
-    // (the DETAILED row still rendered the old flat-gray 5dp Pill()
-    // rectangle while the grids had moved to the type-coded capsules).
-    // The rows now render the details page's own vocabulary — the quiet
-    // date capsule + the per-type audio capsules (SUB primary / DUB
-    // tertiary / HSUB neutral) — ONE chip language on both pages.
+    val dateChip = dateText?.takeIf { it.isNotBlank() }
     val audioTags = buildRowTags(
         dateText = null,
         showAudio = display.showAudioPills,
@@ -766,219 +764,52 @@ private fun PlayerEpisodeRow(
         subDubLabel = data.subDubLabel,
         flavorLabels = data.flavorLabels,
     )
-    val dateChip = dateText?.takeIf { it.isNotBlank() }
-    val pillsVisible = dateChip != null || audioTags.isNotEmpty()
-    // ROUND 106 (WS-D): THE DOWNLOAD BADGE — the toggle + the row's state +
-    // the wired actions together decide it.
+    // ROUND 106 (WS-D): the download badge's gate — the toggle + the row's
+    // state + the wired actions together decide it.
     val showDownloadBadge = display.showDownloadButton &&
         data.downloadState != null && downloadActions != null
-
-    Surface(
-        color = when {
-            isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-            dimmed -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
-            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+    EpisodeClassicRow(
+        thumbnailUrl = data.thumbnailUrl,
+        fallbackNumberText = data.episodeNumberText,
+        numberLabel = {
+            EpisodeNumberLabelPlain(
+                text = "EP ${data.episodeNumberText}",
+                modifier = Modifier.padding(bottom = 3.dp),
+            )
         },
-        shape = RoundedCornerShape(12.dp),
-        border = if (isCurrent) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-    ) {
-        Box {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { this.alpha = if (dimmed) 0.55f else 1f }
-                    .padding(10.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    // ── Thumbnail with the EP tag overlay (the ONLY style
-                    //    that keeps it — the v1.1.60 order) ──
-                    if (data.thumbnailUrl != null) {
-                        Box(
-                            modifier = Modifier.size(width = 120.dp, height = 68.dp),
-                        ) {
-                            AsyncImage(
-                                model = data.thumbnailUrl,
-                                contentDescription = data.displayTitle,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(10.dp)),
-                                contentScale = ContentScale.Crop,
-                                colorFilter = if (grayscale) {
-                                    ColorFilter.colorMatrix(
-                                        ColorMatrix().apply { setToSaturation(0f) },
-                                    )
-                                } else null,
-                            )
-                            // ── ROUND 107 (WS-1): the EP tag, slimmed —
-                            //    10sp / 5-2dp padding / corner 5dp; the
-                            //    identity anchor stays, the weight drops. ──
-                            Surface(
-                                shape = RoundedCornerShape(5.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                            ) {
-                                Text(
-                                    text = "EP ${data.episodeNumberText}",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 10.sp,
-                                    lineHeight = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(10.dp))
-                    } else {
-                        // ── ROUND 107 (WS-1): the number box (the
-                        //    thumbnail-less fallback tile) now GROWS for
-                        //    wide numbers (defaultMinSize) instead of
-                        //    soft-wrapping mid-number — numbers never
-                        //    break. ──
-                        Surface(
-                            color = if (isCurrent) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.defaultMinSize(
-                                minWidth = 44.dp,
-                                minHeight = 32.dp,
-                            ),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = data.episodeNumberText,
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = if (isCurrent) MaterialTheme.colorScheme.onPrimary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(10.dp))
-                    }
-                    // ── Right column: title + pills (a top-anchored
-                    //    stack — SA1-F3: the old SpaceBetween was INERT (a
-                    //    wrap-content Column has no free space to
-                    //    distribute); the pills sit directly under the
-                    //    title, the standard media-row rhythm). ──
-                    Column(
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                text = data.displayTitle,
-                                fontFamily = RobotoFamily,
-                                fontSize = 14.sp,
-                                lineHeight = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                // ── ROUND 107 (WS-1): THE TITLE WRAPS to
-                                //    two lines (ellipsis past the second) —
-                                //    long titles stop hard-cutting at one
-                                //    line; two lines + one pill row still
-                                //    fit the 68dp thumbnail, so the row
-                                //    stays stable. ──
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                        }
-                        if (pillsVisible) {
-                            Spacer(Modifier.height(6.dp))
-                            // ROUND 106 (WS-D): the pills WRAP — the tags are
-                            // data, never clipped ("all the tags are
-                            // considered properly and handled properly").
-                            // ROUND 110 (D-722): the shared CAPSULES — the
-                            // date leads as its own quiet capsule, then the
-                            // type-coded audio capsules (the details row's
-                            // exact vocabulary, one implementation).
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                dateChip?.let { text -> EpisodeDateChip(text = text) }
-                                audioTags.forEach { label -> EpisodeAudioChip(label = label) }
-                            }
-                        }
-                    }
-                    // ── ROUND 106 (WS-D): the TRAILING download badge — the
-                    //    row's end, beside the title/pills block (always
-                    //    visible, synopsis or not; the details page's
-                    //    trailing-control placement). ──
-                    if (showDownloadBadge && data.downloadState != null && downloadActions != null) {
-                        Spacer(Modifier.width(8.dp))
-                        PlayerEpisodeDownloadBadge(
-                            state = data.downloadState,
-                            actions = downloadActions,
-                        )
-                    }
-                }
-                // ── Synopsis — the retired download hint's dead Row
-                //    wrapper is GONE (ROUND 107); the plate stands alone,
-                //    two lines + ellipsis. ──
-                if (!description.isNullOrBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = description,
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            lineHeight = 15.sp,
-                            fontWeight = FontWeight.Normal,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-                // ── The thin watch-progress bar — partial watches only (fully
-                // watched rows dim instead). ROUND 105: toggleable
-                // ("show or hide the progress bar"). ──
-                if (data.progressFraction > 0f && !data.isWatched && display.showProgressBar) {
-                    Spacer(Modifier.height(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(2.dp)
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(data.progressFraction.coerceIn(0f, 1f))
-                                .fillMaxHeight()
-                                .background(MaterialTheme.colorScheme.primary),
-                        )
-                    }
-                }
+        displayTitle = data.displayTitle,
+        dateText = dateChip,
+        audioTags = audioTags,
+        synopsis = description,
+        pillsRowVisible = dateChip != null || audioTags.isNotEmpty() ||
+            (showDownloadBadge && description == null),
+        showWatchProgress = display.showProgressBar,
+        progressFraction = data.progressFraction,
+        downloadControl = {
+            if (data.downloadState != null && downloadActions != null) {
+                PlayerEpisodeDownloadBadge(
+                    state = data.downloadState,
+                    actions = downloadActions,
+                )
             }
-            // The scroll-arrival pulse (the current row only).
-            val pulseAlpha = rememberArrivalPulseAlpha(arrivalPulse, data.isCurrent)
-            ArrivalPulseOverlay(pulseAlpha, RoundedCornerShape(12.dp))
-        }
-    }
+        },
+        showDownloadControl = showDownloadBadge,
+        downloadProgress = (data.downloadState as? PlayerDownloadRenderState.Downloading)
+            ?.progress?.div(100f),
+        isWatched = data.isWatched,
+        dimWatched = dimmed,
+        isCurrent = isCurrent,
+        onClick = onClick,
+        modifier = modifier,
+        overlay = {
+            ArrivalPulseOverlay(
+                rememberArrivalPulseAlpha(arrivalPulse, data.isCurrent),
+                RoundedCornerShape(12.dp),
+            )
+        },
+    )
 }
+
 
 // ════════════════════════════════════════════════════════════════════════════
 //  TRACKLIST (ROUND 104 — replaces COMPACT; ROUND 105 refines) — the
@@ -999,7 +830,6 @@ private fun PlayerEpisodeRow(
 //  the spine stays list-stable), and the number grew 21sp → 24sp.
 // ════════════════════════════════════════════════════════════════════════════
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlayerTracklistRow(
     data: PlayerEpisodeRowData,
@@ -1031,7 +861,7 @@ private fun PlayerTracklistRow(
     val dateChip = dateText?.takeIf { it.isNotBlank() }
     // ROUND 105: the optional synopsis ("there was no option to turn on or
     // show the synopsis or turn off the synopsis. So I need a toggle… in
-    // this area") — the same knob the DETAILED row reads.
+    // this area") — the same knob the CLASSIC row reads.
     val synopsis = if (display.showSynopsis) data.synopsis?.takeIf { it.isNotBlank() } else null
 
     // ROUND 105: the EXACT-FIT number column — the LIST's widest number
@@ -1119,17 +949,15 @@ private fun PlayerTracklistRow(
                             overflow = TextOverflow.Ellipsis,
                         )
                         if (dateChip != null || audioTags.isNotEmpty()) {
-                            // ROUND 106 (WS-D): the pills WRAP — the tags are
-                            // data, never clipped. ROUND 110 (D-722): the
-                            // shared CAPSULES (the date leads, then the
-                            // type-coded audio capsules).
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                dateChip?.let { text -> EpisodeDateChip(text = text) }
-                                audioTags.forEach { label -> EpisodeAudioChip(label = label) }
-                            }
+                            // ROUND 111 (D-726): the META LINE — the date +
+                            // the type-coded audio capsules in ONE line
+                            // that never breaks (the round-111 rule; the
+                            // ladder's S/D/H rung guards the tight cases).
+                            EpisodeMetaLine(
+                                dateText = dateChip,
+                                audioTags = audioTags,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
                         if (synopsis != null) {
                             Text(
@@ -1156,17 +984,16 @@ private fun PlayerTracklistRow(
                             actions = downloadActions,
                         )
                     }
-                    // ── The trailing state glyph — the current row's play;
-                    //    a watched row's quiet check. ──
-                    Spacer(Modifier.width(8.dp))
-                    if (isCurrent) {
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = "Playing",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    } else if (data.isWatched) {
+                    // ── The trailing state glyph — a watched row's quiet
+                    //    check. ROUND 111 (D-728): the current row's PLAY
+                    //    glyph is GONE — the v1.1.67 device round: "it
+                    //    should not show the play button on the currently
+                    //    playing episode … It should not show that play
+                    //    button at all times." The primary border + the
+                    //    tinted surface already carry "playing"; the
+                    //    glyph's spot was pure redundancy. ──
+                    if (data.isWatched) {
+                        Spacer(Modifier.width(8.dp))
                         Icon(
                             imageVector = Icons.Filled.CheckCircle,
                             contentDescription = "Watched",
@@ -1176,7 +1003,7 @@ private fun PlayerTracklistRow(
                     }
                 }
                 // ── The thin watch-progress underline — partial watches only
-                //    (ROUND 105: toggleable with the DETAILED row's knob). ──
+                //    (ROUND 105: toggleable with the CLASSIC row's knob). ──
                 if (data.progressFraction > 0f && !data.isWatched && display.showProgressBar) {
                     Box(
                         modifier = Modifier
@@ -1383,7 +1210,7 @@ private fun PlayerEpisodeDownloadBadge(
 //  wash + the ring + the arrival pulse).
 // ════════════════════════════════════════════════════════════════════════════
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlayerEpisodeGridCell(
     data: PlayerEpisodeRowData,
@@ -1731,11 +1558,13 @@ private fun PlayerGridTitleLine(
 
 /**
  * ROUND 110 (D-723): the player GRID's chips flow — the details grid's own
- * (4,4) rhythm, the shared EpisodeDateChip (the SHORT date) leading, then
- * the type-coded EpisodeAudioChip capsules. Extracted so the cell's two
- * arrangements (UNDER_THUMB / BESIDE_DETAILS) share ONE chips block.
+ * (4,4) rhythm through the shared components. ROUND 111 (D-726): the
+ * block renders the shared [EpisodeMetaLine] — the date capsule (the SHORT
+ * date) + the type-coded audio capsules in ONE line that never breaks,
+ * with the automatic S/D/H simplification tuned to the half-width cell.
+ * Extracted so the cell's two arrangements (UNDER_THUMB / BESIDE_DETAILS)
+ * share ONE chips block.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlayerGridChipsFlow(
     dateChipText: String?,
@@ -1743,16 +1572,14 @@ private fun PlayerGridChipsFlow(
 ) {
     if (dateChipText == null && audioTags.isEmpty()) return
     Spacer(Modifier.height(5.dp))
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+    EpisodeMetaLine(
+        dateText = dateChipText,
+        audioTags = audioTags,
+        spacing = 4.dp,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 2.dp),
-    ) {
-        dateChipText?.let { text -> EpisodeDateChip(text = text) }
-        audioTags.forEach { label -> EpisodeAudioChip(label = label) }
-    }
+    )
 }
 
 // ════════════════════════════════════════════════════════════════════════════
