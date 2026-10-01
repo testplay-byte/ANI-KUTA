@@ -663,8 +663,11 @@ fun PlayerEpisodeListSettingsScreen(
                     //    multi-state knobs in their dedicated section, the
                     //    details page's Grid card mirrored (the same
                     //    smooth appear/disappear the details screen's
-                    //    Cinema/Grid cards own). ──
+                    //    Cinema/Grid cards own — the wrapper Column is the
+                    //    D-498 AnimatedVisibility-receiver pattern both
+                    //    screens' style cards share). ──
                     item {
+                        Column {
                         AnimatedVisibility(
                             visible = style == PlayerEpisodeListStyle.GRID,
                             enter = fadeIn(animationSpec = tween(300)) +
@@ -744,14 +747,17 @@ fun PlayerEpisodeListSettingsScreen(
                             }
                             }
                         }
+                        }
                     }
 
                     // ── ROUND 113 (D-736): THE BANNER CARD — the BANNER's own
                     //    multi-state knobs in their dedicated section (the
-                    //    Grid card's twin). The number position/style rows
-                    //    stay nested under the Episode-number toggle's gate
-                    //    (the ROUND 105 nesting, kept). ──
+                    //    Grid card's twin; the wrapper Column carries the
+                    //    same D-498 receiver pattern). The number position/
+                    //    style rows stay nested under the Episode-number
+                    //    toggle's gate (the ROUND 105 nesting, kept). ──
                     item {
+                        Column {
                         AnimatedVisibility(
                             visible = style == PlayerEpisodeListStyle.BANNER,
                             enter = fadeIn(animationSpec = tween(300)) +
@@ -896,6 +902,7 @@ fun PlayerEpisodeListSettingsScreen(
                                     }
                                 }
                             }
+                        }
                         }
                         }
                     }
