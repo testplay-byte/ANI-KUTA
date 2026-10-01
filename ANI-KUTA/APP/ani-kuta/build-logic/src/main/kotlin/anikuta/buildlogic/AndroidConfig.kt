@@ -544,8 +544,27 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── D-430: the release-branch bump (round 113 — v1.1.70) ──────────────
+    // Cut from the green mainline head 2363f65 (the ledger commit; the
+    // implementation b8055b2's Build APK run 36913215895 FAILED on the
+    // D-498 AnimatedVisibility receiver — the two new style cards called it
+    // bare inside their items; the repair f3e9a67's run 36914176500 GREEN).
+    // Carries on top of v1.1.69 THE ROUND-113 SET (D-733..D-736, doc 95):
+    // THE ELEMENTS' SEGMENT ANATOMY (the elements toggles wear the layout
+    // selector's OWN look — one shared container, 8dp segments, ON = solid
+    // primary; the round-112 pills retired) + THE SYNOPSIS-OFF RIGHT SIDE
+    // (with the synopsis off, the classic row keeps EVERYTHING right of the
+    // thumbnail — the number, the one-line title with the control at its
+    // end, the full-width date/SUB-DUB meta line; no bottom section) + THE
+    // TRANSFER'S BOTH CHANNELS (the player's episode rows union the
+    // serialized scanlator with the row's own sub/dub name tag — every row
+    // carries its audio-version pills, not just the current one; the
+    // serialized builders are newline-flattened so a multi-line description
+    // can no longer drop an episode's whole record) + THE TWO SCREENS'
+    // PARITY (the player's Elements card is pure with dedicated Grid/Banner
+    // style cards; the details GRID gains the decoupled watched-checkmark).
+    const val versionCode = 10170
+    const val versionName = "1.1.70"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
