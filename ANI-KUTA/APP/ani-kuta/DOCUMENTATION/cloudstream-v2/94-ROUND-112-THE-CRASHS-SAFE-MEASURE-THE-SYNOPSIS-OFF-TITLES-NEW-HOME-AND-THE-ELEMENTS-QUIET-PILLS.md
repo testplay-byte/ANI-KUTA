@@ -103,7 +103,12 @@ The round shipped THREE findings, one of them a **hard crash**:
 
 ## 4. CI history
 
-- (to be filled after the runs)
+- **Run 1 of 1 — `608861a1` (the implementation + docs push): Build APK
+  run 36901785174 GREEN FIRST-TRY** (~5.5 min). The pre-push sub-agent
+  verification is why: 5-a's compile-risk audit (all six files) and 5-b's
+  semantic audit ran BEFORE the commit — and 5-b's HIGH catch (the finite
+  measure maxWidth that would have silently killed the S/D ladder) was
+  fixed pre-push, not burned on a CI run.
 
 ## 5. The device-round checklist (v1.1.69)
 
