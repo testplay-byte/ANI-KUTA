@@ -122,3 +122,44 @@ fun gridShowableTitle(resolvedTitle: String?): String? {
     if (PLACEHOLDER_TITLE.matches(title)) return null
     return EpisodeTitleParser.parseTitle(title, 0f)
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 110 (D-723): THE GRID'S NUMBER-POSITION KNOB — where the "EP N"
+//  label sits in the cell's text block, on BOTH episode grids (the details
+//  page's and the player page's — the two-grids-are-one doctrine):
+//
+//  • UNDER_THUMB (the default — today's anatomy): the number label owns its
+//    OWN line directly under the thumbnail plate, the title under it, the
+//    chips under that (the details grid's D-557 arrangement).
+//  • BESIDE_DETAILS: the number label rides the TITLE's line — "EP 5" in its
+//    own primary ExtraBold typography prefixing the title (the compact
+//    one-line arrangement the pre-108 player grid carried, now on both
+//    grids' shared anatomy). With the title gated out (OFF / placeholder /
+//    CJK) the label simply stands alone on the line.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The grid cell's number-label placement — [UNDER_THUMB] (the default) or
+ * [BESIDE_DETAILS]. Stored as a string pref on both pages; every read
+ * resolves through [fromKey] (the D-529 lenient-lookup lesson: an unknown
+ * or legacy value maps to the placement the renderer will actually draw).
+ */
+enum class GridNumberPosition {
+    /** The number label on its OWN line under the thumbnail (the default). */
+    UNDER_THUMB,
+
+    /** The number label BESIDE the title, on the title's line. */
+    BESIDE_DETAILS;
+
+    companion object {
+        /**
+         * The lenient lookup: "BESIDE_DETAILS"/"BESIDE" → BESIDE_DETAILS;
+         * everything else (null, blank, "UNDER_THUMB", unknown) →
+         * UNDER_THUMB.
+         */
+        fun fromKey(key: String?): GridNumberPosition = when (key?.trim()?.uppercase()) {
+            "BESIDE_DETAILS", "BESIDE" -> BESIDE_DETAILS
+            else -> UNDER_THUMB
+        }
+    }
+}

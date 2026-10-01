@@ -320,6 +320,19 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
     )
 
     /**
+     * ROUND 110 (D-723): the GRID's number-label placement — "UNDER_THUMB"
+     * (the default — the number label owns its own line under the plate,
+     * today's anatomy) or "BESIDE_DETAILS" (the label rides the title's
+     * line, prefixing it — the compact arrangement). ALWAYS resolved
+     * through [com.confused.anikuta.core.common.GridNumberPosition.fromKey]
+     * (the D-529 lesson — an unknown or legacy value folds to the placement
+     * the renderer will actually draw).
+     */
+    val gridNumberPosition = store.preference(
+        KEY_GRID_NUMBER_POSITION, "UNDER_THUMB", StringSerializer,
+    )
+
+    /**
      * D-233: Reset all filters to their defaults (downloaded=OFF, watched=OFF,
      * audio=BOTH). Called when the user taps "Reset filters" on the empty-state.
      */
@@ -353,5 +366,7 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_CINEMA_NUMBER_STYLE = "pref_episode_list_cinema_number_style"
         private const val KEY_CINEMA_WATCHED_CHECK = "pref_episode_list_cinema_watched_check"
         private const val KEY_GRID_TITLE_MODE = "pref_episode_list_grid_title_mode"
+        private const val KEY_GRID_NUMBER_POSITION =
+            "pref_episode_list_grid_number_position"
     }
 }

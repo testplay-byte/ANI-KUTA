@@ -367,11 +367,19 @@ fun DetailsScreen(
     val gridTitleModePref = remember(gridTitleModeKey) {
         com.confused.anikuta.core.common.GridTitleMode.fromKey(gridTitleModeKey)
     }
+    // ROUND 110 (D-723): the GRID's number-label placement (under the
+    // thumbnail / beside the title) — the lenient fromKey, same doctrine.
+    val gridNumberPositionKey by episodeListPrefs.gridNumberPosition.changes.collectAsState(
+        initial = episodeListPrefs.gridNumberPosition.get(),
+    )
+    val gridNumberPositionPref = remember(gridNumberPositionKey) {
+        com.confused.anikuta.core.common.GridNumberPosition.fromKey(gridNumberPositionKey)
+    }
     val episodeDisplayStyle = remember(
         rowStyleKey, showSynopsisPref, showDatePillPref, showAudioPillsPref,
         showWatchProgressPref, dimWatchedPref, showDownloadControlPref,
         cinemaNumberCornerPref, cinemaNumberStylePref, cinemaWatchedCheckPref,
-        gridTitleModePref,
+        gridTitleModePref, gridNumberPositionPref,
     ) {
         EpisodeListDisplayStyle(
             rowStyle = EpisodeListRowStyle.fromKey(rowStyleKey),
@@ -385,6 +393,7 @@ fun DetailsScreen(
             cinemaNumberFrosted = cinemaNumberStylePref.trim().equals("FROSTED", ignoreCase = true),
             cinemaWatchedCheckBadge = cinemaWatchedCheckPref,
             gridTitleMode = gridTitleModePref,
+            gridNumberPosition = gridNumberPositionPref,
         )
     }
 

@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
@@ -76,6 +75,7 @@ import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeAudioChip
 import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeDateChip
 import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeWatchProgressBar
+import com.confused.anikuta.core.designsystem.component.episodelist.GridThumbnailCorner
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -335,6 +335,14 @@ data class PlayerEpisodeListDisplay(
     val gridTitleMode: com.confused.anikuta.core.common.GridTitleMode =
         com.confused.anikuta.core.common.GridTitleMode.TWO_LINES,
     /**
+     * ROUND 110 (D-723): the GRID's number-label placement — UNDER_THUMB
+     * (the default — the label's own line under the plate) or BESIDE_DETAILS
+     * (the label rides the title's line). The details grid's new knob,
+     * shared.
+     */
+    val gridNumberPosition: com.confused.anikuta.core.common.GridNumberPosition =
+        com.confused.anikuta.core.common.GridNumberPosition.UNDER_THUMB,
+    /**
      * ROUND 105: the TRACKLIST's column-sizing reference — the LIST's widest
      * episode-number text, pre-formatted by the caller (e.g. "24" for a
      * 24-episode list). The row measures it once and sizes the number column
@@ -580,7 +588,8 @@ fun PlayerEpisodeListEntry(
                     onToggleWatched = onToggleWatched,
                     modifier = Modifier.fillMaxWidth(sizeFraction),
                     verticalPadding = bannerVerticalPadding(display.bannerSize),
-                    backgroundShape = RoundedCornerShape(14.dp),
+                    // ROUND 110 (D-724): the CINEMA's 16dp corner.
+                    backgroundShape = RoundedCornerShape(16.dp),
                 ) { entryModifier ->
                     PlayerEpisodeBannerCard(data, display, onClick, entryModifier, arrivalPulse, downloadActions)
                 }
@@ -743,18 +752,22 @@ private fun PlayerEpisodeRow(
     val grayscale = dimmed
     val description = if (!display.showSynopsis) null else data.synopsis
     val dateText = if (display.showDatePill) data.dateText else null
-    // ROUND 107 (WS-2): the pills come from the shared TAG MODEL now —
-    // deduped, normalized, ordered (the round-106 audio knob is honored
-    // INSIDE the builder; the old inert download HINT glyph stays retired
-    // — the real badge below replaced it).
-    val pills = buildRowTags(
-        dateText = dateText,
+    // ROUND 110 (D-722): THE ROWS' SHARED CAPSULES — the v1.1.66 device
+    // round: "the tags are most definitely not good in the player page"
+    // (the DETAILED row still rendered the old flat-gray 5dp Pill()
+    // rectangle while the grids had moved to the type-coded capsules).
+    // The rows now render the details page's own vocabulary — the quiet
+    // date capsule + the per-type audio capsules (SUB primary / DUB
+    // tertiary / HSUB neutral) — ONE chip language on both pages.
+    val audioTags = buildRowTags(
+        dateText = null,
         showAudio = display.showAudioPills,
         audioLabels = data.audioLabels,
         subDubLabel = data.subDubLabel,
         flavorLabels = data.flavorLabels,
     )
-    val pillsVisible = pills.isNotEmpty()
+    val dateChip = dateText?.takeIf { it.isNotBlank() }
+    val pillsVisible = dateChip != null || audioTags.isNotEmpty()
     // ROUND 106 (WS-D): THE DOWNLOAD BADGE — the toggle + the row's state +
     // the wired actions together decide it.
     val showDownloadBadge = display.showDownloadButton &&
@@ -890,13 +903,17 @@ private fun PlayerEpisodeRow(
                             // ROUND 106 (WS-D): the pills WRAP — the tags are
                             // data, never clipped ("all the tags are
                             // considered properly and handled properly").
-                            // ROUND 107: the shared TAG MODEL feeds them.
+                            // ROUND 110 (D-722): the shared CAPSULES — the
+                            // date leads as its own quiet capsule, then the
+                            // type-coded audio capsules (the details row's
+                            // exact vocabulary, one implementation).
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                pills.forEach { label -> Pill(label) }
+                                dateChip?.let { text -> EpisodeDateChip(text = text) }
+                                audioTags.forEach { label -> EpisodeAudioChip(label = label) }
                             }
                         }
                     }
@@ -1000,15 +1017,18 @@ private fun PlayerTracklistRow(
         else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
     }
     val dateText = if (display.showDatePill) data.dateText else null
-    // ROUND 107 (WS-2): the shared TAG MODEL (deduped, normalized,
-    // ordered — the knobs honored inside the builder).
-    val pills = buildRowTags(
-        dateText = dateText,
+    // ROUND 110 (D-722): THE ROWS' SHARED CAPSULES — the TRACKLIST's pills
+    // render the details page's own vocabulary too (the quiet date capsule
+    // + the type-coded audio capsules); the old flat-gray Pill() is retired
+    // with this, its last caller.
+    val audioTags = buildRowTags(
+        dateText = null,
         showAudio = display.showAudioPills,
         audioLabels = data.audioLabels,
         subDubLabel = data.subDubLabel,
         flavorLabels = data.flavorLabels,
     )
+    val dateChip = dateText?.takeIf { it.isNotBlank() }
     // ROUND 105: the optional synopsis ("there was no option to turn on or
     // show the synopsis or turn off the synopsis. So I need a toggle… in
     // this area") — the same knob the DETAILED row reads.
@@ -1098,14 +1118,17 @@ private fun PlayerTracklistRow(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        if (pills.isNotEmpty()) {
+                        if (dateChip != null || audioTags.isNotEmpty()) {
                             // ROUND 106 (WS-D): the pills WRAP — the tags are
-                            // data, never clipped.
+                            // data, never clipped. ROUND 110 (D-722): the
+                            // shared CAPSULES (the date leads, then the
+                            // type-coded audio capsules).
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                pills.forEach { pill -> Pill(pill) }
+                                dateChip?.let { text -> EpisodeDateChip(text = text) }
+                                audioTags.forEach { label -> EpisodeAudioChip(label = label) }
                             }
                         }
                         if (synopsis != null) {
@@ -1174,30 +1197,6 @@ private fun PlayerTracklistRow(
             val pulseAlpha = rememberArrivalPulseAlpha(arrivalPulse, data.isCurrent)
             ArrivalPulseOverlay(pulseAlpha, RoundedCornerShape(12.dp))
         }
-    }
-}
-
-/** One quiet outline pill (the row's date/audio vocabulary). ROUND 107:
- *  tightened — 7dp side padding + corner 5dp (the simplified-tag rhythm;
- *  the solid fill stays: the BANNER's pills sit on a dark scrim where
- *  translucent fills lose text contrast). */
-@Composable
-private fun Pill(text: String) {
-    Surface(
-        shape = RoundedCornerShape(5.dp),
-        color = MaterialTheme.colorScheme.outlineVariant,
-    ) {
-        Text(
-            text = text,
-            fontFamily = RobotoFamily,
-            fontSize = 10.sp,
-            lineHeight = 14.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-            maxLines = 1,
-            softWrap = false,
-        )
     }
 }
 
@@ -1450,19 +1449,21 @@ private fun PlayerEpisodeGridCell(
             ),
     ) {
         // ── The image plate — the details grid's PURE plate (ROUND 109:
-        //    16dp radius, no background box, nothing covering the imagery
-        //    except the treatments + the badge + the inset progress pill). ──
+        //    no background box, nothing covering the imagery except the
+        //    treatments + the badge + the inset progress pill; ROUND 110:
+        //    the corner rides the shared GridThumbnailCorner — 12dp, ONE
+        //    constant both grids clip through). ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(GridThumbnailCorner))
                 .then(
                     if (isCurrent) {
                         Modifier.border(
                             2.dp,
                             MaterialTheme.colorScheme.primary,
-                            RoundedCornerShape(16.dp),
+                            RoundedCornerShape(GridThumbnailCorner),
                         )
                     } else {
                         Modifier
@@ -1611,16 +1612,13 @@ private fun PlayerEpisodeGridCell(
                 )
             }
         }
-        // ── ROUND 108 (D-713): THE TEXT BLOCK — the details grid's anatomy,
-        //    verbatim ("go with a similar kind of grid view for the player
-        //    page too, which is being used on the details page"): the themed
-        //    number label on its OWN line (the details grid's
-        //    EpisodeNumberLabel look), the title under it — ONLY a real
-        //    English-readable title, mode-aware (OFF / one line / two
-        //    lines: "if the name is not available in English, or it only
-        //    shows the episode number or such, then it will not be shown") —
-        //    then the WRAPPING chips (every tag, never clipped — the
-        //    round-106 contract stands). ──
+        // ── ROUND 110 (D-723): THE TEXT BLOCK — the number-position knob
+        //    (the details grid's new arrangement, shared): UNDER_THUMB keeps
+        //    today's anatomy (the themed "EP N" line always present, the
+        //    gated mode-aware title under it), BESIDE_DETAILS rides the
+        //    number label ON the title's line (the compact arrangement the
+        //    pre-108 player grid carried). The chips follow in their own
+        //    wrapping FlowRow either way. ──
         val titleLine = if (display.gridTitleMode ==
             com.confused.anikuta.core.common.GridTitleMode.OFF
         ) {
@@ -1628,19 +1626,79 @@ private fun PlayerEpisodeGridCell(
         } else {
             com.confused.anikuta.core.common.gridShowableTitle(data.displayTitle)
         }
-        // ── ROUND 109 (D-719): THE TEXT BLOCK — the details grid's anatomy
-        //    VERBATIM now (the v1.1.65 round: "looks and feels exactly the
-        //    same"): the 7dp spacer, the themed "EP N" line (always
-        //    present), the 13sp/16sp title (dimmed 0.55 when watched+dim,
-        //    like the details grid), and the chips FlowRow at the details'
-        //    own (4,4) rhythm — the DATE capsule (the shared EpisodeDateChip,
-        //    carrying the SHORT date) leading, then the color-coded AUDIO
-        //    capsules (the shared EpisodeAudioChip: SUB primary, DUB
-        //    tertiary, HSUB neutral — the v1.1.65 round's tag complaint:
-        //    "how the sub and dub episode tags are shown"). ──
         Spacer(Modifier.height(7.dp))
+        PlayerGridTitleLine(
+            episodeNumberText = data.episodeNumberText,
+            titleLine = titleLine,
+            gridTitleMode = display.gridTitleMode,
+            gridNumberPosition = display.gridNumberPosition,
+            dimmed = watchedDim,
+        )
+        PlayerGridChipsFlow(
+            dateChipText = dateChipText,
+            audioTags = audioPills,
+        )
+    }
+}
+
+/**
+ * ROUND 110 (D-723): the player GRID's title-line arrangements — the
+ * details grid's own number-position knob, mirrored. UNDER_THUMB (the
+ * default): the themed "EP N" label on its OWN line, the gated mode-aware
+ * title under it (today's anatomy). BESIDE_DETAILS: the label rides the
+ * title's line — the number in its own primary ExtraBold typography
+ * prefixing the title (with the title gated out, the label stands alone).
+ */
+@Composable
+private fun PlayerGridTitleLine(
+    episodeNumberText: String,
+    titleLine: String?,
+    gridTitleMode: com.confused.anikuta.core.common.GridTitleMode,
+    gridNumberPosition: com.confused.anikuta.core.common.GridNumberPosition,
+    dimmed: Boolean,
+) {
+    if (gridNumberPosition ==
+        com.confused.anikuta.core.common.GridNumberPosition.BESIDE_DETAILS
+    ) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp),
+        ) {
+            Text(
+                text = "EP $episodeNumberText",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 0.5.sp,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            if (titleLine != null) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = titleLine,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                        .let { if (dimmed) it.copy(alpha = 0.55f) else it },
+                    maxLines = if (gridTitleMode ==
+                        com.confused.anikuta.core.common.GridTitleMode.ONE_LINE
+                    ) 1 else 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    } else {
+        // UNDER_THUMB — today's anatomy, verbatim.
         Text(
-            text = "EP ${data.episodeNumberText}",
+            text = "EP $episodeNumberText",
             fontFamily = RobotoFamily,
             fontSize = 11.sp,
             lineHeight = 13.sp,
@@ -1660,56 +1718,66 @@ private fun PlayerEpisodeGridCell(
                 lineHeight = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
-                    .let { if (watchedDim) it.copy(alpha = 0.55f) else it },
-                maxLines = if (display.gridTitleMode ==
+                    .let { if (dimmed) it.copy(alpha = 0.55f) else it },
+                maxLines = if (gridTitleMode ==
                     com.confused.anikuta.core.common.GridTitleMode.ONE_LINE
                 ) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 2.dp),
             )
         }
-        if (dateChipText != null || audioPills.isNotEmpty()) {
-            Spacer(Modifier.height(5.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 2.dp),
-            ) {
-                dateChipText?.let { text -> EpisodeDateChip(text = text) }
-                audioPills.forEach { label -> EpisodeAudioChip(label = label) }
-            }
-        }
+    }
+}
+
+/**
+ * ROUND 110 (D-723): the player GRID's chips flow — the details grid's own
+ * (4,4) rhythm, the shared EpisodeDateChip (the SHORT date) leading, then
+ * the type-coded EpisodeAudioChip capsules. Extracted so the cell's two
+ * arrangements (UNDER_THUMB / BESIDE_DETAILS) share ONE chips block.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PlayerGridChipsFlow(
+    dateChipText: String?,
+    audioTags: List<String>,
+) {
+    if (dateChipText == null && audioTags.isEmpty()) return
+    Spacer(Modifier.height(5.dp))
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 2.dp),
+    ) {
+        dateChipText?.let { text -> EpisodeDateChip(text = text) }
+        audioTags.forEach { label -> EpisodeAudioChip(label = label) }
     }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 //  BANNER — the banner card (the thumbnail AS the card). ROUND 104: the
-//  ghost episode number is TOGGLEABLE (showEpisodeNumber).
+//  ghost episode number is TOGGLEABLE (showEpisodeNumber). ROUND 105: the
+//  position + style knobs + the size scale; ROUND 106: the current-treatment
+//  port + the download badge; ROUND 108: the two-line name + the progress
+//  bars + the watched-check toggle.
 //
-//  ROUND 105 (WS-D) — THE OVERHAUL the v1.1.61 round ordered:
-//    • THE OVERLAY — "at the bottom left, the name of the current episode
-//      should be shown, and above it the details should be shown, and also
-//      the details need to be shown in a better-looking tag, just like how
-//      they are being shown in the episode list vibe": the pills (the
-//      shared Pill() vocabulary — the episode-list look) sit ABOVE the
-//      episode NAME now.
-//    • THE NUMBER — "there should be the option to select where the
-//      episode number should show, whether it should show on the top right
-//      side or on the top left side… in what format… solid themed color, or
-//      frosted theme color? Because currently it is not showing in any of
-//      those formats": the position knob (TOP_START / TOP_END) + the
-//      treatment port — VERBATIM — from the details page's CINEMA card
-//      (D-558/D-559): SOLID = the straight primary numeral with a soft dark
-//      shadow; FROSTED = two stacked copies (a blurred primary halo on S+
-//      under a crisp translucent primary copy). Both THEMED — the round-104
-//      white ghost is gone.
-//    • THE ASPECT IS FIXED at 16:9 — the size knob now scales the ITEM
-//      (the dispatcher's centered width fraction), never the height alone.
+//  ROUND 110 (D-724) — THE CINEMA, VERBATIM: the v1.1.66 device round's
+//  parity verdict ("the tags are most definitely not good in the player
+//  page") closed by porting the details page's EpisodeCinemaCard anatomy
+//  WHOLESALE: the 16dp corners on a plain surfaceVariant plate, the
+//  THREE-STOP scrim (transparent → 0.30 @ 45% → 0.85), the black-0.30
+//  watched overlay with the optional centered check in the CINEMA's own
+//  z-order (UNDER the ghost number), the ZERO-PADDED ghost number on all
+//  three number texts + the bare plate, the bottom-left META COLUMN (the
+//  16sp two-line name + ONE joined "date · audio · WATCHED" pill in the
+//  White-0.18 capsule — the old flat-gray pills FlowRow is gone), the
+//  download badge at BottomEnd 12dp, and the INSET progress pills with the
+//  CINEMA's showDownloadButton gating (SA2-F8 closed). The banner's own
+//  knobs (the number toggle/position/style, the size scale, the current
+//  PLAY/TINT treatment, the watched-check toggle) all stand.
 // ════════════════════════════════════════════════════════════════════════════
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlayerEpisodeBannerCard(
     data: PlayerEpisodeRowData,
@@ -1723,10 +1791,12 @@ private fun PlayerEpisodeBannerCard(
     val watchedGray = data.isWatched && display.dimWatched && !isCurrent
     val grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
     // ROUND 106 (WS-D): the BANNER's currently-playing treatment — the
-    // GRID's knob, ported: "the grid view has the ability to select between
-    // play button and the themed tint, but the banner does not have it. So
-    // I want you to implement it there properly too."
+    // GRID's knob, ported (the player's own; the CINEMA has no current
+    // concept to port).
     val currentTinted = isCurrent && display.bannerCurrentStyle == PlayerBannerCurrentStyle.TINT
+    // ROUND 110 (D-724): the ZERO-PADDED ghost number — the details CINEMA's
+    // own glyph shape ("01"…"99", 100+ honest), on every number text below.
+    val ghostNumber = bannerGhostNumber(data.episodeNumberText)
 
     Box(
         modifier = modifier
@@ -1734,21 +1804,24 @@ private fun PlayerEpisodeBannerCard(
             // ROUND 105: FIXED 16:9 — the size knob scales the item's width
             // (the dispatcher's centered fraction), never the aspect.
             .aspectRatio(16f / 9f)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(16.dp))
             .then(
                 if (isCurrent) {
                     Modifier.border(
                         2.dp,
                         MaterialTheme.colorScheme.primary,
-                        RoundedCornerShape(14.dp),
+                        RoundedCornerShape(16.dp),
                     )
                 } else {
                     Modifier
                 },
             )
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            // D-724: the CINEMA's plain surfaceVariant plate (the old 0.4
+            // alpha wash is gone — the CINEMA background, verbatim).
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick),
     ) {
+        // The imagery IS the card.
         if (data.thumbnailUrl != null) {
             AsyncImage(
                 model = data.thumbnailUrl,
@@ -1758,13 +1831,22 @@ private fun PlayerEpisodeBannerCard(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            // The bare plate — the CINEMA's ghost numeral (zero-padded, on
+            // the quiet outlineVariant wash; the old "EP N" 30sp tag is
+            // gone).
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                contentAlignment = Alignment.Center,
+            ) {
                 Text(
-                    text = "EP ${data.episodeNumberText}",
+                    text = ghostNumber,
                     fontFamily = RobotoFamily,
-                    fontSize = 30.sp,
+                    fontSize = 56.sp,
+                    lineHeight = 56.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     // ROUND 107: numbers never break.
                     maxLines = 1,
                     softWrap = false,
@@ -1772,8 +1854,8 @@ private fun PlayerEpisodeBannerCard(
             }
         }
 
-        // ── ROUND 106 (WS-D): the CURRENT-TINT wash (the port) — the
-        //    (grayscaled) imagery under a themed wash; the ring stays. ──
+        // ── ROUND 106 (WS-D): the CURRENT-TINT wash (the player's own
+        //    current treatment — over the imagery, under the scrim). ──
         if (currentTinted) {
             Box(
                 modifier = Modifier
@@ -1782,9 +1864,47 @@ private fun PlayerEpisodeBannerCard(
             )
         }
 
-        // ── THE BIG EPISODE NUMBER — toggleable (ROUND 104), positioned
-        //    (ROUND 105: top-left / top-right) and THEMED (ROUND 105:
-        //    solid / frosted — the CINEMA port; the white ghost is gone). ──
+        // ── The bottom scrim — the CINEMA's THREE-STOP gradient (the
+        //    overlaid text's contrast guarantee; the old 2-stop 0.78 wash
+        //    is gone). ──
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.45f to Color.Black.copy(alpha = 0.30f),
+                        1f to Color.Black.copy(alpha = 0.85f),
+                    ),
+                ),
+        )
+
+        // ── The watched treatment — the CINEMA's z-order and look: the
+        //    black-0.30 overlay UNDER the ghost number, with the optional
+        //    centered circular check riding the bannerWatchedCheck knob
+        //    (the dim/grayscale itself rides dimWatched as always — the
+        //    D-720 decoupling). ──
+        if (watchedGray) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = 0.30f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (display.bannerWatchedCheck) {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = "Watched",
+                        tint = Color.White,
+                        modifier = Modifier.size(34.dp),
+                    )
+                }
+            }
+        }
+
+        // ── THE GHOST NUMBER — toggleable (ROUND 104), positioned + THEMED
+        //    (ROUND 105: the CINEMA D-558/D-559 ports), and now ZERO-PADDED
+        //    (ROUND 110: the CINEMA's own glyph shape on all three texts). ──
         if (display.showEpisodeNumber) {
             val numberCorner = when (display.bannerNumberPosition) {
                 PlayerBannerNumberPosition.TOP_START -> Alignment.TopStart
@@ -1801,7 +1921,7 @@ private fun PlayerEpisodeBannerCard(
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     Text(
-                        text = data.episodeNumberText,
+                        text = ghostNumber,
                         fontFamily = RobotoFamily,
                         fontSize = 48.sp,
                         lineHeight = 56.sp,
@@ -1817,7 +1937,7 @@ private fun PlayerEpisodeBannerCard(
                         },
                     )
                     Text(
-                        text = data.episodeNumberText,
+                        text = ghostNumber,
                         fontFamily = RobotoFamily,
                         fontSize = 48.sp,
                         lineHeight = 56.sp,
@@ -1839,7 +1959,7 @@ private fun PlayerEpisodeBannerCard(
                 // SOLID (the CINEMA D-558 treatment) — the straight themed
                 // numeral with a soft dark shadow for legibility.
                 Text(
-                    text = data.episodeNumberText,
+                    text = ghostNumber,
                     fontFamily = RobotoFamily,
                     fontSize = 56.sp,
                     lineHeight = 56.sp,
@@ -1861,8 +1981,8 @@ private fun PlayerEpisodeBannerCard(
             }
         }
 
-        // ── Current: the centered play glyph (the PLAY style; the ported
-        //    TINT replaces it with the themed wash above). ──
+        // ── Current: the centered play glyph (the player's own PLAY
+        //    treatment; the ported TINT replaces it with the wash above). ──
         if (isCurrent && display.bannerCurrentStyle == PlayerBannerCurrentStyle.PLAY) {
             Box(
                 modifier = Modifier
@@ -1880,113 +2000,74 @@ private fun PlayerEpisodeBannerCard(
             }
         }
 
-        // ── ROUND 108 (D-713): THE WATCHED CHECK — the details CINEMA's
-        //    cinemaWatchedCheckBadge twin ("a similar kind of thing for the
-        //    banner view too"): the dim/grayscale treatment rides the
-        //    dimWatched knob as always; the centered circular check is its
-        //    OWN knob (default OFF — the zero-prefs look is today's). ──
-        if (watchedGray && display.bannerWatchedCheck) {
-            Icon(
-                imageVector = Icons.Filled.CheckCircle,
-                contentDescription = "Watched",
-                tint = Color.White,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(34.dp),
-            )
-        }
-
-        // ── ROUND 106 (WS-D): the download badge — the top corner OPPOSITE
-        //    the big number (never colliding with the number-position knob;
-        //    top-end when the number is hidden or top-start). ──
+        // ── ROUND 110 (D-724): the download overlay — the CINEMA's
+        //    BottomEnd placement (12dp inset; the old
+        //    opposite-the-number corner logic is gone — the meta column
+        //    owns the bottom-start, so the badge never collides). ──
         if (display.showDownloadButton && data.downloadState != null &&
             downloadActions != null
         ) {
-            // The number hidden → the badge takes its natural top-end.
-            val badgeCorner = when {
-                !display.showEpisodeNumber -> Alignment.TopEnd
-                display.bannerNumberPosition == PlayerBannerNumberPosition.TOP_START -> Alignment.TopEnd
-                else -> Alignment.TopStart
-            }
             PlayerEpisodeDownloadBadge(
                 state = data.downloadState,
                 actions = downloadActions,
                 translucent = true,
                 modifier = Modifier
-                    .align(badgeCorner)
-                    .padding(6.dp),
+                    .align(Alignment.BottomEnd)
+                    .padding(12.dp),
             )
         }
 
-        // ── The bottom scrim (ROUND 105: INVERTED) — the DETAILS' pills
-        //    ABOVE, the episode NAME at the bottom-left; the pills wear the
-        //    shared Pill() vocabulary ("a better-looking tag, just like how
-        //    they are being shown in the episode list vibe"). ──
-        Box(
+        // ── The overlaid meta — the CINEMA's bottom-left column: the name
+        //    + ONE joined translucent pill ("date · audio · WATCHED"). ──
+        Column(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f)),
-                    ),
-                )
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .align(Alignment.BottomStart)
+                .padding(14.dp),
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                // ROUND 107 (WS-2): the chips come from the shared TAG
-                // MODEL (deduped, normalized, ordered).
-                val chips = buildRowTags(
-                    dateText = if (display.showDatePill) data.dateText else null,
-                    showAudio = display.showAudioPills,
-                    audioLabels = data.audioLabels,
-                    subDubLabel = data.subDubLabel,
-                    flavorLabels = data.flavorLabels,
-                )
-                // SA2-F4: the watched CHECK rides the chips flow's head —
-                // the old top-start chip collided with the download badge
-                // (and, pre-existing, with a top-start number); in the flow
-                // it never collides with anything and reads with the facts.
-                if (watchedGray || chips.isNotEmpty()) {
-                    // ROUND 106 (WS-D): the chips WRAP — the tags are data,
-                    // never clipped.
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        if (watchedGray) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = Color.White.copy(alpha = 0.22f),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Check,
-                                    contentDescription = "Watched",
-                                    tint = Color.White,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp).size(12.dp),
-                                )
-                            }
-                        }
-                        chips.forEach { chip -> Pill(chip) }
-                    }
-                    Spacer(Modifier.height(5.dp))
+            Text(
+                text = data.displayTitle,
+                fontFamily = RobotoFamily,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            // ROUND 110 (D-722/D-724): the joined pill — the shared TAG
+            // MODEL's facts (the LONG date, the normalized audio tokens,
+            // the other labels) + the WATCHED fact, folded into ONE
+            // White-0.18 capsule exactly like the CINEMA's meta line. The
+            // WATCHED fact rides isWatched && !isCurrent — the D-720
+            // decoupling: it is a FACT, not the dim treatment (a dim-off
+            // watched banner still says WATCHED; the current episode never
+            // does).
+            val metaChips = buildRowTags(
+                dateText = if (display.showDatePill) data.dateText else null,
+                showAudio = display.showAudioPills,
+                audioLabels = data.audioLabels,
+                subDubLabel = data.subDubLabel,
+                flavorLabels = data.flavorLabels,
+            ).toMutableList()
+            if (data.isWatched && !isCurrent) metaChips.add("WATCHED")
+            if (metaChips.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color.White.copy(alpha = 0.18f),
+                ) {
+                    Text(
+                        text = metaChips.joinToString("  ·  "),
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                // The NAME — at the very bottom ("at the bottom left, the
-                // name of the current episode should be shown"). ROUND 108
-                // (D-713): the CINEMA's title treatment — TWO lines at 16sp
-                // ("a similar kind of thing for the banner view too, like go
-                // with a similar kind of interface"); long names breathe
-                // instead of hard-cutting at one line.
-                Text(
-                    text = data.displayTitle,
-                    fontFamily = RobotoFamily,
-                    fontSize = 16.sp,
-                    lineHeight = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
 
@@ -2001,32 +2082,48 @@ private fun PlayerEpisodeBannerCard(
             )
         }
 
-        // ── ROUND 108 (D-713): THE PROGRESS BARS — the CINEMA parity (the
-        //    banner never carried one). While a download runs, the
-        //    DETERMINATE tertiary download bar takes the edge (the same
-        //    language as the player GRID); otherwise the thin primary watch
-        //    bar renders under the showProgressBar knob — full-bleed at the
-        //    banner's bottom edge, the player stack's own edge-bar look
-        //    (SA2-F6, the round-108 audit: not the details CINEMA's inset
-        //    treatment — the banner's imagery IS the card, edge to edge). ──
+        // ── ROUND 110 (D-724): the progress pills — the CINEMA's INSET
+        //    treatment (12/8dp, the shared EpisodeWatchProgressBar; the old
+        //    full-bleed 3dp edge bars are gone) with the CINEMA's
+        //    showDownloadButton gating (SA2-F8 closed: the knob gates the
+        //    download bar too now — the badge and its bar live or die
+        //    together). ──
         val downloading = data.downloadState is PlayerDownloadRenderState.Downloading
-        if (downloading) {
+        if (display.showDownloadButton && downloading) {
             val progress = (data.downloadState as PlayerDownloadRenderState.Downloading).progress
-            Box(
+            EpisodeWatchProgressBar(
+                fraction = progress / 100f,
+                progressColor = MaterialTheme.colorScheme.tertiary,
+                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .fillMaxWidth((progress / 100f).coerceIn(0.01f, 1f))
-                    .height(3.dp)
-                    .background(MaterialTheme.colorScheme.tertiary),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
             )
         } else if (display.showProgressBar && data.progressFraction > 0f && !data.isWatched) {
-            Box(
+            EpisodeWatchProgressBar(
+                fraction = data.progressFraction,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .fillMaxWidth(data.progressFraction.coerceIn(0f, 1f))
-                    .height(3.dp)
-                    .background(MaterialTheme.colorScheme.primary),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
             )
         }
     }
+}
+
+/**
+ * ROUND 110 (D-724): the banner's ghost number — the details CINEMA's
+ * zero-padded glyph shape ("01"…"99", 100+ honest), derived from the
+ * pre-formatted number text (a "5.5" keeps its fraction).
+ */
+private fun bannerGhostNumber(numberText: String): String {
+    val dot = numberText.indexOf('.')
+    val intPart = if (dot >= 0) numberText.substring(0, dot) else numberText
+    val fraction = if (dot >= 0) numberText.substring(dot) else ""
+    val n = intPart.toIntOrNull() ?: return numberText
+    val padded = if (n in 0..99) {
+        String.format(java.util.Locale.US, "%02d", n)
+    } else {
+        n.toString()
+    }
+    return padded + fraction
 }

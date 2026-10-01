@@ -180,6 +180,15 @@ data class EpisodeListDisplayStyle(
      */
     val gridTitleMode: com.confused.anikuta.core.common.GridTitleMode =
         com.confused.anikuta.core.common.GridTitleMode.TWO_LINES,
+    /**
+     * ROUND 110 (D-723): the GRID's number-label placement — UNDER_THUMB
+     * (the default — the label's own line under the plate) or BESIDE_DETAILS
+     * (the label rides the title's line). Resolved through
+     * [com.confused.anikuta.core.common.GridNumberPosition.fromKey] by
+     * whichever screen builds this style.
+     */
+    val gridNumberPosition: com.confused.anikuta.core.common.GridNumberPosition =
+        com.confused.anikuta.core.common.GridNumberPosition.UNDER_THUMB,
 )
 
 /**

@@ -134,6 +134,15 @@ fun EpisodeWatchProgressBar(
 }
 
 /**
+ * ROUND 110 (D-723): the grids' shared thumbnail corner — ONE constant both
+ * episode grids (and the player grid's current-episode ring) clip through,
+ * so the two cells' plate geometry can never drift. 12dp — the calmer
+ * corner the v1.1.66 device round's parity pass settled on (the round-109
+ * cells carried 16dp).
+ */
+val GridThumbnailCorner = 12.dp
+
+/**
  * The short date label ("Jan 1") — the GRID chip's text + the TIMELINE node
  * label. ONE formatter, both pages: the player grid's chip carries the SAME
  * short shape as the details grid's (the v1.1.65 round: the player showed

@@ -246,6 +246,26 @@ object SettingsSearchIndex {
         )
         add(
             SettingsSearchEntry(
+                id = "episodelist.grid_title",
+                title = "Grid · Episode titles",
+                page = SettingsSearchPage.EPISODE_LIST,
+                anchor = "grid_title",
+                keywords = listOf("grid", "title", "titles", "episode title", "one line",
+                    "full", "off", "english", "name"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "episodelist.grid_number",
+                title = "Grid · Episode number",
+                page = SettingsSearchPage.EPISODE_LIST,
+                anchor = "grid_number",
+                keywords = listOf("grid", "number", "episode number", "below",
+                    "beside", "thumbnail", "title", "position", "placement"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
                 id = "episodelist.synopsis",
                 title = "Synopsis",
                 page = SettingsSearchPage.EPISODE_LIST,
@@ -333,6 +353,27 @@ object SettingsSearchIndex {
                 anchor = "player_elements",
                 keywords = listOf("synopsis", "date", "pill", "dim", "watched",
                     "checkmark", "progress", "number", "size", "elements", "player"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "playerepisodelist.grid_title",
+                title = "Grid · Episode titles",
+                page = SettingsSearchPage.PLAYER_EPISODE_LIST,
+                anchor = "player_elements",
+                keywords = listOf("grid", "title", "titles", "episode title", "one line",
+                    "full", "off", "english", "name", "player"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "playerepisodelist.grid_number",
+                title = "Grid · Episode number",
+                page = SettingsSearchPage.PLAYER_EPISODE_LIST,
+                anchor = "player_elements",
+                keywords = listOf("grid", "number", "episode number", "below",
+                    "beside", "thumbnail", "title", "position", "placement",
+                    "player"),
             ),
         )
         add(

@@ -1718,6 +1718,14 @@ private fun MinimizedMode(
     val gridTitleMode = remember(gridTitleModeKey) {
         com.confused.anikuta.core.common.GridTitleMode.fromKey(gridTitleModeKey)
     }
+    // ROUND 110 (D-723): the GRID's number-label placement (under the
+    // thumbnail / beside the title) — the lenient fromKey, same doctrine.
+    val gridNumberPositionKey by playerListPrefs.gridNumberPosition.changes.collectAsState(
+        initial = playerListPrefs.gridNumberPosition.get(),
+    )
+    val gridNumberPosition = remember(gridNumberPositionKey) {
+        com.confused.anikuta.core.common.GridNumberPosition.fromKey(gridNumberPositionKey)
+    }
     val bannerWatchedCheck by playerListPrefs.bannerWatchedCheck.changes.collectAsState(
         initial = playerListPrefs.bannerWatchedCheck.get(),
     )
@@ -1748,7 +1756,7 @@ private fun MinimizedMode(
         showEpisodeNumber, showProgressBar, showDownloadButton, bannerSize,
         bannerNumberPosition, bannerNumberStyle, bannerCurrentStyle,
         gridWatchedCheckmark, gridCurrentStyle, gridTitleMode, tracklistReferenceNumber,
-        bannerWatchedCheck,
+        bannerWatchedCheck, gridNumberPosition,
     ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = listStyle,
@@ -1768,6 +1776,7 @@ private fun MinimizedMode(
             gridTitleMode = gridTitleMode,
             tracklistReferenceNumber = tracklistReferenceNumber,
             bannerWatchedCheck = bannerWatchedCheck,
+            gridNumberPosition = gridNumberPosition,
         )
     }
     // ROUND 104 (WS-D): the watched FILTER is RETIRED (the v1.1.60 order:

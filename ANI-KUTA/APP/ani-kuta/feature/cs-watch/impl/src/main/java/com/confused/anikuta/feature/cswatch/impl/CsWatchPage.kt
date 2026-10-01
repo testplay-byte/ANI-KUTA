@@ -222,6 +222,14 @@ internal fun CsWatchPage(
     val csGridTitleMode = remember(csGridTitleModeKey) {
         com.confused.anikuta.core.common.GridTitleMode.fromKey(csGridTitleModeKey)
     }
+    // ROUND 110 (D-723): the GRID's number-label placement (under the
+    // thumbnail / beside the title) — the lenient fromKey, same doctrine.
+    val csGridNumberPositionKey by playerListPrefs.gridNumberPosition.changes.collectAsState(
+        initial = playerListPrefs.gridNumberPosition.get(),
+    )
+    val csGridNumberPosition = remember(csGridNumberPositionKey) {
+        com.confused.anikuta.core.common.GridNumberPosition.fromKey(csGridNumberPositionKey)
+    }
     val csBannerWatchedCheck by playerListPrefs.bannerWatchedCheck.changes.collectAsState(
         initial = playerListPrefs.bannerWatchedCheck.get(),
     )
@@ -255,7 +263,7 @@ internal fun CsWatchPage(
         csShowDownloadButton, csBannerSize, csBannerNumberPosition,
         csBannerNumberStyle, csBannerCurrentStyle, csGridWatchedCheckmark,
         csGridCurrentStyle, csGridTitleMode, csTracklistReferenceNumber,
-        csBannerWatchedCheck,
+        csBannerWatchedCheck, csGridNumberPosition,
     ) {
         com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay(
             style = csListStyle,
@@ -275,6 +283,7 @@ internal fun CsWatchPage(
             gridTitleMode = csGridTitleMode,
             tracklistReferenceNumber = csTracklistReferenceNumber,
             bannerWatchedCheck = csBannerWatchedCheck,
+            gridNumberPosition = csGridNumberPosition,
         )
     }
     // ROUND 104 (WS-D): the watched FILTER is RETIRED (the v1.1.60 order —

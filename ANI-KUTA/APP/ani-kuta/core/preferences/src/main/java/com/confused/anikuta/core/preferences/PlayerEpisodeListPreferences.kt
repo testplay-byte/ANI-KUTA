@@ -249,6 +249,18 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
     )
 
     /**
+     * ROUND 110 (D-723): the GRID's number-label placement — the details
+     * page's new knob, shared: "UNDER_THUMB" (the default — the number
+     * label owns its own line under the plate) or "BESIDE_DETAILS" (the
+     * label rides the title's line). ALWAYS resolved through
+     * [com.confused.anikuta.core.common.GridNumberPosition.fromKey] (the
+     * D-529 lesson).
+     */
+    val gridNumberPosition = store.preference(
+        KEY_GRID_NUMBER_POSITION, "UNDER_THUMB", StringSerializer,
+    )
+
+    /**
      * ROUND 108 (D-713): the BANNER's watched check mark — the details
      * CINEMA's [EpisodeListPreferences.cinemaWatchedCheck] twin ("a similar
      * kind of thing for the banner view too"): a centered circular check on
@@ -299,6 +311,8 @@ class PlayerEpisodeListPreferences(private val store: PreferenceStore) {
             "pref_player_episode_list_grid_current_style"
         private const val KEY_GRID_TITLES = "pref_player_episode_list_grid_titles"
         private const val KEY_GRID_TITLE_MODE = "pref_player_episode_list_grid_title_mode"
+        private const val KEY_GRID_NUMBER_POSITION =
+            "pref_player_episode_list_grid_number_position"
         private const val KEY_BANNER_WATCHED_CHECK =
             "pref_player_episode_list_banner_watched_check"
         private const val KEY_DIM_WATCHED = "pref_player_episode_list_dim_watched"

@@ -1,7 +1,7 @@
 # SESSION — Read This At The Start Of Every Session
 
 > A 60-second orientation. Read this FIRST, every time, before any work.
-> Refreshed in **Round 107 (2026-09-29)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
+> Refreshed in **Round 110 (2026-10-01)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
 
 ---
 
@@ -12,11 +12,11 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 
 ---
 
-## 📍 Current State (refreshed Round 107, 2026-09-29)
+## 📍 Current State (refreshed Round 110, 2026-10-01)
 
 - **Mainline branch:** `feature/round-57-cloudstream-downloads` — this IS the default branch. `main` was DELETED (D-552 — it had 0 unique commits). Other live branches: `release/1.1.3` (the professional release branch), `feature/test-controller-v5` (dormant, kept by user order).
 - **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.63 / 10163** (round 106; the round-107 release v1.1.64 ships this session). **THE ROUND-107 SET (D-712):** the DETAILED layout's robust rules — the LINE-BREAKING RULES (DETAILED + GRID titles wrap to two lines; TRACKLIST one line; BANNER name one line; synopses two lines; pills wrap; NUMBERS NEVER BREAK — the fallback tile GROWS instead of wrapping mid-number) + the TAG MODEL (ONE `buildRowTags` builder: ci-deduped, normalized to the canonical SUB/DUB/HSUB vocabulary with the MPV parse's exact token semantics, ordered date → SUB → DUB → HSUB → others, never clipped — the CS "Sub"+"SUB" duplication is dead) + the cleanup (the dead Row wrapper, the slimmer EP tag + Pill, the inert SpaceBetween).
-- **Latest records:** Round 107 implemented (commits 24294415 + 4af56fca + 40da8f66; doc **89**; CI run 36664738397 GREEN FIRST-TRY); `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **90**; the next decision is **D-713**.
+- **Latest records:** Round 110 implemented (doc **92**, D-722..D-725 — the tags unified everywhere, the grid number-position knob, the banner's CINEMA port, the settings' one anatomy; the FIRST implementation was lost to a sandbox reset pre-push and was re-implemented — see doc 92's disclosure). Latest debug release: **v1.1.67 / 10167**. `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **93**; the next decision is **D-726**.
 - **THE CURRENT PHASE (D-565) — DEBUG-FIRST:** the user directed that from now on ALL new features/QoL work lands on the mainline and ships via per-round **DEBUG** releases. **Professional releases PAUSE** until the user explicitly orders the next one (D-425 version discipline unchanged — no bumps without the user's order).
 - **The per-round loop is unchanged:** device feedback → implement on the mainline → CI green (≤2 runs/cycle, disclosed ledger, D-472) → `release/1.1.3N` cut from the green head → the bump rides that branch → tag `v1.1.3N` → the debug release publishes → LIVE-mirror docs → ntfy → the user's device round.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` pushes build NOTHING.

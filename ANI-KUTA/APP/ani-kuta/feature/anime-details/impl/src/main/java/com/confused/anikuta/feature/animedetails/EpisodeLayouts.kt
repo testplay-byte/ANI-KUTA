@@ -89,7 +89,7 @@ import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeAudioChip
 import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeDateChip
 import com.confused.anikuta.core.designsystem.component.episodelist.EpisodeWatchProgressBar
-import com.confused.anikuta.core.designsystem.component.episodelist.formatShortDate
+import com.confused.anikuta.core.designsystem.component.episodelist.GridThumbnailCorner
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import eu.kanade.tachiyomi.animesource.model.SEpisode
@@ -607,12 +607,14 @@ internal fun EpisodeGridCell(
                 onLongClick = actions.onToggleWatched,
             ),
     ) {
-        // ── The image plate — pure imagery, nothing covering it ──
+        // ── The image plate — pure imagery, nothing covering it (ROUND 110:
+        //    the corner rides the shared GridThumbnailCorner — 12dp, ONE
+        //    constant both grids clip through). ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(16.dp)),
+                .clip(RoundedCornerShape(GridThumbnailCorner)),
         ) {
             if (display.thumbnailUrl != null) {
                 AsyncImage(
@@ -716,13 +718,11 @@ internal fun EpisodeGridCell(
         //    already speaks); the chips WRAP now (the player grid's
         //    round-106 "tags are data, never clipped" contract, unified —
         //    the old single-line horizontalScroll hid every chip past the
-        //    cell's width). ──
-        Spacer(Modifier.height(7.dp))
-        EpisodeNumberLabel(
-            episodeTag = episodeTag,
-            epNumText = epNumText,
-            modifier = Modifier.padding(horizontal = 2.dp),
-        )
+        //    cell's width). ROUND 110 (D-723): the number-position knob —
+        //    UNDER_THUMB keeps today's anatomy, BESIDE_DETAILS rides the
+        //    number label on the title's line; both arrangements render
+        //    through the shared per-side composables below (mirrored by the
+        //    player grid's own pair — the two-grids-are-one doctrine). ──
         val titleLine = if (style.gridTitleMode ==
             com.confused.anikuta.core.common.GridTitleMode.OFF
         ) {
@@ -730,6 +730,75 @@ internal fun EpisodeGridCell(
         } else {
             com.confused.anikuta.core.common.gridShowableTitle(display.title)
         }
+        Spacer(Modifier.height(7.dp))
+        GridCellTitleLine(
+            episodeTag = episodeTag,
+            epNumText = epNumText,
+            titleLine = titleLine,
+            gridTitleMode = style.gridTitleMode,
+            gridNumberPosition = style.gridNumberPosition,
+            dimmed = isWatched && style.dimWatched,
+        )
+        GridCellChips(style = style, display = display)
+    }
+}
+
+/**
+ * ROUND 110 (D-723): the details GRID's title-line arrangements — the
+ * number-position knob's two placements. UNDER_THUMB (the default): the
+ * shared [EpisodeNumberLabel] on its OWN line, the gated mode-aware title
+ * under it (today's anatomy). BESIDE_DETAILS: the label rides the title's
+ * line — the number in its own primary typography prefixing the title
+ * (with the title gated out, the label stands alone).
+ */
+@Composable
+private fun GridCellTitleLine(
+    episodeTag: EpisodeTag?,
+    epNumText: String,
+    titleLine: String?,
+    gridTitleMode: com.confused.anikuta.core.common.GridTitleMode,
+    gridNumberPosition: com.confused.anikuta.core.common.GridNumberPosition,
+    dimmed: Boolean,
+) {
+    if (gridNumberPosition ==
+        com.confused.anikuta.core.common.GridNumberPosition.BESIDE_DETAILS
+    ) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp),
+        ) {
+            EpisodeNumberLabel(
+                episodeTag = episodeTag,
+                epNumText = epNumText,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            if (titleLine != null) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = titleLine,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = (LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
+                        ?: MaterialTheme.colorScheme.onSurface)
+                        .let { if (dimmed) it.copy(alpha = 0.55f) else it },
+                    maxLines = if (gridTitleMode ==
+                        com.confused.anikuta.core.common.GridTitleMode.ONE_LINE
+                    ) 1 else 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    } else {
+        // UNDER_THUMB — today's anatomy, verbatim.
+        EpisodeNumberLabel(
+            episodeTag = episodeTag,
+            epNumText = epNumText,
+            modifier = Modifier.padding(horizontal = 2.dp),
+        )
         if (titleLine != null) {
             Spacer(Modifier.height(1.dp))
             Text(
@@ -740,35 +809,48 @@ internal fun EpisodeGridCell(
                 fontWeight = FontWeight.SemiBold,
                 color = (LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
                     ?: MaterialTheme.colorScheme.onSurface)
-                    .let { if (isWatched && style.dimWatched) it.copy(alpha = 0.55f) else it },
-                maxLines = if (style.gridTitleMode ==
+                    .let { if (dimmed) it.copy(alpha = 0.55f) else it },
+                maxLines = if (gridTitleMode ==
                     com.confused.anikuta.core.common.GridTitleMode.ONE_LINE
                 ) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 2.dp),
             )
         }
-        val chips = buildList {
-            if (style.showDatePill && display.shortDateText != null) add(display.shortDateText)
-            if (style.showAudioPills) addAll(display.audioLabels)
-        }
-        if (chips.isNotEmpty()) {
-            Spacer(Modifier.height(5.dp))
-            FlowRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                chips.forEachIndexed { idx, chip ->
-                    val isDateChip = idx == 0 && style.showDatePill && !display.shortDateText.isNullOrBlank()
-                    if (isDateChip) {
-                        EpisodeDateChip(text = chip)
-                    } else {
-                        EpisodeAudioChip(label = chip)
-                    }
-                }
+    }
+}
+
+/**
+ * ROUND 110 (D-723): the details GRID's chips flow — extracted so the
+ * cell's two number-position arrangements share ONE chips block: the
+ * shared date capsule (the SHORT date) leading, then the type-coded audio
+ * capsules, in the (4,4) wrapping FlowRow.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GridCellChips(
+    style: EpisodeListDisplayStyle,
+    display: EpisodeDisplayData,
+) {
+    val chips = buildList {
+        if (style.showDatePill && display.shortDateText != null) add(display.shortDateText)
+        if (style.showAudioPills) addAll(display.audioLabels)
+    }
+    if (chips.isEmpty()) return
+    Spacer(Modifier.height(5.dp))
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        chips.forEachIndexed { idx, chip ->
+            val isDateChip = idx == 0 && style.showDatePill && !display.shortDateText.isNullOrBlank()
+            if (isDateChip) {
+                EpisodeDateChip(text = chip)
+            } else {
+                EpisodeAudioChip(label = chip)
             }
         }
     }

@@ -12,7 +12,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,11 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -40,10 +35,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.confused.anikuta.R
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.datacache.CachedEpisodeMetadata
@@ -51,7 +43,6 @@ import com.confused.anikuta.core.datacache.DataCacheRepository
 import com.confused.anikuta.core.datacache.EpisodeAudioAggregates
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
-import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.metadata.EpisodeMetadata
 import com.confused.anikuta.core.preferences.EpisodeListPreferences
 import com.confused.anikuta.feature.animedetails.EpisodeDownloadState
@@ -237,6 +228,14 @@ fun EpisodeListSettingsScreen(
     val gridTitleMode = remember(gridTitleModeKey) {
         com.confused.anikuta.core.common.GridTitleMode.fromKey(gridTitleModeKey)
     }
+    // ROUND 110 (D-723): the GRID's number-label placement — the same
+    // reactive read, resolved through the lenient fromKey.
+    val gridNumberPositionKey by episodeListPrefs.gridNumberPosition.changes.collectAsState(
+        initial = episodeListPrefs.gridNumberPosition.get(),
+    )
+    val gridNumberPosition = remember(gridNumberPositionKey) {
+        com.confused.anikuta.core.common.GridNumberPosition.fromKey(gridNumberPositionKey)
+    }
     // D-529 lesson: seed the toggle through the lenient fromKey so the
     // highlighted segment is ALWAYS the style the renderer will draw.
     val selectedStyle = EpisodeListRowStyle.fromKey(rowStyleKey)
@@ -253,6 +252,7 @@ fun EpisodeListSettingsScreen(
         cinemaNumberFrosted = cinemaNumberStyle.trim().equals("FROSTED", ignoreCase = true),
         cinemaWatchedCheckBadge = cinemaWatchedCheck,
         gridTitleMode = gridTitleMode,
+        gridNumberPosition = gridNumberPosition,
     )
 
     // ── D-556: the preview's content — demo samples first (instant paint),
@@ -318,14 +318,18 @@ fun EpisodeListSettingsScreen(
     val hidePx = previewCollapse.hidePx
 
     // ── D-558: the search-landing scroll (the anchor map is this screen's
-    // half of the search contract: 0 layout · 1 cinema · 2 elements).
+    // half of the search contract: 0 layout · 1 cinema · 2 grid · 3
+    // elements). ROUND 110 (D-725): the round-108 off-by-one FIXED — the
+    // Grid card joined the list at item 2 but el_* still mapped there;
+    // the elements now map to 3 and the grid's own anchors to 2.
     rememberSettingsAnchorScroll(
         anchor = highlightAnchor,
         anchorIndexFor = { anchor ->
             when (anchor) {
                 "episode_list", "layout" -> 0
                 "cinema_corner", "cinema_style", "cinema_check" -> 1
-                "el_synopsis", "el_date", "el_audio", "el_progress", "el_dim", "el_download" -> 2
+                "grid_title", "grid_number" -> 2
+                "el_synopsis", "el_date", "el_audio", "el_progress", "el_dim", "el_download" -> 3
                 else -> null
             }
         },
@@ -347,7 +351,7 @@ fun EpisodeListSettingsScreen(
             // animateContentSize makes LAYOUT SWITCHES glide ("the layout
             // section should move down slowly").
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                EpisodeListCard(label = "Live preview") {
+                EpisodeSettingsCard(label = "Live preview") {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -457,36 +461,32 @@ fun EpisodeListSettingsScreen(
                     // LIVE PREVIEW is the description; the animated pill
                     // (SegmentedToggle) is the selector.
                     item {
-                        EpisodeListCard(label = "Layout") {
+                        EpisodeSettingsCard(label = "Layout") {
                             SettingsHighlightTarget(anchorId = "layout", activeAnchor = highlightAnchor) {
+                            // ROUND 110 (D-725): the duplicated inner heading is
+                            // GONE (the player screen's round-105 fix, now both
+                            // screens' rule — the card label IS the heading); the
+                            // LIVE PREVIEW is the description, the animated pill
+                            // (SegmentedToggle) is the selector.
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                             ) {
-                                Text(
-                                    text = "Layout",
-                                    fontFamily = RobotoFamily,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Medium,
+                                SegmentedToggle(
+                                    options = listOf(
+                                        "Classic",
+                                        "Grid",
+                                        "Timeline",
+                                        "Cinema",
+                                    ),
+                                    selectedIndex = selectedStyle.ordinal,
+                                    onSelect = { idx ->
+                                        episodeListPrefs.rowStyle.set(
+                                            EpisodeListRowStyle.entries[idx].name,
+                                        )
+                                    },
                                 )
-                                Box(modifier = Modifier.padding(top = 10.dp)) {
-                                    SegmentedToggle(
-                                        options = listOf(
-                                            "Classic",
-                                            "Grid",
-                                            "Timeline",
-                                            "Cinema",
-                                        ),
-                                        selectedIndex = selectedStyle.ordinal,
-                                        onSelect = { idx ->
-                                            episodeListPrefs.rowStyle.set(
-                                                EpisodeListRowStyle.entries[idx].name,
-                                            )
-                                        },
-                                    )
-                                }
                             }
                             }
                         }
@@ -514,77 +514,51 @@ fun EpisodeListSettingsScreen(
                                     animationSpec = tween(240, easing = FastOutSlowInEasing),
                                 ),
                         ) {
-                            EpisodeListCard(label = "Cinema") {
+                            EpisodeSettingsCard(label = "Cinema") {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
-                                    Text(
-                                        text = "Cinema",
-                                        fontFamily = RobotoFamily,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                    Column(
-                                        modifier = Modifier.padding(top = 10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                                    ) {
-                                        SettingsHighlightTarget(anchorId = "cinema_corner", activeAnchor = highlightAnchor) {
-                                        Column {
-                                            Text(
-                                                text = "Number position",
-                                                fontFamily = RobotoFamily,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                modifier = Modifier.padding(bottom = 6.dp),
-                                            )
-                                            SegmentedToggle(
-                                                options = listOf("Top left", "Top right"),
-                                                selectedIndex = if (
-                                                    cinemaNumberCorner.trim().equals("LEFT", ignoreCase = true)
-                                                ) 0 else 1,
-                                                onSelect = { idx ->
-                                                    episodeListPrefs.cinemaNumberCorner.set(
-                                                        if (idx == 0) "LEFT" else "RIGHT",
-                                                    )
-                                                },
-                                            )
-                                        }
-                                        }
-                                        SettingsHighlightTarget(anchorId = "cinema_style", activeAnchor = highlightAnchor) {
-                                        Column {
-                                            Text(
-                                                text = "Number style",
-                                                fontFamily = RobotoFamily,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                modifier = Modifier.padding(bottom = 6.dp),
-                                            )
-                                            SegmentedToggle(
-                                                options = listOf("Solid", "Frosted"),
-                                                selectedIndex = if (
-                                                    cinemaNumberStyle.trim().equals("FROSTED", ignoreCase = true)
-                                                ) 1 else 0,
-                                                onSelect = { idx ->
-                                                    episodeListPrefs.cinemaNumberStyle.set(
-                                                        if (idx == 1) "FROSTED" else "SOLID",
-                                                    )
-                                                },
-                                            )
-                                        }
-                                        }
-                                        SettingsHighlightTarget(anchorId = "cinema_check", activeAnchor = highlightAnchor) {
-                                            EpisodeListSwitchRow(
-                                                title = "Watched check mark",
-                                                description = null,
-                                                checked = cinemaWatchedCheck,
-                                                onChecked = { episodeListPrefs.cinemaWatchedCheck.set(it) },
-                                            )
-                                        }
+                                    // ROUND 110 (D-725): the duplicated inner
+                                    // heading is gone; the rows render through
+                                    // the shared SegmentedRow (the same widget
+                                    // the player screen uses — ONE anatomy).
+                                    SettingsHighlightTarget(anchorId = "cinema_corner", activeAnchor = highlightAnchor) {
+                                        SegmentedRow(
+                                            title = "Number position",
+                                            options = listOf("Top left", "Top right"),
+                                            selectedIndex = if (
+                                                cinemaNumberCorner.trim().equals("LEFT", ignoreCase = true)
+                                            ) 0 else 1,
+                                            onSelect = { idx ->
+                                                episodeListPrefs.cinemaNumberCorner.set(
+                                                    if (idx == 0) "LEFT" else "RIGHT",
+                                                )
+                                            },
+                                        )
+                                    }
+                                    SettingsHighlightTarget(anchorId = "cinema_style", activeAnchor = highlightAnchor) {
+                                        SegmentedRow(
+                                            title = "Number style",
+                                            options = listOf("Solid", "Frosted"),
+                                            selectedIndex = if (
+                                                cinemaNumberStyle.trim().equals("FROSTED", ignoreCase = true)
+                                            ) 1 else 0,
+                                            onSelect = { idx ->
+                                                episodeListPrefs.cinemaNumberStyle.set(
+                                                    if (idx == 1) "FROSTED" else "SOLID",
+                                                )
+                                            },
+                                        )
+                                    }
+                                    SettingsHighlightTarget(anchorId = "cinema_check", activeAnchor = highlightAnchor) {
+                                        SwitchRow(
+                                            title = "Watched check mark",
+                                            checked = cinemaWatchedCheck,
+                                            onChecked = { episodeListPrefs.cinemaWatchedCheck.set(it) },
+                                        )
                                     }
                                 }
                             }
@@ -595,14 +569,11 @@ fun EpisodeListSettingsScreen(
                     // ── ROUND 108 (D-713): the GRID customizability — the
                     //    Cinema card's pattern, ported: a dedicated section
                     //    that exists ONLY while the Grid layout is selected,
-                    //    with the same smooth appear/disappear. THE KNOB (the
-                    //    v1.1.64 device round's order): "he can select
-                    //    whether to show the episode title or not, and also
-                    //    he can decide whether to show the full episode title
-                    //    or only one line" — ONE segmented speaks all three
-                    //    states (and the title line itself only ever renders
-                    //    a REAL English-readable title — the gate lives in
-                    //    the renderer, gridShowableTitle).
+                    //    with the same smooth appear/disappear. ROUND 110
+                    //    (D-723/D-725): the rows render through the shared
+                    //    kit, the duplicated inner heading is gone, and the
+                    //    "Episode number" placement row joins (the new
+                    //    knob). ──
                     item {
                         Column {
                         AnimatedVisibility(
@@ -616,31 +587,16 @@ fun EpisodeListSettingsScreen(
                                     animationSpec = tween(240, easing = FastOutSlowInEasing),
                                 ),
                         ) {
-                            EpisodeListCard(label = "Grid") {
+                            EpisodeSettingsCard(label = "Grid") {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
-                                    Text(
-                                        text = "Grid",
-                                        fontFamily = RobotoFamily,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                    Column(
-                                        modifier = Modifier.padding(top = 10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        Text(
-                                            text = "Episode titles",
-                                            fontFamily = RobotoFamily,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium,
-                                        )
-                                        SegmentedToggle(
+                                    SettingsHighlightTarget(anchorId = "grid_title", activeAnchor = highlightAnchor) {
+                                        SegmentedRow(
+                                            title = "Episode titles",
                                             options = listOf("Off", "1 line", "Full"),
                                             selectedIndex = when (gridTitleMode) {
                                                 com.confused.anikuta.core.common.GridTitleMode.OFF -> 0
@@ -656,15 +612,23 @@ fun EpisodeListSettingsScreen(
                                                     },
                                                 )
                                             },
-                                        )
-                                        Text(
-                                            text = "Only real English titles render the line — " +
+                                            description = "Only real English titles render the line — " +
                                                 "a bare episode number never does",
-                                            fontFamily = RobotoFamily,
-                                            fontSize = 11.sp,
-                                            lineHeight = 15.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(top = 2.dp),
+                                        )
+                                    }
+                                    SettingsHighlightTarget(anchorId = "grid_number", activeAnchor = highlightAnchor) {
+                                        SegmentedRow(
+                                            title = "Episode number",
+                                            options = listOf("Below thumbnail", "Beside title"),
+                                            selectedIndex = if (gridNumberPosition ==
+                                                com.confused.anikuta.core.common.GridNumberPosition.BESIDE_DETAILS
+                                            ) 1 else 0,
+                                            onSelect = { idx ->
+                                                episodeListPrefs.gridNumberPosition.set(
+                                                    if (idx == 1) "BESIDE_DETAILS" else "UNDER_THUMB",
+                                                )
+                                            },
+                                            description = "Where the EP label sits in each cell",
                                         )
                                     }
                                 }
@@ -675,53 +639,53 @@ fun EpisodeListSettingsScreen(
 
                     // ── the elements — switches with ONE-LINE descriptions ──
                     item {
-                        EpisodeListCard(label = "Elements") {
+                        EpisodeSettingsCard(label = "Elements") {
                             SettingsHighlightTarget(anchorId = "el_synopsis", activeAnchor = highlightAnchor) {
-                            EpisodeListSwitchRow(
+                            SwitchRow(
                                 title = "Synopsis",
-                                description = "The two-line description (Classic rows only)",
                                 checked = showSynopsis,
                                 onChecked = { episodeListPrefs.showSynopsis.set(it) },
+                                description = "The two-line description (Classic rows only)",
                             )
                             }
                             SettingsHighlightTarget(anchorId = "el_date", activeAnchor = highlightAnchor) {
-                            EpisodeListSwitchRow(
+                            SwitchRow(
                                 title = "Release date",
-                                description = "Shown in every layout where it fits",
                                 checked = showDatePill,
                                 onChecked = { episodeListPrefs.showDatePill.set(it) },
+                                description = "Shown in every layout where it fits",
                             )
                             }
                             SettingsHighlightTarget(anchorId = "el_audio", activeAnchor = highlightAnchor) {
-                            EpisodeListSwitchRow(
+                            SwitchRow(
                                 title = "Audio pills",
-                                description = "SUB · DUB · HSUB availability",
                                 checked = showAudioPills,
                                 onChecked = { episodeListPrefs.showAudioPills.set(it) },
+                                description = "SUB · DUB · HSUB availability",
                             )
                             }
                             SettingsHighlightTarget(anchorId = "el_progress", activeAnchor = highlightAnchor) {
-                            EpisodeListSwitchRow(
+                            SwitchRow(
                                 title = "Watch progress",
-                                description = "The bar on the imagery's edge",
                                 checked = showWatchProgress,
                                 onChecked = { episodeListPrefs.showWatchProgress.set(it) },
+                                description = "The bar on the imagery's edge",
                             )
                             }
                             SettingsHighlightTarget(anchorId = "el_dim", activeAnchor = highlightAnchor) {
-                            EpisodeListSwitchRow(
+                            SwitchRow(
                                 title = "Dim watched",
-                                description = "Fade and grayscale watched episodes",
                                 checked = dimWatched,
                                 onChecked = { episodeListPrefs.dimWatched.set(it) },
+                                description = "Fade and grayscale watched episodes",
                             )
                             }
                             SettingsHighlightTarget(anchorId = "el_download", activeAnchor = highlightAnchor) {
-                            EpisodeListSwitchRow(
+                            SwitchRow(
                                 title = "Download buttons",
-                                description = "The control/badge on each episode",
                                 checked = showDownloadControl,
                                 onChecked = { episodeListPrefs.showDownloadControl.set(it) },
+                                description = "The control/badge on each episode",
                             )
                             }
                         }
@@ -735,12 +699,8 @@ fun EpisodeListSettingsScreen(
                     // download tap-cycle) ARE the click-customization it
                     // points at.
                     item {
-                        Text(
+                        Caption(
                             text = "Can be further customized by clicking episodes on the page",
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1038,76 +998,6 @@ internal fun audioScanlatorHint(agg: EpisodeAudioAggregates): String? = when {
     else -> null
 }
 
-// Local card + row shapes — the poster page's PosterCard/PosterSwitchRow look,
-// duplicated here as privates (the poster's are file-private; sharing would
-// widen their visibility for no reuse value beyond these two pages).
-
-/**
- * The section card — the SettingsGroupCard look (the primary ExtraBold
- * label, the 12dp-rounded surfaceVariant surface) WITHOUT the 16dp
- * horizontal padding baked into the shared component: this screen carries
- * the single 8dp gutter (the D-525 rule).
- */
-@Composable
-private fun EpisodeListCard(
-    label: String,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Text(
-            text = label,
-            fontFamily = RobotoFamily,
-            color = MaterialTheme.colorScheme.primary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
-        )
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                modifier = Modifier.padding(vertical = 4.dp),
-                content = content,
-            )
-        }
-    }
-}
-
-/** The switch row — title + optional one-line description + the switch
- *  (D-532; the D-558 Cinema section's rows pass null — no descriptions
- *  there, per the user's explicit spec for that section). */
-@Composable
-private fun EpisodeListSwitchRow(
-    title: String,
-    description: String?,
-    checked: Boolean,
-    onChecked: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            if (description != null) {
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        Switch(checked = checked, onCheckedChange = onChecked)
-    }
-}
+// Local card + row shapes — the shared kit (EpisodeListSettingsWidgets.kt)
+// owns them now (ROUND 110 / D-725: this screen's two privates and the
+// player screen's three all folded into ONE anatomy).
