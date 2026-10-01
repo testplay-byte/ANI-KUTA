@@ -544,8 +544,22 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── D-430: the release-branch bump (round 112 — v1.1.69) ──────────────
+    // Cut from the green mainline head 240be10 (the ledger commit; the
+    // implementation 608861a1's Build APK run 36901785174 GREEN
+    // FIRST-TRY). Carries on top of v1.1.68 THE ROUND-112 SET (D-730..D-732,
+    // doc 94): THE CRASH'S SAFE MEASURE (the details page no longer crashes
+    // on entry with the TIMELINE layout — the meta line left BoxWithConstraints
+    // for a plain custom Layout whose ladder measures the variants' true
+    // widths; intrinsic-measuring parents get real answers) + THE
+    // SYNOPSIS-OFF TITLE'S NEW HOME (with the synopsis off, the classic row's
+    // title relocates below the thumbnail+details block — one single line,
+    // full width — with the download button at its end exactly as it is; the
+    // meta line never shares its row with the control, so the DUB tag always
+    // has its room) + THE ELEMENTS' QUIET PILLS (the elements toggles are
+    // simple centered text on themed pills — the check glyph is gone).
+    const val versionCode = 10169
+    const val versionName = "1.1.69"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
