@@ -375,11 +375,16 @@ fun DetailsScreen(
     val gridNumberPositionPref = remember(gridNumberPositionKey) {
         com.confused.anikuta.core.common.GridNumberPosition.fromKey(gridNumberPositionKey)
     }
+    // ROUND 113 (D-736): the GRID's watched-checkmark knob — the player
+    // GRID's own D-720 decoupling, ported (the parity order).
+    val gridWatchedCheckmarkPref by episodeListPrefs.gridWatchedCheckmark.changes.collectAsState(
+        initial = episodeListPrefs.gridWatchedCheckmark.get(),
+    )
     val episodeDisplayStyle = remember(
         rowStyleKey, showSynopsisPref, showDatePillPref, showAudioPillsPref,
         showWatchProgressPref, dimWatchedPref, showDownloadControlPref,
         cinemaNumberCornerPref, cinemaNumberStylePref, cinemaWatchedCheckPref,
-        gridTitleModePref, gridNumberPositionPref,
+        gridTitleModePref, gridNumberPositionPref, gridWatchedCheckmarkPref,
     ) {
         EpisodeListDisplayStyle(
             rowStyle = EpisodeListRowStyle.fromKey(rowStyleKey),
@@ -394,6 +399,7 @@ fun DetailsScreen(
             cinemaWatchedCheckBadge = cinemaWatchedCheckPref,
             gridTitleMode = gridTitleModePref,
             gridNumberPosition = gridNumberPositionPref,
+            gridWatchedCheckmark = gridWatchedCheckmarkPref,
         )
     }
 
@@ -3386,6 +3392,19 @@ private fun EpisodeGroupSwitcher(
  * extension episode (falling back to the current episode's, as before).
  *
  * Format per line: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator".
+ *
+ * ROUND 113 (D-735): TWO hardenings for the v1.1.69 device round ("all of
+ * the episodes do not transfer their audio versions availability"):
+ *  - THE NAME-TAG FALLBACK — the scanlator field now also parses the
+ *    episode's own NAME (the "(Sub)"/"(Dub)" suffix the CS bridge — and
+ *    some aniyomi extensions — put there) when the scanlator itself is
+ *    blank. The details rows parse scanlator + name; the serialized channel
+ *    now carries both signals too.
+ *  - THE NEWLINE GUARD — every field is flattened (\\n and \\r → spaces)
+ *    BEFORE joining: a multi-line description used to split its serialized
+ *    line in two, and the orphaned tail parsed as a garbage record —
+ *    silently DROPPING that episode's whole metadata (title, thumb, date,
+ *    description AND scanlator) on the player.
  */
 private fun buildEpisodeMetadataSerialized(
     episodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
@@ -3393,6 +3412,18 @@ private fun buildEpisodeMetadataSerialized(
     currentScanlator: String?,
 ): String {
     val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+    // D-735: the newline guard — one serialized record per episode, always.
+    fun flat(raw: String?): String = raw?.replace("\n", " ")?.replace("\r", " ") ?: ""
+    // D-735: the name-tag fallback — the flavor token encoded in the
+    // episode's own name (the bridge's exact "(Sub)"/"(Dub)" suffix shape).
+    fun nameTagOf(name: String?): String? {
+        val upper = name?.trim()?.uppercase() ?: return null
+        return when {
+            upper.endsWith("(SUB)") -> "SUB"
+            upper.endsWith("(DUB)") -> "DUB"
+            else -> null
+        }
+    }
     val byNumber = episodes.associateBy { it.episode_number.toInt() }
     // ROUND 108 (D-713): THE UNION — every EPISODE renders a line
     // (extension-first), plus any metadata-only numbers. The old iteration
@@ -3414,8 +3445,11 @@ private fun buildEpisodeMetadataSerialized(
             ?: ext?.date_upload?.takeIf { it > 0 }
             ?: 0L
         val desc = ext?.summary?.takeIf { it.isNotBlank() } ?: meta?.description ?: ""
-        val scanlator = ext?.scanlator ?: currentScanlator ?: ""
-        "$epNum${delim}$title${delim}$thumb${delim}$dateMillis${delim}$desc${delim}$scanlator"
+        val scanlator = ext?.scanlator?.takeIf { it.isNotBlank() }
+            ?: nameTagOf(ext?.name)
+            ?: currentScanlator
+            ?: ""
+        "$epNum${delim}${flat(title)}${delim}${flat(thumb)}${delim}$dateMillis${delim}${flat(desc)}${delim}${flat(scanlator)}"
     }
 }
 
@@ -3426,13 +3460,17 @@ private fun buildEpisodeMetadataSerialized(
  * correctly left alone). The WIRE FORMAT is unchanged ("url␟number␟name"
  * lines, the ␟ unit separator) — old persisted keys parse identically; this
  * only kills the drift risk of six copies.
+ *
+ * ROUND 113 (D-735): the name field is NEWLINE-FLATTENED like the metadata
+ * builder's fields — an episode name containing \n used to split its line
+ * and corrupt every record after it on the player.
  */
 private fun buildEpisodeListSerialized(
     episodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
 ): String {
     val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
     return episodes.joinToString("\n") { e ->
-        "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+        "${e.url}${delim}${e.episode_number}${delim}${e.name.replace("\n", " ").replace("\r", " ")}"
     }
 }
 

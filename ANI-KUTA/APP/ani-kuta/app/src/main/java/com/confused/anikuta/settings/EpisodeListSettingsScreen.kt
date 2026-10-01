@@ -245,6 +245,11 @@ fun EpisodeListSettingsScreen(
     val gridNumberPosition = remember(gridNumberPositionKey) {
         com.confused.anikuta.core.common.GridNumberPosition.fromKey(gridNumberPositionKey)
     }
+    // ROUND 113 (D-736): the GRID's watched-checkmark knob — the player
+    // GRID's own D-720 decoupling, ported (the parity order).
+    val gridWatchedCheckmark by episodeListPrefs.gridWatchedCheckmark.changes.collectAsState(
+        initial = episodeListPrefs.gridWatchedCheckmark.get(),
+    )
     // D-529 lesson: seed the toggle through the lenient fromKey so the
     // highlighted segment is ALWAYS the style the renderer will draw.
     val selectedStyle = EpisodeListRowStyle.fromKey(rowStyleKey)
@@ -262,6 +267,7 @@ fun EpisodeListSettingsScreen(
         cinemaWatchedCheckBadge = cinemaWatchedCheck,
         gridTitleMode = gridTitleMode,
         gridNumberPosition = gridNumberPosition,
+        gridWatchedCheckmark = gridWatchedCheckmark,
     )
 
     // ── D-556: the preview's content — demo samples first (instant paint),
@@ -338,7 +344,8 @@ fun EpisodeListSettingsScreen(
                 "episode_list", "layout" -> 0
                 "cinema_corner", "cinema_style", "cinema_check" -> 1
                 "grid_title", "grid_number" -> 2
-                "el_synopsis", "el_date", "el_audio", "el_progress", "el_dim", "el_download" -> 3
+                "el_synopsis", "el_date", "el_audio", "el_progress", "el_dim",
+                "el_download", "el_grid_check" -> 3
                 else -> null
             }
         },
@@ -649,11 +656,14 @@ fun EpisodeListSettingsScreen(
                     // ── the elements — ROUND 111 (D-729): THE GRID OF
                     //    BUTTONS ("a grid layout of buttons which I can click
                     //    and turn to toggle them on or to toggle them off …
-                    //    two options per row"), NO descriptions, the clean
-                    //    color + check animation, and the card-heading tap
-                    //    flipping 2 ↔ 3 buttons per row (the user's testing
-                    //    aid for the layout experiment). The search anchors
-                    //    ride the buttons themselves now. ──
+                    //    two options per row"), NO descriptions, the
+                    //    card-heading tap flipping 2 ↔ 3 buttons per row (the
+                    //    user's testing aid for the layout experiment), and
+                    //    the search anchors riding the buttons themselves.
+                    //    ROUND 113 (D-733): the buttons wear the LAYOUT
+                    //    SELECTOR'S OWN segment anatomy; the GRID's watched
+                    //    checkmark joins the style-filtered entries (D-736,
+                    //    the parity order). ──
                     item {
                         EpisodeSettingsCard(
                             label = "Elements",
@@ -685,6 +695,18 @@ fun EpisodeListSettingsScreen(
                                         onToggle = { episodeListPrefs.showWatchProgress.set(!showWatchProgress) },
                                         anchorId = "el_progress",
                                     ),
+                                    // ROUND 113 (D-736): the GRID's watched
+                                    // checkmark joins the grid — the player's
+                                    // own style-filtered entry, mirrored (the
+                                    // parity order).
+                                    if (selectedStyle == EpisodeListRowStyle.GRID) {
+                                        ElementToggleEntry(
+                                            title = "Watched checkmark",
+                                            checked = gridWatchedCheckmark,
+                                            onToggle = { episodeListPrefs.gridWatchedCheckmark.set(!gridWatchedCheckmark) },
+                                            anchorId = "el_grid_check",
+                                        )
+                                    } else null,
                                     ElementToggleEntry(
                                         title = "Dim watched",
                                         checked = dimWatched,
@@ -697,7 +719,7 @@ fun EpisodeListSettingsScreen(
                                         onToggle = { episodeListPrefs.showDownloadControl.set(!showDownloadControl) },
                                         anchorId = "el_download",
                                     ),
-                                ),
+                                ).filterNotNull(),
                                 columns = if (elementsThreePerRow) 3 else 2,
                                 highlightAnchor = highlightAnchor,
                             )

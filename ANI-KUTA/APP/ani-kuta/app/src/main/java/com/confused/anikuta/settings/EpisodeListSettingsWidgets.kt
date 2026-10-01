@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -194,7 +196,7 @@ internal fun SegmentedRow(
 internal fun Caption(
     text: String,
     modifier: Modifier = Modifier,
-    textAlign: androidx.compose.ui.text.style.TextAlign? = null,
+    textAlign: TextAlign? = null,
 ) {
     Text(
         text = text,
@@ -215,14 +217,26 @@ internal fun Caption(
 //  buttons which I can click and turn to toggle them on or to toggle them
 //  off … we can do two options per row, like on the left and on the right
 //  it will show a total of two options … they will be in the button kind
-//  of format. If I click them, their states will switch." NO descriptions
-//  ("I don't feel like there will be any need for description for that"),
-//  ONE clean animation (the container + content colors crossfade, the
-//  leading check scales in/out), and the card-heading tap toggles the
-//  grid between two and three buttons per row (the user's testing aid —
-//  "so I can test out how the things will overall look like in the end").
-//  The multi-state knobs (segmented rows, sliders) are NOT on/off
-//  toggles — they stay rows below the grid.
+//  of format." NO descriptions ("I don't feel like there will be any need
+//  for description for that"), and the card-heading tap toggles the grid
+//  between two and three buttons per row (the user's testing aid — "so I
+//  can test out how the things will overall look like in the end"). The
+//  multi-state knobs (segmented rows, sliders) are NOT on/off toggles —
+//  they stay in their own cards/rows.
+//
+//  ROUND 113 (D-733): THE SEGMENT ANATOMY — the v1.1.69 verdict on the
+//  round-112 pills: "the way I wanted the elements to look like were just
+//  like how the buttons for the layout are, like each individual button
+//  for the layout, the currently selected one … apparently you gave them
+//  rounded corner, pill-shaped button-like feel, which is not good." The
+//  grid now wears the LAYOUT SELECTOR'S OWN anatomy (SegmentedToggle.kt):
+//  ONE shared surfaceVariant container (12dp-rounded, the 4dp inner
+//  padding), the elements as 8dp-ROUNDED SEGMENTS — the ON state is the
+//  SOLID primary fill with onPrimary ExtraBold (the selected segment's
+//  exact look), the OFF state is TRANSPARENT over the container's tint
+//  with onSurfaceVariant Medium (the unselected segment's exact look),
+//  and the segment-height is the selector's own compact 8dp-vertical
+//  padding — no more fat 48dp pills reading "in a list format".
 // ════════════════════════════════════════════════════════════════════════
 
 /** One element's on/off state — a grid button's model. */
@@ -235,11 +249,14 @@ internal data class ElementToggleEntry(
 )
 
 /**
- * THE ELEMENTS' GRID — [entries] as equal-width toggle buttons, [columns]
- * per row (2 by default; the heading tap flips the player's testing aid to
- * 3). The container reflows smoothly (animateContentSize); each button's
- * state change crossfades its colors. Short rows are padded with spacers
- * so the buttons keep the grid's equal widths.
+ * THE ELEMENTS' GRID — [entries] as equal-width toggle SEGMENTS inside the
+ * layout selector's own shared container (ROUND 113, D-733: the
+ * SegmentedToggle anatomy — surfaceVariant@0.5, 12dp corners, the 4dp inner
+ * padding, the 4dp inter-segment gaps). [columns] per row (2 by default;
+ * the heading tap flips the testing aid to 3). The container reflows
+ * smoothly (animateContentSize); each segment's state change crossfades its
+ * colors. Short rows are padded with spacers so the segments keep the
+ * grid's equal widths.
  */
 @Composable
 internal fun ElementToggleGrid(
@@ -248,24 +265,32 @@ internal fun ElementToggleGrid(
     highlightAnchor: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    Column(
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 6.dp)
-            .animateContentSize(animationSpec = tween(260, easing = FastOutSlowInEasing)),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
     ) {
-        entries.chunked(columns.coerceAtLeast(1)).forEach { rowEntries ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                rowEntries.forEach { entry ->
-                    ElementToggleButton(
-                        entry = entry,
-                        activeAnchor = highlightAnchor,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                repeat(columns.coerceAtLeast(1) - rowEntries.size) {
-                    Spacer(Modifier.weight(1f))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp)
+                .animateContentSize(animationSpec = tween(260, easing = FastOutSlowInEasing)),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            entries.chunked(columns.coerceAtLeast(1)).forEach { rowEntries ->
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    rowEntries.forEach { entry ->
+                        ElementToggleButton(
+                            entry = entry,
+                            activeAnchor = highlightAnchor,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    repeat(columns.coerceAtLeast(1) - rowEntries.size) {
+                        Spacer(Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -273,14 +298,17 @@ internal fun ElementToggleGrid(
 }
 
 /**
- * ONE element button — ROUND 112 (D-732), the user's verdict on the
- * round-111 design ("it was looking way too ugly … I wanted the UI to look
- * like simple, like text with themed colored background, nothing else
- * more than that. Or maybe you could give them a button-like feel"):
- * a quiet PILL of centered text — the check glyph, its reserved slot, and
- * the leading-icon row are GONE. The ON state wears the theme's primary
- * tint; the OFF state stays on the neutral surface. The ripple (bounded
- * to the pill) + the 220ms color crossfade carry the button feel.
+ * ONE element segment — ROUND 113 (D-733), the v1.1.69 verdict: "the way I
+ * wanted the elements to look like were just like how the buttons for the
+ * layout are, like each individual button for the layout, the currently
+ * selected one." The button IS a layout-selector segment now — the exact
+ * SegmentToggle construct: a Box clipped to 8dp corners over the shared
+ * container, ON = the SOLID primary fill + onPrimary ExtraBold (the
+ * selected segment), OFF = TRANSPARENT (the container's tint shows through)
+ * + onSurfaceVariant Medium, the selector's own compact 8dp vertical
+ * padding, and the 220ms color crossfade. The round-112 pill
+ * (RoundedCornerShape(50), the translucent tints, the M3 clickable
+ * Surface's inflated touch minimum) is RETIRED.
  */
 @Composable
 private fun ElementToggleButton(
@@ -291,16 +319,16 @@ private fun ElementToggleButton(
     val checked = entry.checked
     val container by animateColorAsState(
         targetValue = if (checked) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+            MaterialTheme.colorScheme.primary
         } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            Color.Transparent
         },
         animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "element_container",
     )
     val content by animateColorAsState(
         targetValue = if (checked) {
-            MaterialTheme.colorScheme.primary
+            MaterialTheme.colorScheme.onPrimary
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
@@ -308,25 +336,24 @@ private fun ElementToggleButton(
         label = "element_content",
     )
     val button: @Composable () -> Unit = {
-        Surface(
-            onClick = { entry.onToggle() },
-            color = container,
-            shape = RoundedCornerShape(50),
-            modifier = modifier.fillMaxWidth(),
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(container)
+                .clickable { entry.onToggle() },
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = entry.title,
                 fontFamily = RobotoFamily,
                 fontSize = 13.sp,
                 lineHeight = 16.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = if (checked) FontWeight.ExtraBold else FontWeight.Medium,
                 color = content,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                modifier = Modifier.padding(vertical = 8.dp),
             )
         }
     }

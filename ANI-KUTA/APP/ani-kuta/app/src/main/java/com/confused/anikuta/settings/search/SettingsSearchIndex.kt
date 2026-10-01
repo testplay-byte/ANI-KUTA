@@ -321,6 +321,18 @@ object SettingsSearchIndex {
                 keywords = listOf("download", "button", "control", "badge", "icon"),
             ),
         )
+        // ROUND 113 (D-736): the details GRID's checkmark joins the index (the
+        // player GRID's own knob, ported for the parity order).
+        add(
+            SettingsSearchEntry(
+                id = "episodelist.grid_checkmark",
+                title = "Grid · Watched checkmark",
+                page = SettingsSearchPage.EPISODE_LIST,
+                anchor = "el_grid_check",
+                keywords = listOf("grid", "watched", "checkmark", "check", "bubble",
+                    "seen", "mark"),
+            ),
+        )
 
         // ── Appearance → Player page (ROUND 105 (WS-C): the page joins the
         //    index — the round-102 gap; retitled with its row) ────────────
@@ -360,7 +372,7 @@ object SettingsSearchIndex {
                 id = "playerepisodelist.grid_title",
                 title = "Grid · Episode titles",
                 page = SettingsSearchPage.PLAYER_EPISODE_LIST,
-                anchor = "player_elements",
+                anchor = "player_grid",
                 keywords = listOf("grid", "title", "titles", "episode title", "one line",
                     "full", "off", "english", "name", "player"),
             ),
@@ -370,10 +382,43 @@ object SettingsSearchIndex {
                 id = "playerepisodelist.grid_number",
                 title = "Grid · Episode number",
                 page = SettingsSearchPage.PLAYER_EPISODE_LIST,
-                anchor = "player_elements",
+                anchor = "player_grid",
                 keywords = listOf("grid", "number", "episode number", "below",
                     "beside", "thumbnail", "title", "position", "placement",
                     "player"),
+            ),
+        )
+        // ROUND 113 (D-736): the dedicated Grid / Banner cards join the
+        // index (the style knobs moved out of the Elements card into their
+        // own sections — the details screen's own structure, mirrored).
+        add(
+            SettingsSearchEntry(
+                id = "playerepisodelist.grid_current",
+                title = "Grid · Currently playing",
+                page = SettingsSearchPage.PLAYER_EPISODE_LIST,
+                anchor = "player_grid",
+                keywords = listOf("grid", "current", "currently", "playing",
+                    "highlight", "play button", "themed tint", "player"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "playerepisodelist.banner_current",
+                title = "Banner · Currently playing",
+                page = SettingsSearchPage.PLAYER_EPISODE_LIST,
+                anchor = "player_banner",
+                keywords = listOf("banner", "current", "currently", "playing",
+                    "highlight", "play button", "themed tint", "player"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "playerepisodelist.banner_size",
+                title = "Banner · Size",
+                page = SettingsSearchPage.PLAYER_EPISODE_LIST,
+                anchor = "player_banner",
+                keywords = listOf("banner", "size", "width", "small", "full",
+                    "padding", "player"),
             ),
         )
         add(

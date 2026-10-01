@@ -636,13 +636,18 @@ internal fun EpisodeGridCell(
                     )
                 }
             }
-            // The watched treatment: grayscale + dim + ONE quiet check bubble.
+            // The watched treatment — ROUND 113 (D-736): the check bubble is
+            // DECOUPLED from the dim (the player GRID's own D-720 semantics,
+            // ported for the parity order): the grayscale + dim overlay stay
+            // owned by dimWatched, the check bubble by gridWatchedCheckmark.
             if (isWatched && style.dimWatched) {
                 Box(
                     modifier = Modifier
                         .matchParentSize()
                         .background(Color.Black.copy(alpha = 0.32f)),
                 )
+            }
+            if (isWatched && style.gridWatchedCheckmark) {
                 Surface(
                     shape = CircleShape,
                     color = Color.Black.copy(alpha = 0.45f),

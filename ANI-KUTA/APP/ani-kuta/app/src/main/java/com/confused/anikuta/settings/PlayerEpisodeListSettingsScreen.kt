@@ -83,16 +83,19 @@ import kotlin.math.roundToInt
  *    the list; UP never consumes pre-scroll — the list scrolls first, the
  *    leftover expands the preview), the halfway snap, the crossed latch, the
  *    settle windows, the fling-momentum handoff, and the GRID exemption.
- *  • THE ELEMENTS ARE STYLE-AWARE now, appearing/disappearing SMOOTHLY
- *    ("the options below, the elements options, should properly adjust
+ *  • THE ELEMENTS ARE STYLE-AWARE, appearing/disappearing SMOOTHLY ("the
+ *    options below, the elements options, should properly adjust
  *    accordingly and should disappear or appear smoothly depending on what's
- *    available to edit or what's not available to edit"). ROUND 105 grew
- *    the per-style sets (every row carries a one-line description):
- *      CLASSIC   = Synopsis · Release date · Watch progress · Dim watched
- *      TRACKLIST = Synopsis · Date pill · Progress bar · Dim watched
- *      GRID      = Date pill · Watched checkmark · Currently playing · Titles
- *      BANNER    = Date pill · Dim watched · Episode number (+ the nested
- *                  position + style rows) · Banner size
+ *    available to edit or what's not available to edit"). ROUND 113
+ *    (D-736): the Elements card carries the on/off toggles ONLY; the
+ *    multi-state knobs live in the dedicated Grid / Banner cards (the
+ *    details page's own Cinema/Grid card structure, mirrored — the parity
+ *    order). The style-filtered toggle sets:
+ *      CLASSIC   = Synopsis · Release date · Audio pills · Watch progress · Dim watched
+ *      TRACKLIST = Synopsis · Release date · Audio pills · Watch progress · Dim watched
+ *      GRID      = Release date · Audio pills · Watch progress · Watched checkmark · Dim watched
+ *      BANNER    = Release date · Audio pills · Watch progress · Episode
+ *                  number · Watched check mark · Dim watched
  *  • THE BANNER'S SIZE SLIDER — ROUND 105 re-aimed the round-104 knob
  *    ("it should not change the height of the banner, but… the actual size
  *    of the whole thumbnail cover image banner itself"): the aspect is
@@ -333,14 +336,19 @@ fun PlayerEpisodeListSettingsScreen(
         lazyListState.firstVisibleItemIndex > 0
     // ROUND 105 (WS-C): the search-landing scroll — the page joined the
     // settings search index; the anchors map to the options' items.
+    // ROUND 113 (D-736): the two new style cards (Grid / Banner) sit at
+    // items 2 and 3 — the download/sort indices shifted with them, and the
+    // new cards' anchors joined the map.
     rememberSettingsAnchorScroll(
         anchor = highlightAnchor,
         anchorIndexFor = { anchor ->
             when (anchor) {
                 "player_episode_list", "player_layout" -> 0
                 "player_elements" -> 1
-                "player_download" -> 2
-                "player_sort" -> 3
+                "player_grid" -> 2
+                "player_banner" -> 3
+                "player_download" -> 4
+                "player_sort" -> 5
                 else -> null
             }
         },
@@ -540,49 +548,42 @@ fun PlayerEpisodeListSettingsScreen(
                         }
                     }
 
-                    // ── Elements — STYLE-AWARE with the smooth appear/
-                    //    disappear ("should properly adjust accordingly and
-                    //    should disappear or appear smoothly depending on
-                    //    what's available to edit"). ROUND 105: every row
-                    //    gained its one-line description ("add small short
-                    //    descriptions to the elements"), the TRACKLIST gained
-                    //    the synopsis + progress knobs, the GRID gained its
-                    //    checkmark/current/titles knobs (the dim retired
-                    //    here), and the BANNER gained the position/style
-                    //    rows (nested under the number toggle) + the re-aimed
-                    //    size slider. ROUND 111 (D-729) SUPERSEDES the
-                    //    description part: the on/off toggles are the GRID OF
-                    //    BUTTONS now (no descriptions — the round's explicit
-                    //    order); the style-aware appear/disappear and the
-                    //    multi-state rows below keep the ROUND 105 rhythm. ──
+                    // ── Elements — ROUND 113 (D-736): THE PURE CARD — the
+                    //    on/off toggles ONLY ("The elements should be in a
+                    //    dedicated separate section"). The style-specific
+                    //    multi-state knobs (the GRID's current/titles/number,
+                    //    the BANNER's current/number-position/number-style/
+                    //    size) moved to their own dedicated Grid / Banner
+                    //    cards below — the details page's own Cinema/Grid
+                    //    card structure, mirrored (the round's parity order:
+                    //    "the player page and the details page episodes
+                    //    lists layouts both should almost have similar
+                    //    customizability"). The card stays STYLE-AWARE (its
+                    //    entries filter to what the selected layout can
+                    //    draw — the ROUND 105 doctrine) and the heading tap
+                    //    keeps the 2 ↔ 3 testing aid (ROUND 111, D-729). ──
                     item {
                         SettingsHighlightTarget(anchorId = "player_elements", activeAnchor = highlightAnchor) {
                         EpisodeSettingsCard(
                             label = "Elements",
                             onLabelClick = { elementsThreePerRow = !elementsThreePerRow },
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .animateContentSize(
-                                        animationSpec = tween(300, easing = FastOutSlowInEasing),
-                                    ),
-                            ) {
                                 // ── ROUND 111 (D-729): THE GRID OF BUTTONS —
                                 //    the on/off elements as 2-per-row toggle
                                 //    buttons ("a grid layout of buttons which
                                 //    I can click and turn to toggle them on or
                                 //    to toggle them off … two options per
-                                //    row"), NO descriptions, the clean color
-                                //    + check animation, and the card-heading
+                                //    row"), NO descriptions, and the card-heading
                                 //    tap flipping 2 ↔ 3 per row (the testing
                                 //    aid). Style-filtered exactly as the old
                                 //    rows were; the element titles match the
                                 //    details page's own ("the similar
                                 //    naming, so that it's easier for us").
-                                //    The multi-state knobs (segmented rows +
-                                //    the size slider) are NOT on/off toggles
-                                //    — they stay rows below the grid. —–
+                                //    ROUND 113 (D-733): the buttons wear the
+                                //    LAYOUT SELECTOR'S OWN segment anatomy;
+                                //    the multi-state knobs are NOT on/off
+                                //    toggles — they live in the dedicated
+                                //    Grid / Banner cards now. —–
                                 ElementToggleGrid(
                                     entries = buildList {
                                         if (style == PlayerEpisodeListStyle.CLASSIC ||
@@ -654,10 +655,34 @@ fun PlayerEpisodeListSettingsScreen(
                                     },
                                     columns = if (elementsThreePerRow) 3 else 2,
                                 )
-                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.GRID) {
-                                    SegmentedRow(
-                                        title = "Currently playing",
-                                        description = "How the playing episode is highlighted",
+                        }
+                        }
+                    }
+
+                    // ── ROUND 113 (D-736): THE GRID CARD — the GRID's own
+                    //    multi-state knobs in their dedicated section, the
+                    //    details page's Grid card mirrored (the same
+                    //    smooth appear/disappear the details screen's
+                    //    Cinema/Grid cards own). ──
+                    item {
+                        AnimatedVisibility(
+                            visible = style == PlayerEpisodeListStyle.GRID,
+                            enter = fadeIn(animationSpec = tween(300)) +
+                                expandVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)),
+                            exit = fadeOut(animationSpec = tween(240)) +
+                                shrinkVertically(animationSpec = tween(240, easing = FastOutSlowInEasing)),
+                        ) {
+                            SettingsHighlightTarget(anchorId = "player_grid", activeAnchor = highlightAnchor) {
+                            EpisodeSettingsCard(label = "Grid") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                SegmentedRow(
+                                    title = "Currently playing",
+                                    description = "How the playing episode is highlighted",
                                         options = listOf("Play button", "Themed tint"),
                                         selectedIndex = if (gridCurrentStyle ==
                                             com.confused.anikuta.core.designsystem.component.playerlist.PlayerGridCurrentStyle.TINT
@@ -668,7 +693,6 @@ fun PlayerEpisodeListSettingsScreen(
                                             )
                                         },
                                     )
-                                }
                                 // ── ROUND 108 (D-713): THE GRID'S TITLE MODE —
                                 //    the round-105 Boolean is retired for the
                                 //    v1.1.64 order: "he can select whether to
@@ -679,9 +703,8 @@ fun PlayerEpisodeListSettingsScreen(
                                 //    line itself only ever renders a REAL
                                 //    English-readable title (the gate lives in
                                 //    the renderer, gridShowableTitle). ──
-                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.GRID) {
-                                    SegmentedRow(
-                                        title = "Episode titles",
+                                SegmentedRow(
+                                    title = "Episode titles",
                                         description = "Only real English titles render the line",
                                         options = listOf("Off", "1 line", "Full"),
                                         selectedIndex = when (gridTitleMode) {
@@ -699,15 +722,13 @@ fun PlayerEpisodeListSettingsScreen(
                                             )
                                         },
                                     )
-                                }
                                 // ── ROUND 110 (D-723): the GRID's number-label
                                 //    placement — the details grid's new knob,
                                 //    shared (UNDER_THUMB keeps today's anatomy;
                                 //    BESIDE_DETAILS rides the EP label on the
                                 //    title's line). ──
-                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.GRID) {
-                                    SegmentedRow(
-                                        title = "Episode number",
+                                SegmentedRow(
+                                    title = "Episode number",
                                         description = "Where the EP label sits in each cell",
                                         options = listOf("Below thumbnail", "Beside title"),
                                         selectedIndex = if (gridNumberPosition ==
@@ -720,8 +741,53 @@ fun PlayerEpisodeListSettingsScreen(
                                         },
                                     )
                                 }
+                            }
+                            }
+                        }
+                    }
+
+                    // ── ROUND 113 (D-736): THE BANNER CARD — the BANNER's own
+                    //    multi-state knobs in their dedicated section (the
+                    //    Grid card's twin). The number position/style rows
+                    //    stay nested under the Episode-number toggle's gate
+                    //    (the ROUND 105 nesting, kept). ──
+                    item {
+                        AnimatedVisibility(
+                            visible = style == PlayerEpisodeListStyle.BANNER,
+                            enter = fadeIn(animationSpec = tween(300)) +
+                                expandVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)),
+                            exit = fadeOut(animationSpec = tween(240)) +
+                                shrinkVertically(animationSpec = tween(240, easing = FastOutSlowInEasing)),
+                        ) {
+                            SettingsHighlightTarget(anchorId = "player_banner", activeAnchor = highlightAnchor) {
+                            EpisodeSettingsCard(label = "Banner") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                // ── ROUND 106 (WS-D): the BANNER's
+                                //    currently-playing treatment — the GRID's
+                                //    PLAY/TINT knob, ported ("the grid view
+                                //    has the ability to select between play
+                                //    button and the themed tint, but the
+                                //    banner does not have it"). ──
+                                SegmentedRow(
+                                    title = "Currently playing",
+                                    description = "How the playing episode is highlighted",
+                                    options = listOf("Play button", "Themed tint"),
+                                    selectedIndex = if (bannerCurrentStyle ==
+                                        com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerCurrentStyle.TINT
+                                    ) 1 else 0,
+                                    onSelect = { idx ->
+                                        playerListPrefs.bannerCurrentStyle.set(
+                                            if (idx == 1) "TINT" else "PLAY",
+                                        )
+                                    },
+                                )
                                 AnimatedStyleRow(
-                                    visible = style == PlayerEpisodeListStyle.BANNER && showEpisodeNumber,
+                                    visible = showEpisodeNumber,
                                     modifier = Modifier.padding(start = 12.dp),
                                 ) {
                                     SegmentedRow(
@@ -739,7 +805,7 @@ fun PlayerEpisodeListSettingsScreen(
                                     )
                                 }
                                 AnimatedStyleRow(
-                                    visible = style == PlayerEpisodeListStyle.BANNER && showEpisodeNumber,
+                                    visible = showEpisodeNumber,
                                     modifier = Modifier.padding(start = 12.dp),
                                 ) {
                                     SegmentedRow(
@@ -756,27 +822,6 @@ fun PlayerEpisodeListSettingsScreen(
                                         },
                                     )
                                 }
-                                // ── ROUND 106 (WS-D): the BANNER's
-                                //    currently-playing treatment — the GRID's
-                                //    PLAY/TINT knob, ported ("the grid view
-                                //    has the ability to select between play
-                                //    button and the themed tint, but the
-                                //    banner does not have it"). ──
-                                AnimatedStyleRow(visible = style == PlayerEpisodeListStyle.BANNER) {
-                                    SegmentedRow(
-                                        title = "Currently playing",
-                                        description = "How the playing episode is highlighted",
-                                        options = listOf("Play button", "Themed tint"),
-                                        selectedIndex = if (bannerCurrentStyle ==
-                                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerCurrentStyle.TINT
-                                        ) 1 else 0,
-                                        onSelect = { idx ->
-                                            playerListPrefs.bannerCurrentStyle.set(
-                                                if (idx == 1) "TINT" else "PLAY",
-                                            )
-                                        },
-                                    )
-                                }
                                 // ── The BANNER's SIZE slider (ROUND 105,
                                 //    re-aimed): "It should not change the
                                 //    height of the banner, but what it should
@@ -788,15 +833,11 @@ fun PlayerEpisodeListSettingsScreen(
                                 //    padding between each individual episodes
                                 //    themselves." The ends speak the truth
                                 //    now; the live value is the width %. ──
-                                AnimatedStyleRow(
-                                    visible = style == PlayerEpisodeListStyle.BANNER,
-                                    modifier = Modifier.padding(bottom = 4.dp),
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
                                 ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                                    ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             modifier = Modifier.fillMaxWidth(),

@@ -334,6 +334,20 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
     )
 
     /**
+     * ROUND 113 (D-736): the details GRID's watched CHECKMARK — the player
+     * GRID's own knob (PlayerEpisodeListPreferences.gridWatchedCheckmark,
+     * round 109's D-720 decoupling), ported for the parity order: "the
+     * player page and the details page episodes lists layouts both should
+     * almost have similar customizability." The check owns ONLY the check
+     * bubble; the grayscale/dim treatment stays owned by [dimWatched]
+     * (default ON — the details grid's historical coupled look, so the
+     * zero-prefs experience is unchanged).
+     */
+    val gridWatchedCheckmark = store.preference(
+        KEY_GRID_WATCHED_CHECKMARK, true, BooleanSerializer,
+    )
+
+    /**
      * D-233: Reset all filters to their defaults (downloaded=OFF, watched=OFF,
      * audio=BOTH). Called when the user taps "Reset filters" on the empty-state.
      */
@@ -367,6 +381,7 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_CINEMA_NUMBER_STYLE = "pref_episode_list_cinema_number_style"
         private const val KEY_CINEMA_WATCHED_CHECK = "pref_episode_list_cinema_watched_check"
         private const val KEY_GRID_TITLE_MODE = "pref_episode_list_grid_title_mode"
+        private const val KEY_GRID_WATCHED_CHECKMARK = "pref_episode_list_grid_watched_checkmark"
         private const val KEY_GRID_NUMBER_POSITION =
             "pref_episode_list_grid_number_position"
     }

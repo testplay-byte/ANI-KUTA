@@ -160,6 +160,19 @@ internal fun CsWatchPage(
     val renderRowsBase = remember(episodeRows) {
         episodeRows.map { it.copy(name = CsSubDubSiblings.stripTag(it.name)) }
     }
+    // ROUND 113 (D-735): THE ROWS' OWN FLAVOR TAGS — the v1.1.69 device
+    // round: "all of the episodes do not transfer their audio versions
+    // availability to the next one, next player screen … none of them show
+    // the sub or dub tags." The CS rows' pills read ONE channel (the
+    // serialized scanlator) while the details page's rows parse TWO (the
+    // scanlator + the episode NAME — the bridge's "(Sub)"/"(Dub)" suffix).
+    // The names are stripped for rendering above, but the tag is CAPTURED
+    // here per data handle BEFORE that — the player's second channel. When
+    // the serialized scanlator is blank for any reason, the row still knows
+    // its own flavor exactly as well as the details page does.
+    val tagByData = remember(uiState.episodes) {
+        uiState.episodes.associate { ep -> ep.data to CsSubDubSiblings.tagOf(ep.name) }
+    }
 
     // ── ROUND 102 (WS-F): the PLAYER episode-list customization's new home ──
     // The in-player gear + search are RETIRED (the user's round-102 order —
@@ -588,8 +601,19 @@ internal fun CsWatchPage(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 item(key = "current") {
+                    // ROUND 113 (D-735): the currently-playing card's sub/dub
+                    // pill rides the SAME both-channels union the rows read
+                    // (the serialized scanlator + the current row's own name
+                    // tag) — one definition of "this episode's audio
+                    // version", everywhere on the page.
+                    val currentMetaForLabel = uiState.episodeMetadata[uiState.episodeNumber.toInt()]
+                    val currentSubDubLabel = listOfNotNull(
+                        currentMetaForLabel?.scanlator?.takeIf { it.isNotBlank() },
+                        tagByData[currentEpisodeData],
+                    ).joinToString(" ").takeIf { it.isNotBlank() }
                     CsCurrentlyPlayingSection(
                         uiState = uiState,
+                        currentSubDubLabel = currentSubDubLabel,
                         // Task 56: the current episode's per-flavor ordinal
                         // (falls back to the raw number for untagged rows).
                         // NOTE: .toFloat() — Int? ?: Float infers Number, which
@@ -749,6 +773,16 @@ internal fun CsWatchPage(
                         } else null
                         val rowProgress = rowKey?.let { progressByEpisodeKey[it] }
                         val meta = uiState.episodeMetadata[ep.episodeNumber.toInt()]
+                        // ROUND 113 (D-735): BOTH CHANNELS — the serialized
+                        // scanlator UNION the row's own name tag (captured
+                        // pre-strip in tagByData). The tag model's classify()
+                        // dedupes case-insensitively, so the union is one
+                        // honest signal set: whatever the details page could
+                        // parse, the player's row can too.
+                        val rowSubDub = listOfNotNull(
+                            meta?.scanlator?.takeIf { it.isNotBlank() },
+                            tagByData[ep.data],
+                        ).joinToString(" ").takeIf { it.isNotBlank() }
                         return com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeRowData(
                             episodeNumberText = com.confused.anikuta.core.common.EpisodeTitleParser
                                 .formatEpisodeNumber(displayNumber),
@@ -768,7 +802,7 @@ internal fun CsWatchPage(
                                 com.confused.anikuta.core.designsystem.component.episodelist
                                     .formatShortDate(meta.airDateMillis)
                             } else null,
-                            subDubLabel = meta?.scanlator?.takeIf { it.isNotBlank() },
+                            subDubLabel = rowSubDub,
                             flavorLabels = ep.flavors,
                             synopsis = meta?.description,
                             isCurrent = ep.data == currentEpisodeData,
@@ -963,6 +997,10 @@ private fun CsCurrentlyPlayingSection(
     // Task 56: the per-flavor ordinal for the current episode (null = the
     // raw number) — "Currently playing episode 1" on a Dub row, not 13.
     currentDisplayNumber: Float = uiState.episodeNumber,
+    // ROUND 113 (D-735): the card's sub/dub pill — the BOTH-CHANNELS union
+    // (the serialized scanlator + the row's own name tag), computed by the
+    // caller where the raw episode list lives. Null = no pill.
+    currentSubDubLabel: String? = null,
 ) {
     val currentEpNum = uiState.episodeNumber.toInt()
     val currentMeta = uiState.episodeMetadata[currentEpNum]
@@ -1007,7 +1045,21 @@ private fun CsCurrentlyPlayingSection(
             )
             // Provider + quality + sub/dub pills
             val qualityLabel = uiState.currentLink?.qualityLabel
-            val subDub = currentMeta?.scanlator?.takeIf { it.isNotBlank() }
+            // ROUND 113 (D-735): the union is CANONICALIZED to the row pills'
+            // own vocabulary (HSUB > SUB/DUB tokens; a token-less label like
+            // a raw group name passes through unchanged) so the card's pill
+            // reads exactly what the rows' chips read.
+            val subDub = currentSubDubLabel?.let { raw ->
+                val upper = raw.uppercase()
+                val hasHsub = upper.contains("HSUB") || upper.contains("HARDSUB")
+                val hasSub = upper.contains("SUB") && !hasHsub
+                val hasDub = upper.contains("DUB") && !hasHsub
+                listOfNotNull(
+                    "HSUB".takeIf { hasHsub },
+                    "SUB".takeIf { hasSub },
+                    "DUB".takeIf { hasDub },
+                ).joinToString(" · ").takeIf { it.isNotEmpty() } ?: raw
+            }
             if (qualityLabel != null || subDub != null) {
                 Spacer(Modifier.height(6.dp))
                 Row(

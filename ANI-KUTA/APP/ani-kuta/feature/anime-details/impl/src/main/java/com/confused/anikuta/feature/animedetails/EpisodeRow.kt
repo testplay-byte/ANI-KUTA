@@ -159,6 +159,14 @@ data class EpisodeListDisplayStyle(
      */
     val gridNumberPosition: com.confused.anikuta.core.common.GridNumberPosition =
         com.confused.anikuta.core.common.GridNumberPosition.UNDER_THUMB,
+    /**
+     * ROUND 113 (D-736): the GRID's watched CHECKMARK — decoupled from
+     * [dimWatched] (the player GRID's own D-720 semantics, ported for the
+     * parity order): the check owns ONLY the check bubble, the grayscale
+     * stays with the dim knob. Default true keeps the historical coupled
+     * look (bubble + dim together when both are on).
+     */
+    val gridWatchedCheckmark: Boolean = true,
 )
 
 /**
@@ -168,10 +176,11 @@ data class EpisodeListDisplayStyle(
  * ROUND 112 (D-731): the row is PURE META now — it renders when the date
  * pill or the audio pills survive their gates, and NOTHING else. The
  * download control's old third residency is RETIRED: with the synopsis
- * off, the TITLE relocates to the bottom section and the control stays at
- * that section's end (the user's arrangement), so the meta line never
- * shares its row with the control — the v1.1.68 squeeze that clipped the
- * trailing DUB chip is structurally impossible now.
+ * off, the whole right side of the thumbnail carries the details (round
+ * 113, D-734 — the number, the one-line title with the control at its
+ * end, and the meta line below), so the meta line never shares its row
+ * with the control — the v1.1.68 squeeze that clipped the trailing DUB
+ * chip is structurally impossible now.
  *
  * D-555: this is the CLASSIC-path algebra only (GRID/TIMELINE/CINEMA draw
  * their own chips inline); the old MINIMAL style-level date gate died with

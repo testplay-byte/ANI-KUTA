@@ -782,10 +782,12 @@ private fun PlayerEpisodeRow(
         audioTags = audioTags,
         synopsis = description,
         // ROUND 112 (D-731): PURE meta — the badge clause is retired. With
-        // the synopsis off, the TITLE relocates to the bottom section and
-        // the badge stays at that section's end; the meta line never
-        // shares its row with the badge (the v1.1.68 squeeze that clipped
-        // the trailing DUB chip).
+        // the synopsis off (ROUND 113, D-734), the right side of the
+        // thumbnail carries EVERYTHING — the number, the one-line title
+        // (the badge at that line's end), the meta line below — and there
+        // is NO bottom section; the meta line never shares its row with
+        // the badge (the v1.1.68 squeeze that clipped the trailing DUB
+        // chip).
         pillsRowVisible = dateChip != null || audioTags.isNotEmpty(),
         showWatchProgress = display.showProgressBar,
         progressFraction = data.progressFraction,
