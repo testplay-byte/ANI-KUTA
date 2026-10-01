@@ -4,7 +4,7 @@
  * Source: APP/ani-kuta/core/database/src/main/sqldelight/com/confused/anikuta/core/database/*.sq
  * (15 .sq files — read in full and transcribed column-by-column).
  *
- * STATUS NOTE (dashboard refresh, Round 77 — 2026-09-23): the CURRENT schema
+ * STATUS NOTE (dashboard refresh, Round 115): the CURRENT schema
  * is 25 tables across 17 .sq files (SQLDelight 2.0.2). The transcription
  * below predates the later device-round schema adds and still shows the
  * D-192-era state — 26 tables across 15 .sq files (13 logical groups for
@@ -810,7 +810,7 @@ export const SCHEMA_SUMMARY = {
   activeTables: SCHEMA_TABLES.filter((t) => !t.deferred).length, // 26 (all active)
   deferredTables: SCHEMA_TABLES.filter((t) => t.deferred).length, // 0
   totalGroups: SCHEMA_GROUPS.length, // 13
-  totalSqFiles: 15, // actual .sq files in core/database/src/main/sqldelight/
+  totalSqFiles: 41, // current .sq file count (repo-wide; the D-192-era transcription below covers 15)
   totalColumns: SCHEMA_TABLES.reduce((acc, t) => acc + t.columns.length, 0),
   totalIndexes: SCHEMA_TABLES.reduce(
     (acc, t) => acc + (t.indexes?.length ?? 0),

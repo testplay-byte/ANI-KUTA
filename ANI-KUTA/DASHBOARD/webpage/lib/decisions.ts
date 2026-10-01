@@ -1,9 +1,9 @@
 /*
- * Architecture Decisions (v9 — status refresh: canonical range D-001..D-565,
- * Round 77; the project is in the debug-first phase per D-565).
+ * Architecture Decisions (v10 — status refresh: canonical range D-001..D-739,
+ * Round 115; ALL releases paused per D-738 until the user's explicit order).
  *
- * The canonical decision range is D-001..D-565 (565 decisions, ALL
- * confirmed). This file carries REPRESENTATIVE entries only — D-277..D-565
+ * The canonical decision range is D-001..D-739 (739 decisions, ALL
+ * confirmed). This file carries REPRESENTATIVE entries only — D-277..D-739
  * are NOT individually listed; the canonical record is
  * AGENT-CONTEXT/memory/decisions.md. Each entry shows the question, the
  * chosen option (with pros/cons for context), and a summary of the decision
@@ -17,21 +17,20 @@
  * notifications, continue watching, download system (D-148), proxy-churn
  * gap (D-149), Nav3 removal in favour of hand-rolled navigation (D-150),
  * DB optimization (D-166), + Profile UI v4–v6 (D-171..D-186). The
- * D-272..D-276 batch covers the smart-link ad system. The latest device-
- * round decisions: D-558 settings search + heading-back; D-559 timeline
- * neck/frosted text/search; D-560 sponsor popup + overlay option + one-time
- * release build; D-561 sponsor-less popup + wizard one-liner + Always-
- * sponsor debug page + preset icons; D-562 real launcher icons via
- * activity-aliases + presets-only page; D-563 resized launcher icons +
- * animated hero + navbar insets; D-564 return-pill lifecycle bounds +
- * professional v1.1.3; D-565 the debug-first phase doctrine.
+ * D-272..D-276 batch covers the smart-link ad system. The D-558..D-565
+ * batch covers the late-round-77 device decisions, ending with D-565 the
+ * debug-first phase doctrine (the loop that ran v1.1.38→v1.1.71). The
+ * latest device-round decisions: D-727 the classic-row unification (round
+ * 111); D-737 the elements' honest grid + the professional v1.1.14 (round
+ * 114); D-738 the debug-builds-only order (round 115 — ALL releases
+ * suspended until the user's explicit order; rounds end at CI green).
  *
- * NOTE: The dashboard's headline count (565/565 confirmed) reflects the
+ * NOTE: The dashboard's headline count (739/739 confirmed) reflects the
  * canonical record (AGENT-CONTEXT/memory/decisions.md), not the number of
  * entries below.
  *
  * Sources:
- *  - AGENT-CONTEXT/memory/decisions.md (canonical D-001..D-565)
+ *  - AGENT-CONTEXT/memory/decisions.md (canonical D-001..D-739)
  *  - REFERENCES/old-kuta/DOCUMENTATION/10-14 (research findings)
  *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md
  *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 — D-053 + D-054)
@@ -980,7 +979,7 @@ export const decisions: Decision[] = [
     status: "confirmed",
     question: "Where do new features land and how do they ship, now that all original build phases are long done?",
     context:
-      "Round 77 project-setup doctrine. All original build phases are long done; the project is in iterative device-round development and NOW ENTERS the debug-first phase: all new features land on the mainline branch (feature/round-57-cloudstream-downloads) and ship via per-round DEBUG releases (v1.1.38+); professional releases pause until the user explicitly orders the next one. Version bumps ride release branches per D-430.",
+      "Round 77 project-setup doctrine. All original build phases are long done; the project is in iterative device-round development and NOW ENTERS the debug-first phase: all new features land on the mainline branch (feature/round-57-cloudstream-downloads) and ship via per-round DEBUG releases (v1.1.38+); professional releases pause until the user explicitly orders the next one. Version bumps ride release branches per D-430. The loop ran v1.1.38→v1.1.71 before the round-115 order (D-738) paused all releases.",
     options: [
       {
         name: "Mainline-landing features + per-round DEBUG releases; professional releases pause until ordered",
@@ -991,6 +990,75 @@ export const decisions: Decision[] = [
         ],
         cons: [
           "The professional release lags the debug line until the next explicit order",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-727",
+    title: "The classic row, one truth — the player's detailed row IS the details' Classic row",
+    status: "confirmed",
+    question: "How to stop the details page's Classic row and the player's detailed row from drifting apart?",
+    context:
+      "Round 111 (the v1.1.67 device round): the two rows were different implementations of the same anatomy. New shared EpisodeClassicRow (:core:designsystem episodelist) carries the details CLASSIC anatomy verbatim — the imagery-only 120×68 thumbnail + inset watch pill, the 40dp number-disc fallback, the SpaceBetween right column, the synopsis plate, the full-width 3dp download bar, the whole-card watched fade + grayscale. The player's chrome rides parameters (isCurrent tint + ring, the overlay slot, color overrides) and the pages inject their own download control + number label — one geometry, zero drift. PlayerEpisodeListStyle.DETAILED was renamed CLASSIC (the lenient fromKey folds the stored DETAILED/COMPACT/MINIMAL strings — migration-free) so both pages share the picker vocabulary.",
+    options: [
+      {
+        name: "One shared EpisodeClassicRow + the CLASSIC rename (lenient fromKey, migration-free)",
+        pros: [
+          "One geometry — the two pages can never drift again",
+          "The rename unifies the picker vocabulary (the stored keys keep parsing)",
+          "The player retires its parallel row chrome (EP-tag overlay, number-box fallback, 2dp underline, static 0.55 dim)",
+        ],
+        cons: [
+          "The shared component carries both pages' chrome via parameters — a slightly wider surface",
+          "The stored style keys rely on the lenient parse forever",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-737",
+    title: "The elements' honest grid — the weight's true home, the retired flip, the 44dp button",
+    status: "confirmed",
+    question: "Why did the details page's Elements grid render as a list with half its buttons invisible, and how does the grid become honest?",
+    context:
+      "Round 114 (the v1.1.70 verdicts). Root cause — a NEW bug class: ElementToggleButton applied RowScope.weight(1f) to the segment INSIDE SettingsHighlightTarget; the wrapper's Box (a BoxScope) was the Row's DIRECT child, and weight is parent data read only from direct children — so every anchored button went full-width, its row sibling collapsed to zero, and half the details entries were invisible (the 'list format'). The fix is the weight hand-off: anchored entries pass the weighted modifier to SettingsHighlightTarget's OWN modifier param (the wrapper becomes the weighted direct child; the segment fills it), the D-729 heading-tap 2↔3 flip is retired (fixed ELEMENTS_PER_ROW = 2; the columns + onLabelClick params and both screens' elementsThreePerRow states deleted), and the segments get heightIn(min = 44.dp) + centered content. The same round shipped the professional release v1.1.14/10114 — release/1.1.14 cut from the green head, the all-ABI release-signed set built via release-build-once.yml, and the official re-host to Confused-Creature-180/ANI-KUTA (stable + latest, 11 assets, zero code pushed); the debug line continued in parallel (v1.1.71).",
+    options: [
+      {
+        name: "The weight hand-off + the fixed 2-per-row grid + 44dp segments; professional v1.1.14 re-hosted on the official repo",
+        pros: [
+          "Every entry is visible on both pages, stable across taps — the grid reads as a grid",
+          "The bug class is banked: a weighted modifier must reach the Row's direct child to take effect",
+          "Professional v1.1.14 is LIVE on the official repo with the website + README refreshed to match",
+        ],
+        cons: [
+          "SettingsHighlightTarget's modifier param is now load-bearing for the weight pattern",
+          "Future professional re-hosts still depend on the user providing the release-agent PAT",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-738",
+    title: "The debug-builds-only order — ALL releases suspended until the user's explicit order",
+    status: "confirmed",
+    question: "What ships at the end of each round now?",
+    context:
+      "Round 115 (the user's standing order): 'debug builds from now on… not going to do any of the release versions until I tell you' — ALL releases are suspended (debug releases AND professional releases) until the user's explicit order; each round now ends at CI green (the Build APK debug run's anikuta-apk artifact). Context at the order: the debug-first device-round loop (D-565) had run v1.1.38→v1.1.71 and the professional line had resumed once at v1.1.14 (round 114), both LIVE. The recovery path: a single explicit order restores either line (the conservative reading can never publish a release the user forbade).",
+    options: [
+      {
+        name: "Rounds end at the CI debug artifact; no releases of any kind until the user orders",
+        pros: [
+          "The conservative reading can never violate the order — nothing publishes without the user's word",
+          "The verification story stays intact — every round still ends at a green debug build",
+          "Either release line resumes with a single explicit order (the playbook stays warm)",
+        ],
+        cons: [
+          "The user's device gets fresh APKs only from CI artifacts, not release pages",
+          "The release cadence knowledge must be kept warm in the playbook while paused",
         ],
         recommended: true,
       },

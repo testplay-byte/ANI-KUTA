@@ -31,12 +31,14 @@ import {
  * interactivity needed, no "use client".
  *
  * DATED SNAPSHOT — kept as-is for the record. STATUS (dashboard refresh,
- * Round 77, 2026-09-23): current state is Round 76 closed — debug v1.1.37
- * (10137) live, professional v1.1.3 (10103) published (stable GitHub
- * Release professional-v1.1.3), mainline branch
- * feature/round-57-cloudstream-downloads (main deleted per D-552), 56
- * modules, 25 tables / 17 .sq files, D-001..D-565 confirmed, debug-first
- * phase (D-565). Canonical record: AGENT-CONTEXT/memory/decisions.md.
+ * Round 115): current state is round 115 — debug v1.1.71 (10171) LIVE on
+ * the dev repo, professional v1.1.14 (10114) LIVE on the official repo
+ * (Confused-Creature-180/ANI-KUTA), mainline branch
+ * feature/round-57-cloudstream-downloads (the remote's ONLY branch; main
+ * deleted per D-552), 57 modules, 25 tables / 17 .sq files, D-001..D-739
+ * confirmed, and ALL releases paused per the user's round-115 order (D-738
+ * — debug builds only; rounds end at CI green). Canonical record:
+ * AGENT-CONTEXT/memory/decisions.md.
  *
  * TEMPORARY SECTION — replaces the deleted /key-findings/ page
  * (review #2, 2026-08-24). See §9 Footer Note.

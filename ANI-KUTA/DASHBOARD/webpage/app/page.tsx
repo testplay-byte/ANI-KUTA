@@ -25,7 +25,7 @@ export default function OverviewPage() {
             </span>
             <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              56 modules built · Round 76 closed — professional v1.1.3 published + debug v1.1.37 live — the project enters the debug-first phase (D-565) · CI GREEN
+              57 modules built · Round 115 — professional v1.1.14 + debug v1.1.71 both live — ALL releases paused per the user's round-115 order (D-738; rounds end at CI green) · CI GREEN
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
@@ -35,15 +35,16 @@ export default function OverviewPage() {
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            A calm, living dashboard for the ANI-KUTA project: 56 modules
-            built (1 app + 32 core + 2 data + 21 feature — incl. the
+            A calm, living dashboard for the ANI-KUTA project: 57 modules
+            built (1 app + 33 core + 2 data + 21 feature — incl. the
             CloudStream V2 stack), all original build phases 0–5 +
             B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete, 25 DB tables across
-            17 .sq files, 569 Kotlin files. CI verified GREEN on the mainline
+            17 .sq files, 634 Kotlin files (app). CI verified GREEN on the mainline
             branch {`feature/round-57-cloudstream-downloads`} ({`main`} was
-            deleted per D-552 — it had 0 unique commits). Latest releases:
-            DEBUG v1.1.37 (10137) + PROFESSIONAL v1.1.3 (10103, the stable
-            GitHub Release {`professional-v1.1.3`}). All decisions D-001..D-565
+            deleted per D-552 — it had 0 unique commits; the remote carries
+            only this branch). Latest releases: DEBUG v1.1.71 (10171, dev
+            repo) + PROFESSIONAL v1.1.14 (10114, official repo
+            Confused-Creature-180/ANI-KUTA). All decisions D-001..D-739
             confirmed — the dashboard lists representative entries; the
             canonical record is{" "}
             <code className="font-mono text-text-primary">AGENT-CONTEXT/</code>{" "}
@@ -175,7 +176,7 @@ export default function OverviewPage() {
                 filter by group.
               </p>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <MiniStat label="Tables" value="25" />
+                <MiniStat label="Tables" value="26" />
                 <MiniStat label="Columns" value="150+" />
                 <MiniStat label="Indexes" value="30+" />
               </div>
@@ -208,7 +209,7 @@ export default function OverviewPage() {
                     className="text-[18px] font-bold tracking-extra-tight mt-0.5"
                     style={{ color: "#E8E8E8", letterSpacing: "-0.02em" }}
                   >
-                    56 modules — all built ✓
+                    57 modules — all built ✓
                   </div>
                 </div>
                 {/* mini grid glyph */}
@@ -230,9 +231,9 @@ export default function OverviewPage() {
                 </svg>
               </div>
               <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
-                <span>56 planned</span>
+                <span>57 planned</span>
                 <span className="opacity-50">·</span>
-                <span>56 built ✓</span>
+                <span>57 built ✓</span>
                 <span className="opacity-50">·</span>
                 <span>4 layers</span>
               </div>
@@ -246,8 +247,8 @@ export default function OverviewPage() {
                 detail cards with file counts.
               </p>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <MiniStat label="Modules" value="56" />
-                <MiniStat label="Built" value="56" />
+                <MiniStat label="Modules" value="57" />
+                <MiniStat label="Built" value="57" />
                 <MiniStat label="Layers" value="4" />
               </div>
               <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-success)] group-hover:underline">
@@ -426,7 +427,7 @@ export default function OverviewPage() {
               Decisions
             </div>
             <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary">
-              D-001..D-565 — all decisions confirmed
+              D-001..D-739 — all decisions confirmed
             </h3>
           </div>
           <span
@@ -437,24 +438,21 @@ export default function OverviewPage() {
             }}
           >
             <StatusDot color="var(--c-success)" size="sm" />
-            565/565
+            739/739
           </span>
         </div>
 
         <p className="text-[12.5px] text-text-secondary leading-relaxed mb-4">
-          Canonical range D-001..D-565 — all confirmed (Round 76 closed; the
-          project now enters the debug-first phase, D-565). The dashboard
-          lists REPRESENTATIVE entries — D-277..D-565 are not individually
-          listed; the canonical record is{" "}
+          Canonical range D-001..D-739 — all confirmed (Round 115; ALL
+          releases paused per the user's order, D-738 — rounds end at CI
+          green). The dashboard lists REPRESENTATIVE entries — D-277..D-739
+          are not individually listed; the canonical record is{" "}
           <code className="font-mono text-text-primary">AGENT-CONTEXT/memory/decisions.md</code>.
-          Latest decisions: D-558 settings search + heading-back · D-559
-          timeline neck/frosted text/search · D-560 sponsor popup + overlay
-          option + one-time release build · D-561 sponsor-less popup + wizard
-          one-liner + Always-sponsor debug page + preset icons · D-562 real
-          launcher icons via activity-aliases + presets-only page · D-563
-          resized launcher icons + animated hero + navbar insets · D-564
-          return-pill lifecycle bounds + professional v1.1.3 · D-565 the
-          debug-first phase doctrine.
+          Latest decisions: D-565 the debug-first phase doctrine (the loop
+          that ran v1.1.38→v1.1.71) · D-727 the classic-row unification ·
+          D-737 the elements' honest grid + the professional v1.1.14 · D-738
+          the debug-builds-only order (all releases suspended until the
+          user's explicit order).
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">

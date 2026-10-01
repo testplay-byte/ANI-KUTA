@@ -1,40 +1,48 @@
 /*
- * ANI-KUTA dashboard data (v9 — status refresh: Round 76 closed, entering
- * the debug-first phase per D-565).
+ * ANI-KUTA dashboard data (v10 — status refresh: Round 115, the
+ * documentation & handoff round; releases paused per D-738).
  *
  * Sources:
  *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md (43 planned)
  *  - APP/ani-kuta/DESIGN-LANGUAGE.md (app design language — lime/dark)
  *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 plan)
- *  - AGENT-CONTEXT/memory/decisions.md (canonical D-001..D-565 — dashboard lists representative entries only)
+ *  - AGENT-CONTEXT/memory/decisions.md (canonical D-001..D-739 — dashboard lists representative entries only)
  *  - AGENT-CONTEXT/memory/progress.md
  *
- * Status (verified 2026-09-23): All original build phases complete; the
- * project is in iterative device-round development and NOW ENTERS the
- * debug-first phase (D-565) — all new features land on the mainline and
- * ship via per-round DEBUG releases (v1.1.38+); professional releases
- * pause until the user explicitly orders the next one. 56 modules built
- * across :app (1), :core (32), :data (2), :feature (21 — api/impl splits
- * count as separate Gradle modules). The mainline/default branch is
- * `feature/round-57-cloudstream-downloads` (`main` was deleted per D-552 —
- * it had 0 unique commits); also alive: `feature/test-controller-v5`
- * (dormant, kept by user order) + `release/1.1.3` (professional release
- * branch). Latest DEBUG release: v1.1.37 (10137), published on the dev
- * repo with the debug arm64-v8a APK. Latest PROFESSIONAL release:
- * v1.1.3 (10103) — the stable GitHub Release `professional-v1.1.3` with
- * 7 assets (5 release-signed split APKs: arm64-v8a/armeabi-v7a/x86/x86_64/
- * universal + SHA256SUMS.txt + release ZIP), the first published
- * professional release since v1.1.2. Version bumps ride release branches
- * per D-430 (the mainline carries 1.1.20/10120). CI: 4 workflows
- * (build-apk, release-apk, release-build-once, deploy-dashboard; docs-only
- * pushes trigger no builds per D-472). Nav3 REMOVED (D-150) — hand-rolled
- * navigation via `mutableStateListOf<NavKey>` + `when(currentKey)`
- * dispatch; R7 (process-death backstack survival) accepted as known
- * limitation. 25 DB tables across 17 .sq files (SQLDelight 2.0.2).
- * 569 Kotlin files in APP/ani-kuta/.
+ * Status (verified at round 115): All original build phases complete; the
+ * project is in iterative device-round development (round 115) — features/
+ * fixes land on the mainline, verified by CI debug builds; ALL releases are
+ * paused per the user's round-115 order (D-738 — debug builds only): the
+ * debug-first device-round loop (D-565) ran v1.1.38→v1.1.71, the
+ * professional line resumed once at v1.1.14 (round 114), and each round now
+ * ends at CI green (the Build APK debug run's artifact) until the user's
+ * explicit order. 57 modules built across :app (1), :core (33), :data (2),
+ * :feature (21 — 12 features: 9 with api/impl splits + 3 single-module
+ * features; api/impl splits count as separate Gradle modules). The
+ * mainline/default branch is `feature/round-57-cloudstream-downloads`
+ * (`main` was deleted per D-552 — it had 0 unique commits); the remote
+ * carries ONLY this branch (the release branches — release/1.1.71,
+ * release/1.1.70, release/1.1.69, release/1.1.14 — are local-only sandbox
+ * artifacts), and the remote carries 139 tags. Latest DEBUG release: v1.1.71
+ * (10171), LIVE 2026-10-01 on the dev repo (testplay-byte/ANI-KUTA), stable
+ * + latest, with the debug arm64-v8a APK + SHA256SUMS. Latest PROFESSIONAL
+ * release: v1.1.14 (10114), LIVE 2026-10-01 on the official repo
+ * (Confused-Creature-180/ANI-KUTA) — 11 assets (5 release-signed split
+ * APKs: arm64-v8a/armeabi-v7a/x86/x86_64/universal + 5 ZIPs +
+ * SHA256SUMS.txt), stable + latest; the GitHub-Pages website's fallback chip
+ * + the official README's download links were refreshed to v1.1.14. Version
+ * bumps ride release branches per D-430 (the mainline carries 1.1.20/10120).
+ * CI: 4 workflows (build-apk, release-apk, release-build-once,
+ * deploy-dashboard; docs-only pushes trigger no APK builds per D-472). Nav3
+ * REMOVED (D-150) — hand-rolled navigation via `mutableStateListOf<NavKey>`
+ * + `when(currentKey)` dispatch; R7 (process-death backstack survival)
+ * accepted as known limitation. 25 DB tables across 17 .sq files
+ * (SQLDelight 2.0.2; app.sq intentionally empty since D-198). 634 Kotlin
+ * files in APP/ani-kuta/ (2112 repo-wide incl. the read-only REFERENCES
+ * forks).
  *
  * KNOWN DEBT: the decision entries in lib/decisions.ts remain
- * REPRESENTATIVE (D-277..D-565 are not individually listed); the canonical
+ * REPRESENTATIVE (D-277..D-739 are not individually listed); the canonical
  * record is AGENT-CONTEXT/memory/decisions.md.
  *
  * Hardcoded for the static demo — no API calls.
@@ -65,12 +73,12 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/", icon: "dashboard", desc: "Project summary, metrics, phase timeline" },
   { label: "Architecture", href: "/architecture/", icon: "architecture", desc: "Module tree, dependency rules, data flow, identity, multi-extension (D-150: Nav3 removed)" },
-  { label: "Modules", href: "/modules/", icon: "modules", desc: "56 modules built — module hierarchy + tree view" },
+  { label: "Modules", href: "/modules/", icon: "modules", desc: "57 modules built — module hierarchy + tree view" },
   { label: "Database", href: "/database/", icon: "database", desc: "25 tables across 17 .sq files (current), ER diagram, indexes, FK relationships" },
   { label: "DB Review", href: "/database-review/", icon: "dbreview", desc: "Schema review — merge candidates, optimization plan, top improvements" },
   { label: "DB Viewer", href: "/db-viewer/", icon: "database", desc: "Upload + view database JSON exports" },
   { label: "Design", href: "/design/", icon: "design", desc: "App design language — lime/dark surfaces, accent presets, components" },
-  { label: "Progress", href: "/progress/", icon: "progress", desc: "All build phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW + the D-225→D-238 overhaul) — now in iterative device rounds; debug-first release phase (D-565)" },
+  { label: "Progress", href: "/progress/", icon: "progress", desc: "All build phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW + the D-225→D-238 overhaul) — now in iterative device rounds (round 115); releases paused per the user's order (D-738)" },
   { label: "Analytics", href: "/analytics/", icon: "analytics", desc: "Module size distribution, build times, docs coverage" },
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
   { label: "Test Controller", href: "/test-controller/", icon: "testcontroller", desc: "Autonomous remote UI testing — Cloudflare Workers relay + AccessibilityService (D-198 v4)" },
@@ -79,15 +87,17 @@ export const NAV_ITEMS: NavItem[] = [
 ];
 
 /* ---------------------------------------------------------------------------
- * Full module list (56 modules — ALL BUILT).
- * Source: settings.gradle.kts — 1 :app + 32 :core:* + 2 :data:* +
- * 21 :feature:* (api/impl splits count as separate Gradle modules).
+ * Full module list (57 modules — ALL BUILT).
+ * Source: settings.gradle.kts — 1 :app + 33 :core:* + 2 :data:* +
+ * 21 :feature:* (12 features: 9 with api/impl splits + 3 single-module
+ * features; api/impl splits count as separate Gradle modules).
  * All built + CI verified GREEN on the mainline branch
  * `feature/round-57-cloudstream-downloads` (`main` was deleted per D-552 —
  * it had 0 unique commits). Includes the device-round adds: :core:seasons
  * (D-312), :core:app-update, :core:playback-cache (merged from the former
- * test-feature branch), :feature:onboarding (D-403) and the CloudStream V2
- * stack (:core:cloudstream-api, :core:cs-player, :data:cloudstream,
+ * test-feature branch), :core:share (round 101 WS-C),
+ * :feature:onboarding (D-403) and the CloudStream V2 stack
+ * (:core:cloudstream-api, :core:cs-player, :data:cloudstream,
  * :feature:cs-watch:api/impl). Nav3 REMOVED (D-150) — hand-rolled
  * navigation via `mutableStateListOf<NavKey>` + `when(currentKey)`
  * dispatch (R7 process-death backstack survival accepted as known
@@ -104,7 +114,7 @@ export interface ModuleInfo {
 }
 
 /**
- * The 56 Gradle modules currently in the project. All built + CI verified
+ * The 57 Gradle modules currently in the project. All built + CI verified
  * GREEN on the mainline branch `feature/round-57-cloudstream-downloads`
  * (`main` was deleted per D-552). The `status` field tags the era the module
  * was built in (scaffold = Phase 2, phase3 = Phase 3, phase4 = Phase 4
@@ -117,10 +127,10 @@ export const MODULES: ModuleInfo[] = [
   // --- :app (1) ---
   { name: ":app", job: "App shell — Application (Koin + Logger init), MainActivity (single Activity + hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch — D-150 removed Nav3; R7 process-death backstack survival accepted as known limitation)", dependsOn: ["all feature :impl", ":core:*", ":data:*"], layer: "app", files: 24, status: "scaffold" },
 
-  // --- :core (32 modules — infrastructure, no UI screens) ---
+  // --- :core (33 modules — infrastructure, no UI screens) ---
   { name: ":core:common", job: "Logger (lambda-based, zero-overhead), Dispatchers, Result, ContentType enum, base models", dependsOn: [], layer: "core", files: 14, status: "scaffold" },
   { name: ":core:designsystem", job: "Compose theme engine + reusable components (atoms + molecules — :core:ui merged here)", dependsOn: [":core:common"], layer: "core", files: 42, status: "scaffold" },
-  { name: ":core:database", job: "SQLDelight schema (25 tables across 17 .sq files — content, anilist_detail, extension_detail, episode_update, anime_update_state, episode_schedule, user_rating, user_episode_rating, notification_config/sent, etc.) + migrations (onOpen idempotent — D-166) + driver factory", dependsOn: [], layer: "core", files: 32, status: "scaffold" },
+  { name: ":core:database", job: "SQLDelight schema (25 tables across 17 .sq files — content×4, library×2, watch, tracking, dataCache×2, downloadQueue, downloadedEpisode, episodeSchedule, episodeUpdate, animeUpdateState, genres×2, notifications×2, ratings×2, track×2, playbackCache, appSettings; app.sq empty since D-198) + migrations (onOpen idempotent — D-166) + driver factory", dependsOn: [], layer: "core", files: 32, status: "scaffold" },
   { name: ":core:preferences", job: "PreferenceStore (reactive Flow<T> API — D.0), ThemePreferences, SettingsPreferences, WatchPreferences (Phase WP)", dependsOn: [], layer: "core", files: 16, status: "scaffold" },
   { name: ":core:navigation-api", job: "NavKey sealed-class contracts (D-150: hand-rolled, Nav3 removed — `mutableStateListOf<NavKey>` backstack; NOT rememberSaveable, NOT StateFlow), ContentMode, Saver helpers", dependsOn: [":core:common"], layer: "core", files: 9, status: "scaffold" },
   { name: ":core:network", job: "OkHttp + ktor client + shared interceptors + timeouts (incl. qualified 'download' OkHttpClient — D.0)", dependsOn: [":core:common"], layer: "core", files: 12, status: "scaffold" },
@@ -135,8 +145,9 @@ export const MODULES: ModuleInfo[] = [
   { name: ":core:download", job: "Download manager — 7-state machine, SAF/data.json storage, AutoDownloadEngine (5-step pure-function pipeline), foreground service, HttpDownloader + HlsDownloader. Phase DL — all 9 phases (D.0–D.8) done", dependsOn: [":core:database", ":core:network", ":core:preferences", ":core:content"], layer: "core", files: 96, status: "phase5" },
   { name: ":core:metadata", job: "AnimeMetadataCache + EpisodeMetadataCache repositories (Phase D — local-first, never expires)", dependsOn: [":core:database", ":core:anilist"], layer: "core", files: 18, status: "phase5" },
   { name: ":core:tracker-api", job: "Tracker contracts (TrackSyncManager, Tracker interface) — impls in :core:tracker-anilist", dependsOn: [":core:common"], layer: "core", files: 10, status: "phase3" },
-  { name: ":core:tracker-anilist", job: "AniList tracker impl — OAuth placeholder (login stores code as token; syncEntry returns true without API call; search/fetch return empty/null). Expected — full tracker not yet implemented.", dependsOn: [":core:tracker-api", ":core:anilist"], layer: "core", files: 22, status: "phase3" },
+  { name: ":core:tracker-anilist", job: "FULL AniList tracker (no longer a stub): AniListOAuth + AniListTracker (GraphQL sync, ~580 lines) + TrackSyncManager + TrackEntryRepository + TrackingStateRepository + TrackingWatchSyncBridge + status mapper (1471 lines total)", dependsOn: [":core:tracker-api", ":core:anilist"], layer: "core", files: 22, status: "phase3" },
   { name: ":core:smart-matcher", job: "Auto-link system (Phase B) — fuzzy matching engine for content + episode identity (match_key-based)", dependsOn: [":core:database", ":core:common"], layer: "core", files: 20, status: "phase5" },
+  { name: ":core:share", job: "Share system (round 101 WS-C) — ContentShareLinkFactory + ShareModels + Koin ShareModule: three share targets (extension URL, data-source page e.g. AniList, anikuta://content/{mainId} deep link); pure link-building logic, no Android framework dependency", dependsOn: [":core:common"], layer: "core", files: 3, status: "phase5" },
   { name: ":core:content", job: "Content identity system (Phase C) — ContentRecord, mainId, ContentRepository, AnilistDetailRepository", dependsOn: [":core:database", ":core:common"], layer: "core", files: 24, status: "phase5" },
   { name: ":core:data-cache", job: "BrowseDataCache repository (Phase D) — section_key-keyed, 6-hour auto-expire (homepage only)", dependsOn: [":core:database"], layer: "core", files: 12, status: "phase5" },
   { name: ":core:updates", job: "UpdateStore + UpdateEngine + UpdateCheckWorker (Phase UP) — WorkManager-driven, smart-engine backoff (T2/T3), 3-strike rule (M3), sub/dub (T4), suppress-watched (M5)", dependsOn: [":core:database", ":core:network", ":core:anilist"], layer: "core", files: 28, status: "phase5" },
@@ -187,7 +198,7 @@ export interface TreeNode {
 }
 
 /**
- * Visual tree mirroring the actual 56-module project structure. All built +
+ * Visual tree mirroring the actual 57-module project structure. All built +
  * CI verified GREEN on the mainline branch
  * `feature/round-57-cloudstream-downloads` (`main` was deleted per D-552 —
  * it had 0 unique commits).
@@ -204,7 +215,7 @@ export const MODULE_TREE: TreeNode[] = [
       {
         label: ":build-logic (meta-module)",
         layer: "build-logic",
-        note: "Gradle convention plugins (not counted in the 47 runtime modules)",
+        note: "Gradle convention plugins (not counted in the 57 runtime modules)",
         children: [
           { label: "anikuta.android.application.gradle.kts", layer: "build-logic" },
           { label: "anikuta.android.application.compose.gradle.kts", layer: "build-logic" },
@@ -213,9 +224,9 @@ export const MODULE_TREE: TreeNode[] = [
         ],
       },
       {
-        label: ":core (32)",
+        label: ":core (33)",
         layer: "core",
-        note: "Infrastructure (no UI screens) — 32 modules",
+        note: "Infrastructure (no UI screens) — 33 modules",
         children: [
           { label: "common", layer: "core", note: "Logger, Dispatchers, Result, ContentType" },
           { label: "seasons", layer: "core", note: "Season-management engine (D-312) — pattern registry + provider-hint fusion" },
@@ -235,8 +246,9 @@ export const MODULE_TREE: TreeNode[] = [
           { label: "download", layer: "core", note: "7-state machine + SAF/data.json + AutoDownloadEngine + foreground service (Phase DL D.0–D.8)" },
           { label: "metadata", layer: "core", note: "AnimeMetadataCache + EpisodeMetadataCache (Phase D — local-first, never expires)" },
           { label: "tracker-api", layer: "core", note: "Tracker contracts (TrackSyncManager, Tracker interface)" },
-          { label: "tracker-anilist", layer: "core", note: "AniList tracker impl — placeholder (OAuth stub, sync returns true). Deferred concern." },
+          { label: "tracker-anilist", layer: "core", note: "FULL AniList tracker — OAuth + GraphQL sync + the tracking bridges (fully implemented)" },
           { label: "smart-matcher", layer: "core", note: "Auto-link system (Phase B) — fuzzy match_key-based matching engine" },
+          { label: "share", layer: "core", note: "Share system (round 101 WS-C) — extension URL / data-source page / anikuta:// deep link" },
           { label: "content", layer: "core", note: "Content identity system (Phase C) — ContentRecord, mainId, repositories" },
           { label: "data-cache", layer: "core", note: "BrowseDataCache (Phase D) — section_key-keyed, 6hr auto-expire (homepage only)" },
           { label: "updates", layer: "core", note: "UpdateStore + UpdateEngine + UpdateCheckWorker (Phase UP — WorkManager smart engine)" },
@@ -914,7 +926,7 @@ export const PHASE_CHECKLISTS: PhaseChecklist[] = [
       { text: "Identity system (ContentUID + ExternalReference + matching engine) live", done: true },
       { text: "Aniyomi extensions loadable — can install + browse sources", done: true },
       { text: "Video pipeline (resolve → MPV play → save progress) working end-to-end", done: true },
-      { text: "CI green across all 47 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB additions + Profile UI v1–v6; :core:ads on test-feature branch)", done: true },
+      { text: "CI green across all 57 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB additions + Profile UI v1–v6 + the CloudStream V2 stack + the device-round adds; :core:ads since merged)", done: true },
     ],
   },
   {
@@ -1006,26 +1018,26 @@ export interface MetricCardData {
 export const METRIC_CARDS: MetricCardData[] = [
   {
     label: "Modules Built",
-    value: "56",
-    sublabel: "1 app + 32 core + 2 data + 21 feature · ALL BUILT + CI GREEN on the mainline",
+    value: "57",
+    sublabel: "1 app + 33 core + 2 data + 21 feature · ALL BUILT + CI GREEN on the mainline",
     accent: "var(--c-primary)",
-    sparkline: [4, 6, 8, 12, 18, 22, 26, 31, 38, 44, 47, 56],
+    sparkline: [4, 6, 8, 12, 18, 22, 26, 31, 38, 44, 47, 56, 57],
     trend: "up",
     href: "/modules/",
   },
   {
     label: "Decisions Confirmed",
-    value: "565/565",
-    sublabel: "D-001..D-565 · all confirmed (canonical record: AGENT-CONTEXT/memory/decisions.md — dashboard entries are representative)",
+    value: "739/739",
+    sublabel: "D-001..D-739 · all confirmed (canonical record: AGENT-CONTEXT/memory/decisions.md — dashboard entries are representative)",
     accent: "var(--c-success)",
-    sparkline: [0, 18, 28, 41, 54, 70, 95, 186, 276, 420, 520, 565],
+    sparkline: [0, 18, 28, 41, 54, 70, 95, 186, 276, 420, 565, 739],
     trend: "up",
     href: "/decisions/",
   },
   {
     label: "Phases Done",
     value: "✓",
-    sublabel: "Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB + Profile UI v1–v6 — all complete · now in device rounds (debug-first phase, D-565)",
+    sublabel: "Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB + Profile UI v1–v6 — all complete · now in device rounds (round 115; releases paused per D-738)",
     accent: "var(--c-success)",
     sparkline: [0, 0, 1, 1, 1, 2, 2, 3, 4, 5, 10, 12, 14],
     trend: "up",
@@ -1034,7 +1046,7 @@ export const METRIC_CARDS: MetricCardData[] = [
   {
     label: "DB Tables",
     value: "25",
-    sublabel: "25 tables across 17 .sq files (current) · 13 logical groups — detail pages carry the D-192-era 26-table transcription",
+    sublabel: "25 tables across 17 .sq files (current) · detail pages carry the D-192-era 26-table transcription",
     accent: "var(--c-warning)",
     sparkline: [4, 6, 11, 15, 19, 21, 21, 21, 24, 25, 25],
     trend: "up",
@@ -1047,14 +1059,14 @@ export const METRIC_CARDS: MetricCardData[] = [
  * ------------------------------------------------------------------------- */
 
 export const QUICK_STATS = {
-  modules: 56,
-  modulesPlanned: 56, // all built (incl. the CloudStream V2 stack + the device-round adds)
+  modules: 57,
+  modulesPlanned: 57, // all built (incl. the CloudStream V2 stack + the device-round adds, e.g. :core:share)
   scaffoldModules: PHASE2_SCAFFOLD.length,
   phase3Modules: 15,
   totalFiles: MODULES.reduce((sum, m) => sum + m.files, 0),
-  kotlinFiles: 569, // actual .kt files in APP/ani-kuta/ (excluding /build/)
-  decisions: 565,
-  decisionsConfirmed: 565,
+  kotlinFiles: 634, // actual .kt files in APP/ani-kuta/ (2112 repo-wide incl. the read-only REFERENCES forks)
+  decisions: 739,
+  decisionsConfirmed: 739,
   decisionsNeedsInput: 0,
   phases: PHASES.length,
   phasesDone: PHASES.filter((p) => p.status === "done").length,
@@ -1192,10 +1204,10 @@ export interface ADR {
 
 export const ADRS: ADR[] = [
   { id: "ADR-001", title: "Build APKs via GitHub Actions only", status: "accepted", summary: "Never build APK locally. Always via CI. Reproducible, no local toolchain." },
-  { id: "ADR-002", title: "Restrict ABIs to ARM64 + armeabi-v7a", status: "superseded", summary: "No x86/x86_64 in the early debug line. SUPERSEDED — the current release pipeline ships all 4 ABIs + universal (5 release-signed split APKs per professional release, e.g. professional-v1.1.3)." },
+  { id: "ADR-002", title: "Restrict ABIs to ARM64 + armeabi-v7a", status: "superseded", summary: "No x86/x86_64 in the early debug line. SUPERSEDED — the current release pipeline ships all 4 ABIs + universal (5 release-signed split APKs per professional release, e.g. the round-114 v1.1.14 on the official repo)." },
   { id: "ADR-003", title: "AGENT-CONTEXT versioned in repo", status: "accepted", summary: "Lives inside ANIKUTA-PROJECT/ so any agent can clone and continue." },
   { id: "ADR-004", title: "Frontend/backend separation", status: "accepted", summary: "UI and data layers independent, communicating via contracts. UI never imports :data:*." },
-  { id: "ADR-005", title: "Modular app structure (56 built — ALL BUILT)", status: "accepted", summary: "Independent modules across :app (1), :core (32), :data (2), :feature (21 — api/impl splits count as separate Gradle modules) = 56 runtime modules. All built + CI verified GREEN on the mainline branch `feature/round-57-cloudstream-downloads` (`main` was deleted per D-552 — it had 0 unique commits). Nav3 REMOVED (D-150) — hand-rolled nav via `mutableStateListOf<NavKey>`." },
+  { id: "ADR-005", title: "Modular app structure (57 built — ALL BUILT)", status: "accepted", summary: "Independent modules across :app (1), :core (33), :data (2), :feature (21 — 12 features: 9 with api/impl splits + 3 single-module features; api/impl splits count as separate Gradle modules) = 57 runtime modules. All built + CI verified GREEN on the mainline branch `feature/round-57-cloudstream-downloads` (`main` was deleted per D-552 — it had 0 unique commits; the remote carries only this branch). Nav3 REMOVED (D-150) — hand-rolled nav via `mutableStateListOf<NavKey>`." },
   { id: "ADR-006", title: "Companion web dashboard", status: "accepted", summary: "Next.js project → GitHub Pages, visual documentation for the user." },
   { id: "ADR-007", title: "App ID = com.confused.anikuta", status: "accepted", summary: "User-chosen applicationId / namespace." },
   { id: "ADR-008", title: "SDK levels: min 24, target 36, JDK 17", status: "accepted", summary: "minSdk 24, targetSdk/compileSdk 36 (JDK 17 for CI). ABIs: originally arm64-v8a + armeabi-v7a only (ADR-002) — the current release pipeline ships all 4 ABIs + universal." },

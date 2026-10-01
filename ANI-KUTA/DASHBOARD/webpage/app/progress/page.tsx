@@ -9,13 +9,15 @@ import {
 } from "@/lib/data";
 
 /**
- * Progress page (v10 — status refresh). ALL original build phases done. Phase 0–5 +
+ * Progress page (v11 — status refresh). ALL original build phases done. Phase 0–5 +
  * B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete + Profile UI v1–v6, CI verified
- * GREEN on the mainline branch `feature/round-57-cloudstream-downloads`. 56
- * modules built, 25 DB tables across 17 .sq files, 565 decisions confirmed
- * (D-001..D-565). The project is in iterative device-round development and
- * NOW ENTERS the debug-first phase (D-565) — Round 76 closed with debug
- * v1.1.37 live + professional v1.1.3 published.
+ * GREEN on the mainline branch `feature/round-57-cloudstream-downloads`. 57
+ * modules built, 25 DB tables across 17 .sq files, 739 decisions confirmed
+ * (D-001..D-739). The project is in iterative device-round development
+ * (round 115) — features/fixes land on the mainline, verified by CI debug
+ * builds; ALL releases paused per the user's round-115 order (D-738): the
+ * debug-first loop ran v1.1.38→v1.1.71, the professional line resumed once
+ * at v1.1.14 (round 114), and rounds now end at CI green.
  *
  * Sections:
  *  1. Header card + legend.
@@ -64,11 +66,14 @@ export default function ProgressPage() {
           (scaffold — 12 modules), Phase 3 (15 core modules across 4 sub-phases),
           Phase 4 (feature screens + accent palette), Phase 5 (5a–5e — 5f deferred),
           and Phase 10 (post-Phase-5 work: B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL) are
-          all done. 56 modules built (1 app + 32 core + 2 data + 21 feature),
-          25 DB tables across 17 .sq files, 565 decisions confirmed
-          (D-001..D-565). The project is now in iterative device-round
-          development — the debug-first phase (D-565): new features land on the
-          mainline and ship via per-round DEBUG releases (v1.1.38+).
+          all done. 57 modules built (1 app + 33 core + 2 data + 21 feature),
+          25 DB tables across 17 .sq files, 739 decisions confirmed
+          (D-001..D-739). The project is now in iterative device-round
+          development (round 115) — features/fixes land on the mainline,
+          verified by CI debug builds; ALL releases are paused per the user's
+          round-115 order (D-738): the debug-first loop ran v1.1.38→v1.1.71,
+          the professional line resumed once at v1.1.14 (round 114), and each
+          round now ends at CI green.
           Live status — kept in sync with{" "}
           <code className="font-mono text-text-primary">memory/progress.md</code>.
         </p>
@@ -80,7 +85,7 @@ export default function ProgressPage() {
         </div>
       </Card>
 
-      {/* Mainline state callout — Round 76 closed (debug-first phase, D-565) */}
+      {/* Mainline state callout — Round 115 (all releases paused per D-738) */}
       <Card>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="flex-1 min-w-0">
@@ -88,24 +93,27 @@ export default function ProgressPage() {
               Mainline state
             </div>
             <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary mb-1.5">
-              Round 76 closed on{" "}
+              Round 115 · mainline{" "}
               <code className="font-mono text-[14px] text-text-primary break-all">
                 feature/round-57-cloudstream-downloads
               </code>
             </h3>
             <p className="text-[12.5px] text-text-secondary leading-relaxed max-w-2xl">
-              Latest DEBUG release: <strong>v1.1.37 (10137)</strong> — live on
-              the dev repo with the debug arm64-v8a APK. Latest PROFESSIONAL
-              release: <strong>v1.1.3 (10103)</strong> — the stable GitHub
-              Release{" "}
-              <code className="font-mono text-[12px]">professional-v1.1.3</code>{" "}
-              (7 assets, release-signed — the first published professional
-              release since v1.1.2). The project now enters the{" "}
-              <strong>debug-first phase (D-565)</strong>: new features land on
-              the mainline and ship via per-round DEBUG releases (v1.1.38+);
-              professional releases pause until the user explicitly orders the
-              next one. ({`main`} was deleted per D-552 — it had 0 unique
-              commits.)
+              Latest DEBUG release: <strong>v1.1.71 (10171)</strong> — LIVE
+              2026-10-01 on the dev repo (testplay-byte/ANI-KUTA), stable +
+              latest, with the debug arm64-v8a APK + SHA256SUMS. Latest
+              PROFESSIONAL release: <strong>v1.1.14 (10114)</strong> — LIVE
+              2026-10-01 on the official repo (Confused-Creature-180/ANI-KUTA),
+              11 assets (5 release-signed split APKs + 5 ZIPs + SHA256SUMS.txt);
+              the website fallback chip + the official README download links
+              were refreshed to v1.1.14. As of round 115,{" "}
+              <strong>ALL releases are paused per the user's order (D-738 —
+              debug builds only)</strong>: each round ends at CI green (the
+              Build APK debug run's artifact) until the user's explicit order;
+              the debug-first loop ran v1.1.38→v1.1.71 and the professional
+              line resumed once at v1.1.14 (round 114). ({`main`} was deleted
+              per D-552 — it had 0 unique commits; the remote carries only the
+              mainline.)
             </p>
           </div>
           <span
@@ -116,7 +124,7 @@ export default function ProgressPage() {
             }}
           >
             <StatusDot color="var(--c-success)" size="sm" />
-            Round 76 closed
+            Round 115
           </span>
         </div>
       </Card>
@@ -171,7 +179,7 @@ export default function ProgressPage() {
             <li>· Video pipeline working — resolve URL → play via MPV → save progress.</li>
             <li>· Download manager (HTTP + HLS + resume) operational.</li>
             <li>· AniList tracker sync wired (tracker-api + tracker-anilist).</li>
-            <li>· <strong>CI green across all 56 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB additions + Profile UI v1–v6 + the CloudStream V2 stack + the device-round adds).</strong></li>
+            <li>· <strong>CI green across all 57 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB additions + Profile UI v1–v6 + the CloudStream V2 stack + the device-round adds).</strong></li>
           </ul>
         </div>
       </Card>

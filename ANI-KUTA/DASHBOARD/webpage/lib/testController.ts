@@ -531,7 +531,7 @@ export const UNTOUCHED_AREAS: string[] = [
   "Details screen (feature:anime-details:impl) — 0 lines changed",
   "Watch screen (feature:watch:impl) — 0 lines changed",
   "Downloads screen (feature:download) — 0 lines changed",
-  "All 26 SQLDelight tables — schema unchanged",
+  "All 25 SQLDelight tables — schema unchanged",
   "All OkHttp / ktor clients — unchanged",
   "All :core: modules (common, database, network, preferences, anilist, …) — unchanged",
 ];
