@@ -146,7 +146,10 @@ details footer hint) render through the shared `Caption`.
 
 ## 5. The CI history (the D-472 ledger)
 
-(to be filled as the runs complete)
+- **Run 36804679730 (Build APK, commit f1df67a9) — GREEN FIRST-TRY** in
+  ~3.8m. The redo's 14-file change set (two new shared-composable families,
+  the banner's full rebuild, both settings screens' widget migration)
+  compiled clean on the first push.
 
 ## 6. The audit record
 
