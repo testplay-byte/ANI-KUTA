@@ -199,7 +199,29 @@ The search index gained the "classic" keyword on the two player entries.
 
 ## 4. CI history
 
-- (to be filled after the runs)
+- **Run 1 of 2 — `5fdb4dfd` (the implementation + docs push): Build APK
+  run 36860248418 FAILED** on ONE error: `EpisodeRow.kt:247:73 Unresolved
+  reference 'collectAsState'`. The D-727 import sweep had pruned it — and
+  its twin `getValue` with it (the `by …collectAsState(…)` delegate at
+  L248 needs `androidx.compose.runtime.getValue` too, but that diagnostic
+  is MASKED until `collectAsState` resolves again — one pruned pair, one
+  visible error). The compile order confirmed the rest clean:
+  `:core:designsystem` and `:core:preferences` (the new shared
+  `EpisodeClassicRow`, the meta line, the player layouts, both pref
+  stores) compiled GREEN before the failure; the `:app` module (the four
+  settings files) never compiled — it was audited by hand instead (§6).
+- **Run 2 of 2 — `bc40bb38` (the CI repair): Build APK run 36872072375
+  GREEN.** Both pruned imports restored + the stale-doc sweep riding
+  along (comment-level only): the CLASSIC pref docs that still described
+  the retired EP-tag overlay and the dead D-554 COMPACT/MINIMAL world;
+  the details pref's default string `DETAILED` → `CLASSIC` (every reader
+  parses via the lenient `fromKey` — the unit test locks the migration;
+  the picker highlight is ordinal-driven, never raw-string-driven); the
+  "wrapping FlowRow" comments on both grids now describe the round-111
+  single-line meta; the dead `ExperimentalLayoutApi` import + `@OptIn`
+  (FlowRow left `EpisodeLayouts.kt` this round); the now-unused
+  `height`/`width` imports in the player settings screen. Run 2 of 2 —
+  inside the D-472 budget, disclosed here.
 
 ## 5. The device-round checklist (v1.1.68)
 
@@ -246,6 +268,34 @@ The search index gained the "classic" keyword on the two player entries.
   file); caught immediately by the follow-up read — the python-assert
   pattern (anchor-must-exist before every write) is now the standard for
   surgical text edits.
+- **THE PRE-PUSH SUB-AGENT VERIFICATION (the user's explicit order —
+  "verify it using sub-agents too before confirming with me"): TWO
+  audits ran between the failed run and the repair push.**
+  - **3-a — the app-module compile-risk audit**: the `:app` module never
+    compiled in run 1 (the build stopped at `:feature:anime-details:impl`),
+    so its four files were audited by hand: every referenced symbol
+    resolved against the imports (the exact bug class that broke CI), the
+    widget-kit call signatures argument-matched, the search anchors
+    walked against the LazyColumn item order, the brackets balanced.
+    VERDICT: all four PASS — and the audit caught what CI could not show
+    yet: the MASKED `getValue` twin behind the one visible error (all 9
+    other repo files with `by …collectAsState(…)` delegates import it;
+    `EpisodeRow.kt` was the lone exception). The repair push carried both
+    imports — saving a third CI run.
+  - **3-b — the D-726..D-729 semantic verification**: all four work
+    orders PASS with file:line evidence — the meta line is ONE Row that
+    physically cannot wrap, with the ladder's three rungs and the
+    always-surviving core facts; the classic row is one shared
+    implementation called by exactly two thin adapters (the details'
+    CompositionLocals injected, the player's chrome parameterized), the
+    retired player remnants verified absent, the rename's migration path
+    walked; the tracklist row carries no play glyph (the icon survives
+    only at the badge/grid-disc/banner-disc sites, all legitimate); the
+    elements' grid renders 2/row weight-equal animated buttons with the
+    heading-tap 2↔3 flip and the el_* anchors intact at card index 3.
+    The stale-doc defects it found (the EP-tag pref doc, the "wrapping
+    FlowRow" comments, the dead `ExperimentalLayoutApi`, the details
+    pref's "DETAILED" default) were swept in the repair commit.
 
 ## 7. Release record
 
