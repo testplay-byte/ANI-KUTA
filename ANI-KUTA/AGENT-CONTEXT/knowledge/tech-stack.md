@@ -17,7 +17,7 @@
 | Player wrapper | FFmpegKit + Seeker + MediaSession | 1.18 / 1.2.2 / 1.4.1 | ✅ in use |
 | Networking | OkHttp | 5.0.0-alpha.14 | ✅ in use (MUST match Aniyomi ext — D-092 lesson) |
 | Image loading | Coil 3 | 3.0.4 | ✅ in use (500MB disk cache — D.4) |
-| Coroutines | kotlinx-coroutines | 1.9.0 | ✅ in use |
+| Coroutines | kotlinx-coroutines | 1.11.0 | ✅ in use (bumped 1.9.0→1.11.0 in round 97 — D-740 documents the gate bug the bump caused) |
 | Serialization | kotlinx-serialization-json | 1.7.3 | ✅ in use |
 | WorkManager | androidx.work | 2.10.0 | ✅ in use (Phase UP — smart update engine) |
 | Extensions | Aniyomi-compat (now); Mangayomi/Cloudstream/Kotatsu (future) | — | ✅ Aniyomi compat done (D-027, D-031) |

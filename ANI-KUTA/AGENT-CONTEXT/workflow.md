@@ -165,8 +165,8 @@
 
 ## Branch Discipline
 
-- **The mainline IS the work branch:** `feature/round-57-cloudstream-downloads` (the repo's default + only remote branch; `main` no longer exists — D-552). All round work commits land there directly.
-- Release branches (`release/x.y.z`) are cut ONLY on the user's explicit release order (and under D-738, no releases happen at all) — see `APP/ani-kuta/DOCUMENTATION/release/RELEASE-PLAYBOOK.md`.
+- **The mainline IS the work branch:** `main` (the repo's default branch; renamed from `feature/round-57-cloudstream-downloads` in Round 118 — D-743; the release branches stay deleted). All round work commits land there directly.
+- Release branches (`release/x.y.z`) are cut ONLY on the user's explicit release order (and under D-738's default, no releases happen) — cut fresh from `main` per D-442 — see `APP/ani-kuta/DOCUMENTATION/release/RELEASE-PLAYBOOK.md`.
 - `feature/test-controller-v5` stays dormant (kept by user order — do not delete).
 - **Push frequently** — the sandbox is ephemeral (CORE_RULES §15). Unpushed work is lost.
 
@@ -174,7 +174,7 @@
 
 ## Session-End Checklist (CORE_RULES §15)
 
-- [ ] All work committed on the feature branch.
+- [ ] All work committed on the mainline (`main`).
 - [ ] Pushed to GitHub.
 - [ ] `git status` is clean.
 - [ ] CI is green (verified via API, not assumed).

@@ -11,7 +11,7 @@
 
 ## New Project (this one)
 - **Location**: `APP/ani-kuta/`.
-- **Size**: 46 Gradle modules, 331 Kotlin files, 26 SQLDelight tables.
+- **Size**: 57 Gradle modules, 634 Kotlin files, 25 SQLDelight tables (verified round 115 + round 118).
 - **Package**: `com.confused.anikuta.*`.
 - **Status**: Clean rebuild. Modular, documented, customizable, future-proof. All major phases complete. Debug builds only.
 
@@ -19,15 +19,15 @@
 
 | Aspect | Old Project | New Project |
 |--------|-------------|-------------|
-| Modules | 36 active | 46 (1 app + 26 core + 1 data + 18 feature) |
-| Kotlin files | 451 | 331 (leaner — less duplication) |
+| Modules | 36 active | 57 (1 app + 33 core + 2 data + 21 feature = 12 features) |
+| Kotlin files | 451 | 634 (more modules, but each smaller + documented) |
 | DI | Koin + Injekt (spread everywhere) | Koin 4.2.2 (primary) + Injekt (isolated to Aniyomi ext only — D-034) |
 | Persistence | SQLDelight | SQLDelight 2.0.2 (same choice — D-035) |
 | Navigation | Voyager 1.0.1 | Hand-rolled `mutableStateListOf<NavKey>` (D-150 — Nav3 was tried + removed) |
 | Player | MPV (aniyomi-mpv-lib) | MPV (aniyomi-mpv-lib 1.18.n) — ported from old project (D-044) |
 | Extensions | Aniyomi-compat | Aniyomi-compat (same — D-027) + future multi-extension design (D-031) |
 | Identity | Two-tier (ContentId/LocalId) | Two-ID system (Main ID + Content ID) — simplified from graph model (D-135) |
-| Tracking | Aniyomi tracker sync | Internal activity-tracker PRIMARY (D-045) + AniList tracker secondary (placeholder) |
+| Tracking | Aniyomi tracker sync | Internal activity-tracker PRIMARY (D-045) + AniList tracker secondary (FULL implementation — `:core:tracker-anilist`) |
 | Crash handling | Basic | Global crash handler + ErrorActivity (CORE_RULES §29) |
 | Logging | Ad-hoc `Log.d()` | Central `Logger` wrapper, filtered, toggleable (CORE_RULES §20) |
 | Documentation | None | AGENT-CONTEXT/ (rules + memory + knowledge) + APP/ani-kuta/DOCUMENTATION/ + dashboard |
@@ -59,5 +59,5 @@
 - Novels (D-030 — later)
 - Ads system (D-033 — designed, deferred)
 - Identity system evolution (D-032 — flexible + switchable, current two-ID is the starting point)
-- AniList tracker full implementation (currently placeholder)
-- Release signing (Phase 9 — debug builds only currently)
+- AniList tracker full implementation — DONE since this doc was written (`:core:tracker-anilist`, full implementation, ~1471 lines).
+- Release signing — DONE (CI release signing from repository secrets — D-423; shipped releases since round 35; the debug line signs with the committed `anikuta-debug.keystore`).

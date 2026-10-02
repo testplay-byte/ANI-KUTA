@@ -10,7 +10,7 @@
 
 ### Task 1 (your very first task): download and read CORE_RULES.md
 
-**Before you do anything else — before setting up your environment, before opening any code, before reading any other documentation — read the core rules. https://github.com/testplay-byte/ANI-KUTA/blob/feature/round-57-cloudstream-downloads/ANI-KUTA/AGENT-CONTEXT/CORE_RULES.md** (note: `main` does not exist — the default branch IS `feature/round-57-cloudstream-downloads`)
+**Before you do anything else — before setting up your environment, before opening any code, before reading any other documentation — read the core rules. https://github.com/testplay-byte/ANI-KUTA/blob/main/ANI-KUTA/AGENT-CONTEXT/CORE_RULES.md** (note: the default branch IS `main` — renamed from `feature/round-57-cloudstream-downloads` in Round 118, D-743)
 
 This file contains non-negotiable rules that supersede everything else in the project. Pay special attention to:
 
@@ -22,7 +22,7 @@ This file contains non-negotiable rules that supersede everything else in the pr
 
 **Do NOT skip this file. Do NOT skim it. Read every section before proceeding **
 
-after reading the file clone the whole complete GitHub repo inside a newly created folder as in the rules
+after reading the file clone the whole complete GitHub repo inside a newly created folder as in the rules (the default branch is `main` — renamed from `feature/round-57-cloudstream-downloads` in Round 118, D-743)
 
 ### Task 2: Read the rest of AGENT-CONTEXT
 

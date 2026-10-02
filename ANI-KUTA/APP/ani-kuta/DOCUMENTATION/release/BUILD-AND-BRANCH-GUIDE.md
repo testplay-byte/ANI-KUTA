@@ -10,9 +10,7 @@ mainline + ONE version-bump commit), the in-app updater's repo follows the
 BUILD TYPE at runtime, and the sandbox is LEAN (no local Android tooling —
 GitHub Actions is the only build machine; the local SDK/JDK/Gradle were
 deleted).
-**Round 115 revision (D-738/D-739, 2026-10-02):** the mainline is
-`feature/round-57-cloudstream-downloads` (the default branch — `main` was
-deleted D-552, 0 unique commits). The user's standing order: **DEBUG BUILDS
+**Round 115 revision (D-738/D-739, 2026-10-02):** the user's standing order: **DEBUG BUILDS
 ONLY — all releases suspended until the explicit order** (rounds end at the
 CI debug artifact). The full release routines now live in
 **`RELEASE-PLAYBOOK.md`** (this folder) — the round-80 repo-external playbook
@@ -23,6 +21,11 @@ reference for how ANI-KUTA is built, which branch produces what, and how the
 release version and the debug version are tested side by side on one device.
 It is the companion to `RELEASE-PLAYBOOK.md` (the release routines) — this
 document covers the DEV side (the mainline + the CI push path).
+**Round 118 revision (D-743, 2026-10-02):** the mainline was RENAMED back to
+**`main`** (the GitHub branch-rename API — history + default-branch status
+preserved). The 38 historical `release/*` branches were deleted by the user
+before the round (the tags + GitHub releases survive); future release
+branches are cut FRESH from `main` per D-442.
 
 ---
 
@@ -30,8 +33,8 @@ document covers the DEV side (the mainline + the CI push path).
 
 | Branch | What it is | The debug bubble | CI on push | Used for |
 |---|---|---|---|---|
-| `feature/round-57-cloudstream-downloads` | **THE MAINLINE** (the default branch; the remote's only branch — `main` was deleted D-552) — where features land and converge between releases. Carries EVERYTHING a release needs (the build line, the workflows — D-430/D-435/D-436). Version: 1.1.20/10120 (D-430: bumps ride release branches). | **PRESENT** (the user's standing instruction: the bubble stays on the mainline) | tests + assembleDebug — the **DEBUG APK only** (D-435, arm64-v8a D-445) — downloadable as the CI artifact | Feature development + the debug test line + the source of every future release cut |
-| `release/<version>` (e.g. release/1.1.71, release/1.1.14) | The PUBLISHABLE lines — each **cut FROM the round's green mainline head** (D-442): mainline + ONE commit (the version bump + the branch-point docs). Cut only on the user's explicit order; under D-738 none are cut. | PRESENT (inherited from the mainline — the release APK build itself excludes it via the source-set split; the co-install debug identity is the debug overlay) | The same DEBUG-ONLY push path; releases happen via the TAG path only: `v*` → release-apk.yml (debug line) or the release-build-once.yml dispatch (professional line — D-564: the ref is the release branch) | Cutting actual releases |
+| `main` | **THE MAINLINE** (the default branch; renamed from `feature/round-57-cloudstream-downloads` in Round 118 — D-743) — where features land and converge between releases. Carries EVERYTHING a release needs (the build line, the workflows — D-430/D-435/D-436). Version: 1.1.20/10120 (D-430: bumps ride release branches). | **PRESENT** (the user's standing instruction: the bubble stays on the mainline) | tests + assembleDebug — the **DEBUG APK only** (D-435, arm64-v8a D-445) — downloadable as the CI artifact | Feature development + the debug test line + the source of every future release cut |
+| `release/<version>` | The PUBLISHABLE lines — each **cut FRESH FROM the round's green mainline head** (D-442). mainline + ONE commit (the version bump + the branch-point docs). Cut only on the user's explicit order; under D-738's default none are cut. (The 38 historical `release/*` branches were deleted by the user before Round 118 — the tags + the GitHub releases survive, so old installs still update.) | PRESENT (inherited from the mainline — the release APK build itself excludes it via the source-set split; the co-install debug identity is the debug overlay) | The same DEBUG-ONLY push path; releases happen via the TAG path only: `v*` → release-apk.yml (debug line) or the release-build-once.yml dispatch (professional line — D-564: the ref is the release branch) | Cutting actual releases |
 | `feature/test-controller-v5` | A kept experiment line (dormant, user order). | — | Same push path | Reference |
 
 Deleted in round 37 (per the user's instruction): `test-feature/video-cache-new-download`,

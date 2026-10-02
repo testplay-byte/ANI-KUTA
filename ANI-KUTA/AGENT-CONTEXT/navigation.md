@@ -9,13 +9,14 @@
 | `master.md` | Project orientation: what ANI-KUTA is, folder layout, what to read. |
 | `CORE_RULES.md` | Non-negotiable rules (**31 sections**). Wins over everything. |
 | `workflow.md` | The task execution loop (Understand→Verify→Implement→Verify→Move On) + project phases. |
-| `HANDOFF-ROUND-115.md` | **The current handoff** — written by the round-115 agent for the NEXT agent (the phase, the loop, the gotchas). |
+| `HANDOFF-ROUND-116.md` | The round-116 delta handoff (+ its round-117 addendum) — the latest handoff written for the NEXT agent. |
+| `HANDOFF-ROUND-115.md` | HISTORICAL CONTEXT — the round-115 full original handoff (the phase, the loop, the gotchas; still valid background). |
 | `HANDOFF-POSTER-NOTIFICATIONS.md` | HISTORICAL (rounds 46-47 poster-notification findings — resolved by the round-80 rework). Kept for the record. |
 
 ## 🌐 Workspace-Level
 | File | Purpose |
 |------|---------|
-| `/home/z/my-project/worklog.md` | Append-only sub-agent execution log. Read for raw detail beyond `memory/progress.md`. |
+| `/home/z/my-project/worklog.md` | Append-only sub-agent execution log (SANDBOX-ERA artifact — exists only in the Z.ai sandbox environment, not in a local clone). |
 
 ## 🧠 memory/
 | File | Purpose |
@@ -51,7 +52,7 @@
 | Path | Purpose |
 |------|---------|
 | `download-research/00-16` | 17 download-system research docs (workflow, queue, state machine, storage, downloaders, notifications, settings, UI, player, DB, DI, implementation plan, auto-download, UI/bug analysis, QoL). |
-| `download-research/17-38` | The CS-DASH research set (17-25) + the round records through round 80 (26-38). The modern round records live in `APP/ani-kuta/DOCUMENTATION/cloudstream-v2/` (docs 72-97 = rounds 90-115; the earlier cloudstream-v2 docs are the CS-V2 era plans/records). |
+| `download-research/17-38` | The CS-DASH research set (17-25) + the round records through round 80 (26-38). The modern round records live in `APP/ani-kuta/DOCUMENTATION/cloudstream-v2/` (docs 72-100 = rounds 90-118; the earlier cloudstream-v2 docs are the CS-V2 era plans/records). |
 | `download-research/REVIEW-1..5` | 5 review rounds with 72 MUST-FIX items. |
 | `download-research/REVIEW-D0.md` | Foundations review. |
 | `download-research/FUTURE-PHASE-DL-GAPS.md` | Consolidated deferred download gaps (D-149, D-151) + RetryPolicy sketch. |
@@ -61,7 +62,7 @@
 |------|---------|
 | `APP/ani-kuta/DESIGN-LANGUAGE.md` | The app's design language (canonical ~140 lines — see above). |
 | `APP/ani-kuta/DOCUMENTATION/` | New project architecture/research docs (`10-20` + README + `planning/` subfolders + `download-device-testing-checklist.md`). Historical: research (10-15), Phase 1 plan (16), DB schema (17 — historical "21 tables" snapshot; current: 25 tables / 17 .sq), Phase 3/5 plans (18-20). Planning: data-management/PHASE-D-PLAN, debug-bubble/PLAN, extension-details-page/{ARCHITECTURE-PLAN,FLOW-DIAGRAM,PHASE-C-PLAN}, watch-history-updates/PLAN. |
-| `APP/ani-kuta/DOCUMENTATION/cloudstream-v2/` | **THE ROUND RECORDS** — the modern numbered records (docs 72-97 = rounds 90-115; next: 98) + the earlier CS-V2 era plans (00-71). Each modern record: the orders, the implementation, the audits, the release record. |
+| `APP/ani-kuta/DOCUMENTATION/cloudstream-v2/` | **THE ROUND RECORDS** — the modern numbered records (docs 72-100 = rounds 90-118; next: 101) + the earlier CS-V2 era plans (00-71). Each modern record: the orders, the implementation, the audits, the release record. |
 | `APP/ani-kuta/DOCUMENTATION/release/` | The build & release guides: `BUILD-AND-BRANCH-GUIDE.md` (the dev/release line split) + `RELEASE-PLAYBOOK.md` (the full release routines — rebuilt in-repo at round 115; DORMANT under D-738 until the user orders). |
 
 ## 🛠️ skills/

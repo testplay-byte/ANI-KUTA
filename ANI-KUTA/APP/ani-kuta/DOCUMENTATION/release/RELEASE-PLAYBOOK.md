@@ -25,7 +25,7 @@
 
 *The loop that ran v1.1.38 → v1.1.71. Resumes only on the user's order (or their explicit "back to the old loop" phrasing).*
 
-1. The round's implementation commit is CI GREEN on the mainline (`feature/round-57-cloudstream-downloads`) via the Build APK run.
+1. The round's implementation commit is CI GREEN on the mainline (`main` — renamed from `feature/round-57-cloudstream-downloads` in Round 118, D-743) via the Build APK run.
 2. Cut `release/<debug-version>` from the green head: `git checkout -b release/1.1.3N <green-sha>`.
 3. ONE commit on that branch: the bump (`AndroidConfig.kt`: versionCode → 1013N-style monotonic, versionName → 1.1.3N; keep the D-430 comment block intact).
 4. Push the branch, then the **annotated tag** `v1.1.3N` on the bump commit — the tag push triggers `release-apk.yml` (tag-driven; a `v*` tag on the release branch).

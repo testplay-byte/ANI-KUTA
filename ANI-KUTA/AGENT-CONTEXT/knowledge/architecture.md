@@ -168,7 +168,7 @@ AnikutaApp.onCreate():
 
 ## Known Architectural Debt (Deferred Concerns)
 Tracked in `memory/progress.md` → "Deferred Concerns" section. Summary:
-1. `WatchKey` god-object (15 fields, 5 serialized strings) — refactor to identifier-only.
+1. `WatchKey` god-object (17 fields — re-verified against `WatchKey.kt` round 118; 5 serialized strings) — refactor to identifier-only.
 2. Nav backstack doesn't survive process death (R7) — hybrid `rememberSaveable` fix possible.
 3. `HttpDownloader.reResolver` orphaned (D-149) — built but not wired; signatures mismatched.
 4. Dead download code: `DownloadVideoPickerSheet`, `setRetryingStatus` (D-151).
