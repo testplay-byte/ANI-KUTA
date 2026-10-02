@@ -11,10 +11,11 @@ name: Deploy Dashboard
 
 on:
   push:
-    # D-552 branch cleanup: the mainline is the feature branch (main was
-    # deleted — 0 unique commits vs the feature line, verified before the
-    # delete) — the dashboard's deploy trigger rides it now.
-    branches: [ 'feature/round-57-cloudstream-downloads' ]
+    # D-743 branch cleanup (round 118): the mainline was RENAMED from
+    # `feature/round-57-cloudstream-downloads` back to `main` (the GitHub
+    # branch-rename API — history + default-branch status preserved; the
+    # deleted release branches stay deleted). The deploy trigger rides `main`.
+    branches: [ main ]
     paths:
       - 'ANI-KUTA/DASHBOARD/webpage/**'
       - '.github/workflows/deploy-dashboard.yml'
