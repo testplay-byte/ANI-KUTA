@@ -544,8 +544,23 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // ── D-430: the release-branch bump (round 117 — v1.1.72) ──────────────
+    // Cut from the green mainline head db72c737 (the round-116 ledger
+    // commit; the implementation 53cbc0ef's Build APK run 37006588128 GREEN
+    // FIRST-TRY — both sub-agents audited pre-push: 4-a 7/7, 4-b 14/15 with
+    // the HIGHs fixed + re-audited 7/7). Carries on top of v1.1.71 THE
+    // ROUND-116 SET (D-740 + D-741, doc 98): THE GATE THAT HOLDS — the
+    // ten-second extension-testing gate rebuilt off the interaction stream
+    // (a plain platform clickable + a LaunchedEffect watching the press
+    // stream; the kotlinx withTimeoutOrNull rides a composition scope, not
+    // the AwaitPointerEventScope member that coroutines 1.11.0 shifted —
+    // the gate is alive on BOTH build types again, still-or-drifting holds
+    // both fire, ordinary scrolling + taps untouched) + THE ONE ABOUT DOOR
+    // (the Settings hub's redundant About & Updates row retired — the More
+    // page's door is the only one; the search's about.* entries keep their
+    // corrected "More →" breadcrumb + the about_downloaded landing anchor).
+    const val versionCode = 10172
+    const val versionName = "1.1.72"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
