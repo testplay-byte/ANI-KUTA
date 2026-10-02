@@ -50,7 +50,9 @@ enum class SettingsSearchPage(
     PLAYER("Player", "Settings → Player"),
     VIDEO_CACHING("Video caching", "Settings → Video caching"),
     DOWNLOAD_SETTINGS("Download settings", "More → Downloads → Settings"),
-    ABOUT("About & Updates", "Settings → About & Updates"),
+    // D-741 (round 116): the breadcrumb corrected — the About page is a
+    // More-page destination now (the Settings hub row is retired).
+    ABOUT("About & Updates", "More → About & Updates"),
     TRACKERS("Trackers", "More → Trackers"),
     DEBUG("Debug options", "Settings → Debug options"),
     HISTORY("History", "More → History"),

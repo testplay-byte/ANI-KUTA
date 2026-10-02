@@ -118,7 +118,6 @@ fun SettingsScreen(
     // every app open). A normal tap still opens the ordinary Debug page —
     // the long-press is the secret gate and the row gives no visual hint.
     onOpenSponsorDebug: () -> Unit = {},
-    onOpenAbout: () -> Unit,
     onOpenSearchResult: (SettingsSearchEntry) -> Unit = {},
     /** D-558: the pending search anchor when a result targets the hub itself. */
     highlightAnchor: String? = null,
@@ -164,8 +163,10 @@ fun SettingsScreen(
             "updates_notifications" to 4,
             "player" to 5,
             "video_caching" to 5,
-            "about" to 6,
-            "debug" to 7,
+            // D-741: the About hub row is RETIRED (the More page already
+            // carries the About & Updates door — the round-116 user order);
+            // the Debug row moves up to its slot.
+            "debug" to 6,
         )
     }
     rememberSettingsAnchorScroll(highlightAnchor, { hubAnchorIndex[it] }, lazyListState)
@@ -362,22 +363,12 @@ fun SettingsScreen(
                             }
                         }
 
-                        // ── About & Updates ──
-                        // Hosts the app-update UI: app version, auto-check toggle,
-                        // manual "Check for updates" button, downloaded APK list.
-                        // UpdateBottomSheet itself renders as an overlay from AppRoot
-                        // (driven by AppUpdateManager.shouldShowUpdateSheet).
-                        item {
-                            HubSection(
-                                activeAnchor = highlightAnchor,
-                                label = "About",
-                                anchorId = "about",
-                                icon = Icons.Filled.Info,
-                                title = "About & Updates",
-                                subtitle = "Version, checks, downloaded APKs",
-                                onClick = onOpenAbout,
-                            )
-                        }
+                        // ── About & Updates — RETIRED (D-741, round 116): the
+                        // More page already shows the About & Updates row
+                        // (with the update dot), so the Settings hub carried a
+                        // redundant second door. The page itself is untouched —
+                        // More → About & Updates, and the settings search's
+                        // about.* entries still route there. ──
 
                         // ── Debug (Task 57 / round 17) — dedicated page: bubble (debug builds),
                         // resolve-list source details + copy button (release too). ──

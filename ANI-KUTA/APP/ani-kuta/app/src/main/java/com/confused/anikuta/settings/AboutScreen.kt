@@ -200,6 +200,11 @@ fun AboutScreen(
                         when (anchor) {
                             "about_page" -> 0
                             "about_autocheck" -> 2
+                            // D-741 (round 116): the search's about.downloaded
+                            // entry now lands here too (0 version · 1 updates
+                            // label · 2 auto-check · 3 manual check · 4 the
+                            // downloaded-versions section label).
+                            "about_downloaded" -> 4
                             else -> null
                         }
                     },
@@ -486,7 +491,12 @@ fun AboutScreen(
                     // ── Downloaded versions (only show if there are valid files) ──
                     if (validDownloadedApks.isNotEmpty()) {
                         item {
-                            SettingsSectionLabel("Downloaded versions")
+                            // D-741 (round 116): the highlight wrap — the kept
+                            // search entry (about.downloaded) pulses its landing
+                            // target like every other indexed row.
+                            SettingsHighlightTarget(anchorId = "about_downloaded", activeAnchor = highlightAnchor) {
+                                SettingsSectionLabel("Downloaded versions")
+                            }
                         }
                         items(validDownloadedApks, key = { it.filePath }) { apk ->
                             DownloadedApkRow(

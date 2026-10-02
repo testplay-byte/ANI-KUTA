@@ -95,16 +95,10 @@ object SettingsSearchIndex {
                     "storage", "buffer", "stream"),
             ),
         )
-        add(
-            SettingsSearchEntry(
-                id = "hub.about",
-                title = "About & Updates",
-                page = SettingsSearchPage.ABOUT,
-                anchor = "about",
-                keywords = listOf("version", "app update", "apk", "check for updates",
-                    "about", "info", "credits", "downloaded"),
-            ),
-        )
+        // D-741 (round 116): the hub.about entry RETIRED with the Settings
+        // hub's About row (the More page owns the door now). The about.*
+        // page entries below stay — the search keeps routing to the live
+        // About page as a "related thing" (the More-section pattern).
         add(
             SettingsSearchEntry(
                 id = "hub.debug",
@@ -760,7 +754,11 @@ object SettingsSearchIndex {
                 title = "About & Updates",
                 page = SettingsSearchPage.ABOUT,
                 anchor = "about_page",
-                keywords = listOf("about", "version", "check", "apk", "downloaded"),
+                // D-741: absorbed the retired hub.about entry's keywords
+                // ("app update", "check for updates", "info", "credits") so
+                // those searches still land on the About page.
+                keywords = listOf("about", "version", "check", "apk", "downloaded",
+                    "app update", "check for updates", "info", "credits"),
             ),
         )
         add(

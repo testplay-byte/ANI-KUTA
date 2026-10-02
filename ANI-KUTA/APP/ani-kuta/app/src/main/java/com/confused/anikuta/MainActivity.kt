@@ -1494,7 +1494,10 @@ fun AppRoot() {
                 onOpenDebug = { backstack.add(DebugSettingsKey) },
                 // D-561: the hidden long-press gate on the SAME row.
                 onOpenSponsorDebug = { backstack.add(SponsorDebugKey) },
-                onOpenAbout = { backstack.add(AboutKey) },
+                // D-741 (round 116): onOpenAbout RETIRED — the Settings hub's
+                // About & Updates row is gone (the More page already carries
+                // the door + the update dot); AboutKey is still pushed by the
+                // More page and the settings search below.
                 // ── D-558: THE SETTINGS SEARCH. A tapped result requests the
                 // pending anchor and pushes the destination's backstack keys —
                 // sub-page targets chain BOTH keys so back pops naturally. The
