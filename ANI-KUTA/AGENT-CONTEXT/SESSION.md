@@ -1,7 +1,7 @@
 # SESSION — Read This At The Start Of Every Session
 
 > A 60-second orientation. Read this FIRST, every time, before any work.
-> Refreshed in **Round 115 (2026-10-02)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
+> Refreshed in **Round 116 (2026-10-02)**. If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
 
 ---
 
@@ -12,12 +12,12 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 
 ---
 
-## 📍 Current State (refreshed Round 115, 2026-10-02)
+## 📍 Current State (refreshed Round 116, 2026-10-02)
 
-- **Mainline branch:** `feature/round-57-cloudstream-downloads` — this IS the default branch and the remote's ONLY branch. `main` was DELETED (D-552 — it had 0 unique commits). Local-only release branches (release/1.1.14/69/70/71) exist in the sandbox; the remote carries 139 tags. `feature/test-controller-v5` (dormant, kept by user order).
-- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.71 / 10171** (round 114 — LIVE on testplay-byte). Latest **professional** release: **v1.1.14 / 10114** (round 114 — LIVE on Confused-Creature-180/ANI-KUTA: 11 assets, stable latest, the website + README refreshed; the round-39/76 re-host blocker was cleared by the user's release-agent PAT — assets only, zero code pushed).
-- **⚠ THE CURRENT PHASE (D-738, the user's round-115 standing order) — DEBUG BUILDS ONLY, ALL RELEASES SUSPENDED:** every round now ends at **CI green** (the Build APK debug run's `anikuta-apk` artifact — the user installs from the artifact). NO release branches, NO version bumps, NO tags, NO Release APK / release-build-once dispatches, NO re-hosts, NO website bumps — **debug AND professional alike — until the user's explicit order.** The interpretation is banked in D-738 with the recovery path: one explicit order restores either line; the release routines live warm in `APP/ani-kuta/DOCUMENTATION/release/RELEASE-PLAYBOOK.md` (the in-repo playbook rebuilt at round 115 after the repo-external one was lost to a sandbox reset).
-- **Latest records:** Round 115 = the documentation & handoff round (doc **97**, D-738 + D-739; the staleness sweep + the in-repo release playbook + HANDOFF-ROUND-115.md + the dashboard status refresh). `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **98**; the next decision is **D-740**.
+- **Mainline branch:** `feature/round-57-cloudstream-downloads` — this IS the default branch and the remote's ONLY branch. `main` was DELETED (D-552 — it had 0 unique commits). Local-only release branches (release/1.1.14/69/70/71) existed in prior sandboxes. `feature/test-controller-v5` (dormant, kept by user order).
+- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only, never the mainline). Latest **debug** release: **v1.1.71 / 10171** (round 114 — LIVE on testplay-byte). Latest **professional** release: **v1.1.14 / 10114** (round 114 — LIVE on Confused-Creature-180/ANI-KUTA). NOTE: the round-116 artifact (the current deliverable) carries 10120 — it installs over nothing without `adb install -d`/uninstall (the D-738 wrinkle).
+- **⚠ THE CURRENT PHASE (D-738, the user's round-115 standing order) — DEBUG BUILDS ONLY, ALL RELEASES SUSPENDED:** every round now ends at **CI green** (the Build APK debug run's `anikuta-apk` artifact — the user installs from the artifact). NO release branches, NO version bumps, NO tags, NO Release APK / release-build-once dispatches, NO re-hosts, NO website bumps — **debug AND professional alike — until the user's explicit order.** The interpretation is banked in D-738 with the recovery path: one explicit order restores either line; the release routines live warm in `APP/ani-kuta/DOCUMENTATION/release/RELEASE-PLAYBOOK.md`.
+- **Latest records:** Round 116 = the gate rebuild + the About retirement (doc **98**, D-740 + D-741 — the dead ten-second extension-testing gate rebuilt off the interaction stream; the Settings hub's About row retired in favor of the More page's door). `DOCUMENTATION/cloudstream-v2/` numbering is sequential — the next record is **99**; the next decision is **D-742**.
 - **The per-round loop (D-738 form):** device feedback → implement on the mainline → CI green (Build APK debug run — ≤2 runs/cycle, disclosed ledger, D-472; docs-only pushes build nothing) → **STOP — hand the user the artifact link + the test checklist** → LIVE-mirror docs → ntfy. No release steps.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` / `**.md` pushes build NOTHING. `DASHBOARD/webpage/**` pushes DO trigger the Pages deploy.
 - **THIS SESSION'S NOTIFICATION:** ntfy topic **TASK808DONE** (the recent rounds' working topic — the §11 default THE-TASK-IS-DONE resumes if the user says so; the topic 429s under load — retry with backoff).
@@ -26,8 +26,8 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 1. Clone `https://github.com/testplay-byte/ANI-KUTA.git` (public — read needs no token). **PUSH** uses the credential helper that reads the PAT from `/home/z/.secrets/github-credentials` (repo-external, git-credential FORMAT — for raw API calls extract the `password=` line; NEVER commit it, NEVER paste it). If the sandbox lost the file, ask the user.
 2. Checkout the mainline `feature/round-57-cloudstream-downloads` (the default branch).
 3. Read `AGENT-CONTEXT/memory/progress.md` — the TOP **CURRENT STATUS** block first, then the newest `## Round NN` sections at the BOTTOM (the file grows downward; the middle "Historical session" paragraphs are old).
-4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-739** (round 115).
-5. Read `AGENT-CONTEXT/HANDOFF-ROUND-115.md` — the current agent's handoff (written for the NEXT agent; supersedes the older HANDOFF-POSTER-NOTIFICATIONS.md, which is historical).
+4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-741** (round 116).
+5. Read `AGENT-CONTEXT/HANDOFF-ROUND-116.md` — the current agent's handoff (written for the NEXT agent; the round-115 original + its round-116 addendum live on as historical context below it).
 6. Read `AGENT-CONTEXT/knowledge/` files on demand (architecture, module-map, tech-stack, ui-customization, emulator-testing…).
 
 ---
@@ -81,9 +81,9 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (C
 
 ---
 
-## 🚧 Open Items / Blocked (refreshed Round 115)
-- **THE PHASE:** D-738 — debug builds only; ALL releases suspended until the user's explicit order (see Current State above). The user's next device round on **v1.1.71** (debug) / **v1.1.14** (professional) is the next input — the round-114 device checklist lives in doc 96 §5 (the details grid, the player grid + both heights, the stability, the search landings, the v1.1.14 over-the-update install).
-- **THE HANDOFF:** `AGENT-CONTEXT/HANDOFF-ROUND-115.md` — the previous agent's full handoff (read it after this file). `HANDOFF-POSTER-NOTIFICATIONS.md` is HISTORICAL (rounds 46-47; resolved by the round-80 notification rework D-566..D-569).
+## 🚧 Open Items / Blocked (refreshed Round 116)
+- **THE PHASE:** D-738 — debug builds only; ALL releases suspended until the user's explicit order. The user's next device round on the **round-116 artifact** (the gate + the About retirement — checklist doc 98 §6) is the next input. The artifact carries versionCode 10120 (won't install over v1.1.71 without `adb install -d`/uninstall — the disclosed wrinkle; an ordered debug release restores in-place updates).
+- **THE HANDOFF:** `AGENT-CONTEXT/HANDOFF-ROUND-116.md` — the round-116 delta handoff (read after this file). `HANDOFF-ROUND-115.md` (the full original) remains valid context; `HANDOFF-POSTER-NOTIFICATIONS.md` is HISTORICAL (rounds 46-47; resolved by the round-80 notification rework D-566..D-569).
 - **Standing code-level items (doc 96 §6 + the earlier rounds' NOT-APPLIED set, unchanged):** the "Hard Sub" spaced-label edge (consistent with the MPV parse); the token-matching semantics living in five places repo-wide (a future consolidation candidate — designsystem already depends on core:common); the badge dims with its watched row; the InFlight tap no-op during the resolve window; ExtensionInstaller's two OS-fallback toasts; the AppToast id-counter race; the dead AutoLinkPopup.kt cleanup candidate; a FUTURE Coil 3.1.x upgrade must ADD respectCacheHeaders(false) to list-icon requests (doc 81 §11.2); the D-557 momentum-handoff direction note (doc 87 §6).
 - **THE DEBUG LINE IS NON-DEBUGGABLE now (D-674):** if any future work needs `adb run-as` or a debugger on the debug build, that path is GONE by design (the revert = the one gradle flag + the three annotated re-keys). The updater's dev-repo gate + the Logger's DEBUG level + the Developer-tools section are keyed on IS_DEBUG_LINE / the .debug suffix — NOT on BuildConfig.DEBUG / FLAG_DEBUGGABLE (both read false on the dev line now).
 - **Credentials:** the dev PAT lives repo-external at `/home/z/.secrets/github-credentials` (0600, account `testplay-byte`, admin). NOTE: git credential-store is NON-FUNCTIONAL in fresh sandboxes (approve writes nothing) — push auth uses the remote-URL-embedded PAT (repo-local `.git/config`; never committed). The **official-repo (release) PAT lives WITH THE USER** — re-ask when a professional release is ordered (the round-114 re-host used the user-provided PAT in-session; `/home/z/.secrets/official-repo-token` no longer exists).
@@ -106,14 +106,15 @@ repo-root/
 │   │   ├── download-research/   # the early round records + download research (next: 39)
 │   │   ├── memory/              # progress / decisions / changelog / lessons-learned
 │   │   ├── knowledge/           # quick-reference summaries (read on demand)
-│   │   ├── HANDOFF-ROUND-115.md # the round-115 handoff (the current one)
+│   │   ├── HANDOFF-ROUND-116.md # the round-116 handoff (the current one)
+│   │   ├── HANDOFF-ROUND-115.md # the round-115 full original (valid context)
 │   │   └── HANDOFF-POSTER-NOTIFICATIONS.md  # HISTORICAL (rounds 46-47)
 │   ├── APP/ani-kuta/            # Android app — 57 Gradle modules (1 app + 33 core + 2 data + 21 feature)
-│   │   └── DOCUMENTATION/       # technical docs; cloudstream-v2/ = the round records (next: 98); release/ = the build+release guides
+│   │   └── DOCUMENTATION/       # technical docs; cloudstream-v2/ = the round records (next: 99); release/ = the build+release guides
 │   ├── DASHBOARD/webpage/       # Next.js dashboard (→ GitHub Pages; sub-agents build it)
 │   └── REFERENCES/              # old-kuta + animiru + webview-cloudflare-captcha (read-only)
 └── .github/workflows/           # CI — build-apk / release-apk / release-build-once / deploy-dashboard
 ```
 
 ---
-*This file is the quick-start. For everything else, see `navigation.md`. History: the pre-Round-77 version of this file described the round-29 era (v0.4.17, `streaming/CLOUDSTREAM-V2`) — it was fully rewritten in Round 77 after the drift was caught.*
+*This file is the quick-start. For everything else, see `navigation.md`. History: the pre-Round-77 version of this file described the round-29 era (v0.4.17, `streaming/CLOUDSTREAM-V2`) — it was fully rewritten in Round 77 after the drift was caught; refreshed rounds 115-116.*

@@ -2349,3 +2349,10 @@ The round-107 order: robust layout rules for the player episode list's DETAILED 
 - **THE HANDOFF:** `AGENT-CONTEXT/HANDOFF-ROUND-115.md` — the complete handoff for the next agent (the phase, the loop, the environment gotchas, the open items); HANDOFF-POSTER-NOTIFICATIONS.md marked HISTORICAL (resolved by the round-80 notification rework).
 - **THE DASHBOARD:** status facts refreshed (v10 data): 57 modules, v1.1.71 + v1.1.14, D-001..D-739, the D-738 phase — across the status pages + Footer; typecheck clean; deep history stays representative (D-565).
 - No code changed (docs-only round; no APK build by D-472 design — the last code build stands GREEN at eaf9445/run 36925093812).
+
+
+## Round 116 (2026-10-02) — the dead ten-second gate rebuilt + the Settings hub's About retirement (doc 98, D-740 + D-741)
+
+- **THE GATE (D-740):** the extension-testing gate's ten-second hold — dead on every build since v1.1.54 (the round-97 coroutines 1.9.0 → 1.11.0 bump broke the Compose-internal member-timeout machinery the detector implicitly depended on; the app code was byte-identical to the verified v1.1.53 build the whole time) — is REBUILT on the interaction stream: the armed row rides the plain platform clickable and a composition-scoped timer watches Press/Release/Cancel, preserving the exact D-657 outcomes (tap → click; robbed hold → nothing; the full window → the hidden page, with the trailing tap swallowed).
+- **THE ABOUT (D-741):** the Settings hub's redundant About & Updates row is retired — the More page owns the single door (with the update dot); the settings search still routes to the live page as a "related thing" (corrected breadcrumb + the about_downloaded landing anchor).
+- **THE ROUND'S WRINKLE:** the prior round-116 session's local commits (push blocked on a dead PAT) were lost to a sandbox reset — this round re-derived the root cause from the git evidence and shipped on the user's fresh admin PAT.

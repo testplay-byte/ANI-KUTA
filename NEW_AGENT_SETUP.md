@@ -33,10 +33,10 @@ After CORE_RULES.md, read these files in order:
 3. **`AGENT-CONTEXT/workflow.md`** — the task execution loop + project phases
 4. **`AGENT-CONTEXT/SESSION.md`** — per-session bootstrap checklist (the current phase + standing orders live here — including the round-115 D-738 order: DEBUG BUILDS ONLY, no releases of any kind until the user's explicit order)
 5. **`AGENT-CONTEXT/memory/progress.md`** — what's done, what's next, blockers (read the top CURRENT STATUS block + the Round sections at the BOTTOM first — the middle is historical)
-6. **`AGENT-CONTEXT/memory/decisions.md`** — all architecture decisions (D-001 through D-739, newest at the top). Read the "Pending Decisions" section + the latest decisions.
+6. **`AGENT-CONTEXT/memory/decisions.md`** — all architecture decisions (D-001 through D-741, newest at the top). Read the "Pending Decisions" section + the latest decisions.
 7. **`AGENT-CONTEXT/memory/changelog.md`** — high-level change history
 8. **`AGENT-CONTEXT/memory/lessons-learned.md`** — mistakes, corrections, insights, patterns (grep for tags matching your task type)
-9. **`AGENT-CONTEXT/HANDOFF-ROUND-115.md`** — the previous agent's full handoff, written for YOU (the phase, the loop, the environment gotchas, the open items)
+9. **`AGENT-CONTEXT/HANDOFF-ROUND-116.md`** — the round-116 delta handoff, written for YOU (the gate rebuild, the lost-predecessor story, the environment refresh) + **`AGENT-CONTEXT/HANDOFF-ROUND-115.md`** — the round-115 full original (the phase, the loop, the environment gotchas, the open items)
 10. **`AGENT-CONTEXT/knowledge/`** — read every file in this folder:
    - `architecture.md` — the 57-module architecture
    - `tech-stack.md` — technologies used
