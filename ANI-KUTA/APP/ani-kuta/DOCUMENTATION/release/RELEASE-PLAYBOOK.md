@@ -2,7 +2,7 @@
 
 > **Round 115 (D-739): the in-repo rebuild of the release playbook.** The round-80 original was kept "repo-external" and was LOST to a sandbox reset — this file is the consolidated, versioned replacement so it can never be lost again. It encodes rounds 37-114 of release discipline.
 >
-> **⛔ CURRENT STATUS: DORMANT UNDER D-738.** The user's round-115 standing order: **debug builds only — NO releases of any kind (debug or professional) until the user's explicit order.** Nothing in this file executes without that order. When the user orders a release, follow the matching routine below EXACTLY.
+> **⛔ CURRENT STATUS: DORMANT UNDER D-738 (default; the round-117 exception executed).** The user's round-115 standing order: **debug builds only — NO releases of any kind (debug or professional) until the user's explicit order.** Nothing in this file executes without that order. Round 117 exercised the recovery path — the explicit both-lines order released the debug v1.1.72 + built the professional v1.1.5 (the version correction) — and then the default resumed. When the user orders a release, follow the matching routine below EXACTLY.
 >
 > Companion doc: `BUILD-AND-BRANCH-GUIDE.md` (the dev/release line split, the build types, the signing setup). The freshest worked example of the FULL professional routine: doc 96 §7 (round 114, v1.1.14). The freshest debug-release example: doc 96 §6 (round 114, v1.1.71).
 
@@ -34,11 +34,11 @@
 7. **versionCode must exceed the previous debug release** (the in-app debug updater installs in place — e.g. 10171 > 10170).
 8. Docs: the round record's release section + progress/SESSION LIVE facts. ntfy.
 
-*Reference executions: v1.1.69 (doc 94), v1.1.70 (doc 95), v1.1.71 (doc 96 §6 — run 36926038964 GREEN first-try).*
+*Reference executions: v1.1.69 (doc 94), v1.1.70 (doc 95), v1.1.71 (doc 96 §6 — run 36926038964 GREEN first-try), v1.1.72 (doc 99 §3 — run 37036338129 GREEN first-try, the round-117 both-lines order).*
 
 ## 2. Routine B — the PROFESSIONAL release (all-ABI, release-signed)
 
-*The Confused-Creature-180 line: v1.1.2 → v1.1.3 (round 79) → v1.1.14 (round 114). Runs ONLY on the user's explicit order with an explicit version number.*
+*The Confused-Creature-180 line: v1.1.2 → v1.1.3 (round 79) → v1.1.14 (round 114 — THE MISTAKEN NUMBER, corrected to v1.1.5 by the user's round-117 order, D-742). Runs ONLY on the user's explicit order with an explicit version number.*
 
 1. Cut `release/<version>` from the round's green mainline head (the same head the round's docs landed on).
 2. ONE commit on that branch: the professional bump (`AndroidConfig.kt`: e.g. 10114 / 1.1.14). The versionCode must exceed the last professional release (10114 > 10103) so devices update in place.
@@ -50,11 +50,11 @@
 5. Download the artifact (resumable curl — it's big), verify locally: `sha256sum -c` against the workflow's sums + the per-APK lib/ ABI listing (unzip -l; coreutils/unzip only — no Android tooling, CORE_RULES §8).
 6. → continue to Routine C (the re-host). The dev repo itself gets NO release from this run.
 
-*Reference execution: v1.1.14 (doc 96 §7 — run 36926131795 GREEN first-try, every gate passed).*
+*Reference execution: v1.1.14 (doc 96 §7 — run 36926131795 GREEN first-try, every gate passed) and its CORRECTED successor v1.1.5 (doc 99 §4 — run 37036448781 GREEN first-try; 10105 > 10103 the v1.1.3 baseline; a device holding the mistaken 10114 needs a one-time uninstall — the disclosed wrinkle).*
 
 ## 3. Routine C — the official re-host (Confused-Creature-180/ANI-KUTA)
 
-*Assets ONLY — never code (the user's standing rule). The round-39/76 blocker (no release-agent token) was cleared in round 114 by the user's PAT.*
+*Assets ONLY — never code (the user's standing rule). The round-39/76 blocker (no release-agent token) was cleared in round 114 by the user's PAT — and RECURRED in round 117 (the PAT lives with the user per release; round 117's re-host of v1.1.5 sits staged pending the token — doc 99 §7).*
 
 1. **The token:** the release PAT lives WITH THE USER — ask for it when the professional release is ordered (the round-114 re-host used the user-provided PAT in-session; it has admin/push on the official repo). Never commit it, never paste it into logs.
 2. **Prepare the assets** (exact naming — the updater matches `-{abi}.`):
