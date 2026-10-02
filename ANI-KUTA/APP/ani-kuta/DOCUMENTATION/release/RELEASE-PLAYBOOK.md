@@ -54,7 +54,7 @@
 
 ## 3. Routine C — the official re-host (Confused-Creature-180/ANI-KUTA)
 
-*Assets ONLY — never code (the user's standing rule). The round-39/76 blocker (no release-agent token) was cleared in round 114 by the user's PAT — and RECURRED in round 117 (the PAT lives with the user per release; round 117's re-host of v1.1.5 sits staged pending the token — doc 99 §7).*
+*Assets ONLY — never code (the user's standing rule). The round-39/76 blocker (no release-agent token) was cleared in round 114 by the user's PAT — RECURRED in round 117 (the PAT lives with the user per release), then CLEARED AGAIN the same day when the token arrived: the v1.1.5 re-host + the v1.1.14 correction executed 2026-10-02 17:23–17:28 UTC exactly per doc 99 §7 (release id 402016815, stable + latest; the mistaken v1.1.14 release + tag deleted; the website chip + the README re-pointed; every verification green).*
 
 1. **The token:** the release PAT lives WITH THE USER — ask for it when the professional release is ordered (the round-114 re-host used the user-provided PAT in-session; it has admin/push on the official repo). Never commit it, never paste it into logs.
 2. **Prepare the assets** (exact naming — the updater matches `-{abi}.`):

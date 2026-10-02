@@ -118,16 +118,34 @@ runs — disclosed).
    search landings — all untouched since v1.1.71 (no code moved; only the
    round-116 set rides along).
 
-## 7. THE RE-HOST + THE v1.1.14 CORRECTION — PENDING THE RELEASE PAT
+## 7. THE RE-HOST + THE v1.1.14 CORRECTION — EXECUTED 2026-10-02 17:23–17:28 UTC
 
-**The blocker (disclosed per the user's standing instruction):** the
-correction happens on `Confused-Creature-180/ANI-KUTA`, and the current
-dev PAT (testplay-byte's) is **pull-only there** (API-verified this
-session: permissions pull=true, push=false). Per the playbook's Routine C
-step 1 — "the release PAT lives WITH THE USER — ask for it when the
-professional release is ordered" — the ask went out with this round's
-report. Everything stageable is staged; the moment the token exists, the
-remaining steps are:
+**EXECUTED — the release PAT arrived with the user's next message ("Here's
+the PAT — handle the things properly") and every step below ran exactly as
+staged.** The token authenticated as `Confused-Creature-180` (the repo
+owner; admin/maintain/push/pull — the API permissions field). THE EXECUTION
+RECORD: (1) the mistaken v1.1.14 release (id 401364896) + its tag deleted
+(both HTTP 204; the list read v1.1.3 → v1.1.2 + `/releases/latest` → v1.1.3
+— the pre-mistake state — before the new release went up; the v1.1.14
+metadata + asset list + download counts archived at
+`/home/z/r117-release/v1.1.14-release-archive.txt` before deletion);
+(2) the v1.1.5 release created — id **402016815**, tag → main
+(ccdd480d93f5), stable + `make_latest`, the staged body; (3) the 11 assets
+uploaded (all HTTP 201 / state=uploaded) — post-upload: the arm64 APK + ZIP
+re-downloaded from the live release (sha256 EXACT match), the sums file
+byte-identical (`cmp`), the list order **v1.1.5 → v1.1.3 → v1.1.2**,
+`/releases/latest` → v1.1.5; (4) the website chip — gh-pages commit
+d14bc8961fdd, the Pages rebuild **built 17:28:06Z**, the LIVE chip over
+HTTPS reads "v1.1.5 — latest release" (the dynamic half follows
+`releases/latest` automatically); (5) the README's five links re-pointed
+(commit aba0afef5dcd — the ccdd480d message shape) — zero v1.1.14 mentions
+survive anywhere on the repo; (6) the updater simulation (a faithful
+GitHubUpdateSource port against the live list): v1.1.3/v1.1.2 → UPDATE
+OFFERED; every ABI profile picks its exact APK (arm64-v8a / armeabi-v7a /
+x86_64 / x86 / the universal fallback); the mistaken v1.1.14 install → NO
+update (the disclosed wrinkle); v1.1.5 → up to date; the old v1.1.14 asset
+URL → 404 (the mistaken build is unreachable), the v1.1.5 asset URL → 200
+(publicly downloadable). The staged steps, as executed:
 
 1. **Delete the mistaken v1.1.14** on the official repo: the release
    (id 401364896) + the tag (`git/refs/tags/v1.1.14`).
@@ -152,9 +170,10 @@ remaining steps are:
    10105 > 10103 → installs over v1.1.3. The debug app's updater is
    untouched (testplay-byte's latest stays the v1.1.72 debug APK — D-447).
 
-**If the sandbox resets before the token arrives:** the artifact
-`ani-kuta-v1.1.5-release-allabi` (id 11241580958) lives 90 days on the run's
-page; the staged set re-derives from it (rename + zip + sums — §4's gates).
+**The sandbox-reset contingency (moot — the re-host is done; kept for the
+record):** the artifact `ani-kuta-v1.1.5-release-allabi` (id 11241580958)
+lives 90 days on the run's page; the staged set re-derives from it (rename +
+zip + sums — §4's gates).
 
 ## 8. The sub-agent verification record
 
