@@ -79,22 +79,35 @@ the **entire top section smoothly hides** when the user scrolls down, and
 
 Every list row that navigates to a sub-screen — whether on the **More** page or
 any **Settings / Appearance / Notifications** hub — uses the **same icon
-treatment**: a **bare 24dp `Icon` tinted `primary`, no container box.**
+treatment**: a **24dp `Icon` tinted `primary`, seated on the shared
+[`SettingsIconTile`](../core/designsystem/src/main/java/com/confused/anikuta/core/designsystem/component/SettingsIconTile.kt)
+— a 38dp rounded-square tile (`RoundedCornerShape(12.dp)`) tinted
+`primary.copy(alpha = 0.12f)`** (a translucent lime wash that reads as its own
+surface against the row's `surfaceVariant@0.4` card). The red notification dot
+rides the tile's top-end corner.
 
-- **Implementation:** reuse [`MoreListRow`](#1-more-page) directly for every
-  nav-row slot. Do NOT create a per-screen `*NavRow` variant and do NOT wrap
-  the icon in a `primaryContainer` "chip"/"tile" `Surface` — that was the old
-  `SettingsNavRow` / `AppearanceNavRow` pattern and it looked like a different
-  visual format from the More page (user feedback, D-250).
+- **Implementation:** the tile is ONE shared primitive in `:core:designsystem`
+  ([`SettingsIconTile`](../core/designsystem/src/main/java/com/confused/anikuta/core/designsystem/component/SettingsIconTile.kt));
+  [`MoreListRow`](#1-more-page) renders it for every nav row. Hand-rolled rows
+  that copy the MoreListRow anatomy (the About update-check row, the debug
+  door row, the settings search-result row) call it directly. Do NOT create a
+  per-screen `*NavRow` variant or a differently-shaped/colored tile — one
+  recipe everywhere is the entire point (that was D-250's real lesson).
 - **Typography:** title `RobotoFamily ExtraBold 16sp`, subtitle `Normal 13sp`,
   trailing `Icons.Filled.ChevronRight`. All inherited from `MoreListRow`.
 - **Back button:** every settings sub-screen's `CollapsingHeader` `actions` slot
   uses the shared `BackAction` from `:core:designsystem` (36dp `CircleShape`
   `surfaceVariant` button + 18dp `Icons.AutoMirrored.Filled.ArrowBack`). No
   per-screen copies.
-- **Established:** D-250 (2026-08-24) — user reported that the Settings page
-  icons "change to some other kind of format" vs. the More page; root cause was
-  the chip-box `primaryContainer` wrapper. Unified to bare icons everywhere.
+- **History:** D-250 (2026-08-24) banned the tile — but the offending pattern
+  was per-screen `primaryContainer` CHIP VARIANTS that made Settings look like
+  a different format from the More page, not tiles per se; the fix unified the
+  rows to bare icons. D-744 (2026-10-02, user order) re-introduces the tile:
+  the user asked for the icons to "have a background… a square with rounded
+  corners… a background color separate from the background itself," and the
+  settings search-result row had already established the quiet translucent
+  recipe. The tile now lives in ONE primitive, so the D-250 inconsistency
+  class cannot recur. If a revert is ever wanted, it is a four-call-site change.
 
 ---
 

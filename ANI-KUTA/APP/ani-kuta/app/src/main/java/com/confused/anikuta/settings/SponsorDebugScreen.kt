@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.ads.AdPreferences
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.designsystem.component.SettingsIconTile
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.AppPreferences
 import org.koin.compose.koinInject
@@ -251,12 +252,14 @@ private fun DebugDoorRow(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp),
-            )
+            SettingsIconTile {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

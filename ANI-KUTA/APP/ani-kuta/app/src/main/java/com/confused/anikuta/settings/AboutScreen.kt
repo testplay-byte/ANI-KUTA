@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
@@ -41,7 +40,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,6 +51,7 @@ import com.confused.anikuta.core.appupdate.AppUpdatePreferences
 import com.confused.anikuta.core.appupdate.DownloadedApk
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.designsystem.component.SettingsIconTile
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.settings.search.SettingsHighlightTarget
 import com.confused.anikuta.settings.search.rememberSettingsAnchorScroll
@@ -289,10 +288,11 @@ fun AboutScreen(
                                     .padding(horizontal = 16.dp, vertical = 16.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                // Icon + optional red dot when an update is available
-                                // OR a download is in progress (so the user knows to
-                                // open the row / sheet to see status).
-                                Box {
+                                // Leading icon tile (D-744) + optional red dot
+                                // when an update is available OR a download is
+                                // in progress (so the user knows to open the
+                                // row / sheet to see status).
+                                SettingsIconTile(showDot = showUpdateDot) {
                                     if (isChecking) {
                                         CircularProgressIndicator(
                                             modifier = Modifier.size(24.dp),
@@ -305,19 +305,6 @@ fun AboutScreen(
                                             contentDescription = "Check",
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(24.dp),
-                                        )
-                                    }
-                                    if (showUpdateDot) {
-                                        // 8dp red dot at the top-end corner of the icon —
-                                        // same style as MoreScreen's MoreListRow dot.
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .size(8.dp)
-                                                .background(
-                                                    color = Color(0xFFFF5252),
-                                                    shape = CircleShape,
-                                                ),
                                         )
                                     }
                                 }

@@ -3,20 +3,17 @@ package com.confused.anikuta.core.designsystem.component
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
@@ -33,7 +30,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -56,8 +52,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  *  - Surface: `surfaceVariant` at 40% alpha, `RoundedCornerShape(12.dp)`,
  *    horizontal 16dp / vertical 4dp outer padding.
  *  - Inner padding: 16dp.
- *  - Icon: 24dp, tinted `primary`. Optional red notification dot overlay at
- *    top-end corner.
+ *  - Icon: 24dp, tinted `primary`, seated on the shared [SettingsIconTile]
+ *    (D-744: 38dp rounded-square, `primary@0.12f` — the search-result tile
+ *    recipe, unified across every nav row). Optional red notification dot
+ *    overlay at the tile's top-end corner.
  *  - Title: RobotoFamily ExtraBold 16sp, `onSurface`, 1 line ellipsized.
  *  - Subtitle: RobotoFamily Normal 13sp, `onSurfaceVariant`, 1 line
  *    ellipsized (D-532: was 2 — the one-line design language).
@@ -211,25 +209,17 @@ fun MoreListRow(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Icon + optional red notification dot overlay at top-end corner.
-            Box {
+            // Leading icon tile (D-744) + optional red notification dot at
+            // the tile's top-end corner. The glyph keeps its 24dp size and
+            // primary tint — it now sits on the shared 38dp rounded-square
+            // lime-tinted tile (the search-result recipe, unified everywhere).
+            SettingsIconTile(showDot = showDot) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp),
                 )
-                if (showDot) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .size(8.dp)
-                            .background(
-                                color = Color(0xFFFF5252),
-                                shape = CircleShape,
-                            ),
-                    )
-                }
             }
             Spacer(modifier = Modifier.size(16.dp))
             Column(modifier = Modifier.weight(1f)) {
