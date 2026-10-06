@@ -1,6 +1,6 @@
 # Round 119 — The Settings Icon Tile
 
-> **Status:** IMPLEMENTED (2026-10-02, commit e733bbe0). Decision: **D-744**. The Build APK debug run **37499473609** is the round's deliverable (the artifact carries versionCode **10120** — the standing wrinkle: it will not install over the v1.1.72 release without `adb install -d` or an uninstall).
+> **Status:** IMPLEMENTED + CI GREEN FIRST-TRY (2026-10-02, commit e733bbe0 → run 37499473609). Decision: **D-744**. The Build APK debug run **37499473609** is the round's deliverable (the artifact carries versionCode **10120** — the standing wrinkle: it will not install over the v1.1.72 release without `adb install -d` or an uninstall).
 > **The order (the user, round 119):** the settings-area leading icons ("in the more section it shows the SVG icons, in the settings themselves it shows SVG icons, and in many other places like those") get "a background kind of feel… a square with rounded corners, which the SVG icons logos will be living on, will have a background color, which will be separate from the background color itself… a better, cleaner looking color." Work optimally, do not rush, report any other issues found — and "if I do not like the things, then we will revert it."
 
 ## 1. What the order means (traced before execution)
