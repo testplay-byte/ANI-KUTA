@@ -93,3 +93,14 @@ The user: "if I do not like the things, then we will revert it." The revert is
 ONE commit: the four call sites swap `SettingsIconTile { … }` back to the bare
 `Icon` (and §2.4 returns to the D-250 wording). Nothing else depends on the
 primitive.
+
+## 7. THE DEBUG RELEASE — v1.1.73 (Routine A, the user's explicit order)
+
+The user's order after the artifact wrinkle surfaced: "i do want the debug release which i can directly update from the app and you are only to build like this only build the release when i tell you not before that." D-738's recovery path exercised — the DEBUG line only (the professional line stays at v1.1.5).
+
+1. **The branch:** `release/1.1.73` cut from the round-119 green head **e733bbe0**; ONE commit on top — the bump `10120 → 10173` / `1.1.20 → 1.1.73` in `AndroidConfig.kt` (with the release-comment block; the D-430 comment intact). 10173 > 10172 → the in-place update works.
+2. **The tag:** the annotated **`v1.1.73`** (the round-119 bullets) → triggers `release-apk.yml` → run **37502575132** (the tag path: DEBUG APK, arm64-v8a, debug-signed with the committed keystore, GitHub Release on testplay-byte, stable + latest, `ani-kuta-v1.1.73-debug-arm64-v8a.apk` + `SHA256SUMS`).
+3. **The CI ledger (D-472):** 2 runs this cycle — the implementation Build APK (37499473609) + this Release APK. The release-branch push itself triggered nothing (D-435 removed `release/**` from the build triggers).
+4. **The mainline discipline:** the mainline stays 1.1.20/10120 (D-430); the bump rides the release branch only.
+5. **Run verdict + live verification:** recorded at the bottom of this section (CI-verified via the API before the round closed).
+6. **THE VERDICT (verified via the API, never assumed):** run **37502575132 GREEN first-try**; the release LIVE — `/releases/latest` resolves to **v1.1.73** (id 404975988, draft=false, **prerelease=false** — the updater's stable-visibility requirement, published 2026-10-06T17:23:02Z), the assets `ani-kuta-v1.1.73-debug-arm64-v8a.apk` (63,542,097 bytes) + `SHA256SUMS.txt` both present. The round is fully closed; the user's in-place update from v1.1.72 → v1.1.73 is the next input.

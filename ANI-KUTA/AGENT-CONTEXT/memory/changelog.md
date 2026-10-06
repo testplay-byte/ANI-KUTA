@@ -2379,3 +2379,8 @@ The round-107 order: robust layout rules for the player episode list's DETAILED 
 - **THE DESIGN:** the search-result row's D-558 tile recipe (38dp rounded-square, `primary@0.12f`) becomes ONE shared primitive — `SettingsIconTile` (:core:designsystem) — applied at `MoreListRow` (More + the hubs; the red dot rides the tile's corner now), AboutScreen's update-check row (spinner inside the tile), SponsorDebugScreen's `DebugDoorRow`, and the search-result row itself. D-250's bare-icon ruling superseded BY USER ORDER (it was against per-screen chip VARIANTS, not tiles); DESIGN-LANGUAGE §2.4 rewritten.
 - **OUT OF SCOPE (deliberate):** extension rows (real images) + profile/action icons.
 - Commit e733bbe0 → Build APK run 37499473609 = the round's deliverable (artifact 10120 — the standing wrinkle).
+
+## Round 119 addendum — the debug release v1.1.73 (D-745)
+- **THE ORDER:** "i do want the debug release which i can directly update from the app and you are only to build like this only build the release when i tell you not before that" — D-738's recovery path, the debug line ONLY.
+- **THE EXECUTION (Routine A):** release/1.1.73 cut from the green head e733bbe0; the bump 10120→10173 / 1.1.20→1.1.73 (one commit, the D-430 discipline intact); the annotated tag v1.1.73 → Release APK run 37502575132; the mainline stays 1.1.20/10120.
+- CI ledger: 2 runs this cycle (the implementation Build APK + this Release APK) — within the D-472 budget.
