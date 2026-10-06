@@ -544,8 +544,20 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    // v1.1.73 (round 119, the user's explicit debug-release order): release/1.1.73 —
+    // cut from the round-119 green head e733bbe0 (Build APK run 37499473609 GREEN
+    // first-try). What the release carries on top of v1.1.72 (the round-116 set,
+    // D-740 + D-741):
+    // D-744 THE SETTINGS ICON TILE — every nav-row leading icon (the More page,
+    // the Settings hub, About, Appearance, Notifications, SponsorDebug) sits on
+    // the shared 38dp rounded-square tile tinted primary@0.12f — the
+    // SettingsIconTile primitive in :core:designsystem, applied at MoreListRow,
+    // AboutScreen's update-check row, SponsorDebugScreen's DebugDoorRow, and the
+    // settings search-result row. The red update dot rides the tile's corner.
+    // D-250's bare-icon ruling is superseded by user order (one primitive, zero
+    // per-screen variants). CI GREEN first-try; full record: doc 101.
+    const val versionCode = 10173
+    const val versionName = "1.1.73"
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
