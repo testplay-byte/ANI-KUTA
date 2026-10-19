@@ -1,6 +1,7 @@
 package com.confused.anikuta.feature.animedetails
 
 import com.confused.anikuta.core.navigation.NavKey
+import com.confused.anikuta.core.navigation.NavKeyIdentity
 import kotlinx.serialization.Serializable
 
 /**
@@ -16,7 +17,7 @@ import kotlinx.serialization.Serializable
  * @Serializable with kotlinx.serialization polymorphism for Nav3.
  */
 @Serializable
-sealed interface AnimeDetailsKey : NavKey {
+sealed interface AnimeDetailsKey : NavKey, NavKeyIdentity {
 
     /**
      * D-320: the shared-element key the SOURCE card used (null = no cover
@@ -49,7 +50,18 @@ sealed interface AnimeDetailsKey : NavKey {
         val coverUrl: String? = null,
         val title: String? = null,
         override val transitionKey: String? = null,
-    ) : AnimeDetailsKey
+    ) : AnimeDetailsKey {
+        /**
+         * D-748: the route identity of an AniList details page — the global
+         * AniList anime id and NOTHING else. The cover URL, the title and the
+         * shared-element transition key are PRESENTATION fields: a deep link
+         * that carries a different cover still points at the SAME page, and
+         * treating it as a different route is what made the shell replace the
+         * page (and put two same-class providers on screen at once).
+         */
+        override val routeIdentity: String
+            get() = "anilist:$animeId"
+    }
 
     /**
      * Extension entry — carries the source ID, anime URL, and sparse metadata.
@@ -72,7 +84,16 @@ sealed interface AnimeDetailsKey : NavKey {
         val autoPlayEpisode: Int? = null,
         val year: Int? = null,
         override val transitionKey: String? = null,
-    ) : AnimeDetailsKey
+    ) : AnimeDetailsKey {
+        /**
+         * D-748: the route identity of an extension details page — the SOURCE
+         * plus the anime URL. Both are required: the same URL under two
+         * sources is two different pages, and the same source's URL is one
+         * page no matter which thumbnail or title the caller happened to carry.
+         */
+        override val routeIdentity: String
+            get() = "extension:$sourceId:$animeUrl"
+    }
 }
 
 /**

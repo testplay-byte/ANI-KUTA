@@ -840,7 +840,13 @@ fun AppRoot() {
                     when {
                         // Already viewing THIS content — nothing to do (the
                         // double-delivery / double-tap protection).
-                        top == targetKey -> {}
+                        // D-748: the comparison is the ROUTE IDENTITY, not the
+                        // whole payload. The old full-equality check failed for
+                        // the same content carrying a different cover URL or
+                        // title, so a deep link to the page the user was ALREADY
+                        // on replaced it — reloading the content and composing
+                        // two same-class providers at once.
+                        com.confused.anikuta.core.navigation.NavKeys.isSameRoute(top, targetKey) -> {}
                         // A DIFFERENT content's details page is on top — the
                         // new delivery REPLACES it (a link/notification tap is
                         // an explicit destination change, not a stack layer).
@@ -885,7 +891,7 @@ fun AppRoot() {
         val idx = backstack.indexOfFirst { it::class == key::class }
         when {
             idx < 0 -> backstack.add(key)
-            backstack[idx] == key -> while (backstack.size > idx + 1) backstack.removeAt(backstack.lastIndex)
+            com.confused.anikuta.core.navigation.NavKeys.isSameRoute(backstack[idx], key) -> while (backstack.size > idx + 1) backstack.removeAt(backstack.lastIndex)
             else -> {
                 while (backstack.size > idx + 1) backstack.removeAt(backstack.lastIndex)
                 backstack[idx] = key
@@ -1003,7 +1009,14 @@ fun AppRoot() {
                     LocalNavAnimatedVisibilityScope provides this,
                 ) {
                     saveableStateHolder.SaveableStateProvider(
-                        currentKey::class.simpleName ?: "screen",
+                        // D-748: the provider key is the ROUTE IDENTITY plus the
+                        // key's own value hash (the per-instance suffix) — NOT
+                        // the class simple name. Two entries of the same class
+                        // alive at once (the details replacement) used to share
+                        // the key "AniList" and Compose threw "Key AniList was
+                        // used multiple times"; the same entry re-composed keeps
+                        // its key, so its rememberSaveable state survives.
+                        com.confused.anikuta.core.navigation.NavKeys.stateKeyOf(currentKey),
                     ) {
                         when (currentKey) {
             // D-403 (round 28): the first-run setup wizard. Finishing sets the
