@@ -1,6 +1,31 @@
 [versions]
 # Build tools
-agp = "8.9.1"
+# D-748 (round 120): AGP 8.9.1 -> 8.10.1 — the ROOT CAUSE of the CI dex
+# failure. AGP bundles D8/R8, and Google's official compatibility table
+# (developer.android.com/build/kotlin-support) says Kotlin 2.2 REQUIRES
+# R8 >= 8.10.21. AGP 8.9.1 bundles R8 8.9.32 (too old) — so D8 could not
+# parse the Kotlin 2.2.0 metadata and, for EVERY affected class, logged
+# "WARNING: D8: An error occurred when parsing kotlin metadata" plus a full
+# stack trace. The Oct-19 run alone emitted 8,281 of them (225 MB of log
+# for a 10-minute build) and the D8 dex pass ran out of heap
+# ("Java heap space" at :app:mergeExtDexDebug, run 39299023955).
+# AGP 8.10.1 bundles R8 8.10.24 (>= 8.10.21) — the warnings disappear.
+# It also matches the toolchain on every other axis:
+#   - AGP 8.10's minimum AND default Gradle is 8.11.1 = our wrapper
+#     (gradle/wrapper/gradle-wrapper.properties) — NO wrapper change.
+#   - AGP 8.10 supports API level 36 = our compileSdk/targetSdk (AGP 8.9
+#     officially tops out at 35, so the old pin ran the build on an
+#     unsupported SDK level).
+#   - No removed API is used anywhere: the convention plugins
+#     (build-logic/.../anikuta.android.application.gradle.kts and
+#     anikuta.library.gradle.kts) and the app module use only stable DSL
+#     (compileSdk / defaultConfig / buildTypes / compileOptions /
+#     buildFeatures / splits / signingConfigs) — no finalizeDsl (the one
+#     8.10 source-level break), no variant APIs, no Transform API.
+#   - D-436 stands: the release line stays UNMINIFIED (isMinifyEnabled =
+#     false, isShrinkResources = false). This bump changes the DEXER, not
+#     the shrinker policy.
+agp = "8.10.1"
 kotlin = "2.2.0"
 gradle = "8.11.1"
 
