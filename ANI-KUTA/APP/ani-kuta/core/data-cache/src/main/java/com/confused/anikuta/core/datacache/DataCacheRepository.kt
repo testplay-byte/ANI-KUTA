@@ -3,6 +3,8 @@ package com.confused.anikuta.core.datacache
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.common.parseAudioAvailability
 import com.confused.anikuta.core.database.AnikutaDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Repository for the local data cache (Phase D).
@@ -62,7 +64,18 @@ class DataCacheRepository(
         }
     }
 
-    fun upsertEpisodeMetadata(meta: CachedEpisodeMetadata) {
+    /**
+     * D-765 (round 129 — the database round): the episode-metadata WRITES run
+     * on the IO dispatcher.
+     *
+     * DB-2: the details ViewModel calls these from the main thread, and a
+     * synchronous SQLite write there is a main-thread disk write (the batch
+     * one writes a whole episode list in one transaction — on the main thread
+     * that is a visible frame drop). The write is now `suspend` + IO, so the
+     * caller decides when to await it and the disk work never touches the
+     * main thread.
+     */
+    suspend fun upsertEpisodeMetadata(meta: CachedEpisodeMetadata) = withContext(Dispatchers.IO) {
         queries.upsertEpisodeMetadata(
             mainId = meta.mainId,
             episodeNumber = meta.episodeNumber.toDouble(),
@@ -85,7 +98,7 @@ class DataCacheRepository(
         )
     }
 
-    fun upsertEpisodeMetadataBatch(metas: List<CachedEpisodeMetadata>) {
+    suspend fun upsertEpisodeMetadataBatch(metas: List<CachedEpisodeMetadata>) = withContext(Dispatchers.IO) {
         database.transaction {
             for (meta in metas) {
                 queries.upsertEpisodeMetadata(

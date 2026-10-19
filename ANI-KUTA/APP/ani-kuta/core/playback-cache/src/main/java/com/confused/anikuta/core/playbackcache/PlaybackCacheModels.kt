@@ -53,10 +53,6 @@ data class PlaybackVideoId(
         digest.joinToString("") { "%02x".format(it) }.take(32)
     }
 }
-        val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
-        digest.joinToString("") { "%02x".format(it) }.take(32)
-    }
-}
 
 /**
  * Derives the [PlaybackVideoId.serverKey] from a ResolverVideo.videoTitle.

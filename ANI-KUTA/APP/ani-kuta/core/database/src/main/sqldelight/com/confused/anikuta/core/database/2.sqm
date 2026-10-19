@@ -1,0 +1,58 @@
+-- ============================================================================
+-- D-765 (round 129 — the database round): the 1 -> 2 MIGRATION.
+--
+-- Until now the schema was "migrated" by an ad-hoc block in the driver's
+-- onOpen callback: a list of DROP TABLE statements plus a list of
+-- "does this column exist?" checks, re-run on EVERY open. That is not a
+-- migration - it is a repair script with no version, no history and no way
+-- to say what a given install has already been through.
+--
+-- This file makes the schema VERSIONED (the app's schema is version 2 from
+-- now on). SQLDelight runs it exactly once, on the way from 1 to 2, and
+-- generates the real `Schema.migrate(...)` call.
+--
+-- THE 1 -> 2 MIGRATION IS DATA-PRESERVING: it drops only the DEAD tables
+-- (tables with zero Kotlin call sites - superseded or never used) and leaves
+-- every live table and every row exactly where it is. The user's library,
+-- watch progress, downloads index and settings all survive the upgrade.
+--
+-- Every migration FROM NOW ON is additive and versioned: change the .sq
+-- files, add the next .sqm, and the data stays.
+-- ============================================================================
+
+-- Phase DB-OPT: dead tables (extensions.sq + metadata.sq were deleted) -
+-- installed_source + extension_repo were never used (zero Kotlin call sites);
+-- content_metadata_cache + episode_metadata_cache were superseded by
+-- anime_metadata_cache + data_cache_episode.
+DROP TABLE IF EXISTS installed_source;
+DROP TABLE IF EXISTS extension_repo;
+DROP TABLE IF EXISTS content_metadata_cache;
+DROP TABLE IF EXISTS episode_metadata_cache;
+
+-- D-192: dead content lookup tables - content_ext + content_ext_repo were
+-- never populated (zero callers of getOrCreateExtension/insertExtensionRepo).
+DROP TABLE IF EXISTS content_ext;
+DROP TABLE IF EXISTS content_ext_repo;
+
+-- D-192: user_customization was READ-ONLY (LocalMetadataProvider read it but
+-- always got null - no code ever wrote to it). The user-override feature was
+-- never built; it is replaced by the app_settings table.
+DROP TABLE IF EXISTS user_customization;
+
+-- D-198: the detail tables absorbed into content_details + main_entry.
+DROP TABLE IF EXISTS anilist_detail;
+DROP TABLE IF EXISTS extension_detail;
+DROP TABLE IF EXISTS other_source_detail;
+DROP TABLE IF EXISTS anime_metadata_cache;
+DROP TABLE IF EXISTS app_metadata;
+
+-- D-198: the legacy `content` table (renamed to main_entry). The new tables
+-- are created by the schema's own create step, which the driver runs right
+-- after the migration.
+DROP TABLE IF EXISTS content;
+DROP INDEX IF EXISTS idx_content_data_source;
+DROP INDEX IF EXISTS idx_content_extension;
+DROP INDEX IF EXISTS idx_content_extension_url;
+DROP INDEX IF EXISTS idx_content_genre_main;
+DROP INDEX IF EXISTS idx_library_item_main;
+DROP INDEX IF EXISTS idx_anilist_detail_anilist_id;

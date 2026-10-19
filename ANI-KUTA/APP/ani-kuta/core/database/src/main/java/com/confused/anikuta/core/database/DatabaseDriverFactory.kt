@@ -4,10 +4,33 @@ import android.content.Context
 import androidx.sqlite.db.SupportSQLiteDatabase
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
+import com.confused.anikuta.core.common.Logger
 
 /**
  * Creates the SQLDelight driver for ANI-KUTA's database.
  * The database file is "anikuta.db".
+ *
+ * D-765 (round 129 — the database round): THE SCHEMA IS NOW VERSIONED.
+ *
+ * Until now there were NO `.sqm` files, so SQLDelight's schema version was 1
+ * and the version of an existing install was also 1 — `onUpgrade` was NEVER
+ * called, and every "migration" was an ad-hoc block in `onOpen` (a list of
+ * DROP TABLE statements + a list of "does this column exist?" checks, re-run
+ * on every single open). That is a repair script, not a migration: no
+ * version, no history, no way to know what an install has been through.
+ *
+ * The schema is now version 2 (`2.sqm`):
+ *  - `onUpgrade` calls the GENERATED `Schema.migrate(...)` — the real,
+ *    versioned path (SQLDelight runs the .sqm exactly once, on the way from
+ *    1 to 2);
+ *  - the 1 -> 2 migration is DATA-PRESERVING: it drops only the DEAD tables
+ *    (zero Kotlin call sites) and touches nothing else. The user's library,
+ *    watch progress, downloads index and settings all survive the upgrade;
+ *  - every migration from now on is additive and versioned.
+ *
+ * The legacy per-open column checks stay (they are idempotent and they cover
+ * the installs that predate the versioning) — but the DESTRUCTIVE part (the
+ * dead-table drops) now lives in the versioned migration where it belongs.
  *
  * D.0 schema migration fix: the `download_queue` + `downloaded_episode` tables
  * were re-keyed by `mainId` + `episodeKey` (was `episode_key` only). The old
@@ -15,24 +38,29 @@ import app.cash.sqldelight.driver.android.AndroidSqliteDriver
  *
  * D.FIX: The `data_cache_episode` table also got a new `episode_url` column.
  * Existing installs don't have it → SQLiteException crash on query.
- *
- * WHY onUpgrade DOESN'T WORK: SQLDelight derives the schema version from `.sqm`
- * migration files. With no `.sqm` files, the version is 1. The old DB is also
- * version 1. When SQLDelight opens it, version 1 == 1, so onUpgrade is NEVER
- * called — the old schema persists.
- *
- * FIX: override `onOpen` (called every time the DB opens, regardless of version)
- * to check for missing columns + add them via ALTER TABLE.
- *
- * This preserves all existing data — only missing columns are added.
  */
 class DatabaseDriverFactory(private val context: Context) {
+    companion object {
+        private const val TAG = "Anikuta:Core:Database"
+    }
+
     fun create(): SqlDriver {
         return AndroidSqliteDriver(
             schema = AnikutaDatabase.Schema,
             context = context,
             name = "anikuta.db",
             callback = object : AndroidSqliteDriver.Callback(AnikutaDatabase.Schema) {
+                /**
+                 * D-765: THE VERSIONED MIGRATION. SQLDelight runs the `.sqm`
+                 * files exactly once, on the way from the old version to the
+                 * new one, and generates this call. The 1 -> 2 migration drops
+                 * only the DEAD tables (the data is preserved).
+                 */
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+                    Logger.i(TAG) { "migrating the database: version $oldVersion -> $newVersion" }
+                    AnikutaDatabase.Schema.migrate(db, oldVersion, newVersion)
+                }
+
                 override fun onOpen(db: SupportSQLiteDatabase) {
                     super.onOpen(db)
                     // Phase DB-OPT: enable FK enforcement (was OFF by default in SQLite).
