@@ -3,8 +3,7 @@ package com.confused.anikuta.core.download
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 
 /**
  * The download queue — a SQLDelight-backed, Mutex-protected queue of [DownloadTask]s.
@@ -542,70 +542,70 @@ class DownloadQueue(
                     }
 
                     // ── REVIEW-5 M34: single-coroutine DB writer (consumes the channel). ──
-                    val progressChannel = Channel<ProgressUpdate>(Channel.CONFLATED)
-                    val dbWriter = scope.launch {
-                        var lastFlush = 0L
-                        progressChannel.consumeEach { upd ->
-                            val nowMs = System.currentTimeMillis()
-                            if (nowMs - lastFlush >= PERSIST_INTERVAL_MS) {
-                                store.updateProgress(
-                                    id = task.id,
-                                    progress = upd.progress,
-                                    downloadedBytes = upd.downloadedBytes,
-                                    totalBytes = upd.totalBytes,
-                                    prevTotal = prevTotal,
-                                    prevEstimate = prevEstimate.toLong(),
-                                    recentRatios = recentRatios.toList(),
-                                )
-                                lastFlush = nowMs
-                            }
-                        }
-                    }
-
-                    DownloadLogger.i { "launchDownload — calling downloader.download for task ${task.id}" }
-                    val completed = downloader.download(task) { downloaded, totalIn ->
-                        // D-246 (user-reported display bug "downloaded > total"): the reported
-                        // total is an ESTIMATE (HLS running-average convergence can lag the
-                        // real bytes; the persisted total from a prior run may be stale). When
-                        // downloaded exceeds it, GROW the total to reality — the bar never
-                        // exceeds 100% and the bytes row never shows "120 MB / 96 MB".
-                        val total = if (totalIn in 1..downloaded) downloaded else totalIn
-                        DownloadLogger.d { "launchDownload — progress: task=${task.id}, downloaded=$downloaded, total=$total" }
-                        // REVIEW-5 M31: maintain the moving-average window in place.
-                        val currentRatio = if (total > 0) (downloaded.toFloat() / total) else 0f
-                        recentRatios.addLast(currentRatio)
-                        while (recentRatios.size > DynamicProgressTracker.WINDOW_SIZE) {
-                            recentRatios.removeFirst()
-                        }
-
-                        val progress = DynamicProgressTracker.compute(
-                            downloadedBytes = downloaded,
-                            totalBytes = total,
+                    // D-758: the channel + writer are owned by a ProgressWriter, and
+                    // the CLOSE is in a finally — the old code closed them only on the
+                    // success path, so every FAILED attempt leaked a suspended
+                    // consumeEach coroutine and an open channel (three failures =
+                    // three leaked writers).
+                    val progressWriter = ProgressWriter(
+                        scope = scope,
+                        intervalMs = PERSIST_INTERVAL_MS,
+                    ) { progress, downloadedBytes, totalBytes ->
+                        store.updateProgress(
+                            id = task.id,
+                            progress = progress,
+                            downloadedBytes = downloadedBytes,
+                            totalBytes = totalBytes,
                             prevTotal = prevTotal,
-                            prevEstimate = prevEstimate,
-                            recentRatios = recentRatios,
-                        )
-                        prevTotal = if (total > 0) maxOf(total, prevTotal) else prevTotal
-                        prevEstimate = progress
-
-                        // REVIEW-5 M34: INLINE update of _tasks.value (no launch, no mutex —
-                        // MutableStateFlow.value = is atomic). The DB write is delegated to
-                        // the single dbWriter coroutine via the channel.
-                        _tasks.value = _tasks.value.map { t ->
-                            if (t.id == task.id) t.copy(
-                                progress = progress,
-                                downloadedBytes = downloaded,
-                                totalBytes = if (total > 0) total else t.totalBytes,
-                            ) else t
-                        }
-                        progressChannel.trySend(
-                            ProgressUpdate(progress, downloaded, if (total > 0) total else -1L),
+                            prevEstimate = prevEstimate.toLong(),
+                            recentRatios = recentRatios.toList(),
                         )
                     }
 
-                    progressChannel.close()
-                    dbWriter.join()
-                    DownloadLogger.i { "launchDownload — downloader.download COMPLETED for task ${task.id}, videoUri=${completed.videoUri}" }
+                    try {
+                        DownloadLogger.i { "launchDownload — calling downloader.download for task ${task.id}" }
+                        val completed = downloader.download(task) { downloaded, totalIn ->
+                            // D-246 (user-reported display bug "downloaded > total"): the reported
+                            // total is an ESTIMATE (HLS running-average convergence can lag the
+                            // real bytes; the persisted total from a prior run may be stale). When
+                            // downloaded exceeds it, GROW the total to reality — the bar never
+                            // exceeds 100% and the bytes row never shows "120 MB / 96 MB".
+                            val total = if (totalIn in 1..downloaded) downloaded else totalIn
+                            DownloadLogger.d { "launchDownload — progress: task=${task.id}, downloaded=$downloaded, total=$total" }
+                            // REVIEW-5 M31: maintain the moving-average window in place.
+                            val currentRatio = if (total > 0) (downloaded.toFloat() / total) else 0f
+                            recentRatios.addLast(currentRatio)
+                            while (recentRatios.size > DynamicProgressTracker.WINDOW_SIZE) {
+                                recentRatios.removeFirst()
+                            }
+
+                            val progress = DynamicProgressTracker.compute(
+                                downloadedBytes = downloaded,
+                                totalBytes = total,
+                                prevTotal = prevTotal,
+                                prevEstimate = prevEstimate,
+                                recentRatios = recentRatios,
+                            )
+                            prevTotal = if (total > 0) maxOf(total, prevTotal) else prevTotal
+                            prevEstimate = progress
+
+                            // REVIEW-5 M34: INLINE update of _tasks.value (no launch, no mutex —
+                            // MutableStateFlow.value = atomic). The DB write is delegated to
+                            // the single dbWriter coroutine via the channel.
+                            _tasks.value = _tasks.value.map { t ->
+                                if (t.id == task.id) t.copy(
+                                    progress = progress,
+                                    downloadedBytes = downloaded,
+                                    totalBytes = if (total > 0) total else t.totalBytes,
+                                ) else t
+                            }
+                            progressWriter.send(progress, downloaded, if (total > 0) total else -1L)
+                        }
+
+                        // Flush the last progress BEFORE the completion write (the
+                        // finally below closes it again — close is idempotent).
+                        progressWriter.close()
+                        DownloadLogger.i { "launchDownload — downloader.download COMPLETED for task ${task.id}, videoUri=${completed.videoUri}" }
 
                     mutex.withLock {
                         // REVIEW-5 M36: use DynamicProgressTracker.complete() to flip 99→100.
@@ -656,6 +656,15 @@ class DownloadQueue(
                         scheduleAutoClear(task.id)
                     }
                     onTaskCompleted?.invoke(completed)
+                        return@launch
+                    } finally {
+                        // D-758: the writer is closed on EVERY path — success
+                        // (already closed above; close() is idempotent), failure
+                        // and cancellation. Without this, every FAILED attempt
+                        // leaked a suspended consumeEach coroutine and an open
+                        // channel — the retry loop made a new pair every time.
+                        withContext(NonCancellable) { progressWriter.close() }
+                    }
                         }
                         // D-151-fix: success — exit the retry loop.
                         return@launch
@@ -798,7 +807,9 @@ class DownloadQueue(
 
     private fun now(): Long = System.currentTimeMillis()
 
-    /** Parses the JSON-encoded subtitle URIs (best-effort — empty list on failure). */
+    /**
+     * Parses the JSON-encoded subtitle URIs (best-effort — empty list on failure).
+     */
     private fun decodeSubtitleUris(json: String?): List<String> {
         if (json.isNullOrBlank()) return emptyList()
         return try {
@@ -807,19 +818,6 @@ class DownloadQueue(
             emptyList()
         }
     }
-
-    /**
-     * The progress update pushed through the [progressChannel] (REVIEW-5 M34).
-     *
-     * @param progress The smoothed progress (0..95 during download).
-     * @param downloadedBytes The current downloaded bytes.
-     * @param totalBytes The current total bytes (-1 if unknown).
-     */
-    private data class ProgressUpdate(
-        val progress: Int,
-        val downloadedBytes: Long,
-        val totalBytes: Long,
-    )
 
     companion object {
         /** DB-write throttle (1/sec — avoids hammering SQLite during a big file). */
