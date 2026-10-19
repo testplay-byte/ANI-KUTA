@@ -2,7 +2,7 @@
 
 > **Status:** IMPLEMENTED + CI GREEN (2026-10-19). Decisions: **D-746** (the plan is authoritative), **D-747** (the download service owns its lifecycle), **D-757** (the CI dex root cause: AGP 8.10.1 + the 8 GB daemon heap). Round record: doc 102. Plan: `PLAN.md` / `PLAN.html` (workspace root). Backlog evidence: `IMPROVEMENTS.md` / `IMPROVEMENTS.html`.
 > **The order (the user, 2026-10-19):** the whole 65-item improvement backlog was reviewed and **approved**, together with the order it runs in. "Everything is clear you can continue — everything is approved." The round therefore starts the program: the plan is written and made authoritative, the reporting convention is fixed, the first behavior round (H1, the download lifecycle) is implemented, and the CI failure that surfaced during the round is root-caused and fixed properly rather than worked around.
-> **CI ledger:** 39299023955 **RED** (the OOM) → 39304046376 **GREEN** (the heap) → 39305662332 **GREEN** (AGP 8.10.1) → 39307462826 (the H1 follow-ups) → the D-757 id rename. No version change, no tag, no release (D-738: a release only on the user's order).
+> **CI ledger:** 39299023955 **RED** (the OOM) → 39304046376 **GREEN** (the heap) → 39305662332 **GREEN** (AGP 8.10.1) → 39307462826 **GREEN** (the H1 follow-ups) → 39308252031 **GREEN** (the D-757 id correction) → 39309189781 (cancelled by the dispatch) → **39309242655 GREEN — the opt-in test gate dispatched (`run_unit_tests=true`): every test source set compiles, every test task runs, and the same run built + ABI-gated + uploaded the debug APK.** No version change, no tag, no release (D-738: a release only on the user's order).
 
 ---
 
@@ -58,14 +58,28 @@ Java heap space
 
 **The result:** the D8 warnings fell 8,281 → **2,866**, the job log 225 MB → **73 MB**, the build **green in 9m10s**. The remaining 2,866 warnings come from *third-party* libraries compiled with a newer Kotlin than any current R8 parses (`com.fleeksoft.ksoup`, `org.koin.*`, `io.ktor.*`, `kotlinx.serialization.*`, `kotlinx.io.*`). They are warnings; they are harmless for us (no minification → no metadata remapping is ever needed); and they were present in every build since the project started. Closing them completely would need AGP 8.13+ (R8 8.13.19+) and a Gradle wrapper bump — a toolchain move with no user-visible gain, so it is deliberately **not** done in this round.
 
-## 4. Deliberately out of scope
+## 4. The opt-in test gate, and the broken test it exposed
+
+W0-2 added the `workflow_dispatch` boolean input `run_unit_tests` (default false) so a round that needs the suite can dispatch it. The round **dispatched it** — and the first dispatch (run 39308771194) **failed**, on something that had nothing to do with the round's own code:
+
+```
+e: .../core/video-resolver/src/test/java/.../ResolverDebugReportTest.kt:3:12 Unresolved reference 'junit'.
+> Task :core:video-resolver:compileDebugUnitTestKotlin
+* What went wrong: Execution failed for task ':core:video-resolver:compileDebugUnitTestKotlin'.
+```
+
+`:core:video-resolver`'s test file imports `org.junit.*`, but the module never declared the dependency. Nothing had caught it: `assembleDebug` builds the **main** source sets only, and the unit-test step is opt-in (D-465) — so the file sat broken, uncompiled, for as long as it existed. The fix is one line (`testImplementation(libs.junit)`), and a repo-wide sweep confirmed that **all eleven** modules with a `src/test` source set now declare it.
+
+The re-dispatch (run 39309242655, `run_unit_tests=true`) is **green**: every test source set compiles, every test task runs (`BUILD SUCCESSFUL` in 36 s), and the same run still built, ABI-gated and uploaded the debug APK. The standing rule: **a test source set that no CI step compiles can rot for months** — the opt-in gate proves something only if a round actually dispatches it, and the gate's own health is part of a round's definition of done.
+
+## 5. Deliberately out of scope
 
 - **AGP 8.13+ / R8 8.13.19+** (the last 2,866 third-party warnings) — no behavioral gain, a wrapper bump, more risk.
 - **A `BOOT_COMPLETED` receiver** — a device-boot download restart is a *feature* (permissions, the Android 12+ foreground rules, a receiver in every build type), not a bug fix. The process-start recovery is what the backlog asked for.
 - **Routing the recovery through WorkManager** — the honest fix for the background-start case, but a new worker + its scheduling policy; the explicit catch and the honest log are enough for now.
 - **The W0-2 test gate stays opt-in** (D-465: the user found routine unit tests wasteful). The suite is validated by a `workflow_dispatch` with `run_unit_tests=true`.
 
-## 5. The device checklist (the user's device — CI cannot prove behavior)
+## 6. The device checklist (the user's device — CI cannot prove behavior)
 
 **Download lifecycle (H1)**
 - [ ] Start a download on Wi-Fi, then turn Wi-Fi off: the task goes **PAUSED** (not ERROR) and the "Preparing downloads…" notification stays.
@@ -78,6 +92,6 @@ Java heap space
 - [ ] With the device offline and a download queued, open the app: the task **waits** (PAUSED) instead of failing with an error after three retries.
 - [ ] Restore the network: the task resumes by itself.
 
-## 6. Next
+## 7. Next
 
 **H2 — navigation identity (D-748)**: `SaveableStateProvider` is keyed by the route class's simple name (two same-key providers during a replacement), and deep-link equality uses full data-class equality. The fix is one stable identity function per key type, used for the provider key and for the replace comparison — with unit tests per key type, per the plan's risk note.
