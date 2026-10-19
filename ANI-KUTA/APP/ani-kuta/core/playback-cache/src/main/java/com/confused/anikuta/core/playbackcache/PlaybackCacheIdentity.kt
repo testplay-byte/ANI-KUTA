@@ -51,14 +51,17 @@ object PlaybackCacheIdentity {
         if (url.isBlank()) return ""
         val withoutScheme = url.substringAfter("://", url)
         val path = withoutScheme.substringBefore('?').substringBefore('#')
+        // The non-signature parameters are kept WITH their values: a parameter
+        // that says something about the file (quality, variant, …) must be part
+        // of the identity, or two different files that differ only in the query
+        // would share one fingerprint. The signature family is dropped
+        // entirely — it changes on every resolve and says nothing about WHICH
+        // file the URL points at.
         val query = withoutScheme.substringAfter('?', "")
             .substringBefore('#')
             .split('&')
             .filter { it.isNotBlank() }
-            .mapNotNull { pair ->
-                val name = pair.substringBefore('=').trim()
-                if (name.lowercase() in VOLATILE_QUERY_KEYS) null else name
-            }
+            .filterNot { pair -> pair.substringBefore('=').trim().lowercase() in VOLATILE_QUERY_KEYS }
             .sorted()
             .joinToString(",")
         val raw = "$path?$query"
