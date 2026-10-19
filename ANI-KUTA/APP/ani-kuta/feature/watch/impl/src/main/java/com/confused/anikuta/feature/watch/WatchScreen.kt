@@ -414,8 +414,33 @@ fun WatchScreen(
     }
 
     // Force controls visible when video is finished
+    // D-760: the EOF FINAL save. The 10s timer can be up to ten seconds
+    // behind when the episode ends (and the app dies right after the
+    // credits), so the 85% auto-mark never fired and the episode stayed
+    // "not watched" in the library and in AniList. The save goes to the
+    // store's own scope (saveFinal) so it survives the screen.
     LaunchedEffect(isVideoFinished) {
-        if (isVideoFinished) stateHolder.updateControlsVisible(true)
+        if (isVideoFinished) {
+            stateHolder.updateControlsVisible(true)
+            val pos = stateHolder.position.value
+            val dur = stateHolder.duration.value
+            val epUrl = stateHolder.currentEpisodeUrl.value
+            if (dur > 0 && epUrl.isNotBlank()) {
+                val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
+                watchProgressStore.saveFinal(
+                    epKey,
+                    WatchProgress(
+                        episodeKey = epKey,
+                        mainId = watchKey.mainId.ifBlank { null },
+                        position = pos.toLong(),
+                        duration = dur.toLong(),
+                        completed = false,
+                        completedAt = null,
+                        lastWatchedAt = System.currentTimeMillis(),
+                    ),
+                )
+            }
+        }
     }
 
     // ── Clear switching when video starts playing (buffered 1%) ──
@@ -921,6 +946,11 @@ fun WatchScreen(
     DisposableEffect(Unit) {
         onDispose {
             // Save final progress before destroying MPV.
+            // D-760: the write goes to the STORE's scope (saveFinal), not to
+            // the screen's `scope` — that scope is cancelled the moment the
+            // screen leaves the composition, so the last write of the session
+            // was dropped exactly when it mattered (the 85% auto-mark then
+            // never fired and the episode stayed "not watched").
             val pos = stateHolder.position.value
             val dur = stateHolder.duration.value
             val epUrl = stateHolder.currentEpisodeUrl.value
@@ -935,9 +965,7 @@ fun WatchScreen(
                     completedAt = null,
                     lastWatchedAt = System.currentTimeMillis(),
                 )
-                scope.launch {
-                    runCatching { watchProgressStore.save(epKey, progress) }
-                }
+                watchProgressStore.saveFinal(epKey, progress)
             }
             // CRITICAL: Remove MPVLib observers BEFORE destroying the view.
             // Without this, observers accumulate across screen entries → every
@@ -1238,11 +1266,11 @@ fun WatchScreen(
                 completedAt = null,
                 lastWatchedAt = System.currentTimeMillis(),
             )
-            scope.launch {
-                runCatching { watchProgressStore.save(oldKey, oldProgress) }
-                    .onFailure { Logger.w(TAG) { "Pre-switch progress save failed: ${it.message}" } }
-                    .onSuccess { Logger.d(TAG) { "Pre-switch progress saved: key=$oldKey pos=${oldPos}s dur=${oldDur}s" } }
-            }
+            // D-760: the pre-switch save is a FINAL save for the episode being
+            // left — it goes to the store's scope, so it survives even if the
+            // switch is immediately followed by leaving the screen.
+            watchProgressStore.saveFinal(oldKey, oldProgress)
+            Logger.d(TAG) { "Pre-switch progress saved: key=$oldKey pos=${oldPos}s dur=${oldDur}s" }
         }
 
         // D.FIX: Check if the target episode is downloaded — if so, play it offline

@@ -279,6 +279,10 @@ dependencies {
     // D.4: Coil image loading (for ImageLoaderFactory — 500MB disk cache)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+
+    // D-759 (round 124 — the navigation reliability round): the pending-request
+    // identity contract is pure JVM, so it is unit-tested.
+    testImplementation(libs.junit)
 }
 
 // ── D-322: dependency/runtime alignment guard ────────────────────────────────
@@ -358,9 +362,6 @@ tasks.register("checkDependencyAlignment") {
         }
         logger.lifecycle("D-322 dependency alignment OK: $guarded compose/lifecycle artifacts match the pins.")
     }
-    // D-759 (round 124 — the navigation reliability round): the pending-request
-    // identity contract is pure JVM, so it is unit-tested.
-    testImplementation(libs.junit)
 }
 
 tasks.named("preBuild") { dependsOn("checkDependencyAlignment") }

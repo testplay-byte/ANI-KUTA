@@ -7,6 +7,7 @@ import com.confused.anikuta.core.trackerapi.TrackStatus
 import com.confused.anikuta.core.trackerapi.Tracker
 import com.confused.anikuta.core.trackerapi.TrackerType
 import com.confused.anikuta.core.watchprogress.WatchProgressStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -96,10 +97,20 @@ class TrackingWatchSyncBridge(
             watchProgressStore.observeAllHighestWatchedNumbers()
                 .debounce(SETTLE_WINDOW_MS)
                 .collectLatest { highestByMainId ->
-                    runCatching { reconcile(highestByMainId) }
-                        .onFailure { e ->
-                            Logger.e(TAG, e) { "reconcile pass failed (next pass retries): ${e.message}" }
-                        }
+                    // D-760: a CANCELLATION is not a failure. `runCatching`
+                    // swallowed the CancellationException, so a cancelled pass
+                    // (collectLatest cancels the previous one when a new
+                    // emission arrives, and the scope's own cancellation was
+                    // swallowed too) kept the loop running — the bridge could
+                    // not be stopped cleanly and a cancelled pass kept
+                    // relaying.
+                    try {
+                        reconcile(highestByMainId)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Logger.e(TAG, e) { "reconcile pass failed (next pass retries): ${e.message}" }
+                    }
                 }
         }
         Logger.i(TAG) { "TrackingWatchSyncBridge started — observing watch_progress (settle=${SETTLE_WINDOW_MS}ms)" }
@@ -176,9 +187,18 @@ class TrackingWatchSyncBridge(
                     updatedAt = now,
                 )
 
-                val success = runCatching { tracker.syncEntry(entry) }
-                    .onFailure { e -> Logger.w(TAG) { "sync failed for $mainId (next pass retries): ${e.message}" } }
-                    .getOrDefault(false)
+                // D-760: same rule as the pass itself — a cancellation during
+                // the network call must propagate, not be logged as "sync
+                // failed" and swallowed (the loop would then keep relaying
+                // after the bridge was told to stop).
+                val success = try {
+                    tracker.syncEntry(entry)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Logger.w(TAG) { "sync failed for $mainId (next pass retries): ${e.message}" }
+                    false
+                }
                 if (success) {
                     // The cache update AFTER a successful sync is what makes
                     // the comparison (and thus the retry) work: the confirmed

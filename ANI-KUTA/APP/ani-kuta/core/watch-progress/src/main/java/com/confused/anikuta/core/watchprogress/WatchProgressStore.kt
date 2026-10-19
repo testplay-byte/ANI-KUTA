@@ -26,6 +26,29 @@ interface WatchProgressStore {
     suspend fun save(episodeKey: String, progress: WatchProgress)
 
     /**
+     * D-760 (round 125 — the progress-completion contract): the FINAL save —
+     * the one that must NOT die with the screen.
+     *
+     * The player's final save used to be launched on the SCREEN's scope
+     * (`rememberCoroutineScope()`), which is CANCELLED the moment the screen
+     * leaves the composition — so the last write of the session was dropped
+     * exactly when it mattered most (the user backed out mid-playback, or the
+     * app was killed by the system right after the credits). The 85% auto-mark
+     * then never fired, and the episode stayed "not watched" in the library and
+     * in AniList — the "sometimes if I completely watched an episode it would
+     * not update" report.
+     *
+     * This API hands the write to a scope that OUTLIVES the screen (the store
+     * is an application-scoped singleton), so the write completes even when
+     * the UI is already gone. It is fire-and-forget by design: the caller
+     * cannot wait for it, because the caller is being destroyed.
+     *
+     * @param episodeKey the episode's key
+     * @param progress the progress to persist
+     */
+    fun saveFinal(episodeKey: String, progress: WatchProgress)
+
+    /**
      * Get watch progress for a specific episode.
      * Returns null if the episode has no recorded progress.
      */

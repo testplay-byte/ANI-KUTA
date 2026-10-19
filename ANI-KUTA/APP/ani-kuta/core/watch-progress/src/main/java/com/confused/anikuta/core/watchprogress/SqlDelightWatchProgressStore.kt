@@ -6,9 +6,12 @@ import app.cash.sqldelight.coroutines.mapToOneOrNull
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.preferences.PreferenceStore
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -40,11 +43,42 @@ class SqlDelightWatchProgressStore(
 
     private val watchPreferences = WatchPreferences(preferencesStore)
 
+    /**
+     * D-760: the scope that OUTLIVES the screen. A final save is handed to
+     * this scope, so it completes even when the UI that asked for it is
+     * already gone (the store is an application-scoped singleton — the scope
+     * dies with the process, never with a screen).
+     */
+    private val finalSaveScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * D-760: the final save — fire-and-forget on the store's own scope.
+     */
+    override fun saveFinal(episodeKey: String, progress: WatchProgress) {
+        finalSaveScope.launch {
+            try {
+                save(episodeKey, progress)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "saveFinal failed for key=$episodeKey: ${e.message}" }
+            }
+        }
+    }
+
     override suspend fun save(episodeKey: String, progress: WatchProgress) = withContext(dispatchers) {
         val threshold = watchPreferences.autoMarkThreshold
         val now = System.currentTimeMillis()
 
-        // ── CF1: the 85% auto-mark state machine ──
+        // D-760: ATOMIC + IDEMPOTENT. The read of the existing row and the
+        // write that follows it are one TRANSACTION: the player's 10s timer,
+        // the EOF save and the final save can fire at the same moment, and
+        // without the transaction they interleaved — a completion could be
+        // overwritten by a concurrent read that had not seen it yet (the
+        // auto-mark would then never fire, or the watch_count would be
+        // incremented twice).
+        database.transaction {
+        // "? CF1: the 85% auto-mark state machine "?
         val existing = database.watchQueries.getWatchProgress(episodeKey).executeAsOneOrNull()
         val autoMarkSuppressed = existing?.auto_mark_suppressed?.toInt() == 1
         val userMarkedWatched = existing?.user_marked_watched?.toInt() == 1
@@ -95,6 +129,7 @@ class SqlDelightWatchProgressStore(
                     "fraction=${progress.progressFraction} completed=$shouldComplete"
             }
         }
+        } // end the D-760 transaction (the read + the write are one unit)
     }
 
     override suspend fun get(episodeKey: String): WatchProgress? = withContext(dispatchers) {
