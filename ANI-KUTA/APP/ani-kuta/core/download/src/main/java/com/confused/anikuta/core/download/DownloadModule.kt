@@ -173,6 +173,9 @@ val downloadModule = module {
             downloader = get(),
             notifier = get(),
             connectivityCheck = { wifiOnlyCheck(androidContext(), get()) },
+            // D-748: the real reachability probe (the Wi-Fi-only check above is a
+            // POLICY check and fails open when the policy is off).
+            hasInternet = { hasInternetCheck(androidContext()) },
             retryPolicy = get(),
             onTaskCompleted = { task ->
                 // Post the completion notification (with sound + thumbnail). The
@@ -225,6 +228,31 @@ private fun wifiOnlyCheck(context: Context, preferences: DownloadPreferences): B
             caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
     } catch (e: Exception) {
         DownloadLogger.w { "wifiOnlyCheck — connectivity check failed (fail-open): ${e.message}" }
+        true
+    }
+}
+
+/**
+ * D-748: the REAL reachability probe — "is there an internet connection right
+ * now?" — used by [DownloadQueue.hasInternet].
+ *
+ * The Wi-Fi-only check above is a POLICY question and fails OPEN when the policy
+ * is off ("any network is allowed"), so it can never detect an offline device.
+ * Without this probe, a transport error on an offline device burned all the
+ * retry attempts and ended in a dead ERROR state; now the task pauses for
+ * network and auto-resumes when connectivity returns.
+ *
+ * Fails OPEN on error (a probe that throws must never stall a download that
+ * would otherwise work).
+ */
+private fun hasInternetCheck(context: Context): Boolean {
+    return try {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    } catch (e: Exception) {
+        DownloadLogger.w { "hasInternetCheck — reachability probe failed (fail-open): ${e.message}" }
         true
     }
 }

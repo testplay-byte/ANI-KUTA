@@ -307,13 +307,24 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                     Logger.w("AnikutaApp") { "Notification sent-log cleanup failed: ${t.message}" }
                 }
 
-                // D-747 (R-1): restart queued work after a process restart. The
+                // D-747 (R-1): restart queued work after a PROCESS restart. The
                 // queue resets stale DOWNLOADING/RETRYING rows to QUEUED during
                 // its init; without a service start nothing would schedule them.
-                // Application.onCreate runs while the app is launching, so
-                // starting the FGS here is allowed; if an OEM refuses it, the
-                // failure is logged and the next app open retries this same path.
-                runCatching {
+                //
+                // D-748 — the scope of this recovery, stated honestly:
+                //  - It runs when the APP PROCESS starts (any launch: user tap,
+                //    or a background worker waking the process). It is NOT a
+                //    device-boot recovery — there is no BOOT_COMPLETED receiver
+                //    in the app, so after a reboot the queue stays QUEUED until
+                //    the process next starts. A queued download is never lost
+                //    either way: the rows are persisted in SQLDelight.
+                //  - The foreground-service start is only ALLOWED when the
+                //    process was started user-visibly. A background-only start
+                //    (e.g. a WorkManager job waking the process) throws
+                //    ForegroundServiceStartNotAllowedException on API 31+; that
+                //    is caught and logged below, and the recovery is retried on
+                //    the next user-visible app start.
+                try {
                     val hasQueued = downloadManager.getQueue().value.any {
                         it.status == com.confused.anikuta.core.download.DownloadStatus.QUEUED
                     }
@@ -321,7 +332,13 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                         com.confused.anikuta.core.download.DownloadService.start(this@AnikutaApp)
                         Logger.i("AnikutaApp") { "Queued downloads found — DownloadService restarted" }
                     }
-                }.onFailure { t ->
+                } catch (t: android.app.ForegroundServiceStartNotAllowedException) {
+                    Logger.w("AnikutaApp") {
+                        "Queued downloads found, but a background foreground-service start was " +
+                            "refused (${t.message}). The queue stays persisted; the next " +
+                            "user-visible app start resumes it."
+                    }
+                } catch (t: Exception) {
                     Logger.w("AnikutaApp") { "Failed to restart DownloadService: ${t.message}" }
                 }
 

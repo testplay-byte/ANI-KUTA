@@ -55,6 +55,13 @@ class DownloadQueue(
     private val downloader: HttpDownloader,
     private val notifier: DownloadNotificationManager,
     private val connectivityCheck: () -> Boolean = { true },
+    // D-748: the REAL reachability probe ("is there an internet connection right
+    // now?"). [connectivityCheck] is the Wi-Fi-only POLICY check and fails OPEN
+    // when the policy is off, so it can never tell "the device is offline" from
+    // "any network is allowed". Without this probe an offline transport error
+    // burned all three retry attempts and ended in a dead ERROR state; with it,
+    // the task pauses for network and auto-resumes when connectivity returns.
+    private val hasInternet: () -> Boolean = { true },
     private val onTaskCompleted: (suspend (DownloadTask) -> Unit)? = null,
     private val onTaskError: (suspend (DownloadTask) -> Unit)? = null,
     // D-151-fix: the outer retry policy. Caps total download attempts at
@@ -160,8 +167,10 @@ class DownloadQueue(
      * auto-resume eligibility (D-246) — the task leaves the network-paused set. */
     suspend fun pause(taskId: Long) = mutex.withLock {
         pauseInternal(taskId)
-    }.also {
+        // D-748: the marker removal happens INSIDE the lock, so a concurrent
+        // network-pause cannot re-add a marker for the task the user just paused.
         networkPause.remove(taskId)
+    }.also {
         tryStartNext()
     }
 
@@ -173,6 +182,10 @@ class DownloadQueue(
      * then believed it still had to wait for connectivity and never stopped.
      */
     suspend fun resume(taskId: Long) = mutex.withLock {
+        // D-748: the marker removal happens FIRST and unconditionally, inside
+        // the lock — a user resume always wins over a network-pause marker,
+        // even when the status check below finds nothing to re-queue.
+        networkPause.remove(taskId)
         val task = _tasks.value.firstOrNull { it.id == taskId } ?: return@withLock
         if (task.status != DownloadStatus.PAUSED && task.status != DownloadStatus.ERROR) return@withLock
         mutateTaskLocked(taskId) {
@@ -187,7 +200,6 @@ class DownloadQueue(
             errorMessage = null,
         )
     }.also {
-        networkPause.remove(taskId)
         tryStartNext()
     }
 
@@ -198,8 +210,10 @@ class DownloadQueue(
         jobs.remove(taskId)?.cancel()
         _tasks.value = _tasks.value.filterNot { it.id == taskId }
         store.deleteTask(taskId)
-    }.also {
+        // D-748: inside the lock (see [pause]) — a deleted task must never keep
+        // a marker, not even for the microsecond between the delete and the remove.
         networkPause.remove(taskId)
+    }.also {
         tryStartNext()
     }
 
@@ -238,8 +252,10 @@ class DownloadQueue(
             prevEstimate = 0L,
             recentRatios = emptyList(),
         )
-    }.also {
+        // D-748: inside the lock (see [pause]) — a retried task must not keep a
+        // stale network-pause marker.
         networkPause.remove(taskId)
+    }.also {
         tryStartNext()
     }
 
@@ -286,8 +302,10 @@ class DownloadQueue(
                     errorMessage = null,
                 )
             }
-    }.also {
+        // D-748: inside the lock (see [pause]) — the re-queued tasks must not
+        // keep the network-pause markers of their PAUSED predecessors.
         networkPause.clear()
+    }.also {
         tryStartNext()
     }
 
@@ -331,11 +349,16 @@ class DownloadQueue(
                                 it.status == DownloadStatus.QUEUED
                         }
                         .forEach {
-                            pauseInternal(it.id)
-                            networkPause.add(it.id)
-                            DownloadLogger.i {
-                                "onNetworkChanged — task ${it.id} auto-paused (network lost); " +
-                                    "will auto-resume when connectivity returns"
+                            // D-748: the marker is added ONLY for a task that was
+                            // really paused — a task that changed status in the
+                            // meantime keeps no marker, so the service never waits
+                            // to "resume" a task that is not network-paused.
+                            if (pauseInternal(it.id)) {
+                                networkPause.add(it.id)
+                                DownloadLogger.i {
+                                    "onNetworkChanged — task ${it.id} auto-paused (network lost); " +
+                                        "will auto-resume when connectivity returns"
+                                }
                             }
                         }
                 }
@@ -387,9 +410,16 @@ class DownloadQueue(
             ) {
                 return@withLock
             }
-            pauseInternal(taskId)
+            // D-748: the marker is added INSIDE the lock and ONLY when the task
+            // was really paused. The old code added it unconditionally AFTER the
+            // lock was released, so a task that was cancelled (or already paused)
+            // in the meantime kept a marker for a task that no longer existed —
+            // the service then stayed foreground forever waiting to "resume" a
+            // deleted task.
+            if (pauseInternal(taskId)) {
+                networkPause.add(taskId)
+            }
         }
-        networkPause.add(taskId)
     }
 
     // ── Internal pause (M42 — assumes the mutex is held) ─────────────────────
@@ -398,13 +428,16 @@ class DownloadQueue(
      * REVIEW-5 M42: internal pause that ASSUMES the mutex is held. Used by
      * [onNetworkChanged] (which already holds the mutex) + by the public [pause]
      * (which acquires the mutex then delegates here).
+     *
+     * D-748: returns TRUE when the task was actually paused — the caller uses
+     * that to decide whether the network-pause marker belongs to it.
      */
-    private fun pauseInternal(taskId: Long) {
-        val current = _tasks.value.firstOrNull { it.id == taskId } ?: return
+    private fun pauseInternal(taskId: Long): Boolean {
+        val current = _tasks.value.firstOrNull { it.id == taskId } ?: return false
         if (current.status != DownloadStatus.DOWNLOADING &&
             current.status != DownloadStatus.QUEUED &&
             current.status != DownloadStatus.RETRYING
-        ) return
+        ) return false
         mutateTaskLocked(taskId) {
             it.copy(status = DownloadStatus.PAUSED)
         }
@@ -417,6 +450,7 @@ class DownloadQueue(
             errorMessage = null,
         )
         jobs[taskId]?.cancel()
+        return true
     }
 
     // ── The scheduler ────────────────────────────────────────────────────────
@@ -636,10 +670,23 @@ class DownloadQueue(
                         // ERROR. This is what makes Wi-Fi-outage recovery smooth: the
                         // task waits for connectivity instead of dying.
                         val networkAllowed = runCatching { connectivityCheck() }.getOrDefault(true)
-                        if (!networkAllowed && (e is java.io.IOException || e is HttpException)) {
+                        // D-748: `connectivityCheck` is the Wi-Fi-only POLICY check and
+                        // fails OPEN when that policy is off, so it cannot tell "the
+                        // device is offline" from "any network is allowed". The
+                        // `hasInternet` probe is the real reachability test: an
+                        // offline transport error now PAUSES the task for auto-resume
+                        // instead of burning all three retry attempts into a dead
+                        // ERROR state (which the D-747 app-start recovery would have
+                        // hit on every offline app open).
+                        val internetAvailable = runCatching { hasInternet() }.getOrDefault(true)
+                        if ((e is java.io.IOException || e is HttpException) &&
+                            (!networkAllowed || !internetAvailable)
+                        ) {
                             DownloadLogger.w {
-                                "launchDownload — transport error while network disallowed " +
-                                    "for task ${task.id}: ${e.message}. Auto-pausing; will resume " +
+                                "launchDownload — transport error while the network is " +
+                                    "unavailable (policyAllowed=$networkAllowed, " +
+                                    "internetAvailable=$internetAvailable) for task " +
+                                    "${task.id}: ${e.message}. Auto-pausing; will resume " +
                                     "when connectivity returns."
                             }
                             pauseForNetwork(task.id)

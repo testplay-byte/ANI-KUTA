@@ -184,12 +184,19 @@ class DownloadService : Service(), KoinComponent {
         }
 
         // D-747: every service start is also a scheduler kick. This covers the
-        // START_STICKY restart and the app-boot recovery path: the queue resets
-        // stale DOWNLOADING/RETRYING rows to QUEUED in its init, so this call is
-        // what turns a persisted queue back into running downloads. It is a
-        // no-op for pause-all / cancel-all (no QUEUED task remains) and when the
-        // connectivity check disallows starting (the callback resumes later).
-        queue.tryStartNext()
+        // START_STICKY restart and the app-process-start recovery path: the queue
+        // resets stale DOWNLOADING/RETRYING rows to QUEUED in its init, so this
+        // call is what turns a persisted queue back into running downloads. It is
+        // a no-op for pause-all / cancel-all (no QUEUED task remains) and when
+        // the connectivity check disallows starting (the callback resumes later).
+        //
+        // D-748: the call runs on the service's IO scope, NOT on the main
+        // thread — resolving the `queue` singleton runs its init (a DB write:
+        // resetDownloadingToQueued) and that must never happen inside a
+        // service callback on the main thread.
+        scope.launch {
+            queue.tryStartNext()
+        }
         return START_STICKY
     }
 
@@ -270,8 +277,8 @@ class DownloadService : Service(), KoinComponent {
 
         /**
          * Starts the foreground service. Called by the manager's user-initiated
-         * actions (enqueue/resume/retry) and by the app-boot recovery — never
-         * by anything that wants to STOP it (D-747, the service stops itself).
+         * actions (enqueue/resume/retry) and by the app-process-start recovery —
+         * never by anything that wants to STOP it (D-747, the service stops itself).
          */
         fun start(context: Context) {
             ContextCompat.startForegroundService(
