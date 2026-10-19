@@ -190,7 +190,7 @@ class DownloadService : Service(), KoinComponent {
         // a no-op for pause-all / cancel-all (no QUEUED task remains) and when
         // the connectivity check disallows starting (the callback resumes later).
         //
-        // D-748: the call runs on the service's IO scope, NOT on the main
+        // D-757: the call runs on the service's IO scope, NOT on the main
         // thread — resolving the `queue` singleton runs its init (a DB write:
         // resetDownloadingToQueued) and that must never happen inside a
         // service callback on the main thread.

@@ -173,7 +173,7 @@ val downloadModule = module {
             downloader = get(),
             notifier = get(),
             connectivityCheck = { wifiOnlyCheck(androidContext(), get()) },
-            // D-748: the real reachability probe (the Wi-Fi-only check above is a
+            // D-757: the real reachability probe (the Wi-Fi-only check above is a
             // POLICY check and fails open when the policy is off).
             hasInternet = { hasInternetCheck(androidContext()) },
             retryPolicy = get(),
@@ -233,7 +233,7 @@ private fun wifiOnlyCheck(context: Context, preferences: DownloadPreferences): B
 }
 
 /**
- * D-748: the REAL reachability probe — "is there an internet connection right
+ * D-757: the REAL reachability probe — "is there an internet connection right
  * now?" — used by [DownloadQueue.hasInternet].
  *
  * The Wi-Fi-only check above is a POLICY question and fails OPEN when the policy

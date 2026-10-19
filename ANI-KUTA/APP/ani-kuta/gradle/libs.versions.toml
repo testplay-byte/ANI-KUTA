@@ -1,6 +1,6 @@
 [versions]
 # Build tools
-# D-748 (round 120): AGP 8.9.1 -> 8.10.1 — the ROOT CAUSE of the CI dex
+# D-757 (round 120): AGP 8.9.1 -> 8.10.1 — the ROOT CAUSE of the CI dex
 # failure. AGP bundles D8/R8, and Google's official compatibility table
 # (developer.android.com/build/kotlin-support) says Kotlin 2.2 REQUIRES
 # R8 >= 8.10.21. AGP 8.9.1 bundles R8 8.9.32 (too old) — so D8 could not

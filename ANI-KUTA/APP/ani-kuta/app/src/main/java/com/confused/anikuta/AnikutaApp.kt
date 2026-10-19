@@ -311,7 +311,7 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 // queue resets stale DOWNLOADING/RETRYING rows to QUEUED during
                 // its init; without a service start nothing would schedule them.
                 //
-                // D-748 — the scope of this recovery, stated honestly:
+                // D-757 — the scope of this recovery, stated honestly:
                 //  - It runs when the APP PROCESS starts (any launch: user tap,
                 //    or a background worker waking the process). It is NOT a
                 //    device-boot recovery — there is no BOOT_COMPLETED receiver

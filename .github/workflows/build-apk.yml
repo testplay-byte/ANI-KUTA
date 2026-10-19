@@ -90,7 +90,7 @@ jobs:
       # old comment claiming "tests gate every push" was stale. The opt-in step
       # below runs them when a round specifically needs them (dispatch with
       # run_unit_tests=true and state the reason in the round record).
-      # D-748: the old comment here also claimed that `assembleDebug` COMPILES
+      # D-757: the old comment here also claimed that `assembleDebug` COMPILES
       # the unit-test source sets. It does not — `assembleDebug` builds the main
       # source sets only, so a test file is compiled (and can fail to compile)
       # ONLY on the opt-in dispatch below. That is the D-465 trade-off as it

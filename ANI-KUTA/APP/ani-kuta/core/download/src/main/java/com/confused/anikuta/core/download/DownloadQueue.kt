@@ -55,7 +55,7 @@ class DownloadQueue(
     private val downloader: HttpDownloader,
     private val notifier: DownloadNotificationManager,
     private val connectivityCheck: () -> Boolean = { true },
-    // D-748: the REAL reachability probe ("is there an internet connection right
+    // D-757: the REAL reachability probe ("is there an internet connection right
     // now?"). [connectivityCheck] is the Wi-Fi-only POLICY check and fails OPEN
     // when the policy is off, so it can never tell "the device is offline" from
     // "any network is allowed". Without this probe an offline transport error
@@ -167,7 +167,7 @@ class DownloadQueue(
      * auto-resume eligibility (D-246) — the task leaves the network-paused set. */
     suspend fun pause(taskId: Long) = mutex.withLock {
         pauseInternal(taskId)
-        // D-748: the marker removal happens INSIDE the lock, so a concurrent
+        // D-757: the marker removal happens INSIDE the lock, so a concurrent
         // network-pause cannot re-add a marker for the task the user just paused.
         networkPause.remove(taskId)
     }.also {
@@ -182,7 +182,7 @@ class DownloadQueue(
      * then believed it still had to wait for connectivity and never stopped.
      */
     suspend fun resume(taskId: Long) = mutex.withLock {
-        // D-748: the marker removal happens FIRST and unconditionally, inside
+        // D-757: the marker removal happens FIRST and unconditionally, inside
         // the lock — a user resume always wins over a network-pause marker,
         // even when the status check below finds nothing to re-queue.
         networkPause.remove(taskId)
@@ -210,7 +210,7 @@ class DownloadQueue(
         jobs.remove(taskId)?.cancel()
         _tasks.value = _tasks.value.filterNot { it.id == taskId }
         store.deleteTask(taskId)
-        // D-748: inside the lock (see [pause]) — a deleted task must never keep
+        // D-757: inside the lock (see [pause]) — a deleted task must never keep
         // a marker, not even for the microsecond between the delete and the remove.
         networkPause.remove(taskId)
     }.also {
@@ -252,7 +252,7 @@ class DownloadQueue(
             prevEstimate = 0L,
             recentRatios = emptyList(),
         )
-        // D-748: inside the lock (see [pause]) — a retried task must not keep a
+        // D-757: inside the lock (see [pause]) — a retried task must not keep a
         // stale network-pause marker.
         networkPause.remove(taskId)
     }.also {
@@ -302,7 +302,7 @@ class DownloadQueue(
                     errorMessage = null,
                 )
             }
-        // D-748: inside the lock (see [pause]) — the re-queued tasks must not
+        // D-757: inside the lock (see [pause]) — the re-queued tasks must not
         // keep the network-pause markers of their PAUSED predecessors.
         networkPause.clear()
     }.also {
@@ -349,7 +349,7 @@ class DownloadQueue(
                                 it.status == DownloadStatus.QUEUED
                         }
                         .forEach {
-                            // D-748: the marker is added ONLY for a task that was
+                            // D-757: the marker is added ONLY for a task that was
                             // really paused — a task that changed status in the
                             // meantime keeps no marker, so the service never waits
                             // to "resume" a task that is not network-paused.
@@ -410,7 +410,7 @@ class DownloadQueue(
             ) {
                 return@withLock
             }
-            // D-748: the marker is added INSIDE the lock and ONLY when the task
+            // D-757: the marker is added INSIDE the lock and ONLY when the task
             // was really paused. The old code added it unconditionally AFTER the
             // lock was released, so a task that was cancelled (or already paused)
             // in the meantime kept a marker for a task that no longer existed —
@@ -429,7 +429,7 @@ class DownloadQueue(
      * [onNetworkChanged] (which already holds the mutex) + by the public [pause]
      * (which acquires the mutex then delegates here).
      *
-     * D-748: returns TRUE when the task was actually paused — the caller uses
+     * D-757: returns TRUE when the task was actually paused — the caller uses
      * that to decide whether the network-pause marker belongs to it.
      */
     private fun pauseInternal(taskId: Long): Boolean {
@@ -670,7 +670,7 @@ class DownloadQueue(
                         // ERROR. This is what makes Wi-Fi-outage recovery smooth: the
                         // task waits for connectivity instead of dying.
                         val networkAllowed = runCatching { connectivityCheck() }.getOrDefault(true)
-                        // D-748: `connectivityCheck` is the Wi-Fi-only POLICY check and
+                        // D-757: `connectivityCheck` is the Wi-Fi-only POLICY check and
                         // fails OPEN when that policy is off, so it cannot tell "the
                         // device is offline" from "any network is allowed". The
                         // `hasInternet` probe is the real reachability test: an
