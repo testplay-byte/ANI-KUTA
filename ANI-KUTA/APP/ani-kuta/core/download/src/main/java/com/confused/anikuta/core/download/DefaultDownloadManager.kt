@@ -125,12 +125,12 @@ class DefaultDownloadManager(
                 // Best-effort: refresh the downloaded-episodes cache too.
                 refreshDownloadedEpisodes()
 
-                // Notify the foreground service of the active task count (so it can
-                // update the summary notification + stopSelf when the queue empties).
-                val active = tasks.filter { it.status.isActive || it.status == DownloadStatus.QUEUED }
-                if (active.isEmpty()) {
-                    DownloadService.stop(context)
-                }
+                // D-747: the service OWNS its lifecycle. It observes this same
+                // queue and stops itself only when the queue is empty AND no
+                // network-paused task exists. The old `DownloadService.stop()`
+                // here stopped it the moment every task was network-paused —
+                // killing the NetworkCallback that would have resumed them
+                // (the D-246 regression). Do not reintroduce a stop call here.
             }
         }
 
@@ -227,8 +227,9 @@ class DefaultDownloadManager(
     }
 
     override suspend fun cancelAll() {
+        // D-747: the service observes the now-empty queue and stops itself;
+        // no external caller stops it.
         queue.cancelAll()
-        DownloadService.stop(context)
     }
 
     override suspend fun retryDownload(id: Long) {

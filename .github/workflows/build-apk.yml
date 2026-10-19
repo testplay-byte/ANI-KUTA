@@ -46,7 +46,15 @@ on:
       - '.github/**'
   pull_request:
     branches: [ main ]
-  workflow_dispatch:  # D-445: no inputs — the x86_64 emulator option is retired
+  workflow_dispatch:  # D-445: the x86_64 emulator option is retired
+    inputs:
+      # D-465: routine unit tests are OFF (the user found them wasteful).
+      # They run only when explicitly requested, or when a change warrants one
+      # (state the reason in the round record). Default = the normal push build.
+      run_unit_tests:
+        description: 'Run unit tests (D-465: opt-in only)'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -78,21 +86,19 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # CloudStream V2: unit tests gate every push — cloudstream-api carries
-      # the plugin binary-compat surface (CompatSurfaceTest etc.),
-      # data:cloudstream the repo-parsing + episode-mapping locks, and
-      # core:common the logging-policy locks. Tests run BEFORE
-      # assembleDebug so a red test fails the build fast.
-      # Task 52 (round 12): :core:cs-player carries the playback-port locks
-      # (mime/quality mapping, subtitle mime detection, track selection).
-      # Task 54 (round 14): :feature:cs-watch:api carries the episode-metadata
-      # parser parity locks (the watch-page's CsWatchKey wire format) and
-      # :impl the episode-key locks.
-      # Task 68 (round 28): :core:download carries the deletion-pipeline
-      # decision locks (DeletionMatching — matchRemoval + the STRICT
-      # removalVerified), :feature:anime-search:impl the top-bar reveal
-      # policy locks (searchBarNextCollapsed), and :feature:onboarding the
-      # wizard step-machine locks.
+      # D-465: routine unit tests are OFF (the user found them wasteful); the
+      # old comment claiming "tests gate every push" was stale. The job still
+      # COMPILES the test source sets via assembleDebug, and the opt-in step
+      # below runs them when a round specifically needs them (dispatch with
+      # run_unit_tests=true and state the reason in the round record).
+      # Coverage lives in :core:download (deletion pipeline + network-pause
+      # registry), :core:cs-player (playback-port locks), :data:cloudstream
+      # (repo parsing + episode mapping), :cloudstream-api (binary compat),
+      # and :core:common (logging policy).
+      - name: Run unit tests (opt-in, D-465)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_unit_tests == true }}
+        run: ./gradlew testDebugUnitTest
+
       - name: Build debug APK
         run: ./gradlew assembleDebug
 

@@ -85,13 +85,18 @@ class DownloadQueue(
     private val autoClearScheduled = mutableSetOf<Long>()
 
     /**
-     * D-246: tasks auto-paused by network loss — auto-resumed when connectivity
-     * returns. In-memory by design: it only needs to live as long as the process
-     * (the DownloadService's NetworkCallback drives the transitions). A user-initiated
-     * pause/cancel removes the task from this set (their intent wins over auto-resume).
+     * D-246 + D-747: tasks auto-paused by network loss — auto-resumed when
+     * connectivity returns. In-memory by design: it only needs to live as long
+     * as the process (the DownloadService's NetworkCallback drives the
+     * transitions). The service owns its lifecycle and asks [hasNetworkPausedTasks]
+     * whether it must stay alive; no external caller stops it.
+     *
+     * User intent wins: resume/retry/pause/cancel remove a task from the
+     * registry, so a manual action can never leave the service waiting on a
+     * stale marker. The synchronized set + that rule live in
+     * [NetworkPauseRegistry].
      */
-    private val networkPausedTasks: MutableSet<Long> =
-        java.util.Collections.synchronizedSet(mutableSetOf())
+    private val networkPause = NetworkPauseRegistry()
 
     init {
         // Reset stale DOWNLOADING + RETRYING tasks to QUEUED (REVIEW-5 M6).
@@ -156,11 +161,17 @@ class DownloadQueue(
     suspend fun pause(taskId: Long) = mutex.withLock {
         pauseInternal(taskId)
     }.also {
-        synchronized(networkPausedTasks) { networkPausedTasks.remove(taskId) }
+        networkPause.remove(taskId)
         tryStartNext()
     }
 
-    /** Resumes a PAUSED or ERROR task. */
+    /**
+     * Resumes a PAUSED or ERROR task.
+     *
+     * D-747: this is a user intent, so it also clears the network-pause marker.
+     * Without that, a task the user resumed stayed in the registry; the service
+     * then believed it still had to wait for connectivity and never stopped.
+     */
     suspend fun resume(taskId: Long) = mutex.withLock {
         val task = _tasks.value.firstOrNull { it.id == taskId } ?: return@withLock
         if (task.status != DownloadStatus.PAUSED && task.status != DownloadStatus.ERROR) return@withLock
@@ -176,6 +187,7 @@ class DownloadQueue(
             errorMessage = null,
         )
     }.also {
+        networkPause.remove(taskId)
         tryStartNext()
     }
 
@@ -187,7 +199,7 @@ class DownloadQueue(
         _tasks.value = _tasks.value.filterNot { it.id == taskId }
         store.deleteTask(taskId)
     }.also {
-        synchronized(networkPausedTasks) { networkPausedTasks.remove(taskId) }
+        networkPause.remove(taskId)
         tryStartNext()
     }
 
@@ -227,6 +239,7 @@ class DownloadQueue(
             recentRatios = emptyList(),
         )
     }.also {
+        networkPause.remove(taskId)
         tryStartNext()
     }
 
@@ -237,7 +250,7 @@ class DownloadQueue(
         _tasks.value
             .filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.RETRYING }
             .forEach { pauseInternal(it.id) }
-        synchronized(networkPausedTasks) { networkPausedTasks.clear() }
+        networkPause.clear()
     }
 
     /** Cancels all tasks (clears the queue). */
@@ -247,10 +260,16 @@ class DownloadQueue(
             store.deleteTask(task.id)
         }
         _tasks.value = emptyList()
-        synchronized(networkPausedTasks) { networkPausedTasks.clear() }
+        networkPause.clear()
     }
 
-    /** Resumes all PAUSED + ERROR tasks. */
+    /**
+     * Resumes all PAUSED + ERROR tasks.
+     *
+     * D-747: user intent — clear every network-pause marker. The tasks are
+     * re-queued by the loop below; keeping them in the registry would make the
+     * service wait for a network event that may never come.
+     */
     suspend fun resumeAll() = mutex.withLock {
         _tasks.value
             .filter { it.status == DownloadStatus.PAUSED || it.status == DownloadStatus.ERROR }
@@ -268,6 +287,7 @@ class DownloadQueue(
                 )
             }
     }.also {
+        networkPause.clear()
         tryStartNext()
     }
 
@@ -312,7 +332,7 @@ class DownloadQueue(
                         }
                         .forEach {
                             pauseInternal(it.id)
-                            networkPausedTasks.add(it.id)
+                            networkPause.add(it.id)
                             DownloadLogger.i {
                                 "onNetworkChanged — task ${it.id} auto-paused (network lost); " +
                                     "will auto-resume when connectivity returns"
@@ -332,11 +352,7 @@ class DownloadQueue(
      * WITHOUT the mutex held ([resume] acquires it).
      */
     private suspend fun resumeNetworkPaused(reason: String) {
-        val toResume = synchronized(networkPausedTasks) {
-            val snapshot = networkPausedTasks.toList()
-            networkPausedTasks.clear()
-            snapshot
-        }
+        val toResume = networkPause.snapshotAndClear()
         if (toResume.isEmpty()) {
             tryStartNext()
             return
@@ -355,7 +371,7 @@ class DownloadQueue(
      * connectivity returns (the old code stopped the service once everything was
      * paused, killing the callback → no auto-restart ever).
      */
-    fun hasNetworkPausedTasks(): Boolean = synchronized(networkPausedTasks) { networkPausedTasks.isNotEmpty() }
+    fun hasNetworkPausedTasks(): Boolean = !networkPause.isEmpty()
 
     /**
      * D-246: marks a task PAUSED + remembers it for auto-resume on network regain.
@@ -373,7 +389,7 @@ class DownloadQueue(
             }
             pauseInternal(taskId)
         }
-        networkPausedTasks.add(taskId)
+        networkPause.add(taskId)
     }
 
     // ── Internal pause (M42 — assumes the mutex is held) ─────────────────────

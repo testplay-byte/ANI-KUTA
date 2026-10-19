@@ -306,6 +306,25 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 }.onFailure { t ->
                     Logger.w("AnikutaApp") { "Notification sent-log cleanup failed: ${t.message}" }
                 }
+
+                // D-747 (R-1): restart queued work after a process restart. The
+                // queue resets stale DOWNLOADING/RETRYING rows to QUEUED during
+                // its init; without a service start nothing would schedule them.
+                // Application.onCreate runs while the app is launching, so
+                // starting the FGS here is allowed; if an OEM refuses it, the
+                // failure is logged and the next app open retries this same path.
+                runCatching {
+                    val hasQueued = downloadManager.getQueue().value.any {
+                        it.status == com.confused.anikuta.core.download.DownloadStatus.QUEUED
+                    }
+                    if (hasQueued) {
+                        com.confused.anikuta.core.download.DownloadService.start(this@AnikutaApp)
+                        Logger.i("AnikutaApp") { "Queued downloads found — DownloadService restarted" }
+                    }
+                }.onFailure { t ->
+                    Logger.w("AnikutaApp") { "Failed to restart DownloadService: ${t.message}" }
+                }
+
                 downloadManager.requestFolderRescan()
                 Logger.i("AnikutaApp") { "Download folder scan completed (data.json reconciliation)" }
             }
