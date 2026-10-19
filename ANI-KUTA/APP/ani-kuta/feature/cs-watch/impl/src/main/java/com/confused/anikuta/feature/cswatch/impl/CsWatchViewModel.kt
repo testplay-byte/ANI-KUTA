@@ -971,7 +971,11 @@ class CsWatchViewModel(
                 completedAt = null,
                 lastWatchedAt = System.currentTimeMillis(),
                 watchCount = previous?.watchCount ?: 0,
-                firstWatchedAt = previous?.firstWatchedAt ?: System.currentTimeMillis(),
+                // D-762: the STORE owns firstWatchedAt (one contract for every
+                // writer: the first time the episode was watched). The value
+                // passed here is ignored by the store — it recomputes the field
+                // on every write — so it must not pretend otherwise.
+                firstWatchedAt = previous?.firstWatchedAt,
                 autoMarkSuppressed = previous?.autoMarkSuppressed ?: false,
                 userMarkedWatched = previous?.userMarkedWatched ?: false,
             )

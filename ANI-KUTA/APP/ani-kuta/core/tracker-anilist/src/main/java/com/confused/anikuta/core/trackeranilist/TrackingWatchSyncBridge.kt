@@ -11,7 +11,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
@@ -84,6 +85,18 @@ class TrackingWatchSyncBridge(
          * (AniList rate limits are generous but not infinite).
          */
         private const val SETTLE_WINDOW_MS = 2_000L
+
+        /**
+         * D-762: the pause between two relays inside one pass.
+         *
+         * The startup sweep used to fire one relay per tracked content in a
+         * TIGHT BURST — a library with 60 tracked series produced 60 back-to-
+         * back API calls, which is exactly what a tracker rate limit punishes
+         * (and it looked like a flood of requests in the network log). The
+         * pass is now PACED: one relay, a beat, the next. Nothing is dropped —
+         * the pass still sweeps every tracked content, it just does not shout.
+         */
+        private const val RELAY_INTERVAL_MS = 400L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -96,14 +109,15 @@ class TrackingWatchSyncBridge(
         scope.launch {
             watchProgressStore.observeAllHighestWatchedNumbers()
                 .debounce(SETTLE_WINDOW_MS)
-                .collectLatest { highestByMainId ->
+                // D-762: `collect`, not `collectLatest` — a pass is NOT
+                // cancelled by the next emission. With the pacing below, a
+                // cancelled pass would restart at the first tracked content
+                // and the tail of the sweep would never be relayed.
+                .collect { highestByMainId ->
                     // D-760: a CANCELLATION is not a failure. `runCatching`
                     // swallowed the CancellationException, so a cancelled pass
-                    // (collectLatest cancels the previous one when a new
-                    // emission arrives, and the scope's own cancellation was
-                    // swallowed too) kept the loop running — the bridge could
-                    // not be stopped cleanly and a cancelled pass kept
-                    // relaying.
+                    // (and the scope's own cancellation) kept the loop
+                    // running — the bridge could not be stopped cleanly.
                     try {
                         reconcile(highestByMainId)
                     } catch (e: CancellationException) {
@@ -207,6 +221,9 @@ class TrackingWatchSyncBridge(
                     Logger.i(TAG) {
                         "relayed $mainId → ${tracker.displayName}: progress=$computed, status=$status"
                     }
+                    // D-762: pace the pass — one relay, a beat, the next. The
+                    // startup sweep used to fire them all back to back.
+                    delay(RELAY_INTERVAL_MS)
                 }
             }
         }

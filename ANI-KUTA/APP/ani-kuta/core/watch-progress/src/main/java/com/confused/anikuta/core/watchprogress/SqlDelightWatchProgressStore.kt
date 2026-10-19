@@ -99,10 +99,20 @@ class SqlDelightWatchProgressStore(
         val completedInt = if (shouldComplete) 1L else 0L
         val completedAt = if (shouldComplete) (existing?.completed_at ?: now) else null
 
-        // If transitioning to completed for the first time, increment watch_count + set first_watched_at.
+        // If transitioning to completed for the first time, increment watch_count.
         val justCompleted = shouldComplete && !wasCompleted
         val newWatchCount = if (justCompleted) (existing?.watch_count?.toInt() ?: 0) + 1 else (existing?.watch_count?.toInt() ?: 0)
-        val firstWatchedAt = existing?.first_watched_at ?: if (justCompleted) now else null
+        // D-762: the ONE firstWatchedAt contract — the first time the episode
+        // was WATCHED (the first save with a real position), not the
+        // completion. The completion has its own field; the last watch has
+        // lastWatchedAt. The CS stack used to claim the "first save" rule
+        // while the store applied the "completion" rule — the value never
+        // landed, so the two writers silently disagreed.
+        val firstWatchedAt = WatchProgressContract.firstWatchedAt(
+            existingFirstWatchedAt = existing?.first_watched_at,
+            positionSeconds = progress.position,
+            now = now,
+        )
 
         database.watchQueries.upsertWatchProgress(
             episode_key = episodeKey,

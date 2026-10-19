@@ -14,4 +14,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
+
+    // D-762 (round 127 — the tracking contract): the firstWatchedAt contract
+    // is pure JVM, so it is unit-tested.
+    testImplementation(libs.junit)
 }
