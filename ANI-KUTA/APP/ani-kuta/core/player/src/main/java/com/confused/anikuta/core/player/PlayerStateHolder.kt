@@ -97,6 +97,20 @@ class PlayerStateHolder {
     private val _buffering = MutableStateFlow(false)
     val buffering: StateFlow<Boolean> = _buffering.asStateFlow()
 
+    // ── D-749: the two facts the stall watchdog needs ──────────────────────
+    //
+    // `hasEverPlayed` — playback has actually started. The old watchdog could
+    // not tell "never started" from "started and stopped", so it fired on both.
+    // `isUserPaused` — the pause came from the USER (the play/pause button, or
+    // the app going to the background). A user pause is not a stall.
+    @Volatile
+    var hasEverPlayed: Boolean = false
+        private set
+
+    @Volatile
+    var isUserPaused: Boolean = false
+        private set
+
     // ── Buffer-ahead time (for seekbar buffer zone) ──
     private val _bufferAheadTime = MutableStateFlow(0)
     val bufferAheadTime: StateFlow<Int> = _bufferAheadTime.asStateFlow()
@@ -316,6 +330,22 @@ class PlayerStateHolder {
 
     fun updatePlaying(playing: Boolean) {
         _isPlaying.value = playing
+        if (playing) {
+            // D-749: playback has started (the flag the stall watchdog needs).
+            hasEverPlayed = true
+            // Playback resumed — "the user paused" is no longer the reason
+            // playback is not running, so the watchdog may arm again.
+            isUserPaused = false
+        }
+    }
+
+    /**
+     * D-749: record that the pause came from the USER — the play/pause button
+     * or the app going to the background. The stall watchdog must not fire for
+     * a pause the user asked for.
+     */
+    fun setUserPaused(paused: Boolean) {
+        isUserPaused = paused
     }
 
     fun updatePosition(position: Int) {
@@ -392,5 +422,9 @@ class PlayerStateHolder {
         _audioTracks.value = emptyList()
         _currentSubtitleTrack.value = -1
         _currentAudioTrack.value = -1
+        // D-749: a new video starts with no playback history and no user
+        // pause — the stall watchdog re-arms from scratch.
+        hasEverPlayed = false
+        isUserPaused = false
     }
 }

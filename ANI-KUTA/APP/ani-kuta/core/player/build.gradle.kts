@@ -52,4 +52,8 @@ dependencies {
     // Coroutines + serialization
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
+
+    // D-749 (round 122 — the MPV stall watchdog): the watchdog predicate is
+    // pure JVM, so its contract is locked by a unit test.
+    testImplementation(libs.junit)
 }

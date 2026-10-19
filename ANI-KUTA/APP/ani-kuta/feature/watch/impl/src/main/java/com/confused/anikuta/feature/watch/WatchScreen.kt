@@ -87,6 +87,7 @@ import com.confused.anikuta.core.player.PlayerLoadingState
 import com.confused.anikuta.core.player.PlayerMode
 import com.confused.anikuta.core.player.PlayerObserver
 import com.confused.anikuta.core.player.PlayerStateHolder
+import com.confused.anikuta.core.player.PlaybackWatchdogPolicy
 import com.confused.anikuta.core.player.controls.EpisodeSwitchingOverlay
 import com.confused.anikuta.core.playbackcache.PlaybackCacheManager
 import com.confused.anikuta.core.playbackcache.PlaybackVideoId
@@ -443,27 +444,49 @@ fun WatchScreen(
         }
     }
 
-    // ── Fatal-error watchdog (15s after video starts playing) ──
-    // Catches HLS demuxer errors that don't trigger END_FILE (e.g. "error reading
-    // packet: Invalid argument" → "treating it as fatal error"). These leave the
-    // player stuck: position stays at 0 (or stuck at duration-2) with no error.
-    // After 15s of "stuck", we show "This server is not responding" so the user
-    // can retry or switch server.
-    // Conditions: duration > 0 (video loaded), not playing, no error already shown,
-    // and either position == 0 OR position >= duration - 2.
-    LaunchedEffect(isPlaying, duration, position) {
-        if (duration > 0 && !isPlaying && stateHolder.errorMessage.value == null && !stateHolder.isSwitching.value) {
-            val stuck = position == 0 || position >= duration - 2
-            if (stuck) {
-                delay(15_000L)
-                // Re-check after delay — if still stuck, show error
-                if (duration > 0 && !stateHolder.isPlaying.value &&
-                    stateHolder.errorMessage.value == null && !stateHolder.isSwitching.value &&
-                    (stateHolder.position.value == 0 || stateHolder.position.value >= duration - 2)
-                ) {
-                    Logger.w(TAG) { "Fatal-error watchdog: video stuck for 15s" }
-                    stateHolder.setSwitchingError("This server is not responding. Try another server or quality.")
+    // ── D-749: the stall watchdog (15s window, evidence-driven) ──
+    // The OLD watchdog armed on "duration > 0 && !isPlaying && (position == 0
+    // || position >= duration - 2)" and fired 15s later with "This server is
+    // not responding". It did not know WHY playback had stopped, so it fired
+    // on two completely normal situations: the user PAUSING at the start, and
+    // the episode ENDING (keep-open parks MPV at the end). It also could not
+    // see the classic stall — playback reporting "playing" with a FROZEN
+    // position — because it required !isPlaying.
+    //
+    // The rule now (D-749): fire only on EVIDENCE — playback has started, the
+    // user has not paused, EOF is not reached, nothing else claimed the
+    // failure, and the POSITION DID NOT ADVANCE across the whole window. The
+    // predicate is pure and unit-tested (:core:player PlaybackWatchdogPolicy).
+    //
+    // The loop SAMPLES instead of being keyed on the position: the old
+    // LaunchedEffect(isPlaying, duration, position) restarted on every
+    // position tick, so a 15s window could never complete while the video was
+    // actually playing.
+    LaunchedEffect(mpvInitialized) {
+        if (!mpvInitialized) return@LaunchedEffect
+        fun snapshot() = PlaybackWatchdogPolicy.Evidence(
+            hasEverPlayed = stateHolder.hasEverPlayed,
+            isPlaying = stateHolder.isPlaying.value,
+            isUserPaused = stateHolder.isUserPaused,
+            isBuffering = stateHolder.buffering.value,
+            isSwitching = stateHolder.isSwitching.value,
+            hasError = stateHolder.errorMessage.value != null,
+            durationMs = stateHolder.duration.value,
+            positionMs = stateHolder.position.value,
+        )
+        while (true) {
+            delay(1_000L)
+            val armed = snapshot()
+            if (!PlaybackWatchdogPolicy.shouldArm(armed)) continue
+            delay(PlaybackWatchdogPolicy.STALL_WINDOW_MS)
+            val now = snapshot()
+            if (PlaybackWatchdogPolicy.shouldFire(armed, now)) {
+                Logger.w(TAG) {
+                    "Stall watchdog: the position did not advance for " +
+                        "${PlaybackWatchdogPolicy.STALL_WINDOW_MS}ms " +
+                        "(pos=${now.positionMs}, buffering=${now.isBuffering})"
                 }
+                stateHolder.setSwitchingError("This server is not responding. Try another server or quality.")
             }
         }
     }
@@ -479,6 +502,9 @@ fun WatchScreen(
             when (event) {
                 androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
                     Logger.i(TAG) { "App backgrounded — pausing playback" }
+                    // D-749: the app going to the background is a PAUSE, not a
+                    // stall — the watchdog must not fire behind the user's back.
+                    stateHolder.setUserPaused(true)
                     runCatching { MPVLib.setPropertyBoolean("pause", true) }
                 }
                 androidx.lifecycle.Lifecycle.Event.ON_START -> {
@@ -1474,7 +1500,7 @@ fun WatchScreen(
             mpvView = mpvView,
             initMpv = initMpv,
             onMpvViewCreated = { mpvView = it },
-            onTogglePlay = { MPVLib.setPropertyBoolean("pause", isPlaying) },
+            onTogglePlay = { stateHolder.setUserPaused(isPlaying); MPVLib.setPropertyBoolean("pause", isPlaying) },
             onSeekRelative = { delta -> MPVLib.command(arrayOf("seek", delta.toString(), "relative")) },
             onSeekTo = { pos -> MPVLib.setPropertyInt("time-pos", pos) },
             onBack = { stateHolder.updateMode(PlayerMode.MINIMIZED) },
@@ -1497,7 +1523,7 @@ fun WatchScreen(
             mpvView = mpvView,
             initMpv = initMpv,
             onMpvViewCreated = { mpvView = it },
-            onTogglePlay = { MPVLib.setPropertyBoolean("pause", isPlaying) },
+            onTogglePlay = { stateHolder.setUserPaused(isPlaying); MPVLib.setPropertyBoolean("pause", isPlaying) },
             onSeekRelative = { delta -> MPVLib.command(arrayOf("seek", delta.toString(), "relative")) },
             onSeekTo = { pos -> MPVLib.setPropertyInt("time-pos", pos) },
             onBack = onBack,
