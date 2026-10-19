@@ -22,4 +22,8 @@ dependencies {
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
     implementation(libs.koin.android)
+
+    // D-764 (round 128 — the CloudStream/playback round): the cache identity
+    // fingerprint is pure JVM, so it is unit-tested.
+    testImplementation(libs.junit)
 }

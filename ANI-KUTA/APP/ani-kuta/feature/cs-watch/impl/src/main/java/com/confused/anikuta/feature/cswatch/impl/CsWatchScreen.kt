@@ -308,6 +308,37 @@ fun CsWatchScreen(
         }
     }
 
+    // ── Engine events → VM decisions ─────────────────────────────────────────
+    // D-763 (PB-5): the collector is declared BEFORE the play trigger ON
+    // PURPOSE. The engine's events are a SharedFlow with no replay, so an
+    // event emitted before anybody subscribes is LOST — and the collector used
+    // to be declared AFTER the trigger, so a fast pre-READY failure (a dead
+    // link, a 403) was emitted while nothing was listening: the screen showed
+    // no error at all and just sat there. Declaring the collector first means
+    // it is subscribed before the first load can fail.
+    LaunchedEffect(engine) {
+        engine.events.collect { event ->
+            when (event) {
+                is CsEngineEvent.PlaybackError -> {
+                    // F5: the event carries the URL it belongs to — stale errors
+                    // (a link already switched away from) are rejected by the VM.
+                    val reason = event.error.httpCode?.let { "HTTP $it" } ?: event.error.kind.name.lowercase()
+                    Logger.w(TAG) {
+                        "engine error → fallback (url=${event.linkUrl?.take(64)}, reason=$reason)"
+                    }
+                    viewModel.onEngineError(event.linkUrl, reason)
+                }
+                CsEngineEvent.Ended -> {
+                    val st = engine.state.value
+                    viewModel.saveProgress(st.positionMs, st.durationMs)
+                    if (!viewModel.onEpisodeEnded()) {
+                        Logger.i(TAG) { "episode ended — no next episode" }
+                    }
+                }
+            }
+        }
+    }
+
     // ── The play trigger: VM says "load this" → engine loads it ──────────────
     // Task 53 / RC-3: the body reads the LIVE StateFlow (viewModel.uiState.value),
     // NOT the composed snapshot — the collectAsState State object lags the
@@ -377,30 +408,6 @@ fun CsWatchScreen(
             // A NEW episode's first link: FRESH start — never inherit the
             // previous episode's position (F2: auto-advance cascade).
             else -> engine.start(link!!, 0L, live.playInitialVideoHeight)
-        }
-    }
-
-    // ── Engine events → VM decisions ─────────────────────────────────────────
-    LaunchedEffect(engine) {
-        engine.events.collect { event ->
-            when (event) {
-                is CsEngineEvent.PlaybackError -> {
-                    // F5: the event carries the URL it belongs to — stale errors
-                    // (a link already switched away from) are rejected by the VM.
-                    val reason = event.error.httpCode?.let { "HTTP $it" } ?: event.error.kind.name.lowercase()
-                    Logger.w(TAG) {
-                        "engine error → fallback (url=${event.linkUrl?.take(64)}, reason=$reason)"
-                    }
-                    viewModel.onEngineError(event.linkUrl, reason)
-                }
-                CsEngineEvent.Ended -> {
-                    val st = engine.state.value
-                    viewModel.saveProgress(st.positionMs, st.durationMs)
-                    if (!viewModel.onEpisodeEnded()) {
-                        Logger.i(TAG) { "episode ended — no next episode" }
-                    }
-                }
-            }
         }
     }
 

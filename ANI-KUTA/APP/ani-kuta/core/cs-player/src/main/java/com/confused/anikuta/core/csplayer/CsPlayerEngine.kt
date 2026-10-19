@@ -59,10 +59,10 @@ data class CsPlaybackError(
     val errorCodeName: String? = null,
     val message: String? = null,
 ) {
-    enum class Kind { NETWORK, HTTP, PARSING, DECODING, DRM, UNSPECIFIED }
+    enum class Kind { NETWORK, HTTP, PARSING, DECODING, DRM, STALL, UNSPECIFIED }
 
     val isRetryableElsewhere: Boolean
-        get() = kind == Kind.NETWORK || kind == Kind.HTTP || kind == Kind.PARSING
+        get() = kind == Kind.NETWORK || kind == Kind.HTTP || kind == Kind.PARSING || kind == Kind.STALL
 }
 
 /** One selectable video format inside the current stream (an HLS/DASH variant or the single file). */
@@ -173,6 +173,18 @@ class CsPlayerEngine(
     private val dataSourceFactory = CsHttpDataSourceFactory(baseClient, defaultUserAgent)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    // ── D-763: the stall detector's bookkeeping ──────────────────────────────
+    // The buffering window: when it opened, where the position was, and whether
+    // the stall was already reported (one report per window).
+    @Volatile
+    private var bufferingSinceMs: Long = 0L
+
+    @Volatile
+    private var positionAtBufferStartMs: Long = 0L
+
+    @Volatile
+    private var stallReported: Boolean = false
+
     /** What's loaded right now (for link switching + error diagnostics). */
     private data class CurrentPlayback(
         val link: CsVideoLink,
@@ -269,6 +281,20 @@ class CsPlayerEngine(
                     else -> CsBufferState.IDLE
                 }
                 _state.value = _state.value.copy(bufferState = mapped, durationMs = safeDuration())
+                // D-763: the buffering WINDOW (the stall detector's evidence).
+                // Opening it records when the buffering started and where the
+                // position was; leaving BUFFERING closes it — so a finished or
+                // paused video can never look like a stall.
+                if (mapped == CsBufferState.BUFFERING) {
+                    if (bufferingSinceMs == 0L) {
+                        bufferingSinceMs = android.os.SystemClock.elapsedRealtime()
+                        positionAtBufferStartMs = player.currentPosition.coerceAtLeast(0L)
+                    }
+                } else {
+                    bufferingSinceMs = 0L
+                    positionAtBufferStartMs = 0L
+                    stallReported = false
+                }
                 if (mapped == CsBufferState.READY) {
                     reachedReady = true
                     // Track census — the subtitle/audio diagnosis baseline.
@@ -1070,11 +1096,43 @@ class CsPlayerEngine(
         tickerJob = scope.launch {
             while (isActive) {
                 val st = _state.value
+                val positionMs = player.currentPosition.coerceAtLeast(0L)
                 _state.value = st.copy(
-                    positionMs = player.currentPosition.coerceAtLeast(0L),
+                    positionMs = positionMs,
                     durationMs = safeDuration(),
                     bufferedMs = player.bufferedPosition.coerceAtLeast(0L),
                 )
+                // D-763: the stall check. A link that buffers for 30 s
+                // WITHOUT the position advancing is dead — the user gets the
+                // same fallback as any other error instead of an eternal
+                // spinner. One report per buffering window.
+                if (!stallReported && st.bufferState == CsBufferState.BUFFERING) {
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (CsStallPolicy.isStalled(
+                            bufferingSinceMs = bufferingSinceMs,
+                            nowMs = now,
+                            positionAtStartMs = positionAtBufferStartMs,
+                            positionNowMs = positionMs,
+                        )
+                    ) {
+                        stallReported = true
+                        Logger.w(TAG) {
+                            "stall detected: buffering for ${now - bufferingSinceMs}ms with no progress " +
+                                "(pos=$positionMs) - reporting the fallback"
+                        }
+                        _events.tryEmit(
+                            CsEngineEvent.PlaybackError(
+                                CsPlaybackError(
+                                    kind = CsPlaybackError.Kind.STALL,
+                                    message = "The stream stalled (no progress for 30s)",
+                                ),
+                                "stall: buffered ${now - bufferingSinceMs}ms, position=$positionMs, " +
+                                    "url=${_state.value.currentLinkUrl?.take(64)}",
+                                _state.value.currentLinkUrl,
+                            ),
+                        )
+                    }
+                }
                 // Task 57: 100 ms cadence — smooth cue flips for the overlay
                 // subtitle renderer (the old 200 ms made text visibly late).
                 delay(100)

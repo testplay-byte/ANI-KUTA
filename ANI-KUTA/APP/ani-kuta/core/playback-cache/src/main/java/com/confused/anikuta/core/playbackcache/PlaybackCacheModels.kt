@@ -31,14 +31,28 @@ data class PlaybackVideoId(
     val serverKey: String,
     val quality: String,
 ) {
-    /** Stable cache key: sha256 of the identity tuple (hex, 32 chars is enough). */
+    /**
+     * Stable cache key: sha256 of the identity tuple (hex, 32 chars is enough).
+     *
+     * D-764: the upstream URL is deliberately NOT part of the key — a resolve
+     * hands out a fresh signed URL every time, so the raw URL would make every
+     * play a cache miss, and a key that changed per resolve would break the
+     * cross-session identity recovery (which rebuilds the id from the tuple).
+     * The URL's IDENTITY is enforced where the mixing would happen instead:
+     * when the upstream URL is refreshed for a known entry, a CHANGED file
+     * fingerprint resets the cached ranges (see PlaybackCacheManager).
+     */
     val cacheKey: String by lazy {
         val raw = buildString {
-            append(mainId).append('\u001F')
-            append(episodeNumber.toDouble()).append('\u001F')
-            append(sourceId).append('\u001F')
+            append(mainId).append('')
+            append(episodeNumber.toDouble()).append('')
+            append(sourceId).append('')
             append(serverKey)
         }
+        val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
+        digest.joinToString("") { "%02x".format(it) }.take(32)
+    }
+}
         val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
         digest.joinToString("") { "%02x".format(it) }.take(32)
     }

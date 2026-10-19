@@ -1510,6 +1510,30 @@ class PlaybackCacheManager(
                 runCatching { store.insertSync(entry) }
                 Logger.i(TAG) { "entry[${key.take(8)}]: registered '${entry.animeTitle}' EP ${entry.episodeNumber} [${entry.serverKey}]" }
             } else {
+                // D-764: the upstream URL is refreshed for a KNOWN entry — but
+                // the cached ranges may belong to DIFFERENT bytes. A resolve
+                // hands out a fresh SIGNATURE every time (the same file — the
+                // cache must keep hitting), while a re-encode or a moved path
+                // means a DIFFERENT file under the same identity. The URL's
+                // IDENTITY fingerprint tells the two apart: when it changed,
+                // the cached ranges are dropped, so the old bytes are never
+                // served for the new file (a video that plays the first ten
+                // seconds and then glitches into the previous encode).
+                val storedFingerprint = PlaybackCacheIdentity.urlFingerprint(entry.upstreamUrl)
+                val newFingerprint = PlaybackCacheIdentity.urlFingerprint(descriptor.url)
+                if (storedFingerprint.isNotEmpty() && newFingerprint.isNotEmpty() && storedFingerprint != newFingerprint) {
+                    Logger.w(TAG) {
+                        "entry[${key.take(8)}]: the upstream FILE changed " +
+                            "(fingerprint $storedFingerprint -> $newFingerprint) — " +
+                            "resetting the cached ranges so the old bytes are not served for the new file"
+                    }
+                    runCatching { binFile(key).delete() }
+                    runCatching { segDir(key).deleteRecursively() }
+                    runCatching {
+                        store.updateProgressSync(key, 0L, emptyList(), false, null, "video/mp4")
+                    }
+                    entry = entry.copy(cachedBytes = 0L, cachedRanges = emptyList(), complete = false)
+                }
                 runCatching {
                     store.updateUpstreamSync(key, descriptor.url, descriptor.headers, descriptor.subtitleTracks, descriptor.audioTracks)
                 }
