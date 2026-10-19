@@ -39,8 +39,10 @@ data class CsWatchKey(
      * summary/preview_url, so CS content gets real descriptions + thumbs.
      */
     val episodeMetadataSerialized: String = "",
-    /** Resume hint in ms; 0 = fresh (the screen still self-checks the progress store). */
-    val startPosition: Long = 0L,
+    /** Resume hint in MILLISECONDS; 0 = fresh (the screen still self-checks the progress store).
+     *  D-761 (PB-8): the unit is MILLISECONDS — now the SAME contract as the
+     *  AniList watch key (the two keys disagreeing was a latent 1000x bug). */
+    val startPositionMs: Long = 0L,
     /**
      * D-539 (payload widened by D-548): the OFFLINE entry point — the raw
      * `csdash:` marker payload of a DOWNLOADED episode. TWO modes (the

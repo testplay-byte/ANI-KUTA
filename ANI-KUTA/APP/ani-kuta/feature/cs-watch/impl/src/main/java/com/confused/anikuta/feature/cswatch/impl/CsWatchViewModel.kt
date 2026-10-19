@@ -354,7 +354,7 @@ class CsWatchViewModel(
             engineResetTick = _uiState.value.engineResetTick + 1,
         )
         viewModelScope.launch {
-            val resumeMs = if (key.startPosition > 0) key.startPosition else lookupResumePositionMs()
+            val resumeMs = if (key.startPositionMs > 0) key.startPositionMs else lookupResumePositionMs()
             // R13-REVIEW F2: re-validate after the (suspending) resume lookup.
             if (_uiState.value.resolveGeneration == generation && currentKey == key) {
                 requestPlay(
@@ -416,7 +416,7 @@ class CsWatchViewModel(
         observeProgress(key.mainId)
         Logger.i(TAG) {
             "open: '${key.animeTitle}' EP ${key.episodeNumber} provider=${key.providerName} " +
-                "mainId=${key.mainId.take(8)}… episodes=${key.parseEpisodeList().size} resumeHint=${key.startPosition}ms"
+                "mainId=${key.mainId.take(8)}… episodes=${key.parseEpisodeList().size} resumeHint=${key.startPositionMs}ms"
         }
         _uiState.value = CsWatchUiState(
             animeTitle = key.animeTitle,
@@ -461,7 +461,7 @@ class CsWatchViewModel(
             engineResetTick = _uiState.value.engineResetTick + 1,
         )
         viewModelScope.launch {
-            val resumeMs = if (key.startPosition > 0) key.startPosition else lookupResumePositionMs()
+            val resumeMs = if (key.startPositionMs > 0) key.startPositionMs else lookupResumePositionMs()
             if (_uiState.value.resolveGeneration == generation && currentKey == key) {
                 _uiState.value = _uiState.value.copy(subtitles = resolveOfflineSubtitles(key))
                 // D-550: the height pin rides ONLY the legacy cache payload.
@@ -577,7 +577,7 @@ class CsWatchViewModel(
         }
         resolveJob = viewModelScope.launch {
             var firstLinkPlayed = false
-            val initialResume = key.startPosition
+            val initialResume = key.startPositionMs
             // Per-handle snapshots — merged with url dedup (first wins).
             val perHandle = mutableMapOf<Int, List<CsVideoLink>>()
             val perHandleSubs = mutableMapOf<Int, List<com.confused.anikuta.core.csplayer.CsSubtitle>>()

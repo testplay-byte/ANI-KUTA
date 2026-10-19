@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -580,6 +581,11 @@ fun WatchScreen(
     val loadingState by stateHolder.loadingState.collectAsState()
     var hasResumed by remember { mutableStateOf(false) }
 
+    // D-761: the player's one-shot ACTION BANNER (D-751's "Resume from mm:ss"
+    // offer and D-752's next-episode action share one surface). Null = no
+    // banner. The banner clears itself after RESUME_OFFER_MS.
+    var actionBanner by remember { mutableStateOf<PlayerActionBanner?>(null) }
+
     // D-247: when playback fails while playing through the CACHE, the next retry
     // bypasses the cache entirely (direct network) — the episode must never fail
     // because of the cache. Reset on successful load (READY) + on video switches.
@@ -607,21 +613,70 @@ fun WatchScreen(
                     .onFailure { Logger.w(TAG) { "resetAutoMarkSuppressed failed: ${it.message}" } }
                     .onSuccess { Logger.d(TAG) { "resetAutoMarkSuppressed: key=$epKey (re-armed)" } }
             }
-            // WP-B3: seek to the saved resume position (only on the initial load).
-            // If watchKey.startPosition is > 0 (passed from DetailsScreen), use it.
-            // Otherwise look up from the watch progress store directly.
+            // D-761 (PB-4 + PB-8): the resume contract. The old code seeked to
+            // whatever position was stored — including the position of an
+            // episode the user had ALREADY FINISHED, which landed the video at
+            // its very end ("the episode starts already over").
+            //
+            // Now the policy decides:
+            //  - a COMPLETED episode (or one whose stored position is past the
+            //    watched threshold) starts at 0, and the old position is
+            //    OFFERED for a few seconds;
+            //  - anything below the threshold resumes at the stored position.
+            //
+            // Units: the nav key is MILLISECONDS (D-761/PB-8 — the two keys
+            // disagreed, one in seconds and one in ms); the watch-progress
+            // STORE is in seconds (its own legacy contract). The conversion
+            // happens here, once, and MPV's seek command gets seconds.
             if (!hasResumed) {
                 hasResumed = true
-                val resumePos = if (watchKey.startPosition > 0) {
-                    watchKey.startPosition
+                val initialEpKey = buildEpisodeKey(watchKey.mainId, watchKey.episodeNumber)
+                val stored = if (watchKey.startPositionMs > 0L) {
+                    null
                 } else {
-                    val initialEpKey = buildEpisodeKey(watchKey.mainId, watchKey.episodeNumber)
-                    runCatching { watchProgressStore.get(initialEpKey) }.getOrNull()?.position ?: 0L
+                    runCatching { watchProgressStore.get(initialEpKey) }.getOrNull()
                 }
-                if (resumePos > 0) {
-                    delay(300L) // ensure MPV has fully processed FILE_LOADED before seeking
-                    MPVLib.command(arrayOf("seek", resumePos.toString(), "absolute"))
-                    Logger.i(TAG) { "WP-B3: Resumed from position ${resumePos}s" }
+                val storedPositionMs = when {
+                    watchKey.startPositionMs > 0L -> watchKey.startPositionMs
+                    stored != null -> stored.position * 1000L
+                    else -> 0L
+                }
+                val storedDurationMs = (stored?.duration ?: 0L) * 1000L
+                val plan = com.confused.anikuta.core.player.PlaybackResumePolicy.plan(
+                    storedPositionMs = storedPositionMs,
+                    durationMs = storedDurationMs,
+                    isCompleted = stored?.completed == true,
+                )
+                when (plan.decision) {
+                    com.confused.anikuta.core.player.PlaybackResumePolicy.StartDecision.RESUME_AT_POSITION -> {
+                        if (plan.resumePositionMs > 0L) {
+                            delay(300L) // ensure MPV has fully processed FILE_LOADED before seeking
+                            val seconds = com.confused.anikuta.core.player.PlaybackResumePolicy.toMpvSeconds(plan.resumePositionMs)
+                            MPVLib.command(arrayOf("seek", seconds.toString(), "absolute"))
+                            Logger.i(TAG) { "D-761: Resumed from ${plan.resumePositionMs}ms" }
+                        }
+                    }
+                    com.confused.anikuta.core.player.PlaybackResumePolicy.StartDecision.START_FROM_BEGINNING -> {
+                        if (plan.offerResume) {
+                            // D-751: the offer — the user can jump back to where
+                            // they stopped. It disappears on its own after a few
+                            // seconds (the effect below).
+                            val resumeMs = plan.resumePositionMs
+                            actionBanner = PlayerActionBanner(
+                                message = "Resume from ${com.confused.anikuta.core.player.PlaybackResumePolicy.formatTimestamp(resumeMs)}?",
+                                actionLabel = "Resume",
+                            ) {
+                                val seconds = com.confused.anikuta.core.player.PlaybackResumePolicy.toMpvSeconds(resumeMs)
+                                MPVLib.command(arrayOf("seek", seconds.toString(), "absolute"))
+                                actionBanner = null
+                                Logger.i(TAG) { "D-761: the user resumed at ${resumeMs}ms" }
+                            }
+                            Logger.i(TAG) {
+                                "D-761: starting from the beginning (the episode is watched) - offering " +
+                                    "the old position ${plan.resumePositionMs}ms"
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1521,6 +1576,53 @@ fun WatchScreen(
         }
     }
 
+    // ── D-761: the action banner + the end-of-episode contract ──
+    //
+    // The banner clears itself: D-751's "Resume from mm:ss" offer is a
+    // five-second courtesy, not a modal.
+    LaunchedEffect(actionBanner) {
+        val banner = actionBanner ?: return@LaunchedEffect
+        delay(com.confused.anikuta.core.player.PlaybackResumePolicy.RESUME_OFFER_MS)
+        if (actionBanner === banner) actionBanner = null
+    }
+
+    // D-752 (PB-2): the next-episode ACTION at 95 %/outro, and the
+    // auto-advance per the user's `autoPlayNext` preference. The MPV stack
+    // never advanced on its own (the CloudStream stack does) — the end of an
+    // episode simply stopped.
+    LaunchedEffect(mpvInitialized) {
+        if (!mpvInitialized) return@LaunchedEffect
+        var autoAdvanceStarted = false
+        while (true) {
+            delay(500L)
+            val positionMs = stateHolder.position.value * 1000L
+            val durationMs = stateHolder.duration.value * 1000L
+            if (!com.confused.anikuta.core.player.PlaybackResumePolicy.shouldOfferNextEpisode(positionMs, durationMs)) {
+                continue
+            }
+            // The next episode in the list (the same lookup the skip button uses).
+            val currentUrl = stateHolder.currentEpisodeUrl.value
+            val currentIndex = episodeList.indexOfFirst { it.url == currentUrl }
+            val nextEpisode = episodeList.getOrNull(currentIndex + 1) ?: continue
+            if (playerPreferences.autoPlayNext) {
+                if (autoAdvanceStarted) continue
+                autoAdvanceStarted = true
+                // A beat of credits before the switch.
+                delay(1_500L)
+                Logger.i(TAG) { "D-761: auto-advancing to episode ${nextEpisode.episodeNumber}" }
+                onEpisodeSwitch(nextEpisode)
+            } else if (actionBanner == null) {
+                actionBanner = PlayerActionBanner(
+                    message = "Next: ${nextEpisode.name.ifBlank { "episode ${nextEpisode.episodeNumber}" }}",
+                    actionLabel = "Play",
+                ) {
+                    actionBanner = null
+                    onEpisodeSwitch(nextEpisode)
+                }
+            }
+        }
+    }
+
     if (playerMode == PlayerMode.FULLSCREEN) {
         FullscreenMode(
             watchKey = watchKey,
@@ -1541,6 +1643,8 @@ fun WatchScreen(
             isSwitchingEpisode = isSwitchingEpisode,
             switchingEpisodeTitle = currentEpisodeTitle,
             currentSpeed = stateHolder.playbackSpeed.collectAsState().value,
+            actionBanner = actionBanner,
+            onDismissActionBanner = { actionBanner = null },
         )
     } else {
         MinimizedMode(
@@ -1566,6 +1670,8 @@ fun WatchScreen(
             currentEpisodeUrl = currentEpisodeUrl,
             currentEpisodeNumber = currentEpisodeNumber,
             currentEpisodeTitle = currentEpisodeTitle,
+            actionBanner = actionBanner,
+            onDismissActionBanner = { actionBanner = null },
         )
     }
 
@@ -1687,6 +1793,9 @@ private fun MinimizedMode(
     currentEpisodeUrl: String = "",
     currentEpisodeNumber: Float = 0f,
     currentEpisodeTitle: String = "",
+    // D-761: the one-shot action banner (the resume offer / the next-episode action).
+    actionBanner: PlayerActionBanner? = null,
+    onDismissActionBanner: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
 
@@ -2056,6 +2165,18 @@ private fun MinimizedMode(
                 if (isSwitchingEpisode) {
                     EpisodeSwitchingOverlay(
                         episodeTitle = switchingEpisodeTitle.ifBlank { null },
+                    )
+                }
+
+                // D-761: the one-shot action banner over the player (the resume
+                // offer / the next-episode action).
+                actionBanner?.let { banner ->
+                    PlayerActionBannerView(
+                        banner = banner,
+                        onDismiss = onDismissActionBanner,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(8.dp),
                     )
                 }
             }
@@ -2682,6 +2803,9 @@ private fun FullscreenMode(
     isSwitchingEpisode: Boolean = false,
     switchingEpisodeTitle: String = "",
     currentSpeed: Float = 1.0f,
+    // D-761: the one-shot action banner (the resume offer / the next-episode action).
+    actionBanner: PlayerActionBanner? = null,
+    onDismissActionBanner: () -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -2723,6 +2847,73 @@ private fun FullscreenMode(
             EpisodeSwitchingOverlay(
                 episodeTitle = switchingEpisodeTitle.ifBlank { null },
             )
+        }
+
+        // D-761: the one-shot action banner over the player (the resume offer /
+        // the next-episode action).
+        actionBanner?.let { banner ->
+            PlayerActionBannerView(
+                banner = banner,
+                onDismiss = onDismissActionBanner,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp),
+            )
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-761: the player's one-shot action banner
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * D-761 (round 126 — the end-of-episode + resume contract): the ONE-SHOT
+ * ACTION BANNER — the surface for D-751's "Resume from mm:ss" offer and
+ * D-752's next-episode action.
+ *
+ * @param message the line to show
+ * @param actionLabel the action's label
+ * @param onAction what the action does
+ */
+data class PlayerActionBanner(
+    val message: String,
+    val actionLabel: String,
+    val onAction: () -> Unit,
+)
+
+/**
+ * The banner itself — a small surface over the player with the message, the
+ * action and a dismiss.
+ */
+@Composable
+private fun PlayerActionBannerView(
+    banner: PlayerActionBanner,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = banner.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                modifier = Modifier.widthIn(max = 240.dp),
+            )
+            androidx.compose.material3.TextButton(onClick = banner.onAction) {
+                Text(banner.actionLabel)
+            }
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text("Dismiss")
+            }
         }
     }
 }

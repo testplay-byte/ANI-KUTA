@@ -2914,7 +2914,7 @@ private fun buildWatchKeyFromCacheEntry(
         subtitleTracksSerialized = entry.subtitleTracks,
         audioTracksSerialized = entry.audioTracks,
         episodeMetadataSerialized = "",
-        startPosition = 0L, // WP-B3 falls back to the watch-progress store lookup.
+        startPositionMs = 0L, // WP-B3 falls back to the watch-progress store lookup.
     )
 }
 

@@ -78,11 +78,14 @@ data class WatchKey(
      *  Empty string = no metadata available (episode list shows basic rows). */
     val episodeMetadataSerialized: String = "",
 
-    /** Resume position in seconds (from saved WatchProgress).
-     *  0 = no resume (start from beginning). WatchScreen seeks to this position
+    /** Resume position in MILLISECONDS (from saved WatchProgress).
+     *  0 = no resume (start from beginning). WatchScreen converts it to the
+     *  seconds MPV's seek command wants (PlaybackResumePolicy.toMpvSeconds)
      *  after FILE_LOADED (only on the initial load, not on quality/episode switch).
-     *  Phase WP-B3: enables "click same episode → plays from where you left off". */
-    val startPosition: Long = 0L,
+     *  Phase WP-B3: enables "click same episode -> plays from where you left off".
+     *  D-761 (PB-8): the unit is MILLISECONDS — the CS key already used ms and
+     *  the two keys disagreeing was a latent 1000x bug. */
+    val startPositionMs: Long = 0L,
 
     /**
      * ROUND 101 (WS-D): the details page's cover-derived accent (ARGB as a
