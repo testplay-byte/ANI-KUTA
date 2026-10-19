@@ -100,6 +100,7 @@ repo-root/
 - **If the project changes, the docs reflect it** — same session, not "later".
 - Do not over-document file structure. Document what's non-obvious.
 - No generic advice. Specific, actionable rules only.
+- **User-facing reports get an HTML companion.** Backlogs, audits, analyses, and round summaries the user reads are delivered as a self-contained, editable HTML file beside the Markdown source — same facts, same session. Format + template: `knowledge/reporting-format.md`, `templates/html-report-template.html`. Charts/diagrams welcome; no external dependencies.
 
 ---
 

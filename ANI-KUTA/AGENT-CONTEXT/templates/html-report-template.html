@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REPORT TITLE — ANI-KUTA</title>
+<!--
+  ANI-KUTA HTML report template
+  =============================
+  1. Copy this file next to its Markdown source: <Name>.md -> <Name>.html
+  2. Replace the hero, stats labels, batches, items, and panels.
+  3. Keep the CSS variables + <script> at the bottom intact.
+  4. Counts, filters, collapse, and charts are derived from the DOM — never hardcode numbers.
+  5. One item = one <article class="item" data-sev="...">.
+     One group = one <details class="batch" data-batch="A">.
+  6. Rules + checklist: AGENT-CONTEXT/knowledge/reporting-format.md
+  No CDNs, no external fonts, no build step. Must work from file://.
+-->
+<style>
+  :root{
+    --bg:#22252c;
+    --bg-raised:#2a2e37;
+    --bg-card:#32363f;
+    --bg-deep:#1a1d23;
+    --bg-evidence:#262a32;
+
+    --text:#e8ecf2;
+    --text-soft:#b0b8c8;
+    --text-faint:#7d8595;
+
+    --accent:#7b8fff;
+    --accent-soft:#2a2e40;
+
+    --sh-dark:#141619;
+    --sh-dark-soft:#1a1d22;
+    --sh-light:#3a3f4a;
+
+    --high:#f87171;
+    --high-bg:#2d2326;
+    --med-high:#fb923c;
+    --med-high-bg:#2d2823;
+    --medium:#fbbf24;
+    --medium-bg:#2d2a20;
+    --low:#4ade80;
+    --low-bg:#222c26;
+    --info:#60a5fa;
+    --info-bg:#222833;
+    --large:#c084fc;
+    --large-bg:#282338;
+
+    --radius:18px;
+    --radius-sm:12px;
+    --font:'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+
+  body{
+    font-family:var(--font);
+    background:var(--bg);
+    color:var(--text);
+    line-height:1.6;
+    font-size:15px;
+    padding:28px 18px 80px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .page{max-width:1180px;margin:0 auto}
+
+  /* ---------- Hero ---------- */
+  .hero{
+    padding:38px 40px;
+    margin-bottom:26px;
+    position:relative;
+    overflow:hidden;
+    background:linear-gradient(135deg,#2a2e37 0%,#23272f 100%);
+    border-radius:var(--radius);
+    box-shadow:8px 8px 18px var(--sh-dark),-8px -8px 18px var(--sh-light);
+  }
+  .hero::after{
+    content:"";
+    position:absolute;
+    top:-70px;right:-70px;
+    width:240px;height:240px;
+    border-radius:50%;
+    background:radial-gradient(circle at 35% 35%, #343945, #1f2228);
+    box-shadow:inset 4px 4px 10px #141619, inset -4px -4px 10px #3a3f4a;
+    opacity:.9;
+    pointer-events:none;
+  }
+  .hero-eyebrow{
+    font-size:.72rem;
+    letter-spacing:.22em;
+    text-transform:uppercase;
+    color:var(--accent);
+    font-weight:700;
+    margin-bottom:10px;
+  }
+  .hero h1{
+    font-size:clamp(1.7rem,4vw,2.5rem);
+    font-weight:800;
+    letter-spacing:-.02em;
+    color:var(--text);
+    line-height:1.15;
+  }
+  .hero p.lede{
+    margin-top:12px;
+    max-width:720px;
+    color:var(--text-soft);
+    font-size:1rem;
+  }
+  .meta-chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    margin-top:22px;
+    position:relative;
+    z-index:1;
+  }
+  .chip{
+    font-size:.78rem;
+    font-weight:600;
+    color:var(--text-soft);
+    background:var(--bg-raised);
+    border-radius:999px;
+    padding:7px 15px;
+    box-shadow:4px 4px 9px var(--sh-dark-soft),-4px -4px 9px var(--sh-light);
+    white-space:nowrap;
+  }
+  .chip strong{color:var(--text)}
+  .chip .dot{
+    display:inline-block;width:7px;height:7px;border-radius:50%;
+    background:var(--accent);margin-right:7px;vertical-align:middle;
+    box-shadow:0 0 8px var(--accent);
+  }
+
+  /* ---------- Stats ---------- */
+  .stats{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+    gap:16px;
+    margin-bottom:26px;
+  }
+  .stat{
+    padding:20px 18px;
+    text-align:center;
+    border-radius:var(--radius);
+    background:var(--bg-raised);
+    box-shadow:7px 7px 16px var(--sh-dark),-7px -7px 16px var(--sh-light);
+    transition:transform .2s ease, box-shadow .2s ease;
+  }
+  .stat:hover{
+    transform:translateY(-2px);
+    box-shadow:9px 9px 20px var(--sh-dark),-9px -9px 20px var(--sh-light);
+  }
+  .stat .num{font-size:1.75rem;font-weight:800;line-height:1;letter-spacing:-.02em}
+  .stat .label{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);margin-top:8px;font-weight:700}
+
+  .stat.total{background:#292d36}
+  .stat.total .num{color:var(--accent)}
+  .stat.high{background:var(--high-bg)}
+  .stat.high .num{color:var(--high)}
+  .stat.med-high{background:var(--med-high-bg)}
+  .stat.med-high .num{color:var(--med-high)}
+  .stat.medium{background:var(--medium-bg)}
+  .stat.medium .num{color:var(--medium)}
+  .stat.low{background:var(--low-bg)}
+  .stat.low .num{color:var(--low)}
+  .stat.info{background:var(--info-bg)}
+  .stat.info .num{color:var(--info)}
+
+  /* ---------- Filter bar ---------- */
+  .filters{
+    position:sticky;
+    top:14px;
+    z-index:50;
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:10px;
+    padding:14px 18px;
+    margin-bottom:26px;
+    border-radius:var(--radius);
+    background:var(--bg-raised);
+    box-shadow:8px 8px 18px var(--sh-dark),-8px -8px 18px var(--sh-light);
+  }
+  .filters .spacer{flex:1}
+  .filter-btn{
+    font-family:inherit;
+    font-size:.8rem;
+    font-weight:700;
+    color:var(--text-soft);
+    background:var(--bg-raised);
+    border:none;
+    cursor:pointer;
+    padding:9px 16px;
+    border-radius:999px;
+    box-shadow:4px 4px 9px var(--sh-dark-soft),-4px -4px 9px var(--sh-light);
+    transition:all .18s ease;
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+  }
+  .filter-btn:hover{color:var(--text)}
+  .filter-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .filter-btn .count{
+    font-size:.7rem;
+    background:#1e2128;
+    color:var(--text-faint);
+    border-radius:999px;
+    padding:1px 7px;
+    font-weight:800;
+  }
+  .filter-btn.active{
+    color:#1a1c22;
+    box-shadow:0 4px 12px rgba(0,0,0,.4), inset 0 -2px 4px rgba(0,0,0,.25), inset 0 2px 4px rgba(255,255,255,.3);
+  }
+  .filter-btn.active .count{background:rgba(0,0,0,.2);color:#1a1c22}
+
+  .filter-btn[data-filter="all"].active{background:var(--accent)}
+  .filter-btn[data-filter="high"].active{background:var(--high)}
+  .filter-btn[data-filter="med-high"].active{background:var(--med-high)}
+  .filter-btn[data-filter="medium"].active{background:var(--medium)}
+  .filter-btn[data-filter="low"].active{background:var(--low)}
+  .filter-btn[data-filter="info"].active{background:var(--info)}
+
+  .filter-btn[data-filter="high"]:not(.active){color:var(--high)}
+  .filter-btn[data-filter="med-high"]:not(.active){color:var(--med-high)}
+  .filter-btn[data-filter="medium"]:not(.active){color:var(--medium)}
+  .filter-btn[data-filter="low"]:not(.active){color:var(--low)}
+  .filter-btn[data-filter="info"]:not(.active){color:var(--info)}
+
+  /* ---------- Batch color themes ---------- */
+  .batch{
+    margin-bottom:22px;
+    border-radius:var(--radius);
+    box-shadow:9px 9px 20px var(--sh-dark),-9px -9px 20px var(--sh-light);
+    overflow:hidden;
+    border-left:7px solid var(--batch);
+    background:var(--batch-bg);
+    transition:box-shadow .2s ease;
+  }
+
+  .batch[data-batch="A"]{--batch:#5b8def;--batch-bg:#2a303d;--batch-deep:#222834}
+  .batch[data-batch="B"]{--batch:#a78bfa;--batch-bg:#2d293b;--batch-deep:#262132}
+  .batch[data-batch="C"]{--batch:#f26b6b;--batch-bg:#352b30;--batch-deep:#2c2327}
+  .batch[data-batch="D"]{--batch:#3dd6c9;--batch-bg:#283436;--batch-deep:#202b2d}
+  .batch[data-batch="E"]{--batch:#f5a35c;--batch-bg:#352f27;--batch-deep:#2c271f}
+  .batch[data-batch="F"]{--batch:#e879b9;--batch-bg:#352b33;--batch-deep:#2c232a}
+  .batch[data-batch="G"]{--batch:#4ade80;--batch-bg:#283429;--batch-deep:#202b21}
+  .batch[data-batch="H"]{--batch:#f5c542;--batch-bg:#353022;--batch-deep:#2c281b}
+  .batch[data-batch="I"]{--batch:#38bdf8;--batch-bg:#27343f;--batch-deep:#1f2b35}
+  /* Add J, K, ... by copying a line above. */
+
+  .batch > summary{
+    list-style:none;
+    cursor:pointer;
+    padding:20px 26px;
+    display:flex;
+    align-items:center;
+    gap:16px;
+    user-select:none;
+    transition:background .15s ease;
+  }
+  .batch > summary::-webkit-details-marker{display:none}
+  .batch > summary:hover{background:rgba(255,255,255,.04)}
+  .batch > summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .batch-letter{
+    width:44px;height:44px;
+    flex:0 0 44px;
+    border-radius:14px;
+    display:grid;place-items:center;
+    font-weight:800;
+    font-size:1.05rem;
+    color:#1a1c22;
+    background:var(--batch);
+    box-shadow:0 4px 12px rgba(0,0,0,.35), inset 0 -2px 4px rgba(0,0,0,.2), inset 0 2px 4px rgba(255,255,255,.35);
+  }
+  .batch-title{flex:1;min-width:0}
+  .batch-title h2{
+    font-size:1.1rem;
+    font-weight:800;
+    letter-spacing:-.01em;
+    color:var(--text);
+  }
+  .batch-title .sub{
+    font-size:.8rem;
+    color:var(--text-soft);
+    margin-top:2px;
+  }
+  .batch-count{
+    font-size:.74rem;
+    font-weight:800;
+    color:#1a1c22;
+    background:var(--batch);
+    border-radius:999px;
+    padding:5px 12px;
+    box-shadow:0 2px 8px rgba(0,0,0,.3);
+    white-space:nowrap;
+  }
+  .batch-chevron{
+    width:26px;height:26px;
+    border-radius:50%;
+    display:grid;place-items:center;
+    color:var(--batch);
+    background:var(--batch-deep);
+    box-shadow:0 2px 6px rgba(0,0,0,.35), inset 1px 1px 2px rgba(255,255,255,.05);
+    transition:transform .25s ease, color .2s ease;
+    flex:0 0 26px;
+  }
+  .batch[open] > summary .batch-chevron{transform:rotate(180deg)}
+  .batch-body{
+    padding:4px 26px 26px;
+    display:grid;
+    gap:16px;
+  }
+
+  /* ---------- Item card ---------- */
+  .item{
+    position:relative;
+    padding:22px 24px 22px 28px;
+    border-radius:var(--radius-sm);
+    background:var(--bg-card);
+    box-shadow:5px 5px 12px var(--sh-dark-soft),-5px -5px 12px var(--sh-light);
+    transition:box-shadow .2s ease, transform .2s ease;
+  }
+  .item:hover{
+    transform:translateY(-1px);
+    box-shadow:7px 7px 16px var(--sh-dark-soft),-7px -7px 16px var(--sh-light);
+  }
+  .item::before{
+    content:"";
+    position:absolute;
+    left:10px;top:18px;bottom:18px;
+    width:5px;border-radius:999px;
+    background:var(--sev-color, var(--medium));
+    box-shadow:0 0 12px var(--sev-color, var(--medium));
+    opacity:.9;
+  }
+  .item[data-sev="high"]{--sev-color:var(--high)}
+  .item[data-sev="med-high"]{--sev-color:var(--med-high)}
+  .item[data-sev="medium"]{--sev-color:var(--medium)}
+  .item[data-sev="low-med"]{--sev-color:var(--low)}
+  .item[data-sev="low"]{--sev-color:var(--low)}
+  .item[data-sev="large"]{--sev-color:var(--large)}
+  .item[data-sev="info"]{--sev-color:var(--info)}
+
+  .item-top{
+    display:flex;
+    align-items:flex-start;
+    gap:12px;
+    flex-wrap:wrap;
+    margin-bottom:10px;
+  }
+  .item-id{
+    font-size:.72rem;
+    font-weight:800;
+    letter-spacing:.06em;
+    color:var(--text-soft);
+    background:#262a32;
+    border-radius:8px;
+    padding:4px 10px;
+    white-space:nowrap;
+    box-shadow:inset 2px 2px 4px rgba(0,0,0,.4), inset -2px -2px 4px rgba(255,255,255,.04);
+  }
+  .item-title{
+    font-size:1rem;
+    font-weight:700;
+    color:var(--text);
+    flex:1;
+    min-width:200px;
+    line-height:1.4;
+  }
+  .sev-badge{
+    font-size:.68rem;
+    font-weight:800;
+    letter-spacing:.09em;
+    text-transform:uppercase;
+    padding:5px 11px;
+    border-radius:999px;
+    white-space:nowrap;
+    color:#1a1c22;
+    background:var(--sev-color, var(--medium));
+    box-shadow:0 2px 8px rgba(0,0,0,.3), inset 0 -1px 3px rgba(0,0,0,.2), inset 0 1px 3px rgba(255,255,255,.3);
+  }
+
+  .item-body{font-size:.9rem;color:var(--text-soft)}
+  .item-body p{margin-bottom:9px}
+  .item-body p:last-child{margin-bottom:0}
+  .item-body .lbl{
+    display:inline-block;
+    font-size:.68rem;
+    font-weight:800;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--text-faint);
+    margin-right:6px;
+  }
+  .item-body code{
+    font-family:'JetBrains Mono','Cascadia Code',Consolas,monospace;
+    font-size:.82em;
+    background:#1a1d23;
+    padding:1px 6px;
+    border-radius:6px;
+    color:#b8c0cc;
+    box-shadow:inset 1px 1px 2px rgba(0,0,0,.5);
+  }
+  .item-body ul{
+    margin:4px 0 9px 0;
+    padding-left:20px;
+  }
+  .item-body li{margin-bottom:4px}
+  .item-body strong{color:var(--text);font-weight:700}
+  .item-body .evidence{
+    background:var(--bg-evidence);
+    border-radius:10px;
+    padding:10px 14px;
+    margin-bottom:10px;
+    font-size:.84rem;
+    box-shadow:inset 2px 2px 5px var(--sh-dark), inset -2px -2px 5px rgba(255,255,255,.04);
+  }
+  .item-body .evidence .lbl{display:block;margin-bottom:4px}
+
+  /* ---------- Panels ---------- */
+  .panel{
+    margin-bottom:22px;
+    padding:26px 30px;
+    border-radius:var(--radius);
+    box-shadow:9px 9px 20px var(--sh-dark),-9px -9px 20px var(--sh-light);
+    border-left:7px solid var(--panel-color, var(--accent));
+    background:var(--panel-bg, #292d36);
+  }
+  .panel.facts{--panel-color:#5b8def;--panel-bg:#232a36}
+  .panel.donts{--panel-color:#f5c542;--panel-bg:#2c281e}
+  .panel.decisions{--panel-color:#a78bfa;--panel-bg:#282338}
+  .panel.order{--panel-color:#4ade80;--panel-bg:#222c24}
+
+  .panel h2{
+    font-size:1.15rem;
+    font-weight:800;
+    letter-spacing:-.01em;
+    margin-bottom:6px;
+    color:var(--text);
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .panel h2 .icon{
+    width:30px;height:30px;
+    border-radius:9px;
+    display:grid;place-items:center;
+    font-size:.9rem;
+    color:#1a1c22;
+    background:var(--panel-color);
+    box-shadow:0 2px 8px rgba(0,0,0,.3);
+    flex:0 0 30px;
+    font-weight:800;
+  }
+  .panel .panel-sub{color:var(--text-soft);font-size:.85rem;margin-bottom:18px}
+
+  .facts-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+    gap:14px;
+  }
+  .fact{
+    padding:16px 18px;
+    border-radius:var(--radius-sm);
+    background:var(--bg-card);
+    box-shadow:4px 4px 10px rgba(0,0,0,.35), -4px -4px 10px rgba(255,255,255,.04);
+    font-size:.85rem;
+    color:var(--text-soft);
+  }
+  .fact strong{
+    display:block;
+    font-size:.72rem;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    margin-bottom:5px;
+    color:var(--info);
+  }
+
+  .dont-list, .decision-list, .order-list{
+    list-style:none;
+    display:grid;
+    gap:10px;
+    margin-top:6px;
+  }
+  .dont-list li, .decision-list li, .order-list li{
+    position:relative;
+    padding:12px 16px 12px 44px;
+    border-radius:var(--radius-sm);
+    background:var(--bg-card);
+    box-shadow:4px 4px 10px rgba(0,0,0,.35), -4px -4px 10px rgba(255,255,255,.04);
+    font-size:.88rem;
+    color:var(--text-soft);
+  }
+  .dont-list li::before{
+    content:"×";
+    position:absolute;left:16px;top:50%;transform:translateY(-50%);
+    width:20px;height:20px;border-radius:50%;
+    display:grid;place-items:center;
+    font-size:.8rem;font-weight:800;
+    color:#1a1c22;background:var(--med-high);
+    box-shadow:0 2px 6px rgba(0,0,0,.3);
+  }
+  .decision-list{counter-reset:dec}
+  .decision-list li::before{
+    counter-increment:dec;
+    content:counter(dec);
+    position:absolute;left:14px;top:50%;transform:translateY(-50%);
+    width:22px;height:22px;border-radius:50%;
+    display:grid;place-items:center;
+    font-size:.72rem;font-weight:800;
+    color:#1a1c22;background:var(--large);
+    box-shadow:0 2px 6px rgba(0,0,0,.3);
+  }
+  .order-list{counter-reset:ord}
+  .order-list li::before{
+    counter-increment:ord;
+    content:counter(ord);
+    position:absolute;left:14px;top:50%;transform:translateY(-50%);
+    width:22px;height:22px;border-radius:50%;
+    display:grid;place-items:center;
+    font-size:.72rem;font-weight:800;
+    color:#1a1c22;background:var(--low);
+    box-shadow:0 2px 6px rgba(0,0,0,.3);
+  }
+
+  /* ---------- Charts (data-driven) ---------- */
+  .insights{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+    gap:16px;
+    margin-bottom:26px;
+  }
+  .chart-card{
+    padding:22px 24px;
+    border-radius:var(--radius);
+    background:var(--bg-raised);
+    box-shadow:8px 8px 18px var(--sh-dark),-8px -8px 18px var(--sh-light);
+  }
+  .chart-card h2{
+    font-size:.95rem;
+    font-weight:800;
+    letter-spacing:.02em;
+    margin-bottom:4px;
+  }
+  .chart-card .chart-sub{
+    font-size:.76rem;
+    color:var(--text-faint);
+    margin-bottom:16px;
+  }
+  .bar-chart{display:grid;gap:10px}
+  .bar-row{
+    display:grid;
+    grid-template-columns:92px 1fr 34px;
+    align-items:center;
+    gap:10px;
+    font-size:.76rem;
+    color:var(--text-soft);
+  }
+  .bar-label{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-track{
+    height:14px;
+    border-radius:999px;
+    background:#1a1d23;
+    box-shadow:inset 2px 2px 4px rgba(0,0,0,.55), inset -1px -1px 3px rgba(255,255,255,.04);
+    overflow:hidden;
+  }
+  .bar-fill{
+    display:block;
+    height:100%;
+    border-radius:999px;
+    background:var(--accent);
+    box-shadow:0 0 10px currentColor;
+    transition:width .35s ease;
+    min-width:2px;
+  }
+  .bar-value{text-align:right;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums}
+
+  /* ---------- Inline SVG diagram ---------- */
+  .diagram{
+    border-radius:var(--radius-sm);
+    background:var(--bg-evidence);
+    padding:18px;
+    box-shadow:inset 2px 2px 5px var(--sh-dark), inset -2px -2px 5px rgba(255,255,255,.04);
+    overflow-x:auto;
+  }
+  .diagram svg{display:block;width:100%;min-width:560px;height:auto}
+  .diagram .node{fill:#32363f;stroke:#3a3f4a;stroke-width:1.5}
+  .diagram .node-accent{fill:#2a2e40;stroke:var(--accent);stroke-width:1.5}
+  .diagram .node-text{fill:#e8ecf2;font-family:var(--font);font-size:13px;font-weight:700}
+  .diagram .edge{stroke:#5d6678;stroke-width:2;fill:none}
+  .diagram .edge-label{fill:#7d8595;font-family:var(--font);font-size:11px}
+  .diagram .arrow{fill:#5d6678}
+
+  .footer-note{
+    text-align:center;
+    color:var(--text-faint);
+    font-size:.78rem;
+    margin-top:34px;
+    letter-spacing:.04em;
+  }
+  .footer-note code{
+    background:#1a1d23;
+    padding:1px 6px;
+    border-radius:6px;
+    color:#b8c0cc;
+  }
+
+  .item.filtered-out{display:none}
+  .batch.filtered-out{display:none}
+
+  /* ---------- Responsive ---------- */
+  @media(max-width:640px){
+    body{padding:18px 12px 60px}
+    .hero{padding:28px 22px}
+    .hero::after{width:160px;height:160px;top:-50px;right:-50px}
+    .batch > summary{padding:16px 16px;gap:12px}
+    .batch-body{padding:0 14px 18px}
+    .item{padding:18px 16px 18px 22px}
+    .item::before{left:7px}
+    .panel{padding:20px 18px}
+    .filters{padding:12px;top:8px}
+    .filter-btn{padding:7px 12px;font-size:.74rem}
+    .bar-row{grid-template-columns:74px 1fr 28px}
+  }
+
+  @media(prefers-reduced-motion:reduce){
+    *{transition:none!important;animation:none!important}
+  }
+
+  /* ---------- Print ---------- */
+  @media print{
+    body{background:#fff;color:#111;padding:0}
+    .filters{position:static;box-shadow:none}
+    .batch,.item,.panel,.chart-card,.stat{box-shadow:none;border:1px solid #ddd}
+    .batch{break-inside:avoid}
+    .item{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="hero-eyebrow">Report type · Read-only audit</div>
+    <h1>REPORT TITLE</h1>
+    <p class="lede">
+      One-paragraph summary: what this report covers, where the facts came from, and what the
+      reader should do with it. Mirror the Markdown source.
+    </p>
+    <div class="meta-chips">
+      <span class="chip"><span class="dot"></span>Created <strong>YYYY-MM-DD</strong></span>
+      <span class="chip"><span class="dot"></span>Commit <strong>00000000</strong></span>
+      <span class="chip"><span class="dot"></span>Branch <strong>main</strong></span>
+      <span class="chip"><span class="dot"></span>Phase <strong>Debug-builds-only (D-738)</strong></span>
+    </div>
+  </header>
+
+  <!-- ============ STATS (auto) ============ -->
+  <section class="stats" aria-label="Severity overview">
+    <div class="stat total"><div class="num" data-total>—</div><div class="label">Total items</div></div>
+    <div class="stat high"><div class="num" data-count="high">—</div><div class="label">High</div></div>
+    <div class="stat med-high"><div class="num" data-count="med-high">—</div><div class="label">Med-High</div></div>
+    <div class="stat medium"><div class="num" data-count="medium">—</div><div class="label">Medium</div></div>
+    <div class="stat low"><div class="num" data-count="low">—</div><div class="label">Low</div></div>
+    <div class="stat info"><div class="num" data-count="info">—</div><div class="label">Info / Large</div></div>
+  </section>
+
+  <!-- ============ FILTERS (auto) ============ -->
+  <nav class="filters" aria-label="Filters">
+    <button class="filter-btn active" data-filter="all">All <span class="count" data-total>—</span></button>
+    <button class="filter-btn" data-filter="high">High <span class="count" data-count="high">—</span></button>
+    <button class="filter-btn" data-filter="med-high">Med-High <span class="count" data-count="med-high">—</span></button>
+    <button class="filter-btn" data-filter="medium">Medium <span class="count" data-count="medium">—</span></button>
+    <button class="filter-btn" data-filter="low">Low <span class="count" data-count="low">—</span></button>
+    <button class="filter-btn" data-filter="info">Info / Large <span class="count" data-count="info">—</span></button>
+    <span class="spacer"></span>
+    <button class="filter-btn" id="toggleAll">Collapse all</button>
+  </nav>
+
+  <main>
+
+    <!-- ============ CHARTS (optional; auto) ============ -->
+    <section class="insights" aria-label="Overview charts">
+      <div class="chart-card">
+        <h2>Severity distribution</h2>
+        <div class="chart-sub">Counted from item cards — no manual numbers.</div>
+        <div class="bar-chart" id="severityChart" role="img" aria-label="Items by severity"></div>
+      </div>
+      <div class="chart-card">
+        <h2>Items per group</h2>
+        <div class="chart-sub">Counted from each batch — remove this card if not useful.</div>
+        <div class="bar-chart" id="batchChart" role="img" aria-label="Items per group"></div>
+      </div>
+    </section>
+
+    <!-- ============ BATCH (copy this block) ============ -->
+    <details class="batch" data-batch="A" open>
+      <summary>
+        <span class="batch-letter">A</span>
+        <span class="batch-title">
+          <h2>Group title</h2>
+          <span class="sub">One-line scope of this group</span>
+        </span>
+        <span class="batch-count">2 items</span>
+        <span class="batch-chevron">▾</span>
+      </summary>
+      <div class="batch-body">
+
+        <!-- ---- ITEM (copy this block) ---- -->
+        <article class="item" data-sev="high">
+          <div class="item-top">
+            <span class="item-id">XX-1</span>
+            <span class="item-title">Short, specific defect title</span>
+            <span class="sev-badge">High</span>
+          </div>
+          <div class="item-body">
+            <div class="evidence"><span class="lbl">Evidence</span>
+              <code>File.kt:100-120</code> does X; <code>Other.kt:42</code> assumes Y.
+              Re-confirm these references before editing.
+            </div>
+            <p><span class="lbl">Problem</span> What actually goes wrong, and for whom.</p>
+            <p><span class="lbl">Proposed fix</span> The smallest change that removes the failure mode.</p>
+            <p><span class="lbl">Verification</span> Exact test / device steps that prove the fix.</p>
+          </div>
+        </article>
+
+        <article class="item" data-sev="medium">
+          <div class="item-top">
+            <span class="item-id">XX-2</span>
+            <span class="item-title">Second item, different severity</span>
+            <span class="sev-badge">Medium</span>
+          </div>
+          <div class="item-body">
+            <p><span class="lbl">Problem</span> Body text can be plain paragraphs, lists, or code.</p>
+            <ul>
+              <li>Option A — trade-off.</li>
+              <li>Option B — trade-off.</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- ---- /ITEM ---- -->
+
+      </div>
+    </details>
+
+    <!-- ============ DIAGRAM (optional) ============ -->
+    <section class="panel facts">
+      <h2><span class="icon">→</span> How the pieces relate</h2>
+      <p class="panel-sub">Replace with a 3–7 node inline SVG. Keep labels short and arrows labelled.</p>
+      <div class="diagram">
+        <svg viewBox="0 0 760 150" role="img" aria-labelledby="flowTitle flowDesc">
+          <title id="flowTitle">Report to round flow</title>
+          <desc id="flowDesc">Audit feeds the backlog, which feeds a round, which is verified by CI, then documented.</desc>
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path class="arrow" d="M0 0 L10 5 L0 10 z"/>
+            </marker>
+          </defs>
+
+          <line class="edge" x1="126" y1="72" x2="152" y2="72" marker-end="url(#arrow)"/>
+          <line class="edge" x1="278" y1="72" x2="304" y2="72" marker-end="url(#arrow)"/>
+          <line class="edge" x1="430" y1="72" x2="456" y2="72" marker-end="url(#arrow)"/>
+          <line class="edge" x1="582" y1="72" x2="608" y2="72" marker-end="url(#arrow)"/>
+
+          <rect class="node-accent" x="8" y="45" width="116" height="54" rx="12"/>
+          <text class="node-text" x="66" y="77" text-anchor="middle">Audit</text>
+
+          <rect class="node" x="160" y="45" width="116" height="54" rx="12"/>
+          <text class="node-text" x="218" y="77" text-anchor="middle">Backlog</text>
+
+          <rect class="node" x="312" y="45" width="116" height="54" rx="12"/>
+          <text class="node-text" x="370" y="77" text-anchor="middle">Round</text>
+
+          <rect class="node" x="464" y="45" width="116" height="54" rx="12"/>
+          <text class="node-text" x="522" y="77" text-anchor="middle">CI green</text>
+
+          <rect class="node-accent" x="616" y="45" width="116" height="54" rx="12"/>
+          <text class="node-text" x="674" y="77" text-anchor="middle">Docs</text>
+        </svg>
+      </div>
+    </section>
+
+    <!-- ============ PANELS ============ -->
+    <section class="panel facts">
+      <h2><span class="icon">✓</span> Verified facts</h2>
+      <p class="panel-sub">Facts re-confirmed from source/config, with the date of confirmation.</p>
+      <div class="facts-grid">
+        <div class="fact"><strong>Fact label</strong>Value with <code>file refs</code> where useful.</div>
+        <div class="fact"><strong>Fact label</strong>Value.</div>
+      </div>
+    </section>
+
+    <section class="panel donts">
+      <h2><span class="icon">⚑</span> Intentional behavior — do not "fix" without a decision</h2>
+      <p class="panel-sub">Deliberate choices; changing them needs an explicit decision.</p>
+      <ul class="dont-list">
+        <li>Deliberate behavior and the decision ID that protects it.</li>
+      </ul>
+    </section>
+
+    <section class="panel decisions">
+      <h2><span class="icon">?</span> Open decisions</h2>
+      <p class="panel-sub">Resolve these before touching the related items.</p>
+      <ol class="decision-list">
+        <li>Decision needed, with the options.</li>
+      </ol>
+    </section>
+
+    <section class="panel order">
+      <h2><span class="icon">↻</span> Suggested order</h2>
+      <p class="panel-sub">Each round ends with CI green + docs updated.</p>
+      <ol class="order-list">
+        <li>First batch, because…</li>
+        <li>Then…</li>
+      </ol>
+    </section>
+
+  </main>
+
+  <p class="footer-note">
+    REPORT TITLE · generated from <code>REPORT.md</code> · read-only audit · line refs must be re-confirmed before editing
+  </p>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* Keep this mapping in sync with the severities used in data-sev. */
+  var SEV_GROUPS = {
+    high: ['high'],
+    'med-high': ['med-high'],
+    medium: ['medium'],
+    low: ['low', 'low-med'],
+    info: ['info', 'large']
+  };
+
+  var SEV_LABEL = {
+    high: 'High',
+    'med-high': 'Med-High',
+    medium: 'Medium',
+    low: 'Low',
+    info: 'Info / Large'
+  };
+
+  var SEV_ORDER = ['high', 'med-high', 'medium', 'low', 'info'];
+
+  var items = Array.prototype.slice.call(document.querySelectorAll('.item'));
+  var batches = Array.prototype.slice.call(document.querySelectorAll('.batch'));
+  var filterButtons = Array.prototype.slice.call(document.querySelectorAll('.filter-btn[data-filter]'));
+
+  /* ---------- counts (single source of truth) ---------- */
+  function counts(){
+    var c = { high: 0, 'med-high': 0, medium: 0, low: 0, info: 0, total: items.length };
+    items.forEach(function(el){
+      var s = el.getAttribute('data-sev');
+      if (s === 'high') c.high++;
+      else if (s === 'med-high') c['med-high']++;
+      else if (s === 'medium') c.medium++;
+      else if (s === 'low' || s === 'low-med') c.low++;
+      else c.info++;
+    });
+    return c;
+  }
+
+  function renderCounts(){
+    var c = counts();
+    document.querySelectorAll('[data-total]').forEach(function(el){ el.textContent = c.total; });
+    SEV_ORDER.forEach(function(k){
+      document.querySelectorAll('[data-count="' + k + '"]').forEach(function(el){ el.textContent = c[k]; });
+    });
+    return c;
+  }
+
+  /* ---------- filters ---------- */
+  function applyFilter(filter){
+    var allowed = filter === 'all' ? null : SEV_GROUPS[filter];
+
+    items.forEach(function(el){
+      var show = !allowed || allowed.indexOf(el.getAttribute('data-sev')) !== -1;
+      el.classList.toggle('filtered-out', !show);
+    });
+
+    batches.forEach(function(batch){
+      var visible = batch.querySelectorAll('.item:not(.filtered-out)').length;
+      batch.classList.toggle('filtered-out', visible === 0);
+      var countEl = batch.querySelector('.batch-count');
+      if (countEl){
+        countEl.textContent = visible + (visible === 1 ? ' item' : ' items');
+      }
+    });
+  }
+
+  filterButtons.forEach(function(btn){
+    btn.addEventListener('click', function(){
+      filterButtons.forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      applyFilter(btn.getAttribute('data-filter'));
+    });
+  });
+
+  /* ---------- collapse / expand ---------- */
+  var toggleAll = document.getElementById('toggleAll');
+  var allOpen = false;
+
+  if (toggleAll){
+    toggleAll.addEventListener('click', function(){
+      allOpen = !allOpen;
+      batches.forEach(function(b){ b.open = allOpen; });
+      toggleAll.textContent = allOpen ? 'Collapse all' : 'Expand all';
+    });
+
+    batches.forEach(function(b){
+      b.addEventListener('toggle', function(){
+        var anyClosed = batches.some(function(x){ return !x.open; });
+        allOpen = !anyClosed;
+        toggleAll.textContent = allOpen ? 'Collapse all' : 'Expand all';
+      });
+    });
+  }
+
+  /* ---------- charts (derived from the DOM) ---------- */
+  function barRow(label, value, max, color){
+    var row = document.createElement('div');
+    row.className = 'bar-row';
+
+    var lab = document.createElement('span');
+    lab.className = 'bar-label';
+    lab.textContent = label;
+
+    var track = document.createElement('span');
+    track.className = 'bar-track';
+
+    var fill = document.createElement('span');
+    fill.className = 'bar-fill';
+    fill.style.width = (max > 0 ? (value / max) * 100 : 0) + '%';
+    fill.style.background = color;
+    fill.style.color = color;
+
+    var val = document.createElement('span');
+    val.className = 'bar-value';
+    val.textContent = value;
+
+    track.appendChild(fill);
+    row.appendChild(lab);
+    row.appendChild(track);
+    row.appendChild(val);
+    return row;
+  }
+
+  function renderSeverityChart(){
+    var host = document.getElementById('severityChart');
+    if (!host) return;
+
+    var c = counts();
+    var max = Math.max(c.high, c['med-high'], c.medium, c.low, c.info, 1);
+    var colors = {
+      high: 'var(--high)',
+      'med-high': 'var(--med-high)',
+      medium: 'var(--medium)',
+      low: 'var(--low)',
+      info: 'var(--info)'
+    };
+
+    host.innerHTML = '';
+    SEV_ORDER.forEach(function(k){
+      host.appendChild(barRow(SEV_LABEL[k], c[k], max, colors[k]));
+    });
+  }
+
+  function renderBatchChart(){
+    var host = document.getElementById('batchChart');
+    if (!host) return;
+
+    var rows = batches.map(function(b){
+      var titleEl = b.querySelector('.batch-title h2');
+      var letterEl = b.querySelector('.batch-letter');
+      var color = (getComputedStyle(b).getPropertyValue('--batch') || '').trim() || 'var(--accent)';
+      return {
+        label: (letterEl ? letterEl.textContent.trim() + ' · ' : '') +
+               (titleEl ? titleEl.textContent.trim() : 'Group'),
+        value: b.querySelectorAll('.item').length,
+        color: color
+      };
+    });
+
+    var max = rows.reduce(function(m, r){ return Math.max(m, r.value); }, 1);
+    host.innerHTML = '';
+    rows.forEach(function(r){ host.appendChild(barRow(r.label, r.value, max, r.color)); });
+  }
+
+  /* ---------- boot ---------- */
+  renderCounts();
+  applyFilter('all');   /* sets each batch's live count on load */
+  renderSeverityChart();
+  renderBatchChart();
+})();
+</script>
+</body>
+</html>

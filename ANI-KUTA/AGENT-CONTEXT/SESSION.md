@@ -47,6 +47,7 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 - **Debug builds = schema freedom** (§30): no migrations needed; stale dev DBs get wiped. Proper migrations return only when the user signals production.
 - **Sub-agents for webpage work** work ONLY in `DASHBOARD/webpage/`, never `AGENT-CONTEXT/` (§14, §19). The main agent owns all AGENT-CONTEXT updates.
 - **Task notification:** ntfy.sh topic **`THE-TASK-IS-DONE`** (§11).
+- **Reports the user reads ship as HTML companions.** Backlogs, audits, analyses, and round summaries get a self-contained `.html` beside the `.md` source (same facts, same session). Copy `templates/html-report-template.html`; rules in `knowledge/reporting-format.md`. Charts/diagrams welcome; no external deps. (§6)
 - **Quality over speed.** Don't rush. Don't skip steps (§18). Frozen/accepted surfaces stay byte-identical unless the user orders a change.
 
 ---

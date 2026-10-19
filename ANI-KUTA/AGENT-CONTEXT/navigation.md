@@ -38,6 +38,7 @@
 | `knowledge/dashboard.md` | Dashboard approach: 20 pages, data files, deployment, update process, sub-agent rules. |
 | `knowledge/old-vs-new.md` | Old project (REFERENCES/old-kuta/) vs new project comparison + migration notes. |
 | `knowledge/emulator-testing.md` | **The sandbox Android emulator environment**: setup from scratch, sandbox rules (double-fork detach, timeout-wrapped adb, input-text limits, 4GB cgroup), daily workflow commands, app testing tricks (prefs injection, extension repo injection), smoke-test checklist, troubleshooting table. Read BEFORE any emulator work. |
+| `knowledge/reporting-format.md` | **HTML deliverable convention** (standing user order): every substantial report the user reads gets a self-contained, editable HTML companion beside its Markdown source. Style, structure, severity vocabulary, charts/diagrams, editing rules, pre-delivery checklist. Read before producing any report. |
 
 ## 📁 REFERENCES/ (read-only references)
 | Path | Purpose |
@@ -71,6 +72,11 @@
 | `skills/README.md` | Skills index + rules for creating new skills. |
 | `skills/ponytail.md` | Lazy senior dev: simplest solution that works. YAGNI, stdlib-first, root-cause. |
 | `skills/subagent-review.md` | How to use sub-agents to find plan flaws. |
+
+## 📄 templates/
+| File | Purpose |
+|------|---------|
+| `templates/html-report-template.html` | Starter for HTML report deliverables — neumorphic dark style, derived stats/filters/collapse, bar charts, inline-SVG diagram slot. Copy it beside the Markdown source. See `knowledge/reporting-format.md`. |
 
 ---
 

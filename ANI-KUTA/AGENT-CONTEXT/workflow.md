@@ -133,6 +133,7 @@
 - `SESSION.md` + `master.md` — update if the project state changed (branch, phase, open items).
 - `CORE_RULES.md` — promote a recurring lesson to a rule if it's a pattern.
 - **Dashboard data** (`DASHBOARD/webpage/lib/data.ts`) — update module count, decisions, phases if they changed (delegate to a full-stack-dev sub-agent per §19).
+- **HTML report companion** — for any substantial report the user reads (backlog, audit, round summary), regenerate the `.html` beside its `.md` source in the same session (`knowledge/reporting-format.md` + `templates/html-report-template.html`). Never let the two drift.
 
 **Output:** Docs that match reality. No drift. The next session can pick up immediately.
 
