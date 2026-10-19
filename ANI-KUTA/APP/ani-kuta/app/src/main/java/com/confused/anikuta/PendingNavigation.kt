@@ -37,6 +37,13 @@ object PendingNavigation {
 
     /** One parsed delivery, awaiting the composition's handling. */
     data class Request(
+        /**
+         * D-759: the request's ID. Every offer gets a fresh one, so two
+         * identical deliveries are still two requests (the StateFlow only
+         * emits on a CHANGE) and `consume(id)` can never clear a request the
+         * handler did not handle.
+         */
+        val id: Long = 0L,
         /** `anikuta://content/{mainId}` — open the app on that content. */
         val shareMainId: String? = null,
         /** The notification-tap content (its `notification_main_id` extra). */
@@ -44,6 +51,16 @@ object PendingNavigation {
         /** The update-check notification's "open the history page" flag. */
         val openUpdateHistory: Boolean = false,
     )
+
+    /** The parsed payload, before it becomes a [Request]. */
+    private data class Payload(
+        val shareMainId: String? = null,
+        val notificationMainId: String? = null,
+        val openUpdateHistory: Boolean = false,
+    )
+
+    /** D-759: the one-slot mailbox that owns the identity contract. */
+    private val mailbox = PendingRequestMailbox<Payload>()
 
     private val _pending = MutableStateFlow<Request?>(null)
 
@@ -60,24 +77,24 @@ object PendingNavigation {
     fun offerFromIntent(intent: android.content.Intent?) {
         if (intent == null) return
 
-        var request: Request? = null
+        var payload: Payload? = null
 
         // 1 — the app's own share deep link (anikuta://content/{mainId}).
         val deepLinkMainId =
             com.confused.anikuta.core.share.ContentShareLinkFactory.parseDeepLink(intent.dataString)
         if (!deepLinkMainId.isNullOrBlank()) {
-            request = (request ?: Request()).copy(shareMainId = deepLinkMainId)
+            payload = (payload ?: Payload()).copy(shareMainId = deepLinkMainId)
         }
 
         // 2a — the notification-tap content.
         val notifMainId = intent.getStringExtra("notification_main_id")
         if (!notifMainId.isNullOrBlank()) {
-            request = (request ?: Request()).copy(notificationMainId = notifMainId)
+            payload = (payload ?: Payload()).copy(notificationMainId = notifMainId)
         }
 
         // 2b — the update-check notification's history flag.
         if (intent.getBooleanExtra("open_update_history", false)) {
-            request = (request ?: Request()).copy(openUpdateHistory = true)
+            payload = (payload ?: Payload()).copy(openUpdateHistory = true)
         }
 
         // Strip the parsed delivery markers off the intent (the parse has
@@ -96,13 +113,29 @@ object PendingNavigation {
         intent.removeExtra("notification_main_id")
         intent.removeExtra("open_update_history")
 
-        if (request != null) {
-            _pending.value = request
+        if (payload != null) {
+            // D-759: the mailbox assigns the ID (fresh every time — two
+            // identical deliveries are two requests) and the flow publishes it.
+            val entry = mailbox.offer(payload)
+            _pending.value = Request(
+                id = entry.id,
+                shareMainId = payload.shareMainId,
+                notificationMainId = payload.notificationMainId,
+                openUpdateHistory = payload.openUpdateHistory,
+            )
         }
     }
 
-    /** The composition's exactly-once handshake: called after handling. */
-    fun consume() {
-        _pending.value = null
+    /**
+     * The composition's exactly-once handshake: called after handling.
+     *
+     * D-759: it takes the ID of the request that was ACTUALLY handled, so a
+     * handler that finishes late can never clear a NEWER request that arrived
+     * while it was working.
+     */
+    fun consume(id: Long) {
+        if (mailbox.consume(id)) {
+            _pending.value = null
+        }
     }
 }

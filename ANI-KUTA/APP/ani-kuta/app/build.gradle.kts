@@ -358,6 +358,9 @@ tasks.register("checkDependencyAlignment") {
         }
         logger.lifecycle("D-322 dependency alignment OK: $guarded compose/lifecycle artifacts match the pins.")
     }
+    // D-759 (round 124 — the navigation reliability round): the pending-request
+    // identity contract is pure JVM, so it is unit-tested.
+    testImplementation(libs.junit)
 }
 
 tasks.named("preBuild") { dependsOn("checkDependencyAlignment") }

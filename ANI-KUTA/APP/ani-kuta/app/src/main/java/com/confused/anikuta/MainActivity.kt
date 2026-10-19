@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -172,13 +173,11 @@ import org.koin.compose.koinInject
  */
 class MainActivity : com.lagradost.cloudstream3.MainActivity() {
 
-    // D-222: OAuth redirect flags — observed by AppRoot to auto-navigate to Trackers
-    // after a successful AniList login + show a snackbar.
-    // D-222-R2: `internal set` (not private) so AppRoot (same module) can clear them.
-    @Volatile var anilistLoginSuccess: Boolean = false
-        internal set
-    @Volatile var anilistLoginError: String? = null
-        internal set
+    // D-759 (round 124): the OAuth redirect result is now an EVENT
+    // (AniListLoginEvents) instead of two @Volatile flags the composition
+    // polled every 200 ms. The flags are gone: the event is delivered exactly
+    // once, the collection is bound to the composition, and the navigation
+    // guard reads the LIVE back stack.
 
     @androidx.compose.material3.ExperimentalMaterial3Api
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -293,8 +292,10 @@ class MainActivity : com.lagradost.cloudstream3.MainActivity() {
             "AniList OAuth redirect received — exchanging token..."
         }
 
-        // Launch a coroutine to call the tracker (suspend function).
-        kotlinx.coroutines.MainScope().launch {
+        // The token exchange is a suspend call — run it on the Activity's
+        // lifecycle scope (D-759: the old `MainScope()` was never cancelled,
+        // so every redirect leaked a scope).
+        lifecycleScope.launch {
             try {
                 val tracker = org.koin.core.context.GlobalContext.get()
                     .get<com.confused.anikuta.core.trackeranilist.AniListTracker>()
@@ -306,12 +307,14 @@ class MainActivity : com.lagradost.cloudstream3.MainActivity() {
                     // D-222: auto-navigate to the Trackers page so the user sees
                     // the confirmation. The redirect opens the app fresh (Browse page),
                     // so we need to push the Trackers page onto the backstack.
-                    anilistLoginSuccess = true
+                    // D-759: the result is an EVENT — the composition collects it
+                    // (no polling) and navigates against the LIVE stack.
+                    AniListLoginEvents.success()
                 } else {
                     com.confused.anikuta.core.common.Logger.e("MainActivity") {
                         "AniList login failed"
                     }
-                    anilistLoginError = "Login failed — please try again."
+                    AniListLoginEvents.failed("Login failed — please try again.")
                 }
             } catch (e: Exception) {
                 com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
@@ -676,23 +679,30 @@ fun AppRoot() {
     // D-222: AniList OAuth redirect — auto-navigate to the Trackers page
     // after a successful login (the redirect opens the app fresh on Browse).
     // Also show a snackbar confirmation.
-    val mainActivity = appContext as? MainActivity
+    // D-759: the login result is an EVENT now (AniListLoginEvents) — the old
+    // shape polled two @Volatile flags every 200 ms FOREVER, and its "am I
+    // already on the Trackers page?" guard read `currentKey` — a plain val
+    // captured at the FIRST composition — so a login that happened minutes
+    // later pushed a DUPLICATE More + Trackers entry. The event is delivered
+    // exactly once, the collection is bound to this composition, and the
+    // guard reads the LIVE back stack.
     androidx.compose.runtime.LaunchedEffect(Unit) {
-        // Poll the flags set by handleAniListOAuthRedirect.
-        while (true) {
-            kotlinx.coroutines.delay(200)
-            if (mainActivity?.anilistLoginSuccess == true) {
-                mainActivity.anilistLoginSuccess = false
-                // Navigate to More → Trackers.
-                if (currentKey !is TrackersKey) {
-                    if (currentKey !is MoreKey) backstack.add(MoreKey)
-                    backstack.add(TrackersKey)
+        com.confused.anikuta.AniListLoginEvents.events.collect { event ->
+            when (event) {
+                is com.confused.anikuta.AniListLoginEvents.Event.Success -> {
+                    // Navigate to More → Trackers (against the LIVE stack).
+                    val top = backstack.lastOrNull()
+                    if (top !is TrackersKey) {
+                        if (top !is MoreKey) backstack.add(MoreKey)
+                        backstack.add(TrackersKey)
+                    }
                 }
-            }
-            mainActivity?.anilistLoginError?.let { error ->
-                mainActivity.anilistLoginError = null
-                // TODO: show a snackbar with the error.
-                com.confused.anikuta.core.common.Logger.w("AppRoot") { "AniList login error: $error" }
+                is com.confused.anikuta.AniListLoginEvents.Event.Failed -> {
+                    // TODO: show a snackbar with the error.
+                    com.confused.anikuta.core.common.Logger.w("AppRoot") {
+                        "AniList login error: ${event.message}"
+                    }
+                }
             }
         }
     }
@@ -870,7 +880,10 @@ fun AppRoot() {
         } finally {
             // Exactly-once: consume whatever was handled (or deliberately
             // skipped — a duplicate delivery never re-navigates).
-            com.confused.anikuta.PendingNavigation.consume()
+            // D-759: consume the request we ACTUALLY handled (by ID) — a
+            // delivery that arrived while we were working is a DIFFERENT
+            // request and must survive this call.
+            com.confused.anikuta.PendingNavigation.consume(request.id)
         }
     }
 
