@@ -269,7 +269,8 @@ class DetailsViewModel(
                                     EpisodeDownloadState.Downloading(progress)
                                 com.confused.anikuta.core.download.DownloadStatus.RETRYING ->
                                     EpisodeDownloadState.Retrying
-                                com.confused.anikuta.core.download.DownloadStatus.PAUSED ->
+                                com.confused.anikuta.core.download.DownloadStatus.PAUSED,
+                                com.confused.anikuta.core.download.DownloadStatus.WAITING_FOR_NETWORK ->
                                     EpisodeDownloadState.Paused
                                 com.confused.anikuta.core.download.DownloadStatus.ERROR ->
                                     EpisodeDownloadState.Error(null)
@@ -3305,6 +3306,48 @@ class DetailsViewModel(
     // ── Source linking ──
 
     /**
+     * Persists the FULL extension axis after an enrichment fetch. The link path
+     * only receives a sparse SAnime from search (often no cover/description);
+     * without this write-back the DB kept that sparse row and the next reopen
+     * showed the old/blank cover even though the screen had the enriched data.
+     * Null fields preserve the stored value.
+     */
+    private fun persistEnrichedExtensionBase(
+        mainId: String,
+        enriched: com.confused.anikuta.core.common.model.UnifiedAnime,
+        sourceId: Long,
+    ) {
+        try {
+            val existing = contentRepository.getContentDetails(mainId)
+            if (existing == null) {
+                contentRepository.upsertContentDetails(
+                    com.confused.anikuta.core.content.ContentDetails(mainId = mainId),
+                )
+            }
+            contentRepository.updateExtensionAxis(
+                (existing ?: com.confused.anikuta.core.content.ContentDetails(mainId = mainId)).copy(
+                    extensionType = existing?.extensionType ?: "aniyomi",
+                    extensionId = sourceId.toString(),
+                    sourceId = sourceId,
+                    animeUrl = enriched.animeUrl ?: existing?.animeUrl,
+                    extDescription = enriched.description ?: existing?.extDescription,
+                    extGenres = enriched.genres.takeIf { it.isNotEmpty() }
+                        ?.joinToString(", ") ?: existing?.extGenres,
+                    extStatus = enriched.status ?: existing?.extStatus,
+                    extAuthor = enriched.author ?: existing?.extAuthor,
+                    extArtist = enriched.artist ?: existing?.extArtist,
+                    extThumbnailUrl = enriched.coverUrl ?: existing?.extThumbnailUrl,
+                    extExtraJson = existing?.extExtraJson,
+                    extUpdatedAt = System.currentTimeMillis(),
+                ),
+            )
+            Logger.i(TAG) { "Persisted enriched extension axis for mainId=$mainId" }
+        } catch (e: Exception) {
+            Logger.w(TAG) { "persistEnrichedExtensionBase failed (non-fatal): ${e.message}" }
+        }
+    }
+
+    /**
      * Load the persisted source link for this anime (if any).
      * If found, fetch the episode list + restore extensionBase.
      *
@@ -3330,9 +3373,17 @@ class DetailsViewModel(
 
         // D-140: Restore extensionBase from the content database.
         // This makes the data-source selector available immediately on reopen.
-        // D-198: getExtensionDetail → getContentDetails; ext_* axis.
+        // D-198: getExtensionDetail -> getContentDetails; ext_* axis.
+        // The identity check matters: an in-memory base for a DIFFERENT source
+        // (the screen was reused, or the user just relinked) must never survive
+        // and bleed its cover/details into the new source.
         val mainId = currentMainId
-        if (mainId != null && extensionBase == null) {
+        val currentExtensionBase = extensionBase
+        if (mainId != null &&
+            (currentExtensionBase == null ||
+                currentExtensionBase.sourceId != sourceId ||
+                currentExtensionBase.animeUrl != animeUrl)
+        ) {
             val details = contentRepository.getContentDetails(mainId)
             if (details != null && details.hasExtensionLink) {
                 extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
@@ -3368,23 +3419,25 @@ class DetailsViewModel(
                 )
 
                 // D-139: Fetch full extension details in the background to enrich.
+                // D-313: capture the generation BEFORE launching - reading it
+                // inside the coroutine would capture a NEWER screen's generation
+                // when this coroutine starts late, defeating the guard.
+                val reopenEnrichGen = loadGeneration
                 viewModelScope.launch {
                     try {
-                        // D-313 (review round): stale guard — the enrichment
-                        // fetch can outlive the screen.
-                        val enrichGen = loadGeneration
                         // Task 47: re-seed the displayed year (see refresh path).
                         val seedYear = (_state.value as? DetailsState.Success)?.anime?.seasonYear
                         val enriched = extensionProvider.fetchFromExtension(
                             sourceId, animeUrl, sAnime.title, null,
                             seedYear,
                         )
-                        if (enriched != null && enrichGen == loadGeneration) {
+                        if (enriched != null && reopenEnrichGen == loadGeneration) {
                             extensionBase = enriched
                             remergeBases(
                                 (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                                     ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
                             )
+                            persistEnrichedExtensionBase(mainId, enriched, sourceId)
                         } else if (enriched != null) {
                             Logger.d(TAG) { "Reopen enrichment discarded (stale generation)" }
                         }
@@ -3481,9 +3534,20 @@ class DetailsViewModel(
 
         // D-134: Create extensionBase from the picked SAnime (for AniList entries).
         // This makes the data-source selector available.
-        if (extensionBase == null) {
+        //
+        // ALWAYS replace an existing base from a DIFFERENT source. The old
+        // `if (extensionBase == null)` guard kept the PREVIOUS source's base
+        // alive after a relink: the new source's episode list loaded, but the
+        // cover/title/description stayed on the old source and every refresh
+        // re-fetched the OLD source from the stale animeUrl.
+        val existingBase = extensionBase
+        if (existingBase == null ||
+            existingBase.sourceId != source.id ||
+            existingBase.animeUrl != sAnime.url
+        ) {
             extensionBase = sAnime.toUnifiedAnime(source.id, source.name)
-            Logger.i(TAG) { "Extension base created from picked SAnime: ${sAnime.title}" }
+            _episodeMetadata.value = emptyMap()
+            Logger.i(TAG) { "Extension base replaced from picked SAnime: ${sAnime.title}" }
             // Re-merge to update the display (keeps current priority).
             val currentPriority = (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                 ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
@@ -3492,6 +3556,8 @@ class DetailsViewModel(
             // D-139: Fetch full extension details in the background.
             // The SAnime from search is sparse (no description, score, etc.).
             // Fetch the full details via getAnimeDetails to enrich extensionBase.
+            // Capture the generation BEFORE launching (see loadLinkedSource).
+            val linkEnrichGen = loadGeneration
             viewModelScope.launch {
                 try {
                     // Task 47: re-seed the displayed year (see refresh path).
@@ -3500,13 +3566,16 @@ class DetailsViewModel(
                         source.id, sAnime.url, sAnime.title, sAnime.thumbnail_url,
                         seedYear,
                     )
-                    if (enriched != null) {
+                    if (enriched != null && linkEnrichGen == loadGeneration) {
                         extensionBase = enriched
                         Logger.i(TAG) { "Extension base enriched with full details: ${enriched.displayName}" }
                         remergeBases(
                             (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                                 ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
                         )
+                        mainId?.let { persistEnrichedExtensionBase(it, enriched, source.id) }
+                    } else if (enriched != null) {
+                        Logger.d(TAG) { "Extension enrichment discarded (stale generation)" }
                     }
                 } catch (e: Exception) {
                     Logger.w(TAG) { "Extension detail enrichment failed: ${e.message}" }

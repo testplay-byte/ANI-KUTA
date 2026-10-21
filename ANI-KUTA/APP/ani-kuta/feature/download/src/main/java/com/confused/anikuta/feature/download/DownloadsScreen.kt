@@ -148,8 +148,9 @@ fun DownloadsScreen(
     val downloading = queue.count { it.status == DownloadStatus.DOWNLOADING }
     val queued = queue.count { it.status == DownloadStatus.QUEUED }
     val paused = queue.count { it.status == DownloadStatus.PAUSED }
+    val waiting = queue.count { it.status == DownloadStatus.WAITING_FOR_NETWORK }
     val failed = queue.count { it.status == DownloadStatus.ERROR }
-    val hasActive = downloading > 0 || queued > 0
+    val hasActive = downloading > 0 || queued > 0 || waiting > 0
 
     // Group queue by anime title.
     val groupedByAnime = remember(queue) {
@@ -191,18 +192,22 @@ fun DownloadsScreen(
         if (queue.isNotEmpty()) {
             DownloadActionBar(
                 hasActive = hasActive,
-                hasPaused = paused > 0,
+                hasPaused = paused > 0 || waiting > 0,
                 hasFailed = failed > 0,
                 hasAny = queue.isNotEmpty(),
                 onPauseAll = {
                     queue.filter {
                         it.status == DownloadStatus.DOWNLOADING ||
                             it.status == DownloadStatus.QUEUED ||
-                            it.status == DownloadStatus.RETRYING
+                            it.status == DownloadStatus.RETRYING ||
+                            it.status == DownloadStatus.WAITING_FOR_NETWORK
                     }.forEach { viewModel.pause(it.id) }
                 },
                 onResumeAll = {
-                    queue.filter { it.status == DownloadStatus.PAUSED }.forEach { viewModel.resume(it.id) }
+                    queue.filter {
+                        it.status == DownloadStatus.PAUSED ||
+                            it.status == DownloadStatus.WAITING_FOR_NETWORK
+                    }.forEach { viewModel.resume(it.id) }
                 },
                 onRetryAll = {
                     queue.filter { it.status == DownloadStatus.ERROR }.forEach { viewModel.retry(it.id) }
@@ -228,6 +233,7 @@ fun DownloadsScreen(
                     StatChip(formatSpeed(downloadSpeed), "speed", MaterialTheme.colorScheme.tertiary)
                 }
                 if (queued > 0) StatChip("$queued", "queued", MaterialTheme.colorScheme.onSurfaceVariant)
+                if (waiting > 0) StatChip("$waiting", "waiting", MaterialTheme.colorScheme.onSurfaceVariant)
                 if (paused > 0) StatChip("$paused", "paused", MaterialTheme.colorScheme.onSurfaceVariant)
                 if (failed > 0) StatChip("$failed", "failed", MaterialTheme.colorScheme.error)
             }
@@ -521,7 +527,8 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
                 if (task.videoAudio.isNotBlank()) InfoPill(task.videoAudio.uppercase())
                 if (task.videoQuality.isNotBlank()) InfoPill(task.videoQuality)
                 if (task.status == DownloadStatus.DOWNLOADING ||
-                    task.status == DownloadStatus.PAUSED
+                    task.status == DownloadStatus.PAUSED ||
+                    task.status == DownloadStatus.WAITING_FOR_NETWORK
                 ) {
                     val sizeText = if (task.totalBytes > 0)
                         "${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
@@ -532,6 +539,9 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
             when (task.status) {
                 DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED -> {
                     PercentagePill("${task.progress}%")
+                }
+                DownloadStatus.WAITING_FOR_NETWORK -> {
+                    InfoPill("Waiting for network")
                 }
                 DownloadStatus.QUEUED, DownloadStatus.RETRYING -> {
                     InfoPill(if (task.status == DownloadStatus.RETRYING) "Retrying" else "Queued")
@@ -546,7 +556,8 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
         // D-213: restored the old-style progress bar — full width of the Column
         // (which is now full-width since the 3-dot moved to Row 1). 6dp tall.
         if (task.status == DownloadStatus.DOWNLOADING ||
-            task.status == DownloadStatus.PAUSED
+            task.status == DownloadStatus.PAUSED ||
+            task.status == DownloadStatus.WAITING_FOR_NETWORK
         ) {
             // D-215: reduced spacer from 6dp → 3dp (~50% reduction as requested).
             Spacer(Modifier.height(3.dp))
@@ -726,7 +737,7 @@ private fun EpisodeMenuSheet(
                     MenuOption("Pause", Icons.Filled.Pause) { onPause() }
                     MenuOption("Cancel", Icons.Filled.Close, isDestructive = true) { onCancel() }
                 }
-                DownloadStatus.PAUSED -> {
+                DownloadStatus.PAUSED, DownloadStatus.WAITING_FOR_NETWORK -> {
                     MenuOption("Resume", Icons.Filled.PlayArrow) { onResume() }
                     MenuOption("Cancel", Icons.Filled.Close, isDestructive = true) { onCancel() }
                 }

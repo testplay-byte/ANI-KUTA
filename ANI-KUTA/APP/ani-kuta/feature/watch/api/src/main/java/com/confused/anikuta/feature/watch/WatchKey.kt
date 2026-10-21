@@ -188,6 +188,29 @@ data class SimpleEpisode(
     val name: String,
 )
 
+/**
+ * The next episode in NUMERIC order, independent of the list's display order.
+ *
+ * The player's list can be sorted descending (E12..E1). Advancing by raw list
+ * index therefore sent E10 -> E9. Pick the smallest episode number greater
+ * than the current one instead; only fall back to raw order for specials
+ * (episode number <= 0) where a numeric successor does not exist.
+ */
+fun List<SimpleEpisode>.nextEpisodeAfter(currentUrl: String): SimpleEpisode? {
+    val currentIndex = indexOfFirst { it.url == currentUrl }
+    if (currentIndex < 0) return null
+    val current = this[currentIndex]
+    if (current.episodeNumber > 0f) {
+        return asSequence()
+            .filterIndexed { index, episode ->
+                index != currentIndex &&
+                    episode.episodeNumber > current.episodeNumber
+            }
+            .minByOrNull { it.episodeNumber }
+    }
+    return getOrNull(currentIndex + 1)
+}
+
 /** Episode metadata for the watch page (passed from DetailsScreen via WatchKey). */
 data class WatchEpisodeMeta(
     val episodeNumber: Int,

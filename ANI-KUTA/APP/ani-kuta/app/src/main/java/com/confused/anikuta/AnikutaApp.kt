@@ -326,7 +326,8 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 //    the next user-visible app start.
                 try {
                     val hasQueued = downloadManager.getQueue().value.any {
-                        it.status == com.confused.anikuta.core.download.DownloadStatus.QUEUED
+                        it.status == com.confused.anikuta.core.download.DownloadStatus.QUEUED ||
+                            it.status == com.confused.anikuta.core.download.DownloadStatus.WAITING_FOR_NETWORK
                     }
                     if (hasQueued) {
                         com.confused.anikuta.core.download.DownloadService.start(this@AnikutaApp)

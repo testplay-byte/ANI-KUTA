@@ -85,20 +85,31 @@ class DownloadNotificationManager(
     suspend fun buildSummaryNotification(active: List<DownloadTask>): Notification? {
         if (active.isEmpty()) return null
         val primary = active.firstOrNull { it.status == DownloadStatus.DOWNLOADING }
+            ?: active.firstOrNull { it.status == DownloadStatus.RETRYING }
+            ?: active.firstOrNull { it.status == DownloadStatus.QUEUED }
             ?: active.firstOrNull()
             ?: return null
-
-        val title = if (active.size == 1) {
-            "${primary.content.title} — EP ${primary.episode.episodeNumber.toInt()}"
-        } else {
-            "Downloading ${active.size} episodes"
-        }
-        val progressText = if (primary.totalBytes > 0) {
-            "${primary.progress}% • ${formatBytes(primary.downloadedBytes)} / ${formatBytes(primary.totalBytes)}"
-        } else {
-            "${primary.progress}% • ${formatBytes(primary.downloadedBytes)}"
+        val waitingOnly = active.none {
+            it.status == DownloadStatus.DOWNLOADING ||
+                it.status == DownloadStatus.RETRYING ||
+                it.status == DownloadStatus.QUEUED
         }
 
+        val title = when {
+            waitingOnly && active.size == 1 ->
+                "${primary.content.title} - waiting for network"
+            waitingOnly -> "${active.size} downloads waiting for network"
+            active.size == 1 ->
+                "${primary.content.title} - EP ${primary.episode.episodeNumber.toInt()}"
+            else -> "Downloading ${active.size} episodes"
+        }
+        val progressText = if (waitingOnly) {
+            "Resumes automatically when connectivity returns"
+        } else if (primary.totalBytes > 0) {
+            "${primary.progress}% - ${formatBytes(primary.downloadedBytes)} / ${formatBytes(primary.totalBytes)}"
+        } else {
+            "${primary.progress}% - ${formatBytes(primary.downloadedBytes)}"
+        }
         val builder = NotificationCompat.Builder(context, CHANNEL_PROGRESS)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(title)

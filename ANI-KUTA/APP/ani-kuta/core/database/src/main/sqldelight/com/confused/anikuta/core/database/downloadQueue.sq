@@ -142,7 +142,7 @@ WHERE main_id = :main_id;
 
 getDownloadQueue:
 SELECT * FROM download_queue
-WHERE state IN ('QUEUED', 'DOWNLOADING', 'RETRYING', 'PAUSED', 'ERROR')
+WHERE state IN ('QUEUED', 'DOWNLOADING', 'RETRYING', 'PAUSED', 'WAITING_FOR_NETWORK', 'ERROR')
 ORDER BY queued_at ASC;
 
 getDownloadQueueByState:
@@ -172,7 +172,7 @@ WHERE state IN ('DOWNLOADING', 'RETRYING');
 
 getQueuedEpisodeKeys:
 SELECT episode_key FROM download_queue
-WHERE state IN ('QUEUED', 'DOWNLOADING', 'RETRYING', 'PAUSED');
+WHERE state IN ('QUEUED', 'DOWNLOADING', 'RETRYING', 'PAUSED', 'WAITING_FOR_NETWORK');
 
 getActiveCount:
 SELECT COUNT(*) FROM download_queue

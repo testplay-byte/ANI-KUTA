@@ -8,7 +8,6 @@ import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -74,40 +73,59 @@ class DownloadService : Service(), KoinComponent {
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             super.onAvailable(network)
-            DownloadLogger.i { "Network available — checking if downloads should resume" }
-            evaluateAndNotify(isAvailable = true)
+            DownloadLogger.i { "Network available - checking if downloads should resume" }
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            notifyFromCaps(network, cm?.getNetworkCapabilities(network), available = true)
         }
 
         override fun onLost(network: Network) {
             super.onLost(network)
-            DownloadLogger.i { "Network lost — pausing active downloads" }
-            evaluateAndNotify(isAvailable = false)
+            DownloadLogger.i { "Network lost - re-evaluating the remaining active network" }
+            // Wi-Fi -> mobile: the lost network is not necessarily the only one.
+            // Read the CURRENT default network instead of assuming "offline".
+            evaluateCurrentNetwork()
         }
 
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
             super.onCapabilitiesChanged(network, capabilities)
-            // Re-evaluate on every capability change (e.g. Wi-Fi → mobile switch).
+            // Re-evaluate on every capability change (e.g. Wi-Fi -> mobile, or
+            // a network becoming VALIDATED after the initial onAvailable).
             DownloadLogger.d {
-                "Network capabilities changed — re-evaluating (wifi=${capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)})"
+                "Network capabilities changed - re-evaluating (wifi=" +
+                    "${capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)}, " +
+                    "validated=${capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)})"
             }
-            evaluateAndNotify(isAvailable = true)
+            notifyFromCaps(network, capabilities, available = true)
         }
 
-        private fun evaluateAndNotify(isAvailable: Boolean) {
+        private fun evaluateCurrentNetwork() {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             if (cm == null) {
-                queue.onNetworkChanged(isWifi = false, hasInternet = isAvailable)
+                queue.onNetworkChanged(isWifi = false, hasInternet = false)
                 return
             }
             val activeNetwork = cm.activeNetwork
             val caps = activeNetwork?.let { cm.getNetworkCapabilities(it) }
-            val isWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
-                caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
-            val hasInternet = isAvailable && caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            notifyFromCaps(activeNetwork, caps, available = activeNetwork != null)
+        }
+
+        private fun notifyFromCaps(
+            network: Network?,
+            capabilities: NetworkCapabilities?,
+            available: Boolean,
+        ) {
+            // Prefer the callback's OWN capabilities: cm.activeNetwork can still
+            // point at the OLD network during onAvailable (the exact race that
+            // made "Wi-Fi came back but downloads stayed paused").
+            val isWifi = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
+            val hasInternet = available &&
+                network != null &&
+                capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             queue.onNetworkChanged(isWifi = isWifi, hasInternet = hasInternet)
         }
     }
-
     override fun onCreate() {
         super.onCreate()
         // Start collecting the queue — but DON'T call startForeground from here. The
@@ -118,7 +136,8 @@ class DownloadService : Service(), KoinComponent {
                 val active = tasks.filter {
                     it.status == DownloadStatus.DOWNLOADING ||
                         it.status == DownloadStatus.QUEUED ||
-                        it.status == DownloadStatus.RETRYING
+                        it.status == DownloadStatus.RETRYING ||
+                        it.status == DownloadStatus.WAITING_FOR_NETWORK
                 }
                 if (active.isEmpty()) {
                     // D-246: tasks auto-paused by network loss keep the service ALIVE —
@@ -235,11 +254,23 @@ class DownloadService : Service(), KoinComponent {
         try {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
                 ?: return
-            val request = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build()
-            cm.registerNetworkCallback(request, networkCallback)
-            DownloadLogger.i { "NetworkCallback registered — auto-pause/resume active" }
+            // registerDefaultNetworkCallback: only the DEFAULT network matters.
+            // registerNetworkCallback(request) also reports non-default networks
+            // (e.g. a non-validated Wi-Fi while cellular is default), which could
+            // pause downloads that are actually online.
+            cm.registerDefaultNetworkCallback(networkCallback)
+            DownloadLogger.i { "NetworkCallback registered - auto-pause/resume active" }
+            // Seed the queue with the CURRENT connectivity instead of waiting for
+            // the first event: queue rows recovered at process start must show
+            // WAITING_FOR_NETWORK (not QUEUED) when the device is offline.
+            val active = cm.activeNetwork
+            val caps = active?.let { cm.getNetworkCapabilities(it) }
+            val isWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
+            val hasInternet = active != null &&
+                caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            queue.onNetworkChanged(isWifi = isWifi, hasInternet = hasInternet)
         } catch (e: Exception) {
             DownloadLogger.e(e) { "Failed to register NetworkCallback — auto-pause/resume disabled" }
         }

@@ -6,62 +6,51 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * D-761 (round 126 — the end-of-episode + resume contract): the resume and
- * end-of-episode locks.
+ * The resume and end-of-episode locks.
  */
 class PlaybackResumePolicyTest {
 
     private val minute = 60_000L
     private val hour = 60 * minute
 
-    // ── The resume contract ───────────────────────────────────────────────────
+    // -- The resume contract -------------------------------------------------
 
     @Test
     fun `a never-watched episode starts at the beginning`() {
-        val plan = PlaybackResumePolicy.plan(storedPositionMs = 0L, durationMs = 24 * minute, isCompleted = false)
+        val plan = PlaybackResumePolicy.plan(storedPositionMs = 0L, isCompleted = false)
         assertEquals(PlaybackResumePolicy.StartDecision.START_FROM_BEGINNING, plan.decision)
-        assertFalse(plan.offerResume)
+        assertEquals(0L, plan.resumePositionMs)
     }
 
     @Test
     fun `a partially watched episode resumes at the stored position`() {
-        val plan = PlaybackResumePolicy.plan(storedPositionMs = 5 * minute, durationMs = 24 * minute, isCompleted = false)
+        val plan = PlaybackResumePolicy.plan(storedPositionMs = 5 * minute, isCompleted = false)
         assertEquals(PlaybackResumePolicy.StartDecision.RESUME_AT_POSITION, plan.decision)
-        assertFalse(plan.offerResume)
+        assertEquals(5 * minute, plan.resumePositionMs)
     }
 
     @Test
-    fun `a completed episode starts at the beginning and offers the old position`() {
-        // The bug: the old code seeked to the stored position — the video
-        // started already over.
-        val plan = PlaybackResumePolicy.plan(storedPositionMs = 23 * minute, durationMs = 24 * minute, isCompleted = true)
+    fun `a completed episode starts at the beginning`() {
+        val plan = PlaybackResumePolicy.plan(storedPositionMs = 23 * minute, isCompleted = true)
         assertEquals(PlaybackResumePolicy.StartDecision.START_FROM_BEGINNING, plan.decision)
-        assertTrue("the old position must be OFFERED", plan.offerResume)
-        assertEquals(23 * minute, plan.resumePositionMs)
+        assertEquals(0L, plan.resumePositionMs)
     }
 
     @Test
-    fun `an effectively watched episode starts at the beginning`() {
-        // 90 % of a 10-minute episode — past the 85 % watched threshold, but
-        // not marked completed (the auto-mark never fired).
-        val plan = PlaybackResumePolicy.plan(storedPositionMs = 9 * minute, durationMs = 10 * minute, isCompleted = false)
+    fun `a nearly finished but incomplete episode still resumes`() {
+        val plan = PlaybackResumePolicy.plan(storedPositionMs = 9 * minute, isCompleted = false)
+        assertEquals(PlaybackResumePolicy.StartDecision.RESUME_AT_POSITION, plan.decision)
+        assertEquals(9 * minute, plan.resumePositionMs)
+    }
+
+    @Test
+    fun `a completed episode with no stored position starts at the beginning`() {
+        val plan = PlaybackResumePolicy.plan(storedPositionMs = 0L, isCompleted = true)
         assertEquals(PlaybackResumePolicy.StartDecision.START_FROM_BEGINNING, plan.decision)
-        assertTrue(plan.offerResume)
+        assertEquals(0L, plan.resumePositionMs)
     }
 
-    @Test
-    fun `just below the threshold still resumes`() {
-        val plan = PlaybackResumePolicy.plan(storedPositionMs = 8 * minute, durationMs = 10 * minute, isCompleted = false)
-        assertEquals(PlaybackResumePolicy.StartDecision.RESUME_AT_POSITION, plan.decision)
-    }
-
-    @Test
-    fun `an unknown duration with a stored position resumes`() {
-        val plan = PlaybackResumePolicy.plan(storedPositionMs = 5 * minute, durationMs = 0L, isCompleted = false)
-        assertEquals(PlaybackResumePolicy.StartDecision.RESUME_AT_POSITION, plan.decision)
-    }
-
-    // ── The end-of-episode contract ───────────────────────────────────────────
+    // -- The end-of-episode contract -----------------------------------------
 
     @Test
     fun `the next-episode action appears at ninety five percent`() {
@@ -78,7 +67,7 @@ class PlaybackResumePolicyTest {
         assertFalse(PlaybackResumePolicy.shouldOfferNextEpisode(positionMs = 10 * 1000L, durationMs = 0L))
     }
 
-    // ── The unit contract (PB-8) ─────────────────────────────────────────────
+    // -- The unit contract (PB-8) --------------------------------------------
 
     @Test
     fun `milliseconds convert to the seconds mpv wants`() {

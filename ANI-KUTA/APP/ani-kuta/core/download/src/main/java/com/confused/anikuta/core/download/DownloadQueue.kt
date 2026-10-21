@@ -187,7 +187,10 @@ class DownloadQueue(
         // even when the status check below finds nothing to re-queue.
         networkPause.remove(taskId)
         val task = _tasks.value.firstOrNull { it.id == taskId } ?: return@withLock
-        if (task.status != DownloadStatus.PAUSED && task.status != DownloadStatus.ERROR) return@withLock
+        if (task.status != DownloadStatus.PAUSED &&
+            task.status != DownloadStatus.WAITING_FOR_NETWORK &&
+            task.status != DownloadStatus.ERROR
+        ) return@withLock
         mutateTaskLocked(taskId) {
             it.copy(status = DownloadStatus.QUEUED, lastError = null)
         }
@@ -264,7 +267,11 @@ class DownloadQueue(
      * network-regain auto-resume. */
     suspend fun pauseAll() = mutex.withLock {
         _tasks.value
-            .filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.RETRYING }
+            .filter {
+                it.status == DownloadStatus.DOWNLOADING ||
+                    it.status == DownloadStatus.RETRYING ||
+                    it.status == DownloadStatus.WAITING_FOR_NETWORK
+            }
             .forEach { pauseInternal(it.id) }
         networkPause.clear()
     }
@@ -288,7 +295,11 @@ class DownloadQueue(
      */
     suspend fun resumeAll() = mutex.withLock {
         _tasks.value
-            .filter { it.status == DownloadStatus.PAUSED || it.status == DownloadStatus.ERROR }
+            .filter {
+                it.status == DownloadStatus.PAUSED ||
+                    it.status == DownloadStatus.WAITING_FOR_NETWORK ||
+                    it.status == DownloadStatus.ERROR
+            }
             .forEach { task ->
                 mutateTaskLocked(task.id) {
                     it.copy(status = DownloadStatus.QUEUED, lastError = null)
@@ -350,10 +361,10 @@ class DownloadQueue(
                         }
                         .forEach {
                             // D-757: the marker is added ONLY for a task that was
-                            // really paused — a task that changed status in the
+                            // really paused - a task that changed status in the
                             // meantime keeps no marker, so the service never waits
                             // to "resume" a task that is not network-paused.
-                            if (pauseInternal(it.id)) {
+                            if (pauseForNetworkLocked(it.id)) {
                                 networkPause.add(it.id)
                                 DownloadLogger.i {
                                     "onNetworkChanged — task ${it.id} auto-paused (network lost); " +
@@ -394,7 +405,8 @@ class DownloadQueue(
      * connectivity returns (the old code stopped the service once everything was
      * paused, killing the callback → no auto-restart ever).
      */
-    fun hasNetworkPausedTasks(): Boolean = !networkPause.isEmpty()
+    fun hasNetworkPausedTasks(): Boolean =
+        !networkPause.isEmpty() || _tasks.value.any { it.status == DownloadStatus.WAITING_FOR_NETWORK }
 
     /**
      * D-246: marks a task PAUSED + remembers it for auto-resume on network regain.
@@ -403,23 +415,50 @@ class DownloadQueue(
      */
     private suspend fun pauseForNetwork(taskId: Long) {
         mutex.withLock {
-            val current = _tasks.value.firstOrNull { it.id == taskId } ?: return@withLock
-            if (current.status != DownloadStatus.DOWNLOADING &&
-                current.status != DownloadStatus.QUEUED &&
-                current.status != DownloadStatus.RETRYING
-            ) {
-                return@withLock
-            }
             // D-757: the marker is added INSIDE the lock and ONLY when the task
             // was really paused. The old code added it unconditionally AFTER the
             // lock was released, so a task that was cancelled (or already paused)
-            // in the meantime kept a marker for a task that no longer existed —
+            // in the meantime kept a marker for a task that no longer existed -
             // the service then stayed foreground forever waiting to "resume" a
             // deleted task.
-            if (pauseInternal(taskId)) {
+            if (pauseForNetworkLocked(taskId)) {
                 networkPause.add(taskId)
             }
         }
+    }
+
+    /** Sets WAITING_FOR_NETWORK (rather than PAUSED) for an automatic network pause. */
+    private fun pauseForNetworkLocked(taskId: Long): Boolean =
+        pauseInternal(taskId, DownloadStatus.WAITING_FOR_NETWORK)
+
+    /** Moves every QUEUED task to WAITING_FOR_NETWORK (mutex held). */
+    private fun markQueuedAsWaitingLocked() {
+        _tasks.value
+            .filter { it.status == DownloadStatus.QUEUED }
+            .forEach {
+                if (pauseForNetworkLocked(it.id)) networkPause.add(it.id)
+            }
+    }
+
+    /** Moves every WAITING_FOR_NETWORK task back to QUEUED (mutex held). */
+    private fun promoteWaitingToQueuedLocked() {
+        val waiting = _tasks.value.filter { it.status == DownloadStatus.WAITING_FOR_NETWORK }
+        if (waiting.isEmpty()) return
+        for (task in waiting) {
+            mutateTaskLocked(task.id) {
+                it.copy(status = DownloadStatus.QUEUED, lastError = null)
+            }
+            store.updateState(
+                id = task.id,
+                status = DownloadStatus.QUEUED,
+                progress = task.progress,
+                startedAt = null,
+                completedAt = null,
+                errorMessage = null,
+            )
+            DownloadLogger.i { "tryStartNext - re-queued task ${task.id} after connectivity returned" }
+        }
+        networkPause.clear()
     }
 
     // ── Internal pause (M42 — assumes the mutex is held) ─────────────────────
@@ -432,18 +471,22 @@ class DownloadQueue(
      * D-757: returns TRUE when the task was actually paused — the caller uses
      * that to decide whether the network-pause marker belongs to it.
      */
-    private fun pauseInternal(taskId: Long): Boolean {
+    private fun pauseInternal(
+        taskId: Long,
+        pausedStatus: DownloadStatus = DownloadStatus.PAUSED,
+    ): Boolean {
         val current = _tasks.value.firstOrNull { it.id == taskId } ?: return false
-        if (current.status != DownloadStatus.DOWNLOADING &&
-            current.status != DownloadStatus.QUEUED &&
-            current.status != DownloadStatus.RETRYING
-        ) return false
+        val pausable = current.status == DownloadStatus.DOWNLOADING ||
+            current.status == DownloadStatus.QUEUED ||
+            current.status == DownloadStatus.RETRYING ||
+            (pausedStatus == DownloadStatus.PAUSED && current.status == DownloadStatus.WAITING_FOR_NETWORK)
+        if (!pausable) return false
         mutateTaskLocked(taskId) {
-            it.copy(status = DownloadStatus.PAUSED)
+            it.copy(status = pausedStatus)
         }
         store.updateState(
             id = taskId,
-            status = DownloadStatus.PAUSED,
+            status = pausedStatus,
             progress = current.progress,
             startedAt = current.startedAt,
             completedAt = null,
@@ -463,9 +506,19 @@ class DownloadQueue(
         scope.launch {
             mutex.withLock {
                 if (!connectivityCheck()) {
-                    DownloadLogger.d { "tryStartNext — connectivity check failed (Wi-Fi-only?), skipping" }
+                    DownloadLogger.d { "tryStartNext - connectivity policy failed (Wi-Fi-only); marking queued tasks as waiting for network" }
+                    markQueuedAsWaitingLocked()
                     return@withLock
                 }
+                if (!runCatching { hasInternet() }.getOrDefault(true)) {
+                    DownloadLogger.i { "tryStartNext - no internet; marking queued tasks as waiting for network" }
+                    markQueuedAsWaitingLocked()
+                    return@withLock
+                }
+                // Persisted WAITING_FOR_NETWORK rows (including ones recovered after a
+                // process restart, when the in-memory registry is empty) become
+                // schedulable again the moment connectivity is back.
+                promoteWaitingToQueuedLocked()
                 val queuedTasks = _tasks.value.filter { it.status == DownloadStatus.QUEUED }
                 val activeCount = _tasks.value.count {
                     it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.RETRYING

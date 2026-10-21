@@ -52,4 +52,5 @@ val DownloadTask.isInQueueSection: Boolean
         status == DownloadStatus.DOWNLOADING ||
         status == DownloadStatus.RETRYING ||
         status == DownloadStatus.PAUSED ||
+        status == DownloadStatus.WAITING_FOR_NETWORK ||
         status == DownloadStatus.ERROR

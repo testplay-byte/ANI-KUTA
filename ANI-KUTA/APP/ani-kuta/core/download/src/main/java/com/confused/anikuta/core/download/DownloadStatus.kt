@@ -3,7 +3,7 @@ package com.confused.anikuta.core.download
 /**
  * The lifecycle state of a single download task.
  *
- * D.1.1 + REVIEW-5 M9/M12: 7 states (the old project had 6 — RETRYING is NEW).
+ * D.1.1 + REVIEW-5 M9/M12: 8 states (WAITING_FOR_NETWORK is the network-paused state).
  *
  * State transitions (driven by [DownloadQueue] / [DefaultDownloadManager]):
  * ```
@@ -38,7 +38,16 @@ enum class DownloadStatus {
     /** User-paused; stays in the queue, can be resumed. */
     PAUSED,
 
-    /** Finished — the file + all subtitles are on disk. Terminal. */
+    /**
+     * Automatically paused because the network is unavailable (offline, or
+     * Wi-Fi-only is enabled and the active network is metered). Unlike
+     * [PAUSED], this is NOT user intent: the queue persists the state and
+     * automatically re-queues the task when connectivity returns, even after
+     * the process dies.
+     */
+    WAITING_FOR_NETWORK,
+
+    /** Finished - the file + all subtitles are on disk. Terminal. */
     COMPLETED,
 
     /** Failed (network/IO). Recoverable via retry. */
@@ -53,11 +62,11 @@ enum class DownloadStatus {
     /** Whether the task is currently consuming a download slot. */
     val isActive: Boolean get() = this == DOWNLOADING || this == RETRYING
 
-    /** Whether the task can be paused (only active tasks). */
-    val canPause: Boolean get() = this == DOWNLOADING || this == RETRYING
+    /** Whether the task can be paused (active tasks or one waiting for the network). */
+    val canPause: Boolean get() = this == DOWNLOADING || this == RETRYING || this == WAITING_FOR_NETWORK
 
-    /** Whether the task can be resumed (paused or errored tasks). */
-    val canResume: Boolean get() = this == PAUSED || this == ERROR
+    /** Whether the task can be resumed (user-paused, network-paused or errored). */
+    val canResume: Boolean get() = this == PAUSED || this == WAITING_FOR_NETWORK || this == ERROR
 
     /** Whether the task can be retried (errored tasks). */
     val canRetry: Boolean get() = this == ERROR
