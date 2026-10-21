@@ -2415,10 +2415,18 @@ The round-107 order: robust layout rules for the player episode list's DETAILED 
 - **THE REPORT:** `ROUNDS-120-129.html` (workspace root) — the summary, the CI ledger, the round-by-round detail, the step-by-step test guide and the device checklists (tap-to-tick, with a progress bar). The Markdown twin: `ROUNDS-120-129.md`.
 - CI ledger: 39310982783 GREEN (H2) → 39311763928 GREEN (H3) → 39312406823 GREEN (M1) → 39313160643 RED (the build-script placement) → 39313678330 GREEN (M2's fix + M3). No version bump, no tag, no release (D-738).
 
-## Round 131 (2026-10-21) - the v1.1.74 device round (doc 106, D-767..D-769)
+## Round 131 (2026-10-21) - the v1.1.74 device round (doc 106, D-767..D-770)
 - **Downloads (D-767) - the network wait is a real state:** the queue gains `WAITING_FOR_NETWORK` (persisted, no schema change); the service registers the DEFAULT network callback, requires INTERNET + VALIDATED, trusts the callback's own capabilities, re-evaluates on `onLost`, and seeds current connectivity at registration; the scheduler marks queued work waiting and promotes persisted waiting rows when connectivity returns, including after a process restart; the foreground service + process-start trigger both keep waiting tasks alive; pause/resume/retry/cancel stay user intent. New `DownloadStatusTest` (4).
 - **Relink (D-768) - the source identity wins:** `linkSource` replaces a base from a different source/url (it no longer only fills a null), clears the old episode metadata, and the reopen path restores DB state only for an absent/different identity; `persistEnrichedExtensionBase` writes the FULL extension axis after enrichment (upserting the row if needed), with the generation captured before the coroutine launches.
 - **Player (D-769) - honest resume + numeric advance:** a completed episode starts at 0 with NO resume offer (D-761's offer clause superseded), a partial episode resumes, a never-watched one starts at 0; `nextEpisodeAfter` picks the numerically next episode (E10 -> E11 even on a descending list); auto-advance arms only after the episode was seen below 95 %, so a stale position cannot cascade; the one-shot banner is a compact bottom-right pill with a 28 dp X dismiss and a 5 s auto-clear. Tests: `PlaybackResumePolicyTest` (10, rewritten) + `NextEpisodeTest` (5).
 - **The test gate:** the opt-in `run_unit_tests=true` dispatch is GREEN; every test source set compiles and the touched suites run (`:core:download`, `:core:player`, `:feature:watch:api`).
 - **THE REPORT + THE GUIDE:** `ROUND-131.html` / `.md` and `NAVIGATION-TEST-GUIDE.html` / `.md` (workspace root).
-- CI ledger: **39570066068 GREEN** (the dispatch with unit tests; assembleDebug + the arm64-v8a ABI gate + the 45,471,970-byte `anikuta-apk` artifact). No version bump, no tag, no release (D-738).
+- CI ledger: **39570066068 GREEN** (the dispatch with unit tests; assembleDebug + the arm64-v8a ABI gate + the 45,471,970-byte `anikuta-apk` artifact). The v1.1.75 debug release shipped after the round on the user's explicit order (D-770).
+
+### The v1.1.75 debug release (D-770)
+- The user's explicit order after the round: an actual debug release, installable directly from the app.
+- `release/1.1.75` cut from `34f396ed`; one bump commit `5205071e` (1.1.75 / 10175; mainline stays 1.1.20 / 10120).
+- Annotated tag `v1.1.75` -> `release-apk.yml` run **39577210054 GREEN first try**.
+- Release id **419374634**, stable + **latest** on testplay-byte/ANI-KUTA: `ani-kuta-v1.1.75-debug-arm64-v8a.apk` (63,607,633 bytes, SHA-256 `99546e0ed0241cff02216d0f72913217a14eb47fad10feec0719f88be4dfd092`) + `SHA256SUMS.txt` (verified against the asset).
+- arm64-v8a only; apksigner cert SHA-256 `b4e35ea5...` - the SAME as v1.1.74, so the installed debug app updates in place.
+- Next decision: **D-771**; next record: **107**.

@@ -1,6 +1,6 @@
-# Round 131 - The device round: waiting downloads, the relink refresh, and the honest player (D-767..D-769)
+# Round 131 - The device round: waiting downloads, the relink refresh, and the honest player (D-767..D-770)
 
-> **Status:** LANDED on `main` and CI GREEN (2026-10-21). Commit **030cb1de**; Build APK run **39570066068** (`workflow_dispatch`, `run_unit_tests=true`). No version bump, no tag, no release (D-738).
+> **Status:** LANDED on `main` and CI GREEN (2026-10-21). Commit **030cb1de**; Build APK run **39570066068** (`workflow_dispatch`, `run_unit_tests=true`). The **v1.1.75 debug release** shipped after the round on the user's explicit order (D-770); release run **39577210054**.
 > **The input:** the user's device round on **v1.1.74 / 10174**.
 > **The order, in one line:** downloads must show a real "waiting for network" state and resume themselves, a relink must actually refresh the content, and the player must resume finished episodes at 0, advance E10 -> E11, and show a compact dismissible banner.
 > **Deliverables:** `ROUND-131.html` / `.md` (the report + device checklist) and `NAVIGATION-TEST-GUIDE.html` / `.md` (the navigation guide) at the workspace root.
@@ -52,11 +52,13 @@ Tests: `PlaybackResumePolicyTest` (10, rewritten) and `NextEpisodeTest` (5).
 | Build | `assembleDebug` GREEN |
 | ABI gate | arm64-v8a only, GREEN |
 | Artifact | `anikuta-apk`, 45,471,970 bytes, artifact id 12332082066 |
-| Release | none (D-738); mainline stays 1.1.20/10120; latest debug release v1.1.74/10174 |
+| Release | **v1.1.75 / 10175** (D-770) is LIVE; the mainline stays 1.1.20/10120 |
 
 The push run was superseded by the dispatch run under the workflow's `cancel-in-progress` concurrency rule; the dispatch run is the gate of record.
 
 ## 5 - The device checklist
+
+Install it from the app's own update sheet (Settings > About & Updates > Check for updates) or from the release page linked below, then run these checks.
 
 1. **Offline wait:** start 2-3 downloads, then turn off Wi-Fi and mobile data. The queue must show "Waiting for network" (not a user Paused) and the notification must say it resumes automatically. Swipe the app away, restore connectivity, reopen: the downloads must resume without a manual tap, including the rows that were waiting across the process restart.
 2. **Wi-Fi-only:** with the Wi-Fi-only preference ON, switch to mobile: the queue waits. Switch back: it resumes.
@@ -72,5 +74,19 @@ The push run was superseded by the dispatch run under the workflow's `cancel-in-
 |-----|------|---------|
 | 39570066068 | the Build APK dispatch with the unit-test gate | GREEN |
 | - | the APK artifact (arm64-v8a, ABI-gated) | UPLOADED |
+| 39577210054 | the tag-driven Release APK build (v1.1.75) | GREEN |
+| 419374634 | the GitHub release: stable, latest, 63,607,633-byte APK + SHA256SUMS | LIVE |
 
-Next decision: **D-770**. Next record: **107**. Next round in the backlog: **M8 - the extension trust work**, unless the device round adds findings.
+## 7 - The v1.1.75 debug release (D-770)
+
+The order came after the round: "i want you to do an actually debug release so i can install directly from the app." Routine A of the release playbook was executed exactly.
+
+- `release/1.1.75` was cut from the docs head `34f396ed` with ONE bump commit `5205071e`: `versionCode 10175`, `versionName "1.1.75"`. The mainline stays 1.1.20/10120 (D-430).
+- The annotated tag `v1.1.75` carries only clean user-facing bullets (D-466); the tag/versionName match was verified by the workflow.
+- `release-apk.yml` run **39577210054** is GREEN first try: tag match, `assembleDebug`, arm64-v8a-only ABI gate, apksigner gate, stable release creation.
+- Release **419374634** is LIVE, stable, not prerelease, `--latest`: `https://github.com/testplay-byte/ANI-KUTA/releases/tag/v1.1.75`.
+- Asset: `ani-kuta-v1.1.75-debug-arm64-v8a.apk` - **63,607,633 bytes**, SHA-256 `99546e0ed0241cff02216d0f72913217a14eb47fad10feec0719f88be4dfd092`; `SHA256SUMS.txt` re-downloaded and matched against the asset digest.
+- Signature: apksigner certificate SHA-256 `b4e35ea5479d6559a9f3a90e3ed9ea5bb1cd2da8512da3636086f1da442e0eae` - the SAME as v1.1.74, so the installed debug app updates in place. `10175 > 10174`.
+- The debug updater reads this repo's `/releases/latest`, which now returns `v1.1.75`; the asset name matches the `-arm64-v8a.` picker.
+
+Next decision: **D-771**. Next record: **107**. Next round in the backlog: **M8 - the extension trust work**, unless the device round adds findings.
