@@ -3384,6 +3384,7 @@ private fun ResumePill(
  * openings share a length within a season, so one marking covers the rewatch).
  * Persisted through PlayerPreferences (round 120 scoped the database OUT).
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun SkipEditorSheet(
     currentPositionSec: Int,
