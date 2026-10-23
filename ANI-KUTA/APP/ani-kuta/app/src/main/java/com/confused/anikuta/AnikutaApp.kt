@@ -343,6 +343,9 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             single<OkHttpClient> { wrapDebugOkHttp(HttpClientFactory().create()) }
             // D.0.4: Download HTTP client — long timeouts, separate connection pool.
             single<OkHttpClient>(HttpClientFactory.DOWNLOAD) { wrapDebugOkHttp(HttpClientFactory().createDownloadClient()) }
+            // ROUND 121: the AniSkip skip-times client (intro/outro service —
+            // rides the default client's pool; its own short timeouts inside).
+            single { com.confused.anikuta.core.network.AniSkipClient(get()) }
 
             // D.4: Coil ImageLoader with 500MB disk cache (persistent)
             single { ImageLoaderFactory.create(get(), get()) }

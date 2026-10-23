@@ -27,7 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.SkipForward
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
@@ -95,13 +96,15 @@ fun FullscreenControls(
     onServerClick: () -> Unit = {},
     onSpeedClick: () -> Unit = {},
     onMoreClick: () -> Unit = {},
+    /** ROUND 121: episode navigation in the top-right cluster. */
+    onPrevEpisode: () -> Unit = {},
+    onNextEpisode: () -> Unit = {},
     onSkipForward: () -> Unit = {},
     onPiPClick: () -> Unit = {},
     onRotateClick: () -> Unit = {},
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
     // Round 120 (D-748): opens the intro/outro marking sheet.
-    onSkipEditorClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     animeTitle: String = "",
     episodeInfo: String = "",
@@ -254,8 +257,12 @@ fun FullscreenControls(
                             FSSmallButton(icon = Icons.Default.Subtitles, contentDescription = "Subtitles", onClick = onSubtitleClick)
                             FSSmallButton(icon = Icons.Default.HighQuality, contentDescription = "Quality", onClick = onQualityClick)
                             FSSmallButton(icon = Icons.Default.MusicNote, contentDescription = "Audio", onClick = onAudioClick)
-                            // D-748: intro/outro timestamps — the marking entry.
-                            FSSmallButton(icon = Icons.Default.FastForward, contentDescription = "Intro and outro", onClick = onSkipEditorClick)
+                            // ROUND 121 (the device round's order): the top-right
+                            // cluster is EPISODE NAVIGATION — previous + next.
+                            // (The old intro/outro editor button moved into the
+                            // episodes sheet; skip itself is AniSkip-fed now.)
+                            FSSmallButton(icon = Icons.Default.SkipPrevious, contentDescription = "Previous episode", onClick = onPrevEpisode)
+                            FSSmallButton(icon = Icons.Default.SkipForward, contentDescription = "Next episode", onClick = onNextEpisode)
                             FSSmallButton(icon = Icons.Default.MoreVert, contentDescription = "More", onClick = onMoreClick)
                         }
                     }

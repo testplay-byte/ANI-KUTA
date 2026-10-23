@@ -158,6 +158,9 @@ fun DownloadsScreen(
     val downloading = queue.count { it.status == DownloadStatus.DOWNLOADING }
     val queued = queue.count { it.status == DownloadStatus.QUEUED }
     val paused = queue.count { it.status == DownloadStatus.PAUSED }
+    // ROUND 121: network-waiting tasks — their own count + chip (they are NOT
+    // paused; lumping them in would hide the auto-resume semantics).
+    val waiting = queue.count { it.status == DownloadStatus.WAITING_FOR_NETWORK }
     val failed = queue.count { it.status == DownloadStatus.ERROR }
     val hasActive = downloading > 0 || queued > 0
 
@@ -224,28 +227,55 @@ fun DownloadsScreen(
         if (selectionMode) {
             QueueSelectionBar(
                 selectedCount = selection.size,
-                onSelectAll = viewModel::selectAll,
-                onClearChecks = viewModel::clearSelection,
-                onPauseSelected = viewModel::pauseSelected,
-                onResumeSelected = viewModel::resumeSelected,
-                onRemoveSelected = viewModel::cancelSelected,
+                // ROUND 121: ONE toggle — all-checked shows the clear icon,
+                // anything less shows the check-all icon (the old side-by-side
+                // DoneAll + Clear pair read as two mystery buttons).
+                allSelected = queue.isNotEmpty() && selection.size >= queue.size,
+                onToggleSelectAll = {
+                    if (selection.size >= queue.size && queue.isNotEmpty()) {
+                        viewModel.clearSelection()
+                    } else {
+                        viewModel.selectAll()
+                    }
+                },
+                // ROUND 121: a bulk action EXITS selection mode (the device
+                // round: the menu "didn't exit after the bulk action"). The
+                // checks clear with the mode (the existing LaunchedEffect).
+                onPauseSelected = {
+                    viewModel.pauseSelected()
+                    selectionMode = false
+                },
+                onResumeSelected = {
+                    viewModel.resumeSelected()
+                    selectionMode = false
+                },
+                onRemoveSelected = {
+                    viewModel.cancelSelected()
+                    selectionMode = false
+                },
                 onExit = { selectionMode = false },
             )
         } else if (queue.isNotEmpty()) {
             DownloadActionBar(
                 hasActive = hasActive,
-                hasPaused = paused > 0,
+                // ROUND 121: waiting-on-network tasks count as resumable here
+                // (resume while offline keeps them waiting — no error).
+                hasPaused = paused > 0 || waiting > 0,
                 hasFailed = failed > 0,
                 hasAny = queue.isNotEmpty(),
                 onPauseAll = {
                     queue.filter {
                         it.status == DownloadStatus.DOWNLOADING ||
                             it.status == DownloadStatus.QUEUED ||
-                            it.status == DownloadStatus.RETRYING
+                            it.status == DownloadStatus.RETRYING ||
+                            it.status == DownloadStatus.WAITING_FOR_NETWORK
                     }.forEach { viewModel.pause(it.id) }
                 },
                 onResumeAll = {
-                    queue.filter { it.status == DownloadStatus.PAUSED }.forEach { viewModel.resume(it.id) }
+                    queue.filter {
+                        it.status == DownloadStatus.PAUSED ||
+                            it.status == DownloadStatus.WAITING_FOR_NETWORK
+                    }.forEach { viewModel.resume(it.id) }
                 },
                 onRetryAll = {
                     queue.filter { it.status == DownloadStatus.ERROR }.forEach { viewModel.retry(it.id) }
@@ -281,6 +311,7 @@ fun DownloadsScreen(
                     StatChip(formatSpeed(downloadSpeed), "speed", MaterialTheme.colorScheme.tertiary)
                 }
                 if (queued > 0) StatChip("$queued", "queued", MaterialTheme.colorScheme.onSurfaceVariant)
+                if (waiting > 0) StatChip("$waiting", "waiting for network", MaterialTheme.colorScheme.tertiary)
                 if (paused > 0) StatChip("$paused", "paused", MaterialTheme.colorScheme.onSurfaceVariant)
                 if (failed > 0) StatChip("$failed", "failed", MaterialTheme.colorScheme.error)
             }
@@ -635,8 +666,11 @@ private fun EpisodeRow(
                 }
                 if (task.videoAudio.isNotBlank()) InfoPill(task.videoAudio.uppercase())
                 if (task.videoQuality.isNotBlank()) InfoPill(task.videoQuality)
+                // ROUND 121: a waiting-on-network task keeps its size pill —
+                // it froze mid-download (the bytes + bar show where it stands).
                 if (task.status == DownloadStatus.DOWNLOADING ||
-                    task.status == DownloadStatus.PAUSED
+                    task.status == DownloadStatus.PAUSED ||
+                    task.status == DownloadStatus.WAITING_FOR_NETWORK
                 ) {
                     val sizeText = if (task.totalBytes > 0)
                         "${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
@@ -651,6 +685,9 @@ private fun EpisodeRow(
                 DownloadStatus.QUEUED, DownloadStatus.RETRYING -> {
                     InfoPill(if (task.status == DownloadStatus.RETRYING) "Retrying" else "Queued")
                 }
+                // ROUND 121: the network-wait label — visibly NOT "Paused"
+                // (it resumes by itself the moment connectivity returns).
+                DownloadStatus.WAITING_FOR_NETWORK -> InfoPill("Waiting for network")
                 DownloadStatus.ERROR -> ErrorPill("Failed")
                 DownloadStatus.COMPLETED -> InfoPill("Done", highlight = true)
                 else -> {}
@@ -661,14 +698,19 @@ private fun EpisodeRow(
         // D-213: restored the old-style progress bar — full width of the Column
         // (which is now full-width since the 3-dot moved to Row 1). 6dp tall.
         if (task.status == DownloadStatus.DOWNLOADING ||
-            task.status == DownloadStatus.PAUSED
+            task.status == DownloadStatus.PAUSED ||
+            task.status == DownloadStatus.WAITING_FOR_NETWORK
         ) {
             // D-215: reduced spacer from 6dp → 3dp (~50% reduction as requested).
             Spacer(Modifier.height(3.dp))
             LinearProgressIndicator(
                 progress = { (task.progress / 100f).coerceIn(0f, 1f) },
                 modifier = Modifier.fillMaxWidth().height(6.dp),
-                color = MaterialTheme.colorScheme.primary,
+                color = if (task.status == DownloadStatus.WAITING_FOR_NETWORK) {
+                    MaterialTheme.colorScheme.tertiary
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
                 trackColor = MaterialTheme.colorScheme.surface,
             )
         }
@@ -837,7 +879,12 @@ private fun EpisodeMenuSheet(
             )
             Spacer(Modifier.height(12.dp))
             when (task.status) {
-                DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED, DownloadStatus.RETRYING -> {
+                // ROUND 121: WAITING_FOR_NETWORK behaves like an active task
+                // in the menu — Pause takes it over (→ PAUSED, no auto-resume),
+                // Cancel removes it.
+                DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED, DownloadStatus.RETRYING,
+                DownloadStatus.WAITING_FOR_NETWORK,
+                -> {
                     MenuOption("Pause", Icons.Filled.Pause) { onPause() }
                     MenuOption("Cancel", Icons.Filled.Close, isDestructive = true) { onCancel() }
                 }
@@ -976,14 +1023,18 @@ private fun QueueModePill(
 
 /**
  * The multi-select contextual bar — replaces the action bar while selecting.
- * Row 1: exit + the live count + check-all / clear-checks. Row 2: the three
- * bulk operations in the action bar's chip style (pause / resume / remove).
+ * Row 1: exit + the live count + ONE select-all toggle (ROUND 121: the old
+ * side-by-side check-all/clear-checks pair was confusing — the single button
+ * shows check-all when anything is unchecked and clear when everything is
+ * checked). Row 2: the three bulk operations in the action bar's chip style
+ * (pause / resume / remove) — the screen exits selection mode after any of
+ * them fires.
  */
 @Composable
 private fun QueueSelectionBar(
     selectedCount: Int,
-    onSelectAll: () -> Unit,
-    onClearChecks: () -> Unit,
+    allSelected: Boolean,
+    onToggleSelectAll: () -> Unit,
     onPauseSelected: () -> Unit,
     onResumeSelected: () -> Unit,
     onRemoveSelected: () -> Unit,
@@ -1015,21 +1066,22 @@ private fun QueueSelectionBar(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onSelectAll) {
-                    Icon(
-                        Icons.Filled.DoneAll,
-                        contentDescription = "Select all",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                IconButton(onClick = onClearChecks) {
-                    Icon(
-                        Icons.Filled.Clear,
-                        contentDescription = "Clear checks",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
+                IconButton(onClick = onToggleSelectAll) {
+                    if (allSelected) {
+                        Icon(
+                            Icons.Filled.Clear,
+                            contentDescription = "Deselect all",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    } else {
+                        Icon(
+                            Icons.Filled.DoneAll,
+                            contentDescription = "Select all",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(2.dp))
@@ -1059,6 +1111,21 @@ private fun QueueSelectionBar(
             }
         }
     }
+}
+
+/**
+ * ROUND 121: the reorder row's status line — one label per lifecycle state
+ * (the running task reads as running right in the reorder list).
+ */
+private fun reorderStatusLabel(task: DownloadTask): String = when (task.status) {
+    DownloadStatus.DOWNLOADING -> "Downloading — ${task.progress}%"
+    DownloadStatus.RETRYING -> "Retrying"
+    DownloadStatus.QUEUED -> "Queued"
+    DownloadStatus.WAITING_FOR_NETWORK -> "Waiting for network"
+    DownloadStatus.PAUSED -> "Paused — ${task.progress}%"
+    DownloadStatus.ERROR -> "Failed"
+    DownloadStatus.COMPLETED -> "Done"
+    DownloadStatus.CANCELLED -> "Cancelled"
 }
 
 @Composable
@@ -1197,14 +1264,39 @@ private fun QueueReorderCard(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Text(
-                                task.content.title,
-                                fontFamily = RobotoFamily,
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            // ROUND 121 (reorder polish): the anime title AND
+                            // the live status per row — the flattened list used
+                            // to read as bare episode names with no sense of
+                            // what's running / waiting / paused.
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    task.content.title,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "  •  ",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                )
+                                Text(
+                                    reorderStatusLabel(task),
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = when (task.status) {
+                                        DownloadStatus.DOWNLOADING -> MaterialTheme.colorScheme.primary
+                                        DownloadStatus.WAITING_FOR_NETWORK -> MaterialTheme.colorScheme.tertiary
+                                        DownloadStatus.ERROR -> MaterialTheme.colorScheme.error
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    maxLines = 1,
+                                )
+                            }
                         }
                         IconButton(
                             onClick = { if (index > 0) onMove(task.id, true) },

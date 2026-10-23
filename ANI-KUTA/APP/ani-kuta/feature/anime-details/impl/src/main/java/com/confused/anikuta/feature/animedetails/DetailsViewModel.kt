@@ -17,6 +17,7 @@ import com.confused.anikuta.core.videoresolver.ResolvedVideo
 import com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry
 import com.confused.anikuta.core.videoresolver.ResolverServer
 import com.confused.anikuta.core.videoresolver.VideoResolver
+import com.confused.anikuta.core.watchprogress.EpisodeKeys
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.extension.provider.toUnifiedAnime
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
@@ -35,6 +36,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -112,6 +114,15 @@ class DetailsViewModel(
     // is from a previous content load → discarded (no flash of old data).
     private var loadGeneration = 0
 
+    // ROUND 121 (D1-b): the LINK path's own monotonic generation — a second
+    // relink while the first is still in flight (link A → link B) used to let
+    // A's slower enrichment/episode fetch land AFTER B's, overwriting the
+    // newer link's fresh state. Every linkSource call bumps this; async
+    // continuations capture it at request start + discard themselves when a
+    // newer link has been issued (the same discipline as loadGeneration,
+    // scoped to relinks so load semantics stay untouched).
+    private var relinkGeneration = 0
+
     private val _state = MutableStateFlow<DetailsState>(DetailsState.Loading)
     val state: StateFlow<DetailsState> = _state.asStateFlow()
 
@@ -174,8 +185,10 @@ class DetailsViewModel(
 
     /**
      * D-225c: Reverse auto-link state — tracks the AniList → extensions search
-     * lifecycle. Drives the [AutoLinkPopup] so the user sees live feedback
-     * ("Searching extensions…" → "Linked to {source}" / "No source found").
+     * lifecycle. Drives the details screen's inline reverse-link card so the
+     * user sees live feedback ("Searching extensions…" → "Linked to {source}" /
+     * "No source found"). (ROUND 121 D6-a: the [AutoLinkPopup] composable this
+     * used to feed is deleted — the screen renders this state directly.)
      */
     private val _reverseAutoLinkState = MutableStateFlow<ReverseAutoLinkState>(ReverseAutoLinkState.Idle)
     val reverseAutoLinkState: StateFlow<ReverseAutoLinkState> = _reverseAutoLinkState.asStateFlow()
@@ -271,6 +284,10 @@ class DetailsViewModel(
                                     EpisodeDownloadState.Retrying
                                 com.confused.anikuta.core.download.DownloadStatus.PAUSED ->
                                     EpisodeDownloadState.Paused
+                                // ROUND 121: waiting-on-network reads as Paused
+                                // on the details page (it auto-resumes alone).
+                                com.confused.anikuta.core.download.DownloadStatus.WAITING_FOR_NETWORK ->
+                                    EpisodeDownloadState.Paused
                                 com.confused.anikuta.core.download.DownloadStatus.ERROR ->
                                     EpisodeDownloadState.Error(null)
                                 com.confused.anikuta.core.download.DownloadStatus.COMPLETED ->
@@ -319,8 +336,8 @@ class DetailsViewModel(
      * list carries sub/dub tags, the identity is the per-flavor ORDINAL
      * (sub-5 ↔ dub-5 are ONE episode — one progress row, one toggle, Task 57
      * P1); every other list (all aniyomi lists) keeps the raw episode_number.
-     * The key format is the app-wide builder: "$mid|%05d" (byte-identical to
-     * the other builders).
+     * ROUND 121 (D3): the key itself is EpisodeKeys.build — the app-wide
+     * builder ("$mid|%05d", byte-identical to every other builder).
      */
     private fun csEpisodeIdentities(mid: String, episodes: List<SEpisode>): List<Pair<Int, String>> {
         val ordinals = if (isLinkedSourceCloudStream() && episodes.any { csSubDubEpisodeTag(it) != null }) {
@@ -328,7 +345,7 @@ class DetailsViewModel(
         } else emptyMap()
         return episodes.map { ep ->
             val n = ordinals[ep.url] ?: ep.episode_number.toInt()
-            n to "$mid|${String.format("%05d", n)}"
+            n to EpisodeKeys.build(mid, n.toFloat())
         }
     }
 
@@ -416,12 +433,17 @@ class DetailsViewModel(
         val epNumStr = episodeKey.substringAfterLast('|', "")
         val epNum = epNumStr.toIntOrNull() ?: return
 
-        // Check if all episodes 1..epNum-1 are watched.
-        val allPreviousWatched = episodes.all { ep ->
-            val n = ep.episode_number.toInt()
-            if (n >= epNum) return@all true // skip this episode + later ones
-            val key = "$mid|${String.format("%05d", n)}"
-            watchProgressMap[key]?.isWatched == true
+        // ROUND 121 (D4): the check runs on the SAME identity basis the
+        // confirming handler (markAllPreviousWatched) marks by — the
+        // csEpisodeIdentities number (the CS sub/dub flavor ORDINAL for
+        // tagged lists, the raw episode_number otherwise), keyed through
+        // EpisodeKeys. The old raw ep.episode_number scan disagreed with the
+        // handler on every sub/dub-bridged list (ordinal ≠ raw number) and
+        // on non-contiguous lists, prompting for ranges the handler then
+        // marked on a different basis.
+        val identities = csEpisodeIdentities(mid, episodes)
+        val allPreviousWatched = identities.all { (n, key) ->
+            n >= epNum || watchProgressMap[key]?.isWatched == true
         }
 
         if (!allPreviousWatched && epNum > 1) {
@@ -446,9 +468,11 @@ class DetailsViewModel(
         if (anime.status != "FINISHED") return
 
         // Check if all episodes are watched.
+        // ROUND 121 (D3): the key goes through EpisodeKeys.build (was a
+        // hand-rolled "$mid|%05d" — the third copy in this file).
         val watchProgressMap = watchProgress.value
         val allWatched = episodes.all { ep ->
-            val key = "$mid|${String.format("%05d", ep.episode_number.toInt())}"
+            val key = EpisodeKeys.build(mid, ep.episode_number)
             watchProgressMap[key]?.isWatched == true
         }
 
@@ -749,6 +773,29 @@ class DetailsViewModel(
 
         viewModelScope.launch {
             try {
+                // ROUND 121 (D2-b): on the FIRST TRACK the started date is
+                // seeded from the LOCAL watch history — the earliest
+                // watch_progress.first_watched_at of this content. The sheet's
+                // fresh draft carries startedAt = null, so without this the
+                // first sync wrote NO start date to AniList (and the relay
+                // paths' "now" fallback stamped the SYNC time, not the time
+                // the user actually started watching). The seeded value rides
+                // the sync + the confirmed cache, so the sheet's Started row
+                // reads it back on the next open.
+                var entryToSync = updated
+                if (flipOptIn) {
+                    // D-242-fix discipline: capture into a local for the smart
+                    // cast (public API properties don't smart-cast cross-module).
+                    val draftStartedAt = updated.startedAt
+                    if (draftStartedAt == null || draftStartedAt <= 0L) {
+                        val firstWatch = runCatching { earliestFirstWatchedAt(mid) }.getOrNull()
+                        if (firstWatch != null) {
+                            entryToSync = updated.copy(startedAt = firstWatch)
+                            Logger.i(TAG) { "pushTrackEntry — seeded startedAt from first watch: $firstWatch" }
+                        }
+                    }
+                }
+
                 // 1. THE OPT-IN — ONLY on the Start Tracking path (ROUND 103:
                 //    Save must NOT link the app and AniList together).
                 //    SA1-F2 fix (lead-verified): a FAILED opt-in write ABORTS
@@ -774,14 +821,17 @@ class DetailsViewModel(
                     }
 
                 // 3. The remote sync (+ the confirmed cache on success).
+                // ROUND 121 (D2-b): entryToSync (the seeded-startedAt copy)
+                // rides the sync AND the cache — the Started row reads back.
                 if (tracker.isLoggedIn()) {
-                    val success = runCatching { tracker.syncEntry(updated) }
+                    val success = runCatching { tracker.syncEntry(entryToSync) }
                         .onFailure { e ->
                             Logger.w(TAG) { "pushTrackEntry — sync failed: ${e.message}" }
                         }
                         .getOrDefault(false)
                     if (success) {
-                        repo.upsert(updated)
+                        repo.upsert(entryToSync)
+                        _trackEntry.value = entryToSync
                         _trackSheetError.value = null
                         _showTrackSheet.value = false
                         // ROUND 104 (WS-B): the beautiful toast — "after doing
@@ -794,7 +844,7 @@ class DetailsViewModel(
                                 id = System.nanoTime(),
                             )
                         }
-                        Logger.i(TAG) { "pushTrackEntry(flipOptIn=$flipOptIn) — synced + cached: $updated" }
+                        Logger.i(TAG) { "pushTrackEntry(flipOptIn=$flipOptIn) — synced + cached: $entryToSync" }
                     } else {
                         _trackSheetError.value =
                             "Couldn't reach AniList — " +
@@ -839,6 +889,21 @@ class DetailsViewModel(
             }
         }
     }
+
+    /**
+     * ROUND 121 (D2-b): the earliest first_watched_at in the content's LOCAL
+     * watch history — the honest "started watching" date for the first-track
+     * startedAt seed (pushTrackEntry). Null when the user has no completed
+     * local watch rows (a fresh track with no history keeps startedAt null —
+     * the relay paths' "now" stamp covers it from there).
+     */
+    private suspend fun earliestFirstWatchedAt(mainId: String): Long? =
+        watchProgressStore.observeByMainId(mainId)
+            .first()
+            .asSequence()
+            .mapNotNull { it.firstWatchedAt }
+            .filter { it > 0 }
+            .minOrNull()
 
     /**
      * ROUND 102 (WS-E): REMOVE FROM TRACKING — the LEFT button.
@@ -997,9 +1062,11 @@ class DetailsViewModel(
                 Logger.i(TAG) { "markSeriesAsWatched — marked all ${keysToMark.size} episodes" }
 
                 // Set status = COMPLETED on AniList.
+                // ROUND 121 (D2-a): relayWatchEvent takes an Int now — the
+                // episode count rides directly (no Double round-trip).
                 trackSyncManager?.relayWatchEvent(
                     contentKey = mid,
-                    episodeNumber = episodes.size.toDouble(),
+                    episodeNumber = episodes.size,
                     status = com.confused.anikuta.core.trackerapi.TrackStatus.COMPLETED,
                 )
             }.onFailure { e ->
@@ -3268,24 +3335,12 @@ class DetailsViewModel(
         _showManualLinkSheet.value = false
     }
 
-    // ── D-225c: Auto-link popup dismiss handlers ──
-    // Called by the [AutoLinkPopup] when its auto-dismiss timer fires OR the
-    // user swipes/taps it away. Resets the corresponding state to Idle so the
-    // popup hides cleanly without flickering on the next recomposition.
-
-    /** Dismiss the FORWARD auto-link popup (extension → AniList). */
-    fun dismissAutoLinkPopup() {
-        if (_autoLinkState.value !is AutoLinkState.Searching) {
-            _autoLinkState.value = AutoLinkState.Idle
-        }
-    }
-
-    /** Dismiss the REVERSE auto-link popup (AniList → extensions). */
-    fun dismissReverseAutoLinkPopup() {
-        if (_reverseAutoLinkState.value !is ReverseAutoLinkState.Searching) {
-            _reverseAutoLinkState.value = ReverseAutoLinkState.Idle
-        }
-    }
+    // ROUND 121 (D6-a): the D-225c auto-link POPUP dismiss handlers
+    // (dismissAutoLinkPopup / dismissReverseAutoLinkPopup) are deleted with
+    // AutoLinkPopup.kt — the popup composable had zero render sites
+    // (DetailsScreen renders reverseAutoLinkState inline), so the handlers
+    // had zero callers. The STATE flows stay (the screen + the reverse
+    // auto-link drive them); only the dead popup face is gone.
 
     // ── Fetch episodes from a specific source (used by extension flow) ──
 
@@ -3406,9 +3461,20 @@ class DetailsViewModel(
      * D-134: For AniList entries, this also creates [extensionBase] from the picked
      * SAnime (so the data-source selector becomes available — the user can now
      * switch between AniList data and Extension data).
+     *
+     * ROUND 121 (D1): relink correctness — (a) extensionBase is rebuilt
+     * UNCONDITIONALLY from the fresh pick (a relink used to keep the previous
+     * source's base), (b) the whole flow is generation-guarded (see
+     * [relinkGeneration]), (c) the previous (sourceId, animeUrl) reverse-map
+     * cache is cleared when the link identity changes, (d) the persisted
+     * ecosystem is derived from the source id, not hardcoded.
      */
     fun linkSource(source: AnimeCatalogueSource, sAnime: SAnime) {
         val animeId = currentAnimeId
+        // ROUND 121 (D1-b/c): capture the link's generation at request start +
+        // the PREVIOUS linked identity BEFORE it is overwritten below.
+        val linkGen = ++relinkGeneration
+        val previousLink = _linkedSource.value
         Logger.i(TAG) { "Linking anime $animeId to source ${source.name} (${sAnime.url})" }
         preferenceStore.putString(
             KEY_SOURCE_LINK_PREFIX + animeId,
@@ -3440,6 +3506,19 @@ class DetailsViewModel(
         // This ensures that when the user opens the SAME anime from the extension
         // later, resolveContentForExtension finds the cached anilistId → finds
         // the existing content record → uses the SAME mainId (no duplicate).
+        // ROUND 121 (D1-c): a RELINK to a different (sourceId, animeUrl) first
+        // CLEARS the previous link's cached pair — the stale row survived the
+        // relink, so opening the OLD source's entry still resolved to this
+        // content record (whose ext_* axis now points at the NEW source) and
+        // re-linked the pre-relink pairing. Replace = clear old + cache new.
+        if (previousLink != null &&
+            (previousLink.sourceId != source.id || previousLink.animeUrl != sAnime.url)
+        ) {
+            autoLinkPreferences.clearCachedAniListId(previousLink.sourceId, previousLink.animeUrl)
+            Logger.i(TAG) {
+                "Cleared stale reverse mapping: (${previousLink.sourceId}, ${previousLink.animeUrl}) — superseded by (${source.id}, ${sAnime.url})"
+            }
+        }
         if (animeId > 0) {
             autoLinkPreferences.cacheAniListId(source.id, sAnime.url, animeId)
             Logger.i(TAG) { "Cached reverse mapping: (${source.id}, ${sAnime.url}) → anilistId=$animeId" }
@@ -3454,9 +3533,14 @@ class DetailsViewModel(
             // D-198: ExtensionDetail → ContentDetails (extension axis). Pass via the
             // linkExtensionToExisting overload that takes extensionDetail to atomically
             // update both main_entry + content_details in a single transaction.
+            // ROUND 121 (D1-d): the ecosystem is DERIVED from the source id (the
+            // D-540 pattern in resolveContentForExtension), not hardcoded — a
+            // link to a bit-62 CloudStream-bridged source used to persist
+            // extensionType "aniyomi", lying about the entry's own ecosystem.
+            val ecosystemName = if (source.id.isCloudstreamBridgedId()) "cloudstream" else "aniyomi"
             val extensionDetail = com.confused.anikuta.core.content.ContentDetails(
                 mainId = mainId,
-                extensionType = "aniyomi",
+                extensionType = ecosystemName,
                 extensionId = source.id.toString(),
                 sourceId = source.id,
                 animeUrl = sAnime.url,
@@ -3479,38 +3563,46 @@ class DetailsViewModel(
             refreshContentId(mainId)
         }
 
-        // D-134: Create extensionBase from the picked SAnime (for AniList entries).
-        // This makes the data-source selector available.
-        if (extensionBase == null) {
-            extensionBase = sAnime.toUnifiedAnime(source.id, source.name)
-            Logger.i(TAG) { "Extension base created from picked SAnime: ${sAnime.title}" }
-            // Re-merge to update the display (keeps current priority).
-            val currentPriority = (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
-                ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
-            remergeBases(currentPriority)
+        // D-134 → ROUND 121 (D1-a): (RE)BUILD extensionBase from the picked
+        // SAnime — UNCONDITIONALLY, on every link. The old `if (extensionBase
+        // == null)` guard kept the PREVIOUS source's base on a relink, so the
+        // fresh source's episodes merged onto the old source's metadata base
+        // (stale titles/covers/description from a source the user just
+        // replaced). The rebuilt base is sparse on purpose — the enrichment
+        // below refills it from the newly linked source.
+        extensionBase = sAnime.toUnifiedAnime(source.id, source.name)
+        Logger.i(TAG) { "Extension base (re)built from picked SAnime: ${sAnime.title}" }
+        // Re-merge to update the display (keeps current priority).
+        val currentPriority = (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+            ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+        remergeBases(currentPriority)
 
-            // D-139: Fetch full extension details in the background.
-            // The SAnime from search is sparse (no description, score, etc.).
-            // Fetch the full details via getAnimeDetails to enrich extensionBase.
-            viewModelScope.launch {
-                try {
-                    // Task 47: re-seed the displayed year (see refresh path).
-                    val seedYear = (_state.value as? DetailsState.Success)?.anime?.seasonYear
-                    val enriched = extensionProvider.fetchFromExtension(
-                        source.id, sAnime.url, sAnime.title, sAnime.thumbnail_url,
-                        seedYear,
+        // D-139: Fetch full extension details in the background.
+        // The SAnime from search is sparse (no description, score, etc.).
+        // Fetch the full details via getAnimeDetails to enrich extensionBase.
+        // ROUND 121 (D1-b): generation-guarded — if the user relinks again
+        // while this fetch is in flight, THIS result is discarded (the older
+        // response must never land after the newer one).
+        viewModelScope.launch {
+            try {
+                // Task 47: re-seed the displayed year (see refresh path).
+                val seedYear = (_state.value as? DetailsState.Success)?.anime?.seasonYear
+                val enriched = extensionProvider.fetchFromExtension(
+                    source.id, sAnime.url, sAnime.title, sAnime.thumbnail_url,
+                    seedYear,
+                )
+                if (enriched != null && linkGen == relinkGeneration) {
+                    extensionBase = enriched
+                    Logger.i(TAG) { "Extension base enriched with full details: ${enriched.displayName}" }
+                    remergeBases(
+                        (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                            ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
                     )
-                    if (enriched != null) {
-                        extensionBase = enriched
-                        Logger.i(TAG) { "Extension base enriched with full details: ${enriched.displayName}" }
-                        remergeBases(
-                            (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
-                                ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
-                        )
-                    }
-                } catch (e: Exception) {
-                    Logger.w(TAG) { "Extension detail enrichment failed: ${e.message}" }
+                } else if (enriched != null) {
+                    Logger.d(TAG) { "Link enrichment discarded (stale relink generation $linkGen)" }
                 }
+            } catch (e: Exception) {
+                Logger.w(TAG) { "Extension detail enrichment failed: ${e.message}" }
             }
         }
 
@@ -3582,8 +3674,15 @@ class DetailsViewModel(
             // anime A's late-arriving results used to overwrite anime B's
             // episode list and MERGE into B's number-keyed metadata map, so B's
             // rows rendered A's thumbnails/titles.
+            // ROUND 121 (D1-b): the LINK generation rides the same guard — two
+            // quick relinks (A then B) used to race inside one loadGeneration,
+            // so A's slower fetch could land after B's and overwrite B's fresh
+            // episode list. fetchEpisodes is also reached from the reopen path
+            // (loadLinkedSource), which never bumps relinkGeneration — the
+            // capture-compare there simply never fires.
             val fetchGen = loadGeneration
-            fun stale() = fetchGen != loadGeneration
+            val fetchLinkGen = relinkGeneration
+            fun stale() = fetchGen != loadGeneration || fetchLinkGen != relinkGeneration
 
             // D-147: Check the local cache first — if episodes are cached, display instantly.
             // D.FIX: Also do a BACKGROUND refresh from the network so the cache stays fresh.
@@ -3623,7 +3722,9 @@ class DetailsViewModel(
                     // silently losing isFiller, isRecap, titleJapanese, etc. on cache restore.
                     val metadataMap = cachedEpisodes.associate { meta ->
                         meta.episodeNumber.toInt() to com.confused.anikuta.core.metadata.EpisodeMetadata(
-                            episodeKey = mainId + "|" + String.format("%05d", meta.episodeNumber.toInt()),
+                            // ROUND 121 (D3): EpisodeKeys.build (was a
+                            // hand-rolled mainId + "|" + "%05d" concat).
+                            episodeKey = EpisodeKeys.build(mainId, meta.episodeNumber),
                             number = meta.episodeNumber.toDouble(),
                             title = meta.title,
                             thumbnailUrl = meta.thumbnailUrl,
@@ -4260,14 +4361,16 @@ sealed interface AutoLinkState {
 }
 
 /**
- * D-225c: Reverse auto-link state — drives the [AutoLinkPopup] for the
- * AniList → extensions search direction.
+ * D-225c: Reverse auto-link state — the AniList → extensions search
+ * direction, rendered INLINE by the details screen (ROUND 121 D6-a: the
+ * old [AutoLinkPopup] composable is deleted; the screen consumes this
+ * state directly).
  *
  * - [Idle]: nothing happening (initial / dismissed / skipped).
- * - [Searching]: extensions are being queried (popup shows spinner + "Searching…").
- * - [Matched]: a source was linked (popup confirms + auto-dismisses).
- * - [NoMatch]: no confident match (popup offers a "Link manually" action).
- * - [Error]: search failed (popup shows the error + auto-dismisses).
+ * - [Searching]: extensions are being queried (inline card shows spinner + "Searching…").
+ * - [Matched]: a source was linked (inline card confirms).
+ * - [NoMatch]: no confident match (inline card offers a "Link manually" action).
+ * - [Error]: search failed (inline card shows the error).
  */
 sealed interface ReverseAutoLinkState {
     data object Idle : ReverseAutoLinkState

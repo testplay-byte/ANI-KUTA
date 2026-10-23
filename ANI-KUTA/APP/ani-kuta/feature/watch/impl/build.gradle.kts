@@ -23,6 +23,10 @@ dependencies {
     implementation(project(":core:activity-tracker"))  // D-192: activity tracking
     implementation(project(":data:extension"))
     implementation(project(":core:source-api"))
+    // ROUND 121: the AniSkip skip-times service (intro/outro data) + the
+    // content-details lookup for the anime's AniList/MAL id.
+    implementation(project(":core:network"))
+    implementation(project(":core:content"))
 
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)

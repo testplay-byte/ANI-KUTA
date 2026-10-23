@@ -19,7 +19,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.SkipForward
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -75,8 +76,9 @@ fun MinimizedControls(
     onSubtitleClick: () -> Unit,
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
-    // Round 120 (D-748): opens the intro/outro marking sheet.
-    onSkipEditorClick: () -> Unit = {},
+    /** ROUND 121: episode navigation in the top-right cluster. */
+    onPrevEpisode: () -> Unit = {},
+    onNextEpisode: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
@@ -266,11 +268,18 @@ fun MinimizedControls(
                         contentDescription = "Quality",
                         onClick = onQualityClick,
                     )
-                    // D-748: intro/outro timestamps — the marking entry.
+                    // ROUND 121 (the device round's order): episode navigation
+                    // replaces the intro/outro editor entry (the editor moved
+                    // into the episodes sheet; skip is AniSkip-fed now).
                     TransparentIconButton(
-                        icon = Icons.Default.FastForward,
-                        contentDescription = "Intro and outro",
-                        onClick = onSkipEditorClick,
+                        icon = Icons.Default.SkipPrevious,
+                        contentDescription = "Previous episode",
+                        onClick = onPrevEpisode,
+                    )
+                    TransparentIconButton(
+                        icon = Icons.Default.SkipForward,
+                        contentDescription = "Next episode",
+                        onClick = onNextEpisode,
                     )
                 }
 

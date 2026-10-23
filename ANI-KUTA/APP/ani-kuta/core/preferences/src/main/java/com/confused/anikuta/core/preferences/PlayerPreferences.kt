@@ -383,6 +383,73 @@ class PlayerPreferences(private val store: PreferenceStore) {
         }
     }
 
+    // ── ROUND 121: per-EPISODE AniSkip data (the service-fed skip system) ────
+    //
+    // The round-121 device order replaced hand-marked stamps as the PRIMARY
+    // skip source with the AniSkip service, whose data is PER EPISODE — so
+    // the cache is keyed (mainId, episodeNumber). Encoded compactly as
+    // "opStart|opEnd|edStart|edEnd" seconds (blank segments = that side has
+    // no data). The per-series manual stamps (above) become the FALLBACK —
+    // the editor sheet still writes them for sources AniSkip doesn't cover.
+
+    /** The per-episode AniSkip intervals (seconds); either side may be null. */
+    data class EpisodeSkipTimes(
+        val introStartSec: Int? = null,
+        val introEndSec: Int? = null,
+        val outroStartSec: Int? = null,
+        val outroEndSec: Int? = null,
+    ) {
+        val hasIntro: Boolean get() = introStartSec != null && introEndSec != null && introEndSec > introStartSec
+        val hasOutro: Boolean get() = outroStartSec != null && outroEndSec != null && outroEndSec > outroStartSec
+        val hasAny: Boolean get() = hasIntro || hasOutro
+    }
+
+    /** Reads the cached AniSkip intervals for one episode (null = not cached). */
+    fun getEpisodeSkipTimes(mainId: String, episodeNumber: Int): EpisodeSkipTimes? {
+        if (mainId.isBlank()) return null
+        val raw = store.getString(KEY_PREFIX_EPISODE_SKIP + mainId + "_" + episodeNumber, "") ?: ""
+        if (raw.isBlank()) return null
+        val parts = raw.split('|')
+        fun seg(i: Int): Int? = parts.getOrNull(i)?.toIntOrNull()?.takeIf { it > 0 }
+        return EpisodeSkipTimes(
+            introStartSec = seg(0),
+            introEndSec = seg(1),
+            outroStartSec = seg(2),
+            outroEndSec = seg(3),
+        )
+    }
+
+    /**
+     * Persists the AniSkip intervals for one episode (null/no-data [times]
+     * clears the cache entry — the negative latch below prevents refetch
+     * loops for anime the service doesn't cover).
+     */
+    fun setEpisodeSkipTimes(mainId: String, episodeNumber: Int, times: EpisodeSkipTimes?) {
+        if (mainId.isBlank()) return
+        val key = KEY_PREFIX_EPISODE_SKIP + mainId + "_" + episodeNumber
+        if (times == null || !times.hasAny) {
+            store.delete(key)
+        } else {
+            val encoded = "${times.introStartSec ?: ""}|${times.introEndSec ?: ""}|${times.outroStartSec ?: ""}|${times.outroEndSec ?: ""}"
+            store.putString(key, encoded)
+        }
+    }
+
+    /**
+     * The negative latch: AniSkip was asked about this episode and answered
+     * (hit OR miss) — prevents re-asking on every open of an uncovered anime.
+     */
+    fun isEpisodeSkipFetched(mainId: String, episodeNumber: Int): Boolean {
+        if (mainId.isBlank()) return false
+        return store.getBoolean(KEY_PREFIX_EPISODE_SKIP_ASKED + mainId + "_" + episodeNumber, false)
+    }
+
+    /** Marks an episode as asked (true on ANY completed fetch, hit or miss). */
+    fun markEpisodeSkipFetched(mainId: String, episodeNumber: Int) {
+        if (mainId.isBlank()) return
+        store.putBoolean(KEY_PREFIX_EPISODE_SKIP_ASKED + mainId + "_" + episodeNumber, true)
+    }
+
     companion object {
         private const val KEY_SPEED = "player_speed"
         private const val KEY_AUTOPLAY_NEXT = "player_autoplay_next"
@@ -412,5 +479,7 @@ class PlayerPreferences(private val store: PreferenceStore) {
         private const val KEY_HW_DECODE = "player_hw_decode"
         private const val KEY_PREFIX_SUB_TRACK_MEMORY = "pref_sub_track_memory_"
         private const val KEY_PREFIX_SKIP_TIMESTAMPS = "pref_skip_timestamps_"
+        private const val KEY_PREFIX_EPISODE_SKIP = "pref_episode_skip_"
+        private const val KEY_PREFIX_EPISODE_SKIP_ASKED = "pref_episode_skip_asked_"
     }
 }

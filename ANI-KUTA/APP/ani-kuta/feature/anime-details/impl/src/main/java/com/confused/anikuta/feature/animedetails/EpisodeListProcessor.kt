@@ -1,6 +1,7 @@
 package com.confused.anikuta.feature.animedetails
 
 import com.confused.anikuta.core.metadata.EpisodeMetadata
+import com.confused.anikuta.core.watchprogress.EpisodeKeys
 import com.confused.anikuta.core.watchprogress.WatchProgress
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 
@@ -70,8 +71,10 @@ fun applyEpisodeListPreferences(
         // P7-G1 fix: the key uses the IDENTITY number (the flavor ordinal for
         // tagged CS lists — what the player saves under), falling back to the
         // raw number.
+        // ROUND 121 (D3): built via EpisodeKeys (was a hand-rolled
+        // "$mainId|%05d" string format — the details feature's last copy).
         val identityNum = watchIdentityNumberOf(episode) ?: epNum
-        val watchKey = if (mainId != null) "$mainId|${String.format("%05d", identityNum)}" else null
+        val watchKey = mainId?.let { EpisodeKeys.build(it, identityNum.toFloat()) }
         val progress = watchKey?.let { watchProgress[it] }
         val isWatched = progress?.isWatched ?: false
         val passesWatchedFilter = when (watchedFilter) {

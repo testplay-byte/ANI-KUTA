@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.asPaddingValues
@@ -509,7 +510,13 @@ fun WatchScreen(
             val pos = stateHolder.position.value
             val dur = stateHolder.duration.value
             val epUrl = stateHolder.currentEpisodeUrl.value
-            if (dur > 0 && epUrl.isNotBlank()) {
+            // ROUND 121 (the device round): positions under a minute that are
+            // nowhere near completion are NOT recorded — the shared policy's
+            // floor ("watched less than one minute isn't recorded at all").
+            if (dur > 0 && epUrl.isNotBlank() &&
+                com.confused.anikuta.core.watchprogress.PlaybackResumePolicy
+                    .shouldPersist(pos.toLong(), dur.toLong())
+            ) {
                 val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
                 val progress = WatchProgress(
                     episodeKey = epKey,
@@ -563,6 +570,15 @@ fun WatchScreen(
     var skipTimestamps by remember(watchKey.mainId) {
         mutableStateOf(playerPreferences.getSkipTimestamps(watchKey.mainId))
     }
+    // ROUND 121: the AniSkip service data for the CURRENT episode (per-
+    // episode intervals — the service knows more than a per-series stamp).
+    // Precedence: AniSkip interval > the manual per-series stamps (fallback
+    // for content the service doesn't cover; still editable via the sheet).
+    var episodeSkip by remember(watchKey.mainId) {
+        mutableStateOf<com.confused.anikuta.core.preferences.PlayerPreferences.EpisodeSkipTimes?>(null)
+    }
+    val aniSkipClient = koinInject<com.confused.anikuta.core.network.AniSkipClient>()
+    val contentRepository = koinInject<com.confused.anikuta.core.content.ContentRepository>()
     var skipPill by remember { mutableStateOf<SkipPillState?>(null) }
     val autoSkippedKeys = remember { mutableStateMapOf<String, Boolean>() }
     val nextUpCardEnabled by playerPreferences.nextUpCardEnabled.changes.collectAsState(
@@ -577,9 +593,29 @@ fun WatchScreen(
 
     // D-746/D-747/D-748: one shared helper — the next episode in list order
     // (the same order onSkipForward walks), or null at the end of the list.
+    // ROUND 121 (the device round's Up Next miss): the URL lookup is primary,
+    // but the EPISODE NUMBER is the fallback — the number provably round-trips
+    // (the resume path keys off it), while a URL can miss on hand-offs whose
+    // list serialization diverges. A miss on BOTH is logged so a device log
+    // pinpoints the cause; the card's absence is never silent again.
     val nextEpisodeInList: () -> SimpleEpisode? = {
         val currentUrl = stateHolder.currentEpisodeUrl.value
-        val idx = episodeList.indexOfFirst { it.url == currentUrl }
+        val currentNum = stateHolder.currentEpisodeNumber.value
+        val urlIdx = episodeList.indexOfFirst { it.url == currentUrl }
+        val idx = if (urlIdx >= 0) {
+            urlIdx
+        } else {
+            val numIdx = episodeList.indexOfFirst { it.episodeNumber == currentNum }
+            if (numIdx < 0) {
+                Logger.w(TAG) {
+                    "Up Next: current episode not found in the list — " +
+                        "url=${currentUrl.take(48)} num=$currentNum " +
+                        "listSize=${episodeList.size} " +
+                        "nums=${episodeList.take(6).map { it.episodeNumber }}"
+                }
+            }
+            numIdx
+        }
         if (idx in 0 until episodeList.size - 1) episodeList[idx + 1] else null
     }
 
@@ -591,8 +627,11 @@ fun WatchScreen(
             offeredNextKeys[epKey] = true
             val next = nextEpisodeInList()
             if (next != null) {
+                Logger.i(TAG) { "Up Next: offering ${next.name} (force=$force, key=$epKey)" }
                 upNextEpisode = next
                 upNextVisible = true
+            } else if (force) {
+                Logger.i(TAG) { "Up Next: EOF with no successor (end of list) — key=$epKey" }
             }
         }
     }
@@ -633,16 +672,16 @@ fun WatchScreen(
                     stateHolder.currentEpisodeNumber.value == watchKey.episodeNumber
                 ) {
                     // The details-page resume hint (rare — most callers pass 0).
-                    com.confused.anikuta.core.player.PlaybackResumePolicy.Decision.ResumeAtPosition(
+                    com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.Decision.ResumeAtPosition(
                         watchKey.startPosition,
                     )
                 } else {
-                    com.confused.anikuta.core.player.PlaybackResumePolicy.plan(
+                    com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.plan(
                         stored = runCatching { watchProgressStore.get(epKey) }.getOrNull(),
                         resumeEnabled = playerPreferences.resumeFromLastPosition,
                     )
                 }
-                val resumeSec = (decision as? com.confused.anikuta.core.player.PlaybackResumePolicy.Decision
+                val resumeSec = (decision as? com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.Decision
                     .ResumeAtPosition)?.positionSeconds ?: 0L
                 if (resumeSec > 0) {
                     delay(300L) // ensure MPV has fully processed FILE_LOADED before seeking
@@ -657,21 +696,23 @@ fun WatchScreen(
     // D-746: the resume affordance auto-hides (Restart stays tappable meanwhile).
     LaunchedEffect(resumePillSec) {
         if (resumePillSec >= 0) {
-            delay(com.confused.anikuta.core.player.PlaybackResumePolicy.RESUME_PILL_DURATION_MS)
+            delay(com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.RESUME_PILL_DURATION_MS)
             resumePillSec = -1L
         }
     }
 
     // ── Round 120 (D-747): the Up Next offer trigger ───────────────────────────
     // Fires at 95% of the duration (the shared policy's fraction), or earlier at
-    // the series' marked outro start when one exists. Once per episode key; the
-    // countdown effect below handles auto-play vs. button-only.
-    LaunchedEffect(position, duration, currentEpisodeUrl, nextUpCardEnabled, skipTimestamps) {
+    // the effective outro start (AniSkip's ed interval, else the manual stamp)
+    // when one exists. Once per episode key; the countdown effect below handles
+    // auto-play vs. button-only.
+    LaunchedEffect(position, duration, currentEpisodeUrl, nextUpCardEnabled, skipTimestamps, episodeSkip) {
         if (duration <= 0 || !nextUpCardEnabled) return@LaunchedEffect
         val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
         if (offeredNextKeys[epKey] == true) return@LaunchedEffect
-        val outroStart = skipTimestamps.takeIf { it.hasOutro }?.outroStartSec
-        val reached = com.confused.anikuta.core.player.PlaybackResumePolicy
+        val outroStart = episodeSkip?.takeIf { it.hasOutro }?.outroStartSec
+            ?: skipTimestamps.takeIf { it.hasOutro }?.outroStartSec
+        val reached = com.confused.anikuta.core.watchprogress.PlaybackResumePolicy
             .shouldOfferNextEpisode(position, duration) ||
             (outroStart != null && position >= outroStart)
         if (reached) offerNextEpisode(false)
@@ -1068,7 +1109,12 @@ fun WatchScreen(
             val pos = stateHolder.position.value
             val dur = stateHolder.duration.value
             val epUrl = stateHolder.currentEpisodeUrl.value
-            if (dur > 0 && epUrl.isNotBlank()) {
+            // ROUND 121: the same recording floor as the periodic save — a
+            // sub-minute exit is not progress.
+            if (dur > 0 && epUrl.isNotBlank() &&
+                com.confused.anikuta.core.watchprogress.PlaybackResumePolicy
+                    .shouldPersist(pos.toLong(), dur.toLong())
+            ) {
                 val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
                 val progress = WatchProgress(
                     episodeKey = epKey,
@@ -1388,7 +1434,10 @@ fun WatchScreen(
         val oldDur = stateHolder.duration.value
         val oldEpUrl = stateHolder.currentEpisodeUrl.value
         val oldEpNum = stateHolder.currentEpisodeNumber.value
-        if (oldDur > 0 && oldEpUrl.isNotBlank() && watchKey.mainId.isNotBlank()) {
+        if (oldDur > 0 && oldEpUrl.isNotBlank() && watchKey.mainId.isNotBlank() &&
+            com.confused.anikuta.core.watchprogress.PlaybackResumePolicy
+                .shouldPersist(oldPos.toLong(), oldDur.toLong())
+        ) {
             val oldKey = buildEpisodeKey(watchKey.mainId, oldEpNum)
             val oldProgress = WatchProgress(
                 episodeKey = oldKey,
@@ -1690,6 +1739,23 @@ fun WatchScreen(
         }
     }
 
+    // ROUND 121: the prev-episode twin (the top-right navigation pair). Uses
+    // the same URL-then-number fallback as nextEpisodeInList.
+    val onSkipBackward: () -> Unit = {
+        val currentUrl = stateHolder.currentEpisodeUrl.value
+        val currentNum = stateHolder.currentEpisodeNumber.value
+        val urlIdx = episodeList.indexOfFirst { it.url == currentUrl }
+        val idx = if (urlIdx >= 0) urlIdx
+        else episodeList.indexOfFirst { it.episodeNumber == currentNum }
+        if (idx > 0) {
+            val prevEp = episodeList[idx - 1]
+            Logger.i(TAG) { "Skip backward → episode ${prevEp.episodeNumber} (${prevEp.name})" }
+            onEpisodeSwitch(prevEp)
+        } else {
+            Logger.i(TAG) { "Skip backward — no previous episode (at start of list)" }
+        }
+    }
+
     // ── Round 120 (D-747): the Up Next countdown ──────────────────────────────
     // Only while auto-play is ON: a 10s countdown on the card, then advance.
     // When OFF the card is button-only — the pref had ZERO consumers before
@@ -1697,7 +1763,7 @@ fun WatchScreen(
     LaunchedEffect(upNextVisible, upNextEpisode) {
         if (!upNextVisible || upNextEpisode == null) return@LaunchedEffect
         if (playerPreferences.autoPlayNext) {
-            upNextCountdown = com.confused.anikuta.core.player.PlaybackResumePolicy.UP_NEXT_COUNTDOWN_SECONDS
+            upNextCountdown = com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.UP_NEXT_COUNTDOWN_SECONDS
             while (upNextVisible && upNextCountdown > 0) {
                 delay(1_000L)
                 if (!upNextVisible) return@LaunchedEffect
@@ -1720,52 +1786,127 @@ fun WatchScreen(
     }
     val onDismissUpNext: () -> Unit = { upNextVisible = false }
 
-    // ── Round 120 (D-748): intro/outro skip ───────────────────────────────────
-    // The series' marked timestamps drive two affordances:
+    // ── ROUND 121: the AniSkip fetch — per episode, cached in prefs ───────────
+    // Cached-first; the negative latch (markEpisodeSkipFetched) stops re-asks
+    // for anime the service doesn't cover. The episode-number check before
+    // the state write discards a result that landed after a switch.
+    LaunchedEffect(currentEpisodeUrl) {
+        val epNum = stateHolder.currentEpisodeNumber.value.toInt()
+        if (watchKey.mainId.isBlank() || epNum <= 0) {
+            episodeSkip = null
+            return@LaunchedEffect
+        }
+        val cached = playerPreferences.getEpisodeSkipTimes(watchKey.mainId, epNum)
+        if (cached != null) {
+            episodeSkip = cached
+            return@LaunchedEffect
+        }
+        if (playerPreferences.isEpisodeSkipFetched(watchKey.mainId, epNum)) {
+            episodeSkip = null
+            return@LaunchedEffect
+        }
+        val durMs = stateHolder.duration.value * 1000L
+        val fetched = runCatching {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                // Synchronous DB read + network — off the main thread.
+                val details = runCatching {
+                    contentRepository.getContentDetails(watchKey.mainId)
+                }.getOrNull()
+                val mal = details?.malId
+                val anilist = details?.anilistId
+                when {
+                    mal != null && mal > 0 ->
+                        aniSkipClient.fetchSkipTimesByMal(mal, epNum, durMs)
+                    anilist != null && anilist > 0 ->
+                        aniSkipClient.fetchSkipTimes(anilist, epNum, durMs)
+                    else -> null
+                }
+            }
+        }.getOrNull()
+        playerPreferences.markEpisodeSkipFetched(watchKey.mainId, epNum)
+        val stored = fetched?.let {
+            com.confused.anikuta.core.preferences.PlayerPreferences.EpisodeSkipTimes(
+                introStartSec = it.intro?.startSec,
+                introEndSec = it.intro?.endSec,
+                outroStartSec = it.outro?.startSec,
+                outroEndSec = it.outro?.endSec,
+            )
+        }
+        playerPreferences.setEpisodeSkipTimes(watchKey.mainId, epNum, stored)
+        Logger.i(TAG) {
+            "AniSkip: EP $epNum → intro=${fetched?.intro?.let { "${it.startSec}-${it.endSec}s" }} " +
+                "outro=${fetched?.outro?.let { "${it.startSec}-${it.endSec}s" }} " +
+                "(miss=${fetched == null})"
+        }
+        if (stateHolder.currentEpisodeNumber.value.toInt() == epNum) episodeSkip = stored
+    }
+
+    // ── Round 120 (D-748), reworked ROUND 121: intro/outro skip ──────────────
+    // The EFFECTIVE windows: AniSkip's per-episode intervals win; the manual
+    // per-series stamps are the fallback (sources the service doesn't cover).
     //  - BUTTON mode: a "Skip intro"/"Skip outro" pill while inside the span.
-    //  - AUTO mode: silently seek past (intro) / jump to the next episode
-    //    (outro) — once per episode key per screen entry.
-    // Skip-outro jumps to the NEXT episode (the Aniyomi "skip ending" semantic:
-    // the outro's only value is what follows it); at the list's end it seeks
-    // to the credits' end instead.
-    LaunchedEffect(position, duration, currentEpisodeUrl, skipTimestamps, skipIntroMode, skipOutroMode) {
+    //  - AUTO mode: silently seek past — once per episode key per entry.
+    // Outro semantics: with an AniSkip ed END, the skip lands at the ed end
+    // (post-credits content plays; the episode then ends into the Up Next
+    // flow); with only a manual start stamp, the skip jumps to the NEXT
+    // episode (the Aniyomi "skip ending" semantic).
+    LaunchedEffect(position, duration, currentEpisodeUrl, skipTimestamps, episodeSkip, skipIntroMode, skipOutroMode) {
         if (duration <= 0) {
             skipPill = null
             return@LaunchedEffect
         }
         val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
-        val intro = skipTimestamps.takeIf { it.hasIntro }
-        val outro = skipTimestamps.takeIf { it.hasOutro }
-        val inIntro = intro != null &&
-            position >= (intro.introStartSec ?: 0) - 3 &&
-            position < (intro.introEndSec ?: 0)
-        val inOutro = outro != null &&
-            position >= (outro.outroStartSec ?: 0) &&
+        // ROUND 121-fix: EpisodeSkipTimes and SkipTimestamps are UNRELATED
+        // types — the bare `a ?: b` LUB'd to Any and the property accesses
+        // below didn't resolve. Normalize to plain Ints here (AniSkip wins,
+        // manual stamps are the fallback; manual outros have no end → null,
+        // which keeps the jump-to-next-episode semantics for them).
+        val aniIntro = episodeSkip?.takeIf { it.hasIntro }
+        val aniOutro = episodeSkip?.takeIf { it.hasOutro }
+        val manualIntro = skipTimestamps.takeIf { it.hasIntro }
+        val manualOutro = skipTimestamps.takeIf { it.hasOutro }
+        val introStartSec = aniIntro?.introStartSec ?: manualIntro?.introStartSec
+        val introEndSec = aniIntro?.introEndSec ?: manualIntro?.introEndSec
+        val outroStartSec = aniOutro?.outroStartSec ?: manualOutro?.outroStartSec
+        val outroEndSec = aniOutro?.outroEndSec
+        val inIntro = introStartSec != null && introEndSec != null &&
+            position >= (introStartSec ?: 0) - 3 &&
+            position < (introEndSec ?: 0)
+        val inOutro = outroStartSec != null &&
+            position >= (outroStartSec ?: 0) &&
             position < duration - 2
 
         when {
             inIntro && skipIntroMode == "AUTO" -> {
                 if (autoSkippedKeys[epKey] != true) {
                     autoSkippedKeys[epKey] = true
-                    val target = intro!!.introEndSec ?: 0
+                    val target = introEndSec ?: 0
                     Logger.i(TAG) { "D-748: auto-skipping intro → ${target}s ($epKey)" }
                     MPVLib.command(arrayOf("seek", target.toString(), "absolute"))
                 }
                 skipPill = null
             }
             inIntro && skipIntroMode == "BUTTON" ->
-                skipPill = SkipPillState.Intro(endSec = intro!!.introEndSec ?: 0)
+                skipPill = SkipPillState.Intro(endSec = introEndSec ?: 0)
             inOutro && skipOutroMode == "AUTO" -> {
                 if (autoSkippedKeys["$epKey|outro"] != true) {
                     autoSkippedKeys["$epKey|outro"] = true
-                    val next = nextEpisodeInList()
-                    Logger.i(TAG) { "D-748: auto-skipping outro ($epKey) next=${next?.episodeNumber}" }
-                    if (next != null) onEpisodeSwitch(next)
-                    else MPVLib.command(arrayOf("seek", duration.toString(), "absolute"))
+                    // AniSkip ed end → finish the credits (Up Next follows at
+                    // EOF); manual start-only → jump the episode entirely.
+                    if (outroEndSec != null && outroEndSec < duration - 2) {
+                        Logger.i(TAG) { "D-748: auto-skipping outro → ed end ${outroEndSec}s ($epKey)" }
+                        MPVLib.command(arrayOf("seek", outroEndSec.toString(), "absolute"))
+                    } else {
+                        val next = nextEpisodeInList()
+                        Logger.i(TAG) { "D-748: auto-skipping outro ($epKey) next=${next?.episodeNumber}" }
+                        if (next != null) onEpisodeSwitch(next)
+                        else MPVLib.command(arrayOf("seek", duration.toString(), "absolute"))
+                    }
                 }
                 skipPill = null
             }
-            inOutro && skipOutroMode == "BUTTON" -> skipPill = SkipPillState.Outro
+            inOutro && skipOutroMode == "BUTTON" ->
+                skipPill = SkipPillState.Outro(endSec = outroEndSec)
             else -> skipPill = null
         }
     }
@@ -1776,11 +1917,19 @@ fun WatchScreen(
                 Logger.i(TAG) { "Skip intro tapped → ${pill.endSec}s" }
                 MPVLib.command(arrayOf("seek", pill.endSec.toString(), "absolute"))
             }
-            SkipPillState.Outro -> {
-                val next = nextEpisodeInList()
-                Logger.i(TAG) { "Skip outro tapped → next=${next?.episodeNumber}" }
-                if (next != null) onEpisodeSwitch(next)
-                else MPVLib.command(arrayOf("seek", duration.toString(), "absolute"))
+            is SkipPillState.Outro -> {
+                // An AniSkip ed end seeks there (post-credits content); a
+                // manual start-only outro jumps to the next episode.
+                val edEnd = pill.endSec
+                if (edEnd != null && edEnd < duration - 2) {
+                    Logger.i(TAG) { "Skip outro tapped → ed end ${edEnd}s" }
+                    MPVLib.command(arrayOf("seek", edEnd.toString(), "absolute"))
+                } else {
+                    val next = nextEpisodeInList()
+                    Logger.i(TAG) { "Skip outro tapped → next=${next?.episodeNumber}" }
+                    if (next != null) onEpisodeSwitch(next)
+                    else MPVLib.command(arrayOf("seek", duration.toString(), "absolute"))
+                }
             }
             null -> Unit
         }
@@ -1793,8 +1942,22 @@ fun WatchScreen(
         MPVLib.command(arrayOf("seek", "0", "absolute"))
     }
 
+    // ROUND 121: cancel a stuck switch — kill the in-flight job + clear the
+    // switching flags. The previous episode's file keeps playing (its loadfile
+    // was never replaced when the cancel lands in the resolve phase).
+    val onCancelSwitch: () -> Unit = {
+        Logger.i(TAG) { "Switch cancelled by the user" }
+        switchJob?.cancel()
+        switchJob = null
+        stateHolder.setSwitching(false)
+        stateHolder.setSwitchingEpisode(false)
+    }
+
     // ── D-748: the intro/outro marking sheet ──────────────────────────────────
     var showSkipEditorSheet by remember { mutableStateOf(false) }
+    // ROUND 121: the fullscreen episodes browser (the More button's sheet) —
+    // also the skip editor's new home (the control-bar entry retired).
+    var showEpisodesSheet by remember { mutableStateOf(false) }
     if (showSkipEditorSheet) {
         SkipEditorSheet(
             currentPositionSec = position,
@@ -1804,6 +1967,24 @@ fun WatchScreen(
                 playerPreferences.setSkipTimestamps(watchKey.mainId, updated)
             },
             onDismiss = { showSkipEditorSheet = false },
+        )
+    }
+    // ROUND 121: the fullscreen episodes browser — the More button's sheet,
+    // and the skip editor's new home (the control-bar entry retired for the
+    // prev/next episode buttons).
+    if (showEpisodesSheet) {
+        PlayerEpisodesSheet(
+            episodes = episodeList,
+            currentUrl = currentEpisodeUrl,
+            onEpisodeSelect = { ep ->
+                showEpisodesSheet = false
+                onEpisodeSwitch(ep)
+            },
+            onOpenSkipEditor = {
+                showEpisodesSheet = false
+                showSkipEditorSheet = true
+            },
+            onDismiss = { showEpisodesSheet = false },
         )
     }
 
@@ -1854,7 +2035,10 @@ fun WatchScreen(
             onSkipPillAction = onSkipPillAction,
             resumePillSec = resumePillSec,
             onRestartFromStart = onRestartFromStart,
-            onSkipEditorClick = { showSkipEditorSheet = true },
+            onPrevEpisode = onSkipBackward,
+            onNextEpisode = onSkipForward,
+            onOpenEpisodesSheet = { showEpisodesSheet = true },
+            onCancelSwitch = onCancelSwitch,
         )
     } else {
         MinimizedMode(
@@ -1891,7 +2075,9 @@ fun WatchScreen(
             onSkipPillAction = onSkipPillAction,
             resumePillSec = resumePillSec,
             onRestartFromStart = onRestartFromStart,
-            onSkipEditorClick = { showSkipEditorSheet = true },
+            onPrevEpisode = onSkipBackward,
+            onNextEpisode = onSkipForward,
+            onCancelSwitch = onCancelSwitch,
         )
     }
 
@@ -2021,7 +2207,10 @@ private fun MinimizedMode(
     onSkipPillAction: () -> Unit = {},
     resumePillSec: Long = -1L,
     onRestartFromStart: () -> Unit = {},
-    onSkipEditorClick: () -> Unit = {},
+    onPrevEpisode: () -> Unit = {},
+    onNextEpisode: () -> Unit = {},
+    // ROUND 121: cancel a stuck episode switch (the overlay's button).
+    onCancelSwitch: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
 
@@ -2187,6 +2376,20 @@ private fun MinimizedMode(
     }.collectAsState(initial = emptyList())
     val watchedKeys = remember(progressList) {
         progressList.filter { it.isWatched }.map { it.episodeKey }.toSet()
+    }
+    // ROUND 121: per-episode WATCH FRACTION — the row renderer has supported a
+    // partial progress bar (progressFraction) all along; the MPV page never fed
+    // it (the CloudStream parity gap). An in-progress episode now shows a
+    // partial bar; watched keeps the full-tick treatment.
+    val progressFractionByKey = remember(progressList) {
+        progressList.mapNotNull { progress ->
+            if (progress.duration > 0) {
+                progress.episodeKey to
+                    (progress.position.toFloat() / progress.duration).coerceIn(0f, 1f)
+            } else {
+                null
+            }
+        }.toMap()
     }
 
     // The display list: sort over the episode number + direction ONLY.
@@ -2383,7 +2586,8 @@ private fun MinimizedMode(
                     onSubtitleClick = onSubtitleClick,
                     onRetry = onRetry,
                     onDismissError = onDismissError,
-                    onSkipEditorClick = onSkipEditorClick,
+                    onPrevEpisode = onPrevEpisode,
+                    onNextEpisode = onNextEpisode,
                 )
 
                 // Episode switching overlay — shown over the player while a new
@@ -2392,6 +2596,7 @@ private fun MinimizedMode(
                 if (isSwitchingEpisode) {
                     EpisodeSwitchingOverlay(
                         episodeTitle = switchingEpisodeTitle.ifBlank { null },
+                        onCancel = onCancelSwitch,
                     )
                 }
 
@@ -2688,6 +2893,9 @@ private fun MinimizedMode(
                             com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Downloading(raw.second)
                         com.confused.anikuta.core.download.DownloadStatus.PAUSED ->
                             com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Paused
+                        // ROUND 121: waiting-on-network reads as Paused (auto-resumes).
+                        com.confused.anikuta.core.download.DownloadStatus.WAITING_FOR_NETWORK ->
+                            com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Paused
                         com.confused.anikuta.core.download.DownloadStatus.ERROR ->
                             com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Error
                         com.confused.anikuta.core.download.DownloadStatus.COMPLETED ->
@@ -2832,6 +3040,12 @@ private fun MinimizedMode(
                         isCurrent = ep.url == currentEpisodeUrl,
                         isWatched = watchKey.mainId.isNotBlank() &&
                             watchedKeys.contains(buildEpisodeKey(watchKey.mainId, ep.episodeNumber)),
+                        // ROUND 121: the partial progress bar (see the map above).
+                        progressFraction = if (watchKey.mainId.isNotBlank()) {
+                            progressFractionByKey[buildEpisodeKey(watchKey.mainId, ep.episodeNumber)] ?: 0f
+                        } else {
+                            0f
+                        },
                         // ROUND 106 (WS-D): the REAL badge state (the old
                         // inert hint glyph is retired).
                         downloadState = if (showDownloadButton) playerDownloadStateFor(ep) else null,
@@ -3037,7 +3251,12 @@ private fun FullscreenMode(
     onSkipPillAction: () -> Unit = {},
     resumePillSec: Long = -1L,
     onRestartFromStart: () -> Unit = {},
-    onSkipEditorClick: () -> Unit = {},
+    // ── ROUND 121: episode navigation (the top-right cluster) ──
+    onPrevEpisode: () -> Unit = {},
+    onNextEpisode: () -> Unit = {},
+    onOpenEpisodesSheet: () -> Unit = {},
+    // ROUND 121: cancel a stuck episode switch (the overlay's button).
+    onCancelSwitch: () -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -3063,10 +3282,13 @@ private fun FullscreenMode(
             onQualityClick = onQualityClick,
             onSubtitleClick = onSubtitleClick,
             onSpeedClick = onSpeedClick,
+            // ROUND 121: the episodes browser (the previously dead More button).
+            onMoreClick = onOpenEpisodesSheet,
+            onPrevEpisode = onPrevEpisode,
+            onNextEpisode = onNextEpisode,
             onSkipForward = onSkipForward,
             onRetry = onRetry,
             onDismissError = onDismissError,
-            onSkipEditorClick = onSkipEditorClick,
             animeTitle = watchKey.animeTitle,
             episodeInfo = if (watchKey.episodeTitle.isNotBlank()) "EP ${formatEpisodeNumber(watchKey.episodeNumber)}" else "",
             qualityInfo = watchKey.quality,
@@ -3079,6 +3301,7 @@ private fun FullscreenMode(
         if (isSwitchingEpisode) {
             EpisodeSwitchingOverlay(
                 episodeTitle = switchingEpisodeTitle.ifBlank { null },
+                onCancel = onCancelSwitch,
             )
         }
 
@@ -3238,7 +3461,10 @@ private data class UpNextUi(
 /** Which skip pill is showing (computed per position tick). */
 private sealed interface SkipPillState {
     data class Intro(val endSec: Int) : SkipPillState
-    data object Outro : SkipPillState
+
+    /** Round 121: [endSec] = AniSkip's ed end (seek there); null = the manual
+     *  start-only outro (the pill jumps to the next episode). */
+    data class Outro(val endSec: Int?) : SkipPillState
 }
 
 /**
@@ -3264,7 +3490,7 @@ private fun PlayerRound120Overlays(
             thumbnailUrl = upNext?.thumbnailUrl,
             coverFallbackUrl = upNext?.coverFallbackUrl,
             countdownSecondsLeft = upNext?.countdown,
-            countdownTotalSeconds = com.confused.anikuta.core.player.PlaybackResumePolicy.UP_NEXT_COUNTDOWN_SECONDS,
+            countdownTotalSeconds = com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.UP_NEXT_COUNTDOWN_SECONDS,
             onPlay = onPlayUpNext,
             onDismiss = onDismissUpNext,
             modifier = Modifier
@@ -3276,7 +3502,8 @@ private fun PlayerRound120Overlays(
             SkipPill(
                 label = when (pill) {
                     is SkipPillState.Intro -> "Skip intro"
-                    SkipPillState.Outro -> "Skip outro"
+                    // ROUND 121-fix: Outro became a data class — needs `is`.
+                    is SkipPillState.Outro -> "Skip outro"
                 },
                 onClick = onSkipPillAction,
                 // Sit above the Up Next card when both are showing.
@@ -3384,6 +3611,138 @@ private fun ResumePill(
  * openings share a length within a season, so one marking covers the rewatch).
  * Persisted through PlayerPreferences (round 120 scoped the database OUT).
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 121: PlayerEpisodesSheet — the fullscreen More button's episode
+//  browser. Tap a row to switch episodes without leaving fullscreen; the
+//  skip-timestamps entry lives here now (the control-bar editor button
+//  retired in favor of the prev/next episode buttons).
+// ════════════════════════════════════════════════════════════════════════════
+@Composable
+private fun PlayerEpisodesSheet(
+    episodes: List<SimpleEpisode>,
+    currentUrl: String,
+    onEpisodeSelect: (SimpleEpisode) -> Unit,
+    onOpenSkipEditor: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sorted = remember(episodes) { episodes.sortedBy { it.episodeNumber } }
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Episodes",
+                        fontFamily = RobotoFamily,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    Text(
+                        "${sorted.size} episodes — tap to play",
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // The skip editor's new entry (the control-bar button retired).
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(12.dp),
+                    onClick = onOpenSkipEditor,
+                ) {
+                    Text(
+                        "Skip timestamps",
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp),
+            ) {
+                items(
+                    count = sorted.size,
+                    key = { i -> sorted[i].url },
+                ) { i ->
+                    val ep = sorted[i]
+                    val isCurrent = ep.url == currentUrl
+                    Surface(
+                        color = if (isCurrent) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        onClick = { onEpisodeSelect(ep) },
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        ) {
+                            Text(
+                                formatEpisodeNumber(ep.episodeNumber),
+                                fontFamily = RobotoFamily,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isCurrent) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.width(52.dp),
+                            )
+                            Text(
+                                com.confused.anikuta.core.common.EpisodeTitleParser
+                                    .getDisplayTitle(ep.name, ep.episodeNumber),
+                                fontFamily = RobotoFamily,
+                                fontSize = 14.sp,
+                                fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
+                                color = if (isCurrent) {
+                                    MaterialTheme.colorScheme.onBackground
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (isCurrent) {
+                                Text(
+                                    "NOW PLAYING",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ROUND 121-fix: the sheet's own opt-in — the PlayerEpisodesSheet insertion
+// above had claimed the @OptIn that used to sit on SkipEditorSheet.
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun SkipEditorSheet(

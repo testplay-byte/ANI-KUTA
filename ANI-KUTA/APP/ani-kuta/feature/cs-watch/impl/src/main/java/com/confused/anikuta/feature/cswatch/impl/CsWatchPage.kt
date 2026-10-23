@@ -391,6 +391,9 @@ internal fun CsWatchPage(
                 com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Downloading(raw.second)
             com.confused.anikuta.core.download.DownloadStatus.PAUSED ->
                 com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Paused
+            // ROUND 121: waiting-on-network reads as Paused (auto-resumes).
+            com.confused.anikuta.core.download.DownloadStatus.WAITING_FOR_NETWORK ->
+                com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Paused
             com.confused.anikuta.core.download.DownloadStatus.ERROR ->
                 com.confused.anikuta.core.designsystem.component.playerlist.PlayerDownloadRenderState.Error
             com.confused.anikuta.core.download.DownloadStatus.COMPLETED ->

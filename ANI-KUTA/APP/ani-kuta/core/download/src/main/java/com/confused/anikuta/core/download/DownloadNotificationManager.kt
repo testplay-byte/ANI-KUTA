@@ -80,10 +80,38 @@ class DownloadNotificationManager(
      * REVIEW-5 M22: builds the summary notification (suspend — heavy work on IO).
      * Used by [DownloadService] on every queue state change.
      *
-     * Returns `null` if [active] is empty (the caller should `stopForeground` + `stopSelf`).
+     * ROUND 121: the notification's action set is now ONE button — Pause, for
+     * the download the notification is ABOUT (the device round's order: a
+     * single pause/cancel-the-current button, not pause-all/cancel-all).
+     * WAITING_FOR_NETWORK tasks get their own summary ("Waiting for network")
+     * so an offline queue reads as waiting, not as a stuck "Preparing…" ghost.
+     *
+     * Returns `null` if both lists are empty (the caller should `stopForeground`
+     * + `stopSelf`).
      */
-    suspend fun buildSummaryNotification(active: List<DownloadTask>): Notification? {
-        if (active.isEmpty()) return null
+    suspend fun buildSummaryNotification(
+        active: List<DownloadTask>,
+        waiting: List<DownloadTask> = emptyList(),
+    ): Notification? {
+        if (active.isEmpty() && waiting.isEmpty()) return null
+
+        // Waiting-only queue — a "paused by the network, will auto-resume" card.
+        if (active.isEmpty()) {
+            val builder = NotificationCompat.Builder(context, CHANNEL_PROGRESS)
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setContentTitle("Waiting for network")
+                .setContentText(
+                    "${waiting.size} download${if (waiting.size == 1) "" else "s"} — " +
+                        "resumes automatically when connectivity returns",
+                )
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setContentIntent(openDownloadsScreenIntent())
+            return builder.build()
+        }
+
         val primary = active.firstOrNull { it.status == DownloadStatus.DOWNLOADING }
             ?: active.firstOrNull()
             ?: return null
@@ -109,8 +137,9 @@ class DownloadNotificationManager(
             .setSilent(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(openDownloadsScreenIntent())
-            .addAction(android.R.drawable.ic_media_pause, "Pause all", pauseAllIntent())
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel all", cancelAllIntent())
+            // ROUND 121: ONE action — pause THE download shown above (the old
+            // Pause all / Cancel all pair is retired per the device round).
+            .addAction(android.R.drawable.ic_media_pause, "Pause", pauseTaskIntent(primary.id))
 
         // Thumbnail (cover image of the primary task's content). REVIEW-5 M22: suspend.
         val thumbnail = loadThumbnail(primary.content.mainId, primary.content.coverUrl)
@@ -346,24 +375,18 @@ class DownloadNotificationManager(
         return PendingIntent.getActivity(context, 0, intent, flags)
     }
 
-    /** REVIEW-5 M29: unique request-code prefix (1001) so Pause doesn't collide. */
-    private fun pauseAllIntent(): PendingIntent {
+    /**
+     * ROUND 121: the summary notification's SINGLE action — pauses one task
+     * (the download the notification shows). Unique request code per task
+     * (1004 + id, the M29 prefix pattern).
+     */
+    private fun pauseTaskIntent(taskId: Long): PendingIntent {
         val intent = Intent(context, DownloadService::class.java).apply {
-            action = DownloadService.ACTION_PAUSE_ALL
+            action = DownloadService.ACTION_PAUSE_TASK
+            putExtra(DownloadService.EXTRA_TASK_ID, taskId)
         }
         return PendingIntent.getService(
-            context, 1001, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-
-    /** REVIEW-5 M29: unique request-code prefix (1002) so Cancel doesn't collide. */
-    private fun cancelAllIntent(): PendingIntent {
-        val intent = Intent(context, DownloadService::class.java).apply {
-            action = DownloadService.ACTION_CANCEL_ALL
-        }
-        return PendingIntent.getService(
-            context, 1002, intent,
+            context, 1004 + taskId.toInt(), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }

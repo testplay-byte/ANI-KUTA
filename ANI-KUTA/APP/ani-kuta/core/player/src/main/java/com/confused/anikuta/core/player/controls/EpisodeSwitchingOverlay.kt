@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,10 +46,14 @@ import androidx.compose.ui.unit.dp
  *  - A subtle pulsing animation on the text for a live feel (CORE_RULES §22).
  *
  * @param episodeTitle Optional title of the episode being loaded (shown under spinner).
+ * @param onCancel ROUND 121: when set, renders a Cancel button — kills the
+ *  in-flight switch job and keeps the CURRENT episode playing (a stuck
+ *  resolve/extract step no longer holds the player hostage).
  */
 @Composable
 fun EpisodeSwitchingOverlay(
     episodeTitle: String? = null,
+    onCancel: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     // Subtle pulse on the text so the overlay feels "alive" (§22: smooth animations).
@@ -103,6 +109,22 @@ fun EpisodeSwitchingOverlay(
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
                 )
+            }
+            if (onCancel != null) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Surface(
+                    onClick = onCancel,
+                    color = Color.White.copy(alpha = 0.14f),
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Text(
+                        text = "Cancel",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                }
             }
         }
     }

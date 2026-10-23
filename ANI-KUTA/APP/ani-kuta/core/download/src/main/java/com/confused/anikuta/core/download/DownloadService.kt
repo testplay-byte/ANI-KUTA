@@ -49,6 +49,12 @@ import org.koin.core.component.inject
  * The service handles these intent actions:
  *  - [ACTION_PAUSE_ALL] → `manager.pauseAll()`.
  *  - [ACTION_CANCEL_ALL] → `manager.cancelAll()`.
+ *  - [ACTION_PAUSE_TASK] (+ [EXTRA_TASK_ID]) → `manager.pauseDownload(id)` —
+ *    ROUND 121: the summary notification's SINGLE action (pause the download
+ *    it shows). The notification's old Pause-all/Cancel-all pair is retired
+ *    per the device round: "there should only be one single button there
+ *    which can be used to cancel the current download or pause the current
+ *    download, not the all downloads".
  *  - [ACTION_RETRY] (+ [EXTRA_TASK_ID]) → `manager.retryDownload(id)` — the
  *    error notification's Retry button (round 120: the notification used to
  *    be a dead end — tap opened the app, nothing else could restart the task).
@@ -77,7 +83,7 @@ class DownloadService : Service(), KoinComponent {
         override fun onAvailable(network: Network) {
             super.onAvailable(network)
             DownloadLogger.i { "Network available — checking if downloads should resume" }
-            evaluateAndNotify(isAvailable = true)
+            evaluateAndNotify(isAvailable = true, eventNetwork = network)
         }
 
         override fun onLost(network: Network) {
@@ -92,17 +98,31 @@ class DownloadService : Service(), KoinComponent {
             DownloadLogger.d {
                 "Network capabilities changed — re-evaluating (wifi=${capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)})"
             }
-            evaluateAndNotify(isAvailable = true)
+            evaluateAndNotify(isAvailable = true, eventNetwork = network, eventCapabilities = capabilities)
         }
 
-        private fun evaluateAndNotify(isAvailable: Boolean) {
+        /**
+         * ROUND 121: the EVENT network's own capabilities win. The old code
+         * read `cm.activeNetwork`, which can still point at the DYING network
+         * when onAvailable fires for the new one (the callback fires before
+         * the system flips the active network) — so every "network restored"
+         * event was evaluated against a dead network and read as offline.
+         * That is exactly why auto-resume never fired on the device round.
+         * The active network is only the LAST fallback now.
+         */
+        private fun evaluateAndNotify(
+            isAvailable: Boolean,
+            eventNetwork: Network? = null,
+            eventCapabilities: NetworkCapabilities? = null,
+        ) {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             if (cm == null) {
                 queue.onNetworkChanged(isWifi = false, hasInternet = isAvailable)
                 return
             }
-            val activeNetwork = cm.activeNetwork
-            val caps = activeNetwork?.let { cm.getNetworkCapabilities(it) }
+            val caps = eventCapabilities
+                ?: eventNetwork?.let { cm.getNetworkCapabilities(it) }
+                ?: cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
             val isWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
                 caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
             val hasInternet = isAvailable && caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
@@ -122,21 +142,12 @@ class DownloadService : Service(), KoinComponent {
                         it.status == DownloadStatus.QUEUED ||
                         it.status == DownloadStatus.RETRYING
                 }
-                if (active.isEmpty()) {
-                    // D-246: tasks auto-paused by network loss keep the service ALIVE —
-                    // its NetworkCallback is what fires the auto-resume when connectivity
-                    // returns. (The old code stopped the service once everything was
-                    // paused, which killed the callback → downloads never restarted
-                    // after the internet came back.)
-                    if (queue.hasNetworkPausedTasks()) {
-                        DownloadLogger.i {
-                            "Queue has no active tasks but network-paused download(s) exist — " +
-                                "staying alive to auto-resume when connectivity returns"
-                        }
-                        // Keep the foreground notification (placeholder) visible so the
-                        // user knows downloads are waiting for the network.
-                        return@collect
-                    }
+                // ROUND 121: waiting tasks ride the SAME notification path —
+                // they get a "Waiting for network" summary (the old code kept
+                // the service alive on their behalf but left the eternal
+                // "Preparing downloads…" placeholder on screen).
+                val waiting = tasks.filter { it.status == DownloadStatus.WAITING_FOR_NETWORK }
+                if (active.isEmpty() && waiting.isEmpty()) {
                     // Queue emptied — gracefully leave foreground + stop.
                     withContext(Dispatchers.Main) {
                         if (isForeground) {
@@ -147,7 +158,7 @@ class DownloadService : Service(), KoinComponent {
                     }
                 } else {
                     // Build the summary notification (suspend — heavy work on IO).
-                    val notification = notifier.buildSummaryNotification(active)
+                    val notification = notifier.buildSummaryNotification(active, waiting)
                     if (notification != null) {
                         withContext(Dispatchers.Main) {
                             if (!isForeground) {
@@ -169,6 +180,14 @@ class DownloadService : Service(), KoinComponent {
 
         // D.7: register the NetworkCallback for auto-pause/resume.
         registerNetworkCallback()
+
+        // ROUND 121 (self-healing sweep): evaluate connectivity ONCE at service
+        // start. onAvailable only fires on TRANSITIONS — a service started while
+        // already online would otherwise never learn the network is back, and
+        // WAITING_FOR_NETWORK tasks persisted across a process death (offline →
+        // killed → reopened online) would sit waiting forever. This one
+        // evaluation heals both.
+        networkCallback.evaluateAndNotify(isAvailable = true)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -190,6 +209,15 @@ class DownloadService : Service(), KoinComponent {
         when (intent?.action) {
             ACTION_PAUSE_ALL -> launchDetached { manager.pauseAll() }
             ACTION_CANCEL_ALL -> launchDetached { manager.cancelAll() }
+            // ROUND 121: the summary notification's single action — pauses the
+            // download the notification is ABOUT (see the class doc).
+            ACTION_PAUSE_TASK -> {
+                val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
+                if (taskId > 0) {
+                    DownloadLogger.i { "Pause action for task $taskId" }
+                    launchDetached { manager.pauseDownload(taskId) }
+                }
+            }
             ACTION_RETRY -> {
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 if (taskId > 0) {
@@ -300,7 +328,10 @@ class DownloadService : Service(), KoinComponent {
         /** Round 120: intent action — retry ONE failed task (error notification). */
         const val ACTION_RETRY = "com.confused.anikuta.download.RETRY"
 
-        /** Round 120: the task id extra for [ACTION_RETRY]. */
+        /** Round 121: intent action — pause ONE task (the summary notification's single action). */
+        const val ACTION_PAUSE_TASK = "com.confused.anikuta.download.PAUSE_TASK"
+
+        /** Round 120: the task id extra for [ACTION_RETRY] + [ACTION_PAUSE_TASK]. */
         const val EXTRA_TASK_ID = "task_id"
 
         /** Starts the foreground service (called by [DefaultDownloadManager.enqueueDownload]). */

@@ -14,4 +14,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
+    // Round 121: the shared PlaybackResumePolicy's contract locks (moved
+    // here from :core:player so every consumer reaches it via this module).
+    testImplementation(libs.junit)
 }

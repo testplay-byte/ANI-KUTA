@@ -70,12 +70,31 @@ class DownloadViewModel(
                 // listed tasks by position, unlisted (new) tasks after them,
                 // FIFO within each group (the exact sort the queue's scheduler
                 // applies, so what the user sees IS what downloads next).
-                val orderedQueue = if (queueOrder.isEmpty()) {
-                    active
-                } else {
-                    active.sortedBy { task ->
-                        val idx = queueOrder.indexOf(task.id.toString())
-                        if (idx >= 0) idx else queueOrder.size
+                //
+                // ROUND 121 (active-first pin): tasks that are RUNNING right
+                // now (DOWNLOADING/RETRYING) pin to the very top — the device
+                // round's order ("the currently-downloading should always be
+                // at the very top"; a running task sat at the bottom). Stable
+                // sort, so the queueOrder positions survive underneath, and
+                // moveTask (which swaps against THIS list) stays consistent.
+                // The grouped view groups by first encounter, so the running
+                // task's anime card also lands first automatically.
+                val orderedQueue = (
+                    if (queueOrder.isEmpty()) {
+                        active
+                    } else {
+                        active.sortedBy { task ->
+                            val idx = queueOrder.indexOf(task.id.toString())
+                            if (idx >= 0) idx else queueOrder.size
+                        }
+                    }
+                ).let { list ->
+                    list.sortedBy { task ->
+                        when (task.status) {
+                            DownloadStatus.DOWNLOADING -> 0
+                            DownloadStatus.RETRYING -> 1
+                            else -> 2
+                        }
                     }
                 }
                 // Group the downloaded episodes by anime.

@@ -52,4 +52,7 @@ val DownloadTask.isInQueueSection: Boolean
         status == DownloadStatus.DOWNLOADING ||
         status == DownloadStatus.RETRYING ||
         status == DownloadStatus.PAUSED ||
+        // ROUND 121: network-waiting tasks stay in the live queue (labeled
+        // "Waiting for network" — they are not user-paused).
+        status == DownloadStatus.WAITING_FOR_NETWORK ||
         status == DownloadStatus.ERROR

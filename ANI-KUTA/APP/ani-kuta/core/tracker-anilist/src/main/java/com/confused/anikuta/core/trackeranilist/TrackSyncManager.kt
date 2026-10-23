@@ -104,9 +104,15 @@ class TrackSyncManager(
      * @param status The watch status to relay.
      * @param score Optional score (0-100, if the user rated it).
      */
+    // ROUND 121 (D2-a): episodeNumber is an Int, not a Double. Verified at the
+    // GraphQL boundary: AniListTracker.syncEntry's SaveMediaListEntry declares
+    // `$progress: Int` (AniList's API type) and TrackEntry.progress is an Int —
+    // no Float/Double semantics exist anywhere in the relay chain. The old
+    // Double parameter forced a lossy `.toInt()` truncation at the copy site
+    // for any fractional caller; the Int parameter removes the conversion.
     fun relayWatchEvent(
         contentKey: String,
-        episodeNumber: Double,
+        episodeNumber: Int,
         status: TrackStatus,
         score: Int? = null,
     ) {
@@ -171,7 +177,9 @@ class TrackSyncManager(
                         trackerId = anilistId,
                     )).copy(
                         status = status,
-                        progress = episodeNumber.toInt(),
+                        // ROUND 121 (D2-a): Int parameter — no Double→Int
+                        // truncation at the mutation boundary.
+                        progress = episodeNumber,
                         score = score ?: cached?.score,
                         totalEpisodes = details.dataEpisodes?.toInt() ?: cached?.totalEpisodes,
                         startedAt = startedAt,

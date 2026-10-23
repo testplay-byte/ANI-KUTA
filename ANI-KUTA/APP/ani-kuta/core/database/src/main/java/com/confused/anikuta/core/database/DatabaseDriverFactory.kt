@@ -47,6 +47,42 @@ class DatabaseDriverFactory(private val context: Context) {
                  * This is idempotent — only adds columns that don't exist.
                  */
                 private fun migrateSchemaIfNeeded(db: SupportSQLiteDatabase) {
+                    // ── Phase WP: watch_progress new columns (PLAN §1.1, §1.8) ──
+                    // The .sq CREATE TABLE is edited for fresh installs + codegen.
+                    // Existing dev installs get the new columns via these ALTER TABLEs.
+                    // (SQLite can't add FK via ALTER TABLE — main_id enforced at app level
+                    //  for existing installs; FK in CREATE TABLE for fresh installs.)
+                    //
+                    // ROUND 121 (DB-B1): this block moved to the TOP of the migration
+                    // — ABOVE every index statement that reads these columns AND
+                    // above every onCreate(db) call below (the .sq schema itself
+                    // creates the idx_watch_progress_continue partial index, whose
+                    // WHERE clause reads auto_mark_suppressed). It used to sit after
+                    // the DB-OPT CREATE INDEX section, so on a pre-WP install the
+                    // index statements ran first + failed with "no such column:
+                    // auto_mark_suppressed" before the guarded ALTER ever ran.
+                    // Columns first, the indexes that read them after — reordering
+                    // only, no versioned migration. (watch_progress is a day-one
+                    // table on every install, so the hasColumn-guarded ALTERs are
+                    // safe this early.)
+                    if (!hasColumn(db, "watch_progress", "main_id")) {
+                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN main_id TEXT")
+                    }
+                    if (!hasColumn(db, "watch_progress", "watch_count")) {
+                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN watch_count INTEGER NOT NULL DEFAULT 0")
+                    }
+                    if (!hasColumn(db, "watch_progress", "first_watched_at")) {
+                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN first_watched_at INTEGER")
+                    }
+                    if (!hasColumn(db, "watch_progress", "auto_mark_suppressed")) {
+                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN auto_mark_suppressed INTEGER NOT NULL DEFAULT 0")
+                    }
+                    if (!hasColumn(db, "watch_progress", "user_marked_watched")) {
+                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN user_marked_watched INTEGER NOT NULL DEFAULT 0")
+                    }
+                    // Index for the new main_id column (idempotent — CREATE INDEX IF NOT EXISTS).
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_watch_progress_main_id ON watch_progress(main_id)")
+
                     // ── Phase DB-OPT: drop dead tables (extensions.sq + metadata.sq deleted) ──
                     // installed_source + extension_repo were never used (zero Kotlin call sites).
                     // content_metadata_cache + episode_metadata_cache were superseded by
@@ -216,29 +252,10 @@ class DatabaseDriverFactory(private val context: Context) {
                     // D-198: content table dropped + recreated as main_entry. Skip the
                     // idx_content_extension_url index — main_entry has idx_main_entry_extension_url
                     // (created by the .sq file via onCreate(db) above).
-
-                    // ── Phase WP: watch_progress new columns (PLAN §1.1, §1.8) ──
-                    // The .sq CREATE TABLE is edited for fresh installs + codegen.
-                    // Existing dev installs get the new columns via these ALTER TABLEs.
-                    // (SQLite can't add FK via ALTER TABLE — main_id enforced at app level
-                    //  for existing installs; FK in CREATE TABLE for fresh installs.)
-                    if (!hasColumn(db, "watch_progress", "main_id")) {
-                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN main_id TEXT")
-                    }
-                    if (!hasColumn(db, "watch_progress", "watch_count")) {
-                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN watch_count INTEGER NOT NULL DEFAULT 0")
-                    }
-                    if (!hasColumn(db, "watch_progress", "first_watched_at")) {
-                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN first_watched_at INTEGER")
-                    }
-                    if (!hasColumn(db, "watch_progress", "auto_mark_suppressed")) {
-                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN auto_mark_suppressed INTEGER NOT NULL DEFAULT 0")
-                    }
-                    if (!hasColumn(db, "watch_progress", "user_marked_watched")) {
-                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN user_marked_watched INTEGER NOT NULL DEFAULT 0")
-                    }
-                    // Index for the new main_id column (idempotent — CREATE INDEX IF NOT EXISTS).
-                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_watch_progress_main_id ON watch_progress(main_id)")
+                    // (ROUND 121 DB-B1: the Phase WP watch_progress ALTER block used to sit
+                    // HERE — after the CREATE INDEX statements above. It moved to the top of
+                    // migrateSchemaIfNeeded, above every index statement + onCreate(db) call,
+                    // so the indexes' auto_mark_suppressed / main_id columns exist first.)
 
                     // ── D-193 v2: learned_offset_ms on anime_update_state (smart-release averaging) ──
                     // Existing dev installs get the column via ALTER TABLE; fresh installs get

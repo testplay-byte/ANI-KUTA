@@ -85,13 +85,14 @@ class DownloadQueue(
     private val autoClearScheduled = mutableSetOf<Long>()
 
     /**
-     * D-246: tasks auto-paused by network loss — auto-resumed when connectivity
-     * returns. In-memory by design: it only needs to live as long as the process
-     * (the DownloadService's NetworkCallback drives the transitions). A user-initiated
-     * pause/cancel removes the task from this set (their intent wins over auto-resume).
+     * D-246 → ROUND 121: tasks auto-paused by network loss used to live in an
+     * in-memory marker set next to a PAUSED status. The device round showed the
+     * cracks (resuming while offline raced the set; the set was invisible to the
+     * UI; it died with the process). The marker set is GONE — the task's own
+     * status ([DownloadStatus.WAITING_FOR_NETWORK]) IS the marker now: it
+     * survives process death, the UI can label it, and there is no second
+     * source of truth to drift.
      */
-    private val networkPausedTasks: MutableSet<Long> =
-        java.util.Collections.synchronizedSet(mutableSetOf())
 
     init {
         // Reset stale DOWNLOADING + RETRYING tasks to QUEUED (REVIEW-5 M6).
@@ -151,25 +152,45 @@ class DownloadQueue(
         tryStartNext()
     }
 
-    /** Pauses a task (cancels the in-flight download). A user-initiated pause CANCELS
-     * auto-resume eligibility (D-246) — the task leaves the network-paused set. */
+    /** Pauses a task (cancels the in-flight download). A user-initiated pause
+     * of a WAITING_FOR_NETWORK task converts it to PAUSED — their intent wins
+     * over the network-regain auto-resume (status-as-marker: no set to clean). */
     suspend fun pause(taskId: Long) = mutex.withLock {
         pauseInternal(taskId)
     }.also {
-        synchronized(networkPausedTasks) { networkPausedTasks.remove(taskId) }
         tryStartNext()
     }
 
-    /** Resumes a PAUSED or ERROR task. */
+    /**
+     * Resumes a PAUSED / ERROR / WAITING_FOR_NETWORK task. ROUND 121: when the
+     * network is disallowed at the moment of the resume, the task goes to
+     * WAITING_FOR_NETWORK — not QUEUED-with-nothing-to-start-it, and never an
+     * ERROR. It auto-starts the moment connectivity returns (the device-round
+     * order: "when the user resumes them [offline], they will be resumed into
+     * waiting states").
+     */
     suspend fun resume(taskId: Long) = mutex.withLock {
         val task = _tasks.value.firstOrNull { it.id == taskId } ?: return@withLock
-        if (task.status != DownloadStatus.PAUSED && task.status != DownloadStatus.ERROR) return@withLock
+        if (task.status != DownloadStatus.PAUSED &&
+            task.status != DownloadStatus.ERROR &&
+            task.status != DownloadStatus.WAITING_FOR_NETWORK
+        ) {
+            return@withLock
+        }
+        val networkAllowed = runCatching { connectivityCheck() }.getOrDefault(true)
+        val target = if (networkAllowed) DownloadStatus.QUEUED else DownloadStatus.WAITING_FOR_NETWORK
+        if (!networkAllowed) {
+            DownloadLogger.i {
+                "resume — task $taskId resumed while offline: WAITING_FOR_NETWORK " +
+                    "(auto-starts when connectivity returns)"
+            }
+        }
         mutateTaskLocked(taskId) {
-            it.copy(status = DownloadStatus.QUEUED, lastError = null)
+            it.copy(status = target, lastError = null)
         }
         store.updateState(
             id = taskId,
-            status = DownloadStatus.QUEUED,
+            status = target,
             progress = task.progress,
             startedAt = null,
             completedAt = null,
@@ -179,15 +200,12 @@ class DownloadQueue(
         tryStartNext()
     }
 
-    /** Cancels a task (removes it from the queue entirely). D-246: a cancelled task
-     * must also leave the network-paused set — otherwise the DownloadService stays
-     * foreground forever waiting to auto-resume a deleted task. */
+    /** Cancels a task (removes it from the queue entirely). */
     suspend fun cancel(taskId: Long) = mutex.withLock {
         jobs.remove(taskId)?.cancel()
         _tasks.value = _tasks.value.filterNot { it.id == taskId }
         store.deleteTask(taskId)
     }.also {
-        synchronized(networkPausedTasks) { networkPausedTasks.remove(taskId) }
         tryStartNext()
     }
 
@@ -230,14 +248,17 @@ class DownloadQueue(
         tryStartNext()
     }
 
-    /** Pauses all active (DOWNLOADING + RETRYING) tasks. A user-initiated pause-all
-     * cancels ALL auto-resume eligibility (D-246) — their intent wins over the
-     * network-regain auto-resume. */
+    /** Pauses all active + WAITING tasks (a user pause-all converts waiting
+     * tasks to PAUSED too — their intent wins over the network-regain
+     * auto-resume). */
     suspend fun pauseAll() = mutex.withLock {
         _tasks.value
-            .filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.RETRYING }
+            .filter {
+                it.status == DownloadStatus.DOWNLOADING ||
+                    it.status == DownloadStatus.RETRYING ||
+                    it.status == DownloadStatus.WAITING_FOR_NETWORK
+            }
             .forEach { pauseInternal(it.id) }
-        synchronized(networkPausedTasks) { networkPausedTasks.clear() }
     }
 
     /** Cancels all tasks (clears the queue). */
@@ -247,20 +268,26 @@ class DownloadQueue(
             store.deleteTask(task.id)
         }
         _tasks.value = emptyList()
-        synchronized(networkPausedTasks) { networkPausedTasks.clear() }
     }
 
-    /** Resumes all PAUSED + ERROR tasks. */
+    /** Resumes all PAUSED + ERROR + WAITING tasks (offline → they re-mark
+     * WAITING_FOR_NETWORK, same rule as the single-task [resume]). */
     suspend fun resumeAll() = mutex.withLock {
+        val networkAllowed = runCatching { connectivityCheck() }.getOrDefault(true)
+        val target = if (networkAllowed) DownloadStatus.QUEUED else DownloadStatus.WAITING_FOR_NETWORK
         _tasks.value
-            .filter { it.status == DownloadStatus.PAUSED || it.status == DownloadStatus.ERROR }
+            .filter {
+                it.status == DownloadStatus.PAUSED ||
+                    it.status == DownloadStatus.ERROR ||
+                    it.status == DownloadStatus.WAITING_FOR_NETWORK
+            }
             .forEach { task ->
                 mutateTaskLocked(task.id) {
-                    it.copy(status = DownloadStatus.QUEUED, lastError = null)
+                    it.copy(status = target, lastError = null)
                 }
                 store.updateState(
                     id = task.id,
-                    status = DownloadStatus.QUEUED,
+                    status = target,
                     progress = task.progress,
                     startedAt = null,
                     completedAt = null,
@@ -292,18 +319,16 @@ class DownloadQueue(
     /**
      * Called by NetworkCallback (the auto-pause/resume QoL feature).
      *
-     * REVIEW-5 M42: uses [pauseInternal] (assumes the mutex is held) — no deadlock
-     * (the OLD draft's `mutex.withLock { pause(it.id) }` where `pause` ALSO acquires
-     * the mutex = non-reentrant Mutex deadlock).
+     * ROUND 121: network lost → active + queued tasks go to
+     * WAITING_FOR_NETWORK (NOT PAUSED — the status itself is the marker, so
+     * the UI labels them "Waiting for network" and the auto-resume can't
+     * lose them). Network restored → every WAITING task goes back to QUEUED
+     * and the scheduler starts them.
      */
     fun onNetworkChanged(isWifi: Boolean, hasInternet: Boolean) {
         scope.launch {
             mutex.withLock {
                 if (!hasInternet || (preferences.wifiOnly.get() && !isWifi)) {
-                    // D-246 (user-reported gap): network lost — pause ALL active tasks
-                    // (DOWNLOADING/RETRYING/QUEUED) and REMEMBER them. The old code
-                    // paused but never resumed: PAUSED tasks are invisible to
-                    // tryStartNext(), so nothing restarted when the internet came back.
                     _tasks.value
                         .filter {
                             it.status == DownloadStatus.DOWNLOADING ||
@@ -311,11 +336,10 @@ class DownloadQueue(
                                 it.status == DownloadStatus.QUEUED
                         }
                         .forEach {
-                            pauseInternal(it.id)
-                            networkPausedTasks.add(it.id)
+                            setWaitingForNetworkLocked(it.id)
                             DownloadLogger.i {
-                                "onNetworkChanged — task ${it.id} auto-paused (network lost); " +
-                                    "will auto-resume when connectivity returns"
+                                "onNetworkChanged — task ${it.id} → WAITING_FOR_NETWORK " +
+                                    "(network lost); auto-resumes when connectivity returns"
                             }
                         }
                 }
@@ -328,15 +352,14 @@ class DownloadQueue(
     }
 
     /**
-     * D-246: auto-resumes tasks that were paused by network loss. MUST be called
-     * WITHOUT the mutex held ([resume] acquires it).
+     * ROUND 121: auto-resumes tasks waiting on the network — now discovered BY
+     * STATUS (WAITING_FOR_NETWORK), not via a marker set. Covers tasks that
+     * went waiting in a previous process too (the status is persisted).
      */
     private suspend fun resumeNetworkPaused(reason: String) {
-        val toResume = synchronized(networkPausedTasks) {
-            val snapshot = networkPausedTasks.toList()
-            networkPausedTasks.clear()
-            snapshot
-        }
+        val toResume = _tasks.value
+            .filter { it.status == DownloadStatus.WAITING_FOR_NETWORK }
+            .map { it.id }
         if (toResume.isEmpty()) {
             tryStartNext()
             return
@@ -350,30 +373,25 @@ class DownloadQueue(
     }
 
     /**
-     * D-246: true when tasks are paused by network loss — the DownloadService stays
-     * alive while this is true so its NetworkCallback can fire the auto-resume when
-     * connectivity returns (the old code stopped the service once everything was
-     * paused, killing the callback → no auto-restart ever).
+     * ROUND 121: true when tasks are waiting on the network — the
+     * DownloadService stays alive while this is true so its NetworkCallback
+     * can fire the auto-resume when connectivity returns (the old code
+     * stopped the service once everything was paused, killing the callback →
+     * no auto-restart ever).
      */
-    fun hasNetworkPausedTasks(): Boolean = synchronized(networkPausedTasks) { networkPausedTasks.isNotEmpty() }
+    fun hasNetworkPausedTasks(): Boolean =
+        _tasks.value.any { it.status == DownloadStatus.WAITING_FOR_NETWORK }
 
     /**
-     * D-246: marks a task PAUSED + remembers it for auto-resume on network regain.
-     * Called from the error path when a transport failure happens while the network
-     * is disallowed — pause instead of burning retry attempts into ERROR.
+     * ROUND 121: marks a task WAITING_FOR_NETWORK + cancels its job. Called
+     * from the error path when a transport failure happens while the network
+     * is disallowed — wait instead of burning retry attempts into ERROR.
+     * Acquires the mutex itself (the caller doesn't hold it).
      */
     private suspend fun pauseForNetwork(taskId: Long) {
         mutex.withLock {
-            val current = _tasks.value.firstOrNull { it.id == taskId } ?: return@withLock
-            if (current.status != DownloadStatus.DOWNLOADING &&
-                current.status != DownloadStatus.QUEUED &&
-                current.status != DownloadStatus.RETRYING
-            ) {
-                return@withLock
-            }
-            pauseInternal(taskId)
+            setWaitingForNetworkLocked(taskId)
         }
-        networkPausedTasks.add(taskId)
     }
 
     // ── Internal pause (M42 — assumes the mutex is held) ─────────────────────
@@ -382,12 +400,16 @@ class DownloadQueue(
      * REVIEW-5 M42: internal pause that ASSUMES the mutex is held. Used by
      * [onNetworkChanged] (which already holds the mutex) + by the public [pause]
      * (which acquires the mutex then delegates here).
+     *
+     * ROUND 121: also accepts WAITING_FOR_NETWORK (a user pause of a waiting
+     * task converts it to PAUSED — their intent wins over auto-resume).
      */
     private fun pauseInternal(taskId: Long) {
         val current = _tasks.value.firstOrNull { it.id == taskId } ?: return
         if (current.status != DownloadStatus.DOWNLOADING &&
             current.status != DownloadStatus.QUEUED &&
-            current.status != DownloadStatus.RETRYING
+            current.status != DownloadStatus.RETRYING &&
+            current.status != DownloadStatus.WAITING_FOR_NETWORK
         ) return
         mutateTaskLocked(taskId) {
             it.copy(status = DownloadStatus.PAUSED)
@@ -395,6 +417,32 @@ class DownloadQueue(
         store.updateState(
             id = taskId,
             status = DownloadStatus.PAUSED,
+            progress = current.progress,
+            startedAt = current.startedAt,
+            completedAt = null,
+            errorMessage = null,
+        )
+        jobs[taskId]?.cancel()
+    }
+
+    /**
+     * ROUND 121: internal WAITING_FOR_NETWORK setter that ASSUMES the mutex is
+     * held (the paused-for-network sibling of [pauseInternal]). Non-active
+     * statuses (PAUSED/terminal/already waiting) are left alone — a user
+     * pause must NOT be un-paused by a network event.
+     */
+    private fun setWaitingForNetworkLocked(taskId: Long) {
+        val current = _tasks.value.firstOrNull { it.id == taskId } ?: return
+        if (current.status != DownloadStatus.DOWNLOADING &&
+            current.status != DownloadStatus.QUEUED &&
+            current.status != DownloadStatus.RETRYING
+        ) return
+        mutateTaskLocked(taskId) {
+            it.copy(status = DownloadStatus.WAITING_FOR_NETWORK, lastError = null)
+        }
+        store.updateState(
+            id = taskId,
+            status = DownloadStatus.WAITING_FOR_NETWORK,
             progress = current.progress,
             startedAt = current.startedAt,
             completedAt = null,
@@ -538,7 +586,14 @@ class DownloadQueue(
                         // real bytes; the persisted total from a prior run may be stale). When
                         // downloaded exceeds it, GROW the total to reality — the bar never
                         // exceeds 100% and the bytes row never shows "120 MB / 96 MB".
-                        val total = if (totalIn in 1..downloaded) downloaded else totalIn
+                        // ROUND 121 (the "GB then shrank" report): the estimate can also
+                        // wobble DOWN as the average converges — the total the user saw
+                        // visibly shrank as the download progressed. The displayed/persisted
+                        // total is now monotonically non-decreasing (never below what was
+                        // already shown/persisted via prevTotal). A real Content-Length is
+                        // exact from the first tick, so only estimates change behavior.
+                        val rawTotal = if (totalIn in 1..downloaded) downloaded else totalIn
+                        val total = if (prevTotal > 0) maxOf(rawTotal, prevTotal) else rawTotal
                         DownloadLogger.d { "launchDownload — progress: task=${task.id}, downloaded=$downloaded, total=$total" }
                         // REVIEW-5 M31: maintain the moving-average window in place.
                         val currentRatio = if (total > 0) (downloaded.toFloat() / total) else 0f

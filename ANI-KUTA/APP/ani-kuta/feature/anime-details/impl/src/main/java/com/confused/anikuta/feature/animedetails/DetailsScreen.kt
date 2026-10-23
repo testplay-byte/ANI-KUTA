@@ -99,6 +99,7 @@ import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.core.watchprogress.EpisodeKeys  // ROUND 121 (D3): the app-wide episode-key builder
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.compose.koinInject
@@ -1487,10 +1488,12 @@ fun DetailsScreen(
                                 // row). Untagged lists keep the raw number
                                 // (byte-identical aniyomi behavior). The key
                                 // FORMAT is unchanged — only the number source.
+                                // ROUND 121 (D3): built via EpisodeKeys (was a
+                                // hand-rolled "$mainId|%05d" string format).
                                 val identityNum = if (subDubTagged) {
                                     subDubOrdinals[episode.url] ?: epNum
                                 } else epNum
-                                val epKey = if (mainId != null) "$mainId|${String.format("%05d", identityNum)}" else null
+                                val epKey = mainId?.let { EpisodeKeys.build(it, identityNum.toFloat()) }
                                 val progress = epKey?.let { watchProgress[it] }
                                 val isWatched = progress?.isWatched ?: false
                                 Box(
