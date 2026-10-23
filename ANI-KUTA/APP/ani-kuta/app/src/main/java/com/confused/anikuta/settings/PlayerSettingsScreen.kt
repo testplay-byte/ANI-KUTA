@@ -99,12 +99,32 @@ fun PlayerSettingsScreen(
         initial = preferences.globalFallback.get(),
     )
 
+    // ── Round 120 (D-747/D-748): playback behavior settings ───────────────────
+    // The round-120 order: the player needed REAL settings beyond auto-select
+    // video. Every knob here has a live consumer in the player (before round
+    // 120, autoPlayNext + resumeFromLastPosition existed with zero readers).
+    // Non-flow prefs (plain getters) use a 0/1 state that mirrors the write.
+    var autoPlayNextState by remember { mutableIntStateOf(if (preferences.autoPlayNext) 1 else 0) }
+    var resumeState by remember { mutableIntStateOf(if (preferences.resumeFromLastPosition) 1 else 0) }
+    val nextUpCard by preferences.nextUpCardEnabled.changes.collectAsState(
+        initial = preferences.nextUpCardEnabled.get(),
+    )
+    val skipIntro by preferences.skipIntroMode.changes.collectAsState(
+        initial = preferences.skipIntroMode.get(),
+    )
+    val skipOutro by preferences.skipOutroMode.changes.collectAsState(
+        initial = preferences.skipOutroMode.get(),
+    )
+
     var expandedSection by remember { mutableIntStateOf(0) }
 
     // ── D-558: the search-landing scroll + AUTO-EXPAND. The four preference
     // sections only exist while auto-select is ON — an anchor targeting one
     // of them expands its section (so the row is visible) and scrolls to it;
     // with auto-select OFF every non-master anchor lands on the master card.
+    // Round 120: the LazyColumn indices shifted +1 (the Playback behavior
+    // card is item 0) — anchorIndexFor above carries that; these section IDS
+    // (1=Priority … 4=Server) did NOT shift and stay 1..4.
     androidx.compose.runtime.LaunchedEffect(highlightAnchor, autoSelect) {
         when (highlightAnchor) {
             "player_priority" -> if (autoSelect) expandedSection = 1
@@ -117,13 +137,17 @@ fun PlayerSettingsScreen(
         anchor = highlightAnchor,
         anchorIndexFor = { anchor ->
             when {
-                anchor == "player_autoselect" || anchor == "player" -> 0
-                !autoSelect -> 0
-                anchor == "player_priority" -> 1
-                anchor == "player_quality" -> 2
-                anchor == "player_audio" -> 3
-                anchor == "player_server" -> 4
-                anchor == "player_global_fallback" -> 5
+                anchor == "player_behavior" || anchor == "player_autoplay" ||
+                    anchor == "player_resume" || anchor == "player_next_up" ||
+                    anchor == "player_skip" || anchor == "player_skip_intro" ||
+                    anchor == "player_skip_outro" || anchor == "player" -> 0
+                anchor == "player_autoselect" -> 1
+                !autoSelect -> 1
+                anchor == "player_priority" -> 2
+                anchor == "player_quality" -> 3
+                anchor == "player_audio" -> 4
+                anchor == "player_server" -> 5
+                anchor == "player_global_fallback" -> 6
                 else -> null
             }
         },
@@ -144,6 +168,96 @@ fun PlayerSettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(bottom = 110.dp),
                 ) {
+                    // ── Round 120 (D-747/D-748): Playback behavior ──────────────
+                    // The real player settings hub — every row below has a live
+                    // consumer in the player (see WatchScreen's round-120 block).
+                    item {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                Text(
+                                    "Playback behavior",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                SettingsSwitchRow(
+                                    title = "Auto-play next episode",
+                                    subtitle = "Plays the next episode when this one ends",
+                                    checked = autoPlayNextState == 1,
+                                    onCheckedChange = {
+                                        preferences.autoPlayNext = it
+                                        autoPlayNextState = if (it) 1 else 0
+                                    },
+                                )
+                                SettingsSwitchRow(
+                                    title = "Next-episode card",
+                                    subtitle = "Shows the next episode near the end",
+                                    checked = nextUpCard,
+                                    onCheckedChange = { preferences.nextUpCardEnabled.set(it) },
+                                )
+                                SettingsSwitchRow(
+                                    title = "Resume playback",
+                                    subtitle = "Continues episodes from where you left off",
+                                    checked = resumeState == 1,
+                                    onCheckedChange = {
+                                        preferences.resumeFromLastPosition = it
+                                        resumeState = if (it) 1 else 0
+                                    },
+                                )
+                                Text(
+                                    "Skip intro",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 10.dp, bottom = 6.dp),
+                                )
+                                SegmentedRow(
+                                    options = listOf(
+                                        "Off" to (skipIntro == "OFF"),
+                                        "Button" to (skipIntro == "BUTTON"),
+                                        "Auto" to (skipIntro == "AUTO"),
+                                    ),
+                                ) { idx ->
+                                    preferences.skipIntroMode.set(
+                                        when (idx) { 0 -> "OFF"; 1 -> "BUTTON"; else -> "AUTO" },
+                                    )
+                                }
+                                Text(
+                                    "Skip outro",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
+                                )
+                                SegmentedRow(
+                                    options = listOf(
+                                        "Off" to (skipOutro == "OFF"),
+                                        "Button" to (skipOutro == "BUTTON"),
+                                        "Auto" to (skipOutro == "AUTO"),
+                                    ),
+                                ) { idx ->
+                                    preferences.skipOutroMode.set(
+                                        when (idx) { 0 -> "OFF"; 1 -> "BUTTON"; else -> "AUTO" },
+                                    )
+                                }
+                                Text(
+                                    "Mark intros and outros from the player's intro button",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 10.dp),
+                                )
+                            }
+                        }
+                    }
+
                     // ── Master toggle: Auto-select video ──
                     item {
                         Surface(
@@ -285,6 +399,37 @@ fun PlayerSettingsScreen(
 @Composable
 private fun Spacer(height: Int) {
     androidx.compose.foundation.layout.Spacer(Modifier.size(height.dp))
+}
+
+/** Round 120: a titled switch row inside the Playback behavior card. */
+@Composable
+private fun SettingsSwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                fontFamily = RobotoFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                subtitle,
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
 }
 
 @Composable

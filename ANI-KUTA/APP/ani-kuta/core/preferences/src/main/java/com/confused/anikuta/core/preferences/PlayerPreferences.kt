@@ -308,6 +308,81 @@ class PlayerPreferences(private val store: PreferenceStore) {
         if (label.isBlank()) store.delete(key) else store.putString(key, label)
     }
 
+    // ── Round 120 (D-747): playback behavior (the Player settings hub) ───────
+    //
+    // The round-120 order: the player needed REAL settings beyond auto-select
+    // video — end-of-episode behavior, the next-episode card, and intro/outro
+    // skipping. These are the shared knobs both player stacks read.
+
+    /** Whether the next-episode card appears near the end of an episode. */
+    val nextUpCardEnabled = store.preference(
+        "pref_player_next_up_card", true, BooleanSerializer,
+    )
+
+    /**
+     * Intro-skip mode: `"OFF"` (never), `"BUTTON"` (show the skip pill during
+     * the intro — default), `"AUTO"` (silently seek past the intro).
+     */
+    val skipIntroMode = store.preference(
+        "pref_player_skip_intro_mode", "BUTTON", StringSerializer,
+    )
+
+    /** Outro-skip mode — same vocabulary as [skipIntroMode]. */
+    val skipOutroMode = store.preference(
+        "pref_player_skip_outro_mode", "BUTTON", StringSerializer,
+    )
+
+    // ── Round 120 (D-748): per-series intro/outro timestamps ─────────────────
+    //
+    // The user marks where a series' intro/outro starts; the player remembers
+    // it for every episode of that series (openings share a length within a
+    // season — one pair of marks covers the whole rewatch). Stored per mainId
+    // as a compact "introStart|introEnd|outroStart" seconds string (unset
+    // segments blank), following the per-series subtitle-track-memory pattern
+    // (D-408). Preference-backed by design: round 120 explicitly scoped the
+    // database OUT, so no schema change rides along.
+
+    /**
+     * The remembered skip timestamps for a series (seconds). Null fields = not
+     * marked. The intro is the [introStartSec, introEndSec) span; the outro is
+     * everything from [outroStartSec] to the episode's end.
+     */
+    data class SkipTimestamps(
+        val introStartSec: Int? = null,
+        val introEndSec: Int? = null,
+        val outroStartSec: Int? = null,
+    ) {
+        val hasIntro: Boolean get() = introStartSec != null && introEndSec != null && introEndSec > introStartSec
+        val hasOutro: Boolean get() = outroStartSec != null && outroStartSec > 0
+    }
+
+    /** Reads the series' skip timestamps (all-unset when nothing is marked). */
+    fun getSkipTimestamps(mainId: String): SkipTimestamps {
+        if (mainId.isBlank()) return SkipTimestamps()
+        val raw = store.getString(KEY_PREFIX_SKIP_TIMESTAMPS + mainId, "") ?: ""
+        if (raw.isBlank()) return SkipTimestamps()
+        val parts = raw.split('|')
+        fun seg(i: Int): Int? = parts.getOrNull(i)?.toIntOrNull()?.takeIf { it > 0 }
+        return SkipTimestamps(
+            introStartSec = seg(0),
+            introEndSec = seg(1),
+            outroStartSec = seg(2),
+        )
+    }
+
+    /** Persists (or — all-null [timestamps] — clears) the series' skip timestamps. */
+    fun setSkipTimestamps(mainId: String, timestamps: SkipTimestamps) {
+        if (mainId.isBlank()) return
+        val key = KEY_PREFIX_SKIP_TIMESTAMPS + mainId
+        val any = timestamps.hasIntro || timestamps.hasOutro
+        if (!any) {
+            store.delete(key)
+        } else {
+            val encoded = "${timestamps.introStartSec ?: ""}|${timestamps.introEndSec ?: ""}|${timestamps.outroStartSec ?: ""}"
+            store.putString(key, encoded)
+        }
+    }
+
     companion object {
         private const val KEY_SPEED = "player_speed"
         private const val KEY_AUTOPLAY_NEXT = "player_autoplay_next"
@@ -336,5 +411,6 @@ class PlayerPreferences(private val store: PreferenceStore) {
         private const val KEY_GESTURES = "player_gestures"
         private const val KEY_HW_DECODE = "player_hw_decode"
         private const val KEY_PREFIX_SUB_TRACK_MEMORY = "pref_sub_track_memory_"
+        private const val KEY_PREFIX_SKIP_TIMESTAMPS = "pref_skip_timestamps_"
     }
 }

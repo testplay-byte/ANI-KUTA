@@ -20,6 +20,9 @@ val csWatchModule = module {
             episodeListPreferences = get(),
             // D-539: the offline DASH entry + downloaded-episode switching.
             downloadManager = get(),
+            // Round 120 (D-750): the auto-play preference finally gates CS
+            // auto-advance (it used to force-binge regardless of the setting).
+            playerPreferences = get(),
         )
     }
 }

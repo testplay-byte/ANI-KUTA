@@ -85,6 +85,48 @@ object SettingsSearchIndex {
                     "server", "audio", "auto select", "autoselect", "preferred", "speed"),
             ),
         )
+        // Round 120 (D-747/D-748): the playback-behavior hub entries — every
+        // knob has a live consumer in the player as of this round.
+        add(
+            SettingsSearchEntry(
+                id = "player.autoplay_next",
+                title = "Auto-play next episode",
+                page = SettingsSearchPage.PLAYER,
+                anchor = "player_autoplay",
+                keywords = listOf("autoplay", "auto play", "next episode", "binge",
+                    "continuous", "playback behavior"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "player.next_up_card",
+                title = "Next-episode card",
+                page = SettingsSearchPage.PLAYER,
+                anchor = "player_next_up",
+                keywords = listOf("next up", "up next", "card", "ending", "countdown",
+                    "playback behavior"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "player.resume",
+                title = "Resume playback",
+                page = SettingsSearchPage.PLAYER,
+                anchor = "player_resume",
+                keywords = listOf("resume", "continue", "position", "where i left off",
+                    "restart", "playback behavior"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "player.skip",
+                title = "Skip intro & outro",
+                page = SettingsSearchPage.PLAYER,
+                anchor = "player_skip",
+                keywords = listOf("skip", "intro", "outro", "opening", "ending",
+                    "op", "ed", "timestamps", "playback behavior"),
+            ),
+        )
         add(
             SettingsSearchEntry(
                 id = "hub.video_caching",

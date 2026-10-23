@@ -76,6 +76,19 @@ class PlayerStateHolder {
     var httpError: String? = null
         private set
 
+    // ── Round 120 (D-749): user-initiated pause flag ──────────────────────────
+    // Distinguishes "the USER paused" (or the app backgrounded — the lifecycle
+    // observer pauses too) from "playback is stuck". The fatal-error watchdog
+    // must never fire for a deliberate pause: the round-119 bug showed
+    // "This server is not responding" ~15s after pausing at the start.
+    @Volatile
+    var userPaused: Boolean = false
+        private set
+
+    fun updateUserPaused(paused: Boolean) {
+        userPaused = paused
+    }
+
     // ── Auto-retry tracking ──
     // When an error occurs, the player auto-retries the same URL once before
     // showing the error banner. This flag tracks whether the auto-retry has
@@ -392,5 +405,27 @@ class PlayerStateHolder {
         _audioTracks.value = emptyList()
         _currentSubtitleTrack.value = -1
         _currentAudioTrack.value = -1
+    }
+
+    /**
+     * Round 120 (D-749): clears ONLY the playback metrics on an episode switch.
+     *
+     * The switch updates `currentEpisodeNumber` immediately (so the overlay
+     * shows the new episode's name) while MPV keeps emitting the OLD file's
+     * time-pos/duration until the new file loads. The 10s periodic save then
+     * wrote the OLD position under the NEW episode's key — the stale-position
+     * cross-contamination bug. Zeroing the metrics here makes that save's
+     * `dur > 0` guard skip the window naturally, and stops stale
+     * duration/position/tracks flashing on the new episode's UI.
+     *
+     * Deliberately does NOT touch error/switching state (a switch in flight
+     * owns those) — see [reset] for the full wipe.
+     */
+    fun resetPlaybackMetrics() {
+        Logger.d(TAG) { "Reset playback metrics (episode switch)" }
+        _position.value = 0
+        _duration.value = 0
+        _bufferAheadTime.value = 0
+        bufferedEnough = false
     }
 }

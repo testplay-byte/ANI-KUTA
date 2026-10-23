@@ -72,6 +72,15 @@ class PlayerObserver(
     var onTracksLoaded: ((List<VideoTrack>) -> Unit)? = null
 
     /**
+     * Round 120 (D-747): fired when MPV reports `eof-reached = yes` — the file
+     * played to its natural end (keep-open holds the last frame instead of
+     * END_FILE transitioning to idle). The host owns WHAT happens (final
+     * progress write, next-episode offer); the observer only owns the "when".
+     */
+    var onEofReached: (() -> Unit)? = null
+
+
+    /**
      * External subtitle tracks to load on the next FILE_LOADED.
      * Set by the host before calling `loadfile` (from the picked video's tracks).
      * Each entry is (url, lang).
@@ -143,6 +152,17 @@ class PlayerObserver(
                 // Treat seeking as buffering — while MPV is seeking, the video
                 // is not playing and the user should see a spinner.
                 stateHolder.updateBuffering(value == "yes")
+            }
+            "eof-reached" -> {
+                // Round 120 (D-747): the file reached its natural end. Fire the
+                // host hook exactly once per file (MPV keeps the property at
+                // "yes" under keep-open until the next loadfile resets it, so
+                // gate on the rising edge).
+                if (value == "yes") {
+                    Logger.i(TAG) { "EOF reached (natural end of file)" }
+                    runCatching { onEofReached?.invoke() }
+                        .onFailure { Logger.w(TAG) { "onEofReached hook failed: ${it.message}" } }
+                }
             }
             "sid" -> {
                 value.toIntOrNull()?.let { sid ->

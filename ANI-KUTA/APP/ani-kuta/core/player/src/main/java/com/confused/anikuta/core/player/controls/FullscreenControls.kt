@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
@@ -99,6 +100,8 @@ fun FullscreenControls(
     onRotateClick: () -> Unit = {},
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
+    // Round 120 (D-748): opens the intro/outro marking sheet.
+    onSkipEditorClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     animeTitle: String = "",
     episodeInfo: String = "",
@@ -251,6 +254,8 @@ fun FullscreenControls(
                             FSSmallButton(icon = Icons.Default.Subtitles, contentDescription = "Subtitles", onClick = onSubtitleClick)
                             FSSmallButton(icon = Icons.Default.HighQuality, contentDescription = "Quality", onClick = onQualityClick)
                             FSSmallButton(icon = Icons.Default.MusicNote, contentDescription = "Audio", onClick = onAudioClick)
+                            // D-748: intro/outro timestamps — the marking entry.
+                            FSSmallButton(icon = Icons.Default.FastForward, contentDescription = "Intro and outro", onClick = onSkipEditorClick)
                             FSSmallButton(icon = Icons.Default.MoreVert, contentDescription = "More", onClick = onMoreClick)
                         }
                     }

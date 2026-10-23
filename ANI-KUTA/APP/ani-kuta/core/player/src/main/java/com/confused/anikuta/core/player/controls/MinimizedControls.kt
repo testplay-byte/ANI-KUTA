@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -74,6 +75,8 @@ fun MinimizedControls(
     onSubtitleClick: () -> Unit,
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
+    // Round 120 (D-748): opens the intro/outro marking sheet.
+    onSkipEditorClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
@@ -262,6 +265,12 @@ fun MinimizedControls(
                         icon = Icons.Default.HighQuality,
                         contentDescription = "Quality",
                         onClick = onQualityClick,
+                    )
+                    // D-748: intro/outro timestamps — the marking entry.
+                    TransparentIconButton(
+                        icon = Icons.Default.FastForward,
+                        contentDescription = "Intro and outro",
+                        onClick = onSkipEditorClick,
                     )
                 }
 

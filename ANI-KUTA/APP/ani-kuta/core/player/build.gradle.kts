@@ -52,4 +52,7 @@ dependencies {
     // Coroutines + serialization
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
+
+    // Round 120 (D-746): the PlaybackResumePolicy contract locks (JVM tests).
+    testImplementation(libs.junit)
 }

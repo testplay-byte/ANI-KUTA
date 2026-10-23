@@ -44,16 +44,24 @@ class CsWatchViewModel(
      * downloaded season never touches the network).
      */
     private val downloadManager: com.confused.anikuta.core.download.DownloadManager,
+    /**
+     * Round 120 (D-750): the shared player preferences — auto-play-next gates
+     * CS auto-advance (the stack used to force-advance at ENDED regardless of
+     * the user's setting), and the playback speed persists across sessions.
+     */
+    private val playerPreferences: com.confused.anikuta.core.preferences.PlayerPreferences,
 ) : ViewModel() {
 
     companion object {
         internal const val TAG = "Anikuta:CS:Watch"
 
-        /** The app-wide standardized episode key (feature:watch's builder format, replicated — the two modules stay independent). */
-        internal fun episodeKey(mainId: String, episodeNumber: Float): String {
-            if (mainId.isBlank()) return "unknown|${String.format("%05d", episodeNumber.toInt())}"
-            return "$mainId|${String.format("%05d", episodeNumber.toInt())}"
-        }
+        /**
+         * The app-wide standardized episode key. Round 120 (D-746): delegated to
+         * the ONE shared builder in :core:watch-progress (this used to be a
+         * hand-rolled copy of the format).
+         */
+        internal fun episodeKey(mainId: String, episodeNumber: Float): String =
+            com.confused.anikuta.core.watchprogress.EpisodeKeys.build(mainId, episodeNumber)
     }
 
     /** What the screen should render at the top level. */
@@ -123,6 +131,13 @@ class CsWatchViewModel(
          * ABR picks (every other play request path).
          */
         val playInitialVideoHeight: Int? = null,
+        /**
+         * Round 120 (D-750): show the shared Up Next card over the player.
+         * Set at ~95% watch progress (or at ENDED when auto-play-next is off),
+         * cleared by play/dismiss/episode-switch. MPV-stack parity: the same
+         * card component, the same once-per-episode latch.
+         */
+        val showUpNextCard: Boolean = false,
     )
 
     private val _uiState = MutableStateFlow(CsWatchUiState())
@@ -789,7 +804,21 @@ class CsWatchViewModel(
      */
     fun onEngineError(url: String?, failureReason: String? = null) {
         val state = _uiState.value
-        if (url == null || state.currentLink?.url != url) return
+        // Round 120 (D-750): OFFLINE failures carry a null URL (no link was
+        // playing) — the old guard dropped them silently, freezing the player
+        // with no retry path. An offline failure fails the phase honestly.
+        if (url == null) {
+            if (state.playOfflineMediaUri != null) {
+                Logger.w(TAG) { "engine error on OFFLINE playback — failing: $failureReason" }
+                _uiState.value = state.copy(
+                    phase = Phase.FAILED,
+                    resolveError = "Offline playback failed" +
+                        (failureReason?.let { " — $it" } ?: ""),
+                )
+            }
+            return
+        }
+        if (state.currentLink?.url != url) return
         val failed = state.failedLinkUrls + url
         val reasons = if (failureReason != null) {
             state.failureReasons + (url to failureReason)
@@ -819,12 +848,60 @@ class CsWatchViewModel(
         }
     }
 
-    /** The engine reached the end — auto-advance when there is a next episode. */
+    /**
+     * The engine reached the end. Round 120 (D-750): honors the auto-play-next
+     * preference — ON advances immediately (the old behavior); OFF parks on the
+     * Up Next card instead of force-binging (the stack used to ignore the
+     * setting entirely).
+     */
     fun onEpisodeEnded(): Boolean {
         val next = nextEpisode() ?: return false
-        Logger.i(TAG) { "episode ended — auto-advancing to EP ${next.episodeNumber}" }
-        selectEpisode(next)
-        return true
+        if (playerPreferences.autoPlayNext) {
+            Logger.i(TAG) { "episode ended — auto-advancing to EP ${next.episodeNumber}" }
+            selectEpisode(next)
+            true
+        } else {
+            Logger.i(TAG) { "episode ended — auto-play OFF, showing the Up Next card" }
+            _uiState.value = _uiState.value.copy(showUpNextCard = true)
+            false
+        }
+    }
+
+    /** The Up Next card's Play button (round 120). */
+    fun playNextFromCard() {
+        _uiState.value = _uiState.value.copy(showUpNextCard = false)
+        nextEpisode()?.let { selectEpisode(it) }
+    }
+
+    /** Hides the Up Next card without advancing (round 120). */
+    fun dismissUpNextCard() {
+        _uiState.value = _uiState.value.copy(showUpNextCard = false)
+    }
+
+    /**
+     * Round 120 (D-750): the screen's ~95% watch-progress trigger. Latches the
+     * Up Next card ON, once per episode (the flag resets in [selectEpisode]).
+     * With auto-play ON the card ticks a countdown; OFF it waits for the tap.
+     */
+    fun offerUpNextCard() {
+        val s = _uiState.value
+        if (s.showUpNextCard) return
+        if (nextEpisode() == null) return
+        _uiState.value = s.copy(showUpNextCard = true)
+    }
+
+    /**
+     * Round 120 (D-750): re-arms the 85% auto-mark for the current episode —
+     * called by the screen whenever the engine actually starts playback (the
+     * MPV stack's FILE_LOADED equivalent). Without this, an episode the user
+     * un-marked on the CS page could never auto-complete again.
+     */
+    fun rearmAutoMark() {
+        val key = progressEpisodeKey()
+        viewModelScope.launch {
+            runCatching { watchProgressStore.resetAutoMarkSuppressed(key) }
+                .onFailure { Logger.w(TAG) { "rearmAutoMark failed: ${it.message}" } }
+        }
     }
 
     /** The episodes sheet's current-episode highlight key (the CS data handle). */
@@ -904,6 +981,9 @@ class CsWatchViewModel(
         _uiState.value = _uiState.value.copy(
             episodeNumber = episode.episodeNumber,
             episodeTitle = episode.name,
+            // Round 120: a new episode always starts with the Up Next card
+            // hidden (the latch re-arms per episode).
+            showUpNextCard = false,
         )
         if (targetMedia != null) {
             Logger.i(TAG) { "switching to EP ${episode.episodeNumber} OFFLINE (downloaded)" }

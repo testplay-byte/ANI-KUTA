@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -19,9 +20,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -35,6 +38,7 @@ import com.confused.anikuta.core.csplayer.CsPlayerEngine
 import com.confused.anikuta.core.csplayer.CsSubtitle
 import com.confused.anikuta.core.csplayer.CsSubtitleStyle
 import com.confused.anikuta.core.csplayer.CsVideoTrack
+import com.confused.anikuta.core.designsystem.component.player.UpNextCard
 import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.feature.cswatch.api.CsWatchKey
 import kotlinx.coroutines.delay
@@ -332,6 +336,10 @@ fun CsWatchScreen(
             }
             return@LaunchedEffect
         }
+        // Round 120 (D-750): an accepted request for THIS episode re-arms the
+        // 85% auto-mark (the MPV stack does this at FILE_LOADED — the engine
+        // here has no "started" event, so the acceptance point is the seam).
+        viewModel.rearmAutoMark()
         // ── D-539: the OFFLINE play request — the payload's scheme picks the
         // loader: a content:// `.dashmeta` sidecar (D-548) plays the REAL
         // files in the SAF download folder; a remote manifest URL (the legacy
@@ -360,6 +368,10 @@ fun CsWatchScreen(
                     maxVideoHeight = live.playOfflineMaxVideoHeight,
                 )
             }
+            // Round 120 (D-750): the engine's start params reset the speed to
+            // 1x — re-apply the PERSISTED speed on every load (the MPV view
+            // applies it at init; the CS engine needed the explicit call).
+            engine.setPlaybackSpeed(playerPreferences.playbackSpeed)
             return@LaunchedEffect
         }
         Logger.i(TAG) {
@@ -378,6 +390,9 @@ fun CsWatchScreen(
             // previous episode's position (F2: auto-advance cascade).
             else -> engine.start(link!!, 0L, live.playInitialVideoHeight)
         }
+        // Round 120 (D-750): see the offline branch — re-apply the persisted
+        // speed after every engine load.
+        engine.setPlaybackSpeed(playerPreferences.playbackSpeed)
     }
 
     // ── Engine events → VM decisions ─────────────────────────────────────────
@@ -396,8 +411,11 @@ fun CsWatchScreen(
                 CsEngineEvent.Ended -> {
                     val st = engine.state.value
                     viewModel.saveProgress(st.positionMs, st.durationMs)
+                    // Round 120 (D-750): the VM decides — auto-play ON advances
+                    // immediately; OFF parks on the Up Next card; no next
+                    // episode leaves the ended frame as-is.
                     if (!viewModel.onEpisodeEnded()) {
-                        Logger.i(TAG) { "episode ended — no next episode" }
+                        Logger.i(TAG) { "episode ended — Up Next card or end of list" }
                     }
                 }
             }
@@ -423,6 +441,41 @@ fun CsWatchScreen(
             ) {
                 viewModel.saveProgress(st.positionMs, st.durationMs)
             }
+        }
+    }
+
+    // ── Round 120 (D-750): the Up Next trigger — ~95% of the episode ─────────
+    // Mirrors the MPV stack's PlaybackResumePolicy.NEXT_EPISODE_TRIGGER_FRACTION
+    // (0.95): once the current episode crosses it, the shared card offers the
+    // next one (the VM latches it once per episode). The engine's 100 ms ticker
+    // drives this effect — no extra polling needed.
+    LaunchedEffect(engineState.positionMs, engineState.durationMs, uiState.episodeNumber) {
+        val duration = engineState.durationMs
+        if (duration > 0 && engineState.positionMs >= duration * 0.95f) {
+            viewModel.offerUpNextCard()
+        }
+    }
+
+    // ── Round 120 (D-750): the Up Next countdown — auto-play ON only ─────────
+    // 10 s (PlaybackResumePolicy.UP_NEXT_COUNTDOWN_SECONDS) ticking on the card,
+    // then the advance. Auto-play OFF: a static card (null countdown), the Play
+    // button is the only way forward. Keyed on the card latch + episode so a
+    // dismissed card stops the clock and a new episode restarts it cleanly.
+    var upNextCountdown by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(uiState.showUpNextCard, uiState.episodeNumber) {
+        if (uiState.showUpNextCard && playerPreferences.autoPlayNext) {
+            // Local ticker + one state write per second — no smart-cast on the
+            // delegated property (the construct Kotlin is retiring).
+            var secondsLeft = 10
+            upNextCountdown = secondsLeft
+            while (secondsLeft > 0) {
+                delay(1_000L)
+                secondsLeft--
+                upNextCountdown = secondsLeft
+            }
+            if (secondsLeft == 0) viewModel.playNextFromCard()
+        } else {
+            upNextCountdown = null
         }
     }
 
@@ -620,6 +673,35 @@ fun CsWatchScreen(
         }
     }
 
+    // ── Round 120 (D-750): the Up Next card slot ─────────────────────────────
+    // The SAME shared component the MPV stack renders (designsystem UpNextCard),
+    // positioned bottom-end over the frame in BOTH display modes. The wrapper
+    // Box carries no pointer modifiers, so taps pass through to the controls
+    // everywhere except the card itself.
+    val upNextOverlay: @Composable () -> Unit = {
+        val nextEp = viewModel.nextEpisode()
+        val nextMeta = nextEp?.let { uiState.episodeMetadata[it.episodeNumber.toInt()] }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
+            UpNextCard(
+                visible = uiState.showUpNextCard &&
+                    uiState.phase == CsWatchViewModel.Phase.PLAYING &&
+                    nextEp != null,
+                episodeLabel = nextEp?.let {
+                    "EP " + com.confused.anikuta.core.common.EpisodeTitleParser
+                        .formatEpisodeNumber(it.episodeNumber)
+                } ?: "",
+                episodeTitle = nextMeta?.title ?: nextEp?.name ?: "",
+                thumbnailUrl = nextMeta?.thumbnailUrl,
+                coverFallbackUrl = key.coverUrl,
+                countdownSecondsLeft = upNextCountdown,
+                countdownTotalSeconds = 10,
+                onPlay = viewModel::playNextFromCard,
+                onDismiss = viewModel::dismissUpNextCard,
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 84.dp),
+            )
+        }
+    }
+
     // ── UI ────────────────────────────────────────────────────────────────────
     when (playerMode) {
         CsPlayerMode.MINIMIZED -> CsWatchPage(
@@ -629,6 +711,7 @@ fun CsWatchScreen(
                 playerSurface(Modifier.fillMaxSize())
                 subtitleOverlay()
                 playerOverlay()
+                upNextOverlay()
             },
             onBack = onBack,
             onEpisodeSwitch = { viewModel.selectEpisode(it) },
@@ -654,6 +737,7 @@ fun CsWatchScreen(
             playerSurface(Modifier.fillMaxSize())
             subtitleOverlay()
             playerOverlay()
+            upNextOverlay()
         }
     }
 
@@ -760,7 +844,12 @@ fun CsWatchScreen(
     if (showSpeedSheet) {
         CsSpeedSheet(
             currentSpeed = engineState.playbackSpeed,
-            onSpeedSelected = { engine.setPlaybackSpeed(it) },
+            onSpeedSelected = {
+                engine.setPlaybackSpeed(it)
+                // Round 120 (D-750): persist the pick — the next engine load
+                // (this screen or a fresh session) re-applies it.
+                playerPreferences.playbackSpeed = it
+            },
             onDismiss = { showSpeedSheet = false },
         )
     }
