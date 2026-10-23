@@ -856,7 +856,7 @@ class CsWatchViewModel(
      */
     fun onEpisodeEnded(): Boolean {
         val next = nextEpisode() ?: return false
-        if (playerPreferences.autoPlayNext) {
+        return if (playerPreferences.autoPlayNext) {
             Logger.i(TAG) { "episode ended — auto-advancing to EP ${next.episodeNumber}" }
             selectEpisode(next)
             true
