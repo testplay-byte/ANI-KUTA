@@ -19,7 +19,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.SkipForward
+// ROUND 121-fix: SkipForward is NOT in the pinned icons artifact (see
+// FullscreenControls) — SkipNext is the next-episode glyph here too.
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Pause
@@ -277,7 +279,7 @@ fun MinimizedControls(
                         onClick = onPrevEpisode,
                     )
                     TransparentIconButton(
-                        icon = Icons.Default.SkipForward,
+                        icon = Icons.Default.SkipNext,
                         contentDescription = "Next episode",
                         onClick = onNextEpisode,
                     )

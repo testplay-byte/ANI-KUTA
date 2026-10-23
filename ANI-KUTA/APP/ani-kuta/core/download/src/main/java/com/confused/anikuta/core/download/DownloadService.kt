@@ -109,8 +109,12 @@ class DownloadService : Service(), KoinComponent {
          * event was evaluated against a dead network and read as offline.
          * That is exactly why auto-resume never fired on the device round.
          * The active network is only the LAST fallback now.
+         *
+         * ROUND 121-fix: NOT private — onCreate's self-healing sweep calls it
+         * through the property, and private members of an ANONYMOUS object are
+         * not reachable from the enclosing class (run 40023420647).
          */
-        private fun evaluateAndNotify(
+        fun evaluateAndNotify(
             isAvailable: Boolean,
             eventNetwork: Network? = null,
             eventCapabilities: NetworkCapabilities? = null,

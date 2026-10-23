@@ -1,5 +1,11 @@
 # Changelog (High-Level)
 
+## 1.1.20 (round 121 — device-test responses; version unchanged per the standing rule)
+- PLAYER: resume now starts 15s before the saved position; nothing under a minute is ever recorded as progress; a near-end stale save starts fresh instead of jumping to the last point; Up Next card successor lookup hardened (episode-number fallback) — the card that never appeared; intro/outro timestamps now come from the AniSkip service (cached per episode; the user's Off/Button/Auto settings govern); the top-right player button is now Previous/Next episode; the fullscreen More button opens an episode-switching sheet (with the manual skip editor inside); a stuck episode switch can be Cancelled; the player episode list shows partial watch progress per row.
+- DOWNLOADS: network loss marks tasks WAITING FOR NETWORK (own pill/chip/progress) instead of paused — they auto-resume when connectivity returns (the callback bug that blocked auto-resume is fixed); pausing a waiting task pauses it; resuming offline re-waits without errors; the download notification has a single Pause button for the shown download; bulk select actions exit selection mode; one select-all toggle; the currently-downloading task is pinned to the top of the queue, groups and reorder list; the total size no longer shrinks as the download progresses; reorder rows show live status.
+- DETAILS: re-linking a source rebuilds cleanly (no stale data, no race); tracking start dates seeded from actual first watch; mark-previous prompt marks the right episodes on sub/dub lists; a fresh-install/upgrades migration ordering bug fixed; dead auto-link popup code removed.
+
+
 > One-line-per-change history, grouped by phase.
 >
 > **Role split:** This file = immutable narrative of completed work (append-only).

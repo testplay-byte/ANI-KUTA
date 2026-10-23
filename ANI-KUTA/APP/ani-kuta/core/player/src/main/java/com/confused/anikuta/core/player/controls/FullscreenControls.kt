@@ -27,7 +27,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.SkipForward
+// ROUND 121-fix: SkipForward is NOT in the pinned material-icons-extended
+// 1.7.8 artifact (run 40023420647: Unresolved) — SkipNext is (and was already
+// imported). Same glyph meaning for a next-episode button.
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
@@ -262,7 +264,7 @@ fun FullscreenControls(
                             // (The old intro/outro editor button moved into the
                             // episodes sheet; skip itself is AniSkip-fed now.)
                             FSSmallButton(icon = Icons.Default.SkipPrevious, contentDescription = "Previous episode", onClick = onPrevEpisode)
-                            FSSmallButton(icon = Icons.Default.SkipForward, contentDescription = "Next episode", onClick = onNextEpisode)
+                            FSSmallButton(icon = Icons.Default.SkipNext, contentDescription = "Next episode", onClick = onNextEpisode)
                             FSSmallButton(icon = Icons.Default.MoreVert, contentDescription = "More", onClick = onMoreClick)
                         }
                     }

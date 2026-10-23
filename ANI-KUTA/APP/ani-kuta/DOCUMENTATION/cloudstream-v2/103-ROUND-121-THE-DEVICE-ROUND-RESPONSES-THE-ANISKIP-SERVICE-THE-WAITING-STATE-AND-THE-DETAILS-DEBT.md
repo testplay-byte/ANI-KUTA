@@ -1,0 +1,76 @@
+# Round 121 — The Device-Round Responses: the AniSkip Service, the Waiting State, and the Details Debt
+
+> THE ORDER (the user's device-test report on the round-120 build): the player's resume starts **15 seconds before** the saved position; the "sometimes jumps to the very last point with no error" case must start fresh; **nothing under one minute** watched may ever be recorded; the **Up Next card never appeared** (at 93%+ nor EOF, both modes, settings ON) — diagnose and fix; the top-right player button ("two triangles") should have been the **next-episode button** ("there is actually no need to show the intro or outro skip button at all"); intro/outro data must come from **a proper service like AnySkip**, "properly configure them based on the user's preferences." Downloads: network loss must show a **WAITING state** (not paused); user-pausing a waiting task pauses it; **resuming while offline must not error** (it re-waits); **auto-resume on network return must actually work** (it did not — he had to re-tap); the total-size display was wrong (GB, then shrank); multi-select must **exit after a bulk action**; the X + double-tick buttons confused him — **one select-all toggle**; the **currently-downloading task pinned at the very top** (a running anime sat at the bottom); reorder UI cleaner; the notification must have **one single pause/cancel-current button**, not pause-all/cancel-all. Alongside: "properly work on" the planned details/database/player-page items. No rush, verify afterwards. ALL ON `main`; the backup branch stays ignored.
+
+## 1. The resume contract (D-751)
+
+`PlaybackResumePolicy` **moved to `core/watch-progress`** (both player stacks + the details page now share it without new deps; the old `core/player` copy deleted; 13 JVM tests moved + extended). New semantics, exactly the report:
+
+- **`RESUME_REWIND_SECONDS = 15`** — `plan()` returns `ResumeAtPosition(stored.position − 15)` (floored at 0). The pill still shows the SAVED time; playback starts 15s earlier.
+- **Near-end = fresh** — a stored position within `NEAR_END_SECONDS = 15` of the duration starts at the beginning (the "jumps to the very last point" report: a stale near-EOF save re-entered at the end with no error and no pill to dismiss).
+- **`MIN_RESUME_SECONDS = 60` + `shouldPersist()`** — positions under a minute are NEVER persisted (three guards: the periodic save, the exit save, the pre-switch save). Watched still wins (position ≥ 85% of duration persists as watched regardless).
+- The Up Next trigger moved to `NEXT_EPISODE_TRIGGER_FRACTION = 0.95` of duration (93% was inside the outro window and raced the skip system; 95% with the outro-start alternative is stable).
+
+## 2. The Up Next miss — the diagnosis (D-751)
+
+The round-120 chain was statically correct (eof-reached observed; the holder seeded; the trigger keyed correctly). The only consistent failure: **`nextEpisodeInList()` matched the successor by URL alone** against `watchKey.parseEpisodeList()` — a resolver that returns a different URL form (redirect host, query drift) makes the lookup silently return null and the card never offers. Fixed: **URL match → episode-NUMBER fallback**, plus decision-point logging at every branch (offer made / EOF-with-no-successor / number-fallback used) so a device recurrence is legible in logcat. The CS stack's own successor resolution re-uses the same order.
+
+## 3. The AniSkip service + the episode-navigation controls (D-752)
+
+- **`AniSkipClient`** (`core/network`): `fetchSkipTimes(anilistId, episodeNumber, episodeLengthMs)` — resolves AniList→MAL once (GraphQL `Media.idMal`, cached), then AniSkip v2 (`types=op&ed`, `mixed-op`→intro, `recap` ignored). Defensive org.json parsing; `SkipTimes(intro, outro, fromService)` with second-precision intervals.
+- **Per-episode cache + negative latch** (`PlayerPreferences`): `getEpisodeSkipTimes/setEpisodeSkipTimes` (`opStart|opEnd|edStart|edEnd` per `<mainId>_<ep>`) + `markEpisodeSkipFetched` so an anime with no AniSkip data is fetched ONCE ever, not per session.
+- **WatchScreen wiring**: on episode change — cached data first (instant), else fetch on IO (skipped when the episode number is unknown or the anime has no ids), persisted, and only applied if the episode hasn't changed mid-flight. The skip system takes **AniSkip precedence over the manual per-anime timestamps**; AUTO outro seeks to the AniSkip **ed end** (post-credit scenes play out; a manual start-only outro still jumps to the next episode). The user's existing Off/Button/Auto per-side settings (round 120's hub) govern it all — that is the "configure based on the user's preferences."
+- **The controls swap**: the top-right cluster's FastForward (skip-editor) button is RETIRED. `FullscreenControls` + `MinimizedControls` now take `onPrevEpisode`/`onNextEpisode` — **SkipPrevious + SkipForward** (prev fills the missing direction; the bottom next button stays). Both wired in both modes with URL→number fallback for the current episode's index.
+- **The skip editor's new home**: the fullscreen More button (previously dead) opens the new **`PlayerEpisodesSheet`** — the full episode list (number, parsed title, NOW-PLAYING highlight, tap-to-switch without leaving fullscreen) with the "Skip timestamps" entry inside. The manual editor survives for the no-AniSkip anime; the default experience is the service.
+- **Switch cancel**: `EpisodeSwitchingOverlay` gains a Cancel button — kills the in-flight switch job, clears the switching flags, the previous episode keeps playing (a stuck resolve/extract no longer holds the player hostage).
+- **Per-row watch progress**: `progressFractionByKey` feeds the row renderer's existing `progressFraction` — the MPV page's episode list finally shows partial progress bars (the CloudStream page already did).
+
+## 4. The Waiting State — downloads (D-753)
+
+The round-120 model (auto-pause → PAUSED + an in-memory marker set) broke exactly as reported: the set raced manual resumes, was invisible to the UI, and died with the process. **The status is now the marker** — `DownloadStatus.WAITING_FOR_NETWORK`:
+
+- **Network lost** → every active/queued task goes WAITING_FOR_NETWORK (persisted; `resetDownloadingToQueued` on boot deliberately does NOT touch it).
+- **Network returns** → every WAITING task → QUEUED → the scheduler starts it. Discovery is BY STATUS (`resumeNetworkPaused` scans the queue), so tasks that went waiting in a previous process are still found.
+- **User pauses a waiting task** → PAUSED (their intent wins; no auto-resume).
+- **User resumes while offline** → WAITING_FOR_NETWORK again — never an error, never a dead QUEUED (the report's exact semantics, quoted).
+- `pauseAll` takes waiting tasks too; `resumeAll`/`resume` re-wait when offline (`connectivityCheck` inside the lock, same call the error path already used).
+
+**Why auto-resume never fired on device**: the NetworkCallback's `onAvailable` evaluated `cm.activeNetwork` — which still points at the DYING network when the new one's callback fires (the system flips the active network after). Every "network restored" event was read as offline. **The event network's own capabilities now win** (`onCapabilitiesChanged` passes them directly; `onAvailable` queries the event network; `activeNetwork` is the last fallback). Plus a **self-healing sweep**: one evaluation at service start (onAvailable only fires on transitions — a service started while already online, or a process that died offline and reopened online, previously never learned).
+
+**The notification** (the "one single button" order): the summary's Pause-all/Cancel-all pair is RETIRED — **one Pause action for THE download the notification shows** (`ACTION_PAUSE_TASK` + task id; `manager.pauseDownload`). A waiting-only queue gets its own **"Waiting for network — resumes automatically when connectivity returns"** summary (the eternal "Preparing downloads…" placeholder on an offline queue is gone). The error notification's per-task Retry (round 120) stays.
+
+## 5. The queue's honest face (D-754)
+
+- **Active-first pin** (the "running anime at the bottom" report): the VM's queue sort pins DOWNLOADING/RETRYING tasks to the very top — stable sort, the user's persisted order survives underneath; the grouped view's first-encounter grouping puts the running task's anime card first AND the running task first within it; the reorder list inherits the same order (and `moveTask` swaps against that same list, so up/down stays consistent).
+- **Bulk actions exit selection mode** — pause/resume/remove-selected drops the mode right after firing (the checks clear with the mode).
+- **ONE select-all toggle** — the DoneAll/Clear pair merged: everything checked → the button shows Clear and deselects; anything unchecked → check-all (the X stays as the exit).
+- **"Waiting for network" everywhere it matters** — its own status pill on the row (tertiary-tinted frozen progress bar + size pill), its own count chip in the header, the menu treats it as pausable/cancellable, the details/watch badge renders it as Paused.
+- **The total never shrinks** (the "GB then shrank" report): the reported total is an HLS estimate that wobbles down as the running average converges — the displayed/persisted total is now **monotonically non-decreasing** (`max(rawTotal, prevTotal)`, and `prevTotal` already persisted/restores across restarts). A real Content-Length is exact from the first tick.
+- **Reorder polish**: every row carries the anime title + a live status line ("Downloading — 45%", "Waiting for network", "Paused — 12%") — the flattened list no longer reads as bare names.
+
+## 6. The details debt — the planned items, first tranche (D-755)
+
+The round-121 plan's details/database items that needed no open question answered:
+
+- **Relink correctness** (`linkSource`): the extension base is rebuilt from the picked SAnime on EVERY link (the old null-guard kept a stale base when relinking to a new source); enrichment now always runs behind a **`relinkGeneration`** guard (two quick relinks can no longer land out of order — `fetchEpisodes`' stale-check compares it too); the OLD (source, url) pair cache is cleared when the identity changes; the hardcoded `"aniyomi"` ecosystem string derives from `isCloudstreamBridgedId()` like the rest of the file.
+- **Tracking**: `relayWatchEvent`'s progress parameter was a Double forcing `toInt()` truncation — now Int end-to-end (the GraphQL variable is Int; verified at the tracker); `startedAt` on first-track seeds from the earliest `first_watched_at` (the sheet's "Started" row now shows when the user actually started, not the sync time).
+- **EpisodeKeys everywhere**: all six hand-rolled `"$mid|%05d"` constructions in the details feature (ViewModel ×3, Screen, EpisodeListProcessor) now use `EpisodeKeys.build` — one author for the format repo-wide.
+- **The mark-previous prompt**: the check scanned RAW episode numbers while the handler marked by CS-ordinal identities — every sub/dub-bridged list prompted about (and marked) the wrong range. Both sides now share the `csEpisodeIdentities` basis.
+- **Dead weight out**: `AutoLinkPopup.kt` (354 lines, zero references — the screen renders the reverse-link state inline) deleted, its two orphaned callbacks with it; tombstones at the KDoc references.
+- **DB B1 (the ordering bug)**: `migrateSchemaIfNeeded`'s watch_progress ALTER block sat BELOW the partial index whose WHERE reads `auto_mark_suppressed` — and below the `onCreate(db)` call paths that create that index from the .sq schema. A pre-WP upgrade would fail index creation before the column existed. The block now runs at the TOP of the migration (pure reorder; tombstone at the old position; no versioned migration per §30).
+
+## 7. Deliberately out of scope (the plan's gates)
+
+Database versioning B2–B7 (needs the §30 production signal — plan question Q2), the library round (123), notifications/auto-download (124), the tracked-content-change UI (Q7), the progress-conflict policy (Q8). The AniSkip fetch toggle (a dedicated "use the service" setting) rides the existing per-side Off/Button/Auto modes this round — the OFF mode already suppresses every AniSkip pill; a fetch-level switch is noted for the player-settings follow-up if the user wants it.
+
+## 8. The verification
+
+Three agents. The **details batch** implemented by one (full report per item — one audit claim corrected: `relayWatchEvent` needed Int, not Float semantics; the "sheet fetch gate" was already fixed and left alone; `ReverseAutoLinkService` is referenced and stayed). The **pre-CI verifier** then read the ENTIRE 24-file diff against the round's checklist and caught **three would-be compile errors in WatchScreen.kt**, all fixed before the push: (1) the `PlayerEpisodesSheet` insertion landed between the file's one `@OptIn(ExperimentalMaterial3Api)` and `SkipEditorSheet`, stealing the opt-in (the class's own error class, now banked); (2) `SkipPillState.Outro`'s object→data-class promotion left a bare-class `when` label needing `is`; (3) an elvis merging two unrelated nested data classes into an LUB-of-Any (`intro.introStartSec` unresolved) — normalized to plain `Int?` locals. Everything else verified clean: all four param wirings end-to-end, every `when` over `DownloadStatus` exhaustive with the new value, the anonymous-callback private-method call from `onCreate`, the Koin registration, the moved policy's zero stale references, no version bumps, no `.sqm`.
+
+## 9. The CI ledger (D-472 — both runs of the budget spent)
+
+Commit `5ed39572` (fix, 26 files, +1494/−751) → Build APK run **40022774825** RED on exactly ONE error class: `:core:network:compileDebugKotlin` — `Unresolved reference 'kotlinx'` (AniSkipClient is the module's FIRST coroutines user; the dependency was never declared — the pre-CI verifier reads code, not build configs). Fix `9ee94885` (`implementation(libs.kotlinx.coroutines.core)` added, the per-module convention like core/anilist; the class swept across every touched module's build file — nothing else missing) → Build APK run **40023420647** — VERDICT: [PENDING — patch on completion]. The docs push is paths-ignored.
+
+## 10. The device checklist
+
+Lives OUTSIDE the repo per the workspace convention: `planning/2026-10-23-round-121-device-test.html` (+ the .md twin) — the grouped regression guide for this round's behaviors (resume −15s, the 60s floor, Up Next both modes, the new buttons, AniSkip pills, the waiting-state scenarios incl. the offline-resume and network-return cases, the notification's single button, selection-exit, the pinned running task, the stable total).

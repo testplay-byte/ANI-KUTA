@@ -3,6 +3,11 @@
 > One-line lessons from mistakes, corrections, and insights.
 > Read at task start (grep for tags matching your task type). Append when you learn something.
 
+## THE LEAF MODULE'S FIRST IMPORT (round 121): a new file's dependencies exist at the MODULE level, not the repo level
+`:core:network` had never used coroutines, so its build.gradle.kts never declared them — the first suspend/Dispatchers code in the module (AniSkipClient) compiled NOWHERE and CI stopped at `:core:network:compileDebugKotlin` (`Unresolved reference 'kotlinx'`). The pre-CI code verifier reads Kotlin, not build configs, so this class is invisible to it. Rule: whenever a NEW FILE lands in a module that never used a library family it now imports (coroutines, serialization, coil…), check the module's own dependencies block in the SAME pass — the repo has no global coroutines; every module declares its own (`libs.kotlinx.coroutines.core/android`, the core/anilist pattern). And the standing first-broken-module doctrine applies: Gradle reported ONLY :core:network — modules compiling after it were unverified until the second run.
+
+## THE STOLEN @OptIn (round 121): inserting a declaration between an annotation and ITS target
+When a new composable is inserted into a file ABOVE an existing declaration, check whether the line directly above the insertion point was an ANNOTATION for the declaration below (e.g. a file's single `@OptIn(ExperimentalMaterial3Api::class)` sitting directly above `SkipEditorSheet`). The insertion silently re-attaches the annotation to the NEW declaration and the old one loses its opt-in — a compile error one push away that no diff reader notices because both halves look intact. Rule: after inserting a declaration into a dense file, grep the surrounding 5 lines for orphaned annotations and re-home them. Related same-round catches: promoting a sealed `data object` to `data class` requires `is` in every `when` label that matched it by bare name; and an elvis merging two unrelated nested data classes (`a ?: b` where a:A?, b:B) types the result as the LUB (Any?) — every subsequent member access is unresolved. Type-normalize to plain fields at the merge point.
 ## How to Use
 
 - **Trigger**: log an entry when (a) the user corrects you, OR (b) you catch your own mistake before/after continuing, OR (c) you have an insight worth remembering.
