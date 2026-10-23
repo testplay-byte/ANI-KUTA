@@ -12,9 +12,21 @@ import java.io.File
  *
  * REVIEW-5 M37: [cleanupTask] distinguishes `CancellationException` (preserve
  * for resume) from completion/error (delete everything).
+ *
+ * ROUND 120 (D-748): [cleanupStale] no longer eats PAUSED tasks' progress —
+ * temp dirs of tasks still in the queue (via [activeDownloadIdProvider]) are
+ * exempt from the 24-hour sweep. A download paused for a day used to lose all
+ * its bytes on the next app start (TempDownloadCache init → purge), silently
+ * resetting to 0% on resume.
  */
 class TempDownloadCache(
     private val context: Context,
+    /**
+     * Round 120: the ids of tasks that still own their temp dir (queued/
+     * downloading/paused/retrying/error — anything resumable). Callback, not
+     * a set: the queue changes over time and the sweep runs at construction.
+     */
+    private val activeDownloadIdProvider: () -> Set<Long> = { emptySet() },
 ) {
     companion object {
         private const val TAG = "TempDownloadCache"
@@ -86,16 +98,33 @@ class TempDownloadCache(
      * Cleans up stale temp directories (older than 24 hours).
      * Called on TempDownloadCache creation (via init) to prevent temp cache
      * from growing unboundedly across app restarts.
+     *
+     * ROUND 120 (D-748): dirs owned by tasks still in the queue are EXEMPT —
+     * see the class KDoc. Orphan dirs (task cancelled/completed/deleted) keep
+     * the 24h lifetime.
      */
     fun cleanupStale() {
         val now = System.currentTimeMillis()
+        val activeIds = runCatching(activeDownloadIdProvider).getOrDefault(emptySet())
         tempRoot.listFiles()?.forEach { dir ->
-            if (dir.isDirectory && now - dir.lastModified() > STALE_THRESHOLD_MS) {
+            if (!dir.isDirectory) return@forEach
+            val taskId = dir.name.toLongOrNull()
+            if (taskId != null && taskId in activeIds) {
+                DownloadLogger.d {
+                    "Temp dir ${dir.name} is ${ageHours(now, dir)}h old but its task is " +
+                        "still active — keeping it for resume"
+                }
+                return@forEach
+            }
+            if (now - dir.lastModified() > STALE_THRESHOLD_MS) {
                 dir.deleteRecursively()
-                DownloadLogger.i { "Cleaned stale temp dir: ${dir.name}" }
+                DownloadLogger.i { "Cleaned stale temp dir: ${dir.name} (${ageHours(now, dir)}h old)" }
             }
         }
     }
+
+    private fun ageHours(now: Long, dir: File): Long =
+        (now - dir.lastModified()) / (60L * 60L * 1000L)
 
     init {
         cleanupStale()

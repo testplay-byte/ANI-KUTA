@@ -133,11 +133,45 @@ class SingleConnectionFetcher(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: HttpException) {
+            // ── ROUND 120 (D-748): EXPIRED-CDN recovery (non-localhost) ──
+            // A 403/410 on a REMOTE URL means the signed link expired while the
+            // task sat paused/queued (they typically live hours). Same cure as
+            // proxy churn: re-resolve the EPISODE — the ReResolver re-selects
+            // the pinned server + quality (with an agnostic fallback) — then
+            // retry from scratch with the fresh URL. The `fresh.url != url`
+            // guard keeps a merely flaky 403 from re-fetching the same link
+            // (the attempt cap bounds the recursion regardless).
+            val isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")
+            if (!isLocalhost && (e.code == 403 || e.code == 410) &&
+                resolveContextJson != null && reResolver != null &&
+                reResolveAttempts < MAX_RE_RESOLVE_ATTEMPTS
+            ) {
+                DownloadLogger.w {
+                    "HttpException ${e.code} on remote URL (expired CDN link) — re-resolving " +
+                        "the episode for a fresh server/quality pick " +
+                        "(attempt ${reResolveAttempts + 1}/$MAX_RE_RESOLVE_ATTEMPTS)"
+                }
+                val fresh = reResolver.reResolve(resolveContextJson)
+                if (fresh != null && fresh.url != url) {
+                    store.updateDownloadVideoUrl(taskId, fresh.url)
+                    // Truncate: the fresh link may be a different file/server —
+                    // a Range resume against different content would corrupt it.
+                    FileOutputStream(tempFile).use { /* truncate to 0 */ }
+                    return downloadNormal(
+                        url = fresh.url,
+                        headers = fresh.headers,
+                        tempFile = tempFile,
+                        taskId = taskId,
+                        resolveContextJson = resolveContextJson,
+                        onProgress = onProgress,
+                        reResolveAttempts = reResolveAttempts + 1,
+                    )
+                }
+            }
             // D-207 FIX: on HTTP errors (esp. 403) for localhost proxy URLs, attempt
             // re-resolve BEFORE re-throwing. The extension's proxy URL contains a
             // token that may be IP-bound / session-bound / expired. Re-resolving
             // gets a fresh token from the extension → retry.
-            val isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")
             if (isLocalhost && resolveContextJson != null && reResolver != null
                 && reResolveAttempts < MAX_RE_RESOLVE_ATTEMPTS
             ) {

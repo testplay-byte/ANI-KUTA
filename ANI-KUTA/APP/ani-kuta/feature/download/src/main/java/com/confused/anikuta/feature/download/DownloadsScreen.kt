@@ -2,8 +2,10 @@ package com.confused.anikuta.feature.download
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,13 +22,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -159,6 +169,28 @@ fun DownloadsScreen(
     // Track which episode's 3-dot menu is open.
     var menuTaskId by remember { mutableStateOf<Long?>(null) }
 
+    // ── ROUND 120 (D-749): the queue management modes ──
+    // SELECT: rows grow checkboxes — bulk pause/resume/remove over the set.
+    // REORDER: the grouped cards flatten into one ordered list — moving a row
+    // persists the order, and the QUEUE'S SCHEDULER sorts by it, so the list
+    // the user arranges IS the order the downloads start in.
+    var selectionMode by remember { mutableStateOf(false) }
+    var reorderMode by remember { mutableStateOf(false) }
+    val selection by viewModel.selection.collectAsStateWithLifecycle()
+    // Exiting select mode always drops the checks; a queue that empties out
+    // (cancels, auto-clears) leaves BOTH modes — the toggles' host row is
+    // gone with the queue, and a stuck reorderMode would silently re-show the
+    // flat card on the next enqueue.
+    LaunchedEffect(selectionMode) {
+        if (!selectionMode) viewModel.clearSelection()
+    }
+    LaunchedEffect(queue.isEmpty()) {
+        if (queue.isEmpty()) {
+            selectionMode = false
+            reorderMode = false
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         CollapsingHeader(
             title = "Downloads",
@@ -187,8 +219,19 @@ fun DownloadsScreen(
             },
         )
 
-        // Action bar (bulk operations).
-        if (queue.isNotEmpty()) {
+        // Action bar (bulk operations) + the Round 120 mode toggles — or the
+        // selection bar while the user is multi-selecting.
+        if (selectionMode) {
+            QueueSelectionBar(
+                selectedCount = selection.size,
+                onSelectAll = viewModel::selectAll,
+                onClearChecks = viewModel::clearSelection,
+                onPauseSelected = viewModel::pauseSelected,
+                onResumeSelected = viewModel::resumeSelected,
+                onRemoveSelected = viewModel::cancelSelected,
+                onExit = { selectionMode = false },
+            )
+        } else if (queue.isNotEmpty()) {
             DownloadActionBar(
                 hasActive = hasActive,
                 hasPaused = paused > 0,
@@ -208,6 +251,16 @@ fun DownloadsScreen(
                     queue.filter { it.status == DownloadStatus.ERROR }.forEach { viewModel.retry(it.id) }
                 },
                 onCancelAll = { viewModel.cancelAll() },
+            )
+            // Round 120 (D-749): the two mode doors — pill toggles in the
+            // action bar's visual family. Reorder stays clickable while
+            // active (the pill IS the Done exit — it must never trap the user).
+            QueueModeToggles(
+                reorderActive = reorderMode,
+                selectEnabled = !reorderMode,
+                reorderEnabled = reorderMode || queue.size > 1,
+                onSelect = { selectionMode = true },
+                onToggleReorder = { reorderMode = !reorderMode },
             )
         }
 
@@ -239,6 +292,16 @@ fun DownloadsScreen(
                 needsFolder = !state.folderReady,
                 onPickFolder = { folderLauncher.launch(null) },
             )
+        } else if (reorderMode && queue.isNotEmpty()) {
+            // ROUND 120 (D-749): the flat reorder list (replaces the grouped
+            // cards until Done). Moves go through the VM — it computes each
+            // swap against the LIVE sorted queue, so rapid taps can't race a
+            // stale recomposition.
+            QueueReorderCard(
+                queue = queue,
+                onMove = { taskId, up -> viewModel.moveTask(taskId, up) },
+                onDone = { reorderMode = false },
+            )
         } else {
             LazyColumn(
                 state = lazyListState,
@@ -251,6 +314,13 @@ fun DownloadsScreen(
                         AnimeSectionCard(
                             animeTitle = animeTitle,
                             downloads = downloads,
+                            selectionMode = selectionMode,
+                            selectedIds = selection,
+                            onToggleSelect = viewModel::toggleSelected,
+                            onEnterSelect = { taskId ->
+                                selectionMode = true
+                                viewModel.toggleSelected(taskId)
+                            },
                             onPause = { viewModel.pause(it) },
                             onResume = { viewModel.resume(it) },
                             onCancel = { viewModel.cancel(it) },
@@ -361,6 +431,10 @@ private fun StatChip(count: String, label: String, color: Color) {
 private fun AnimeSectionCard(
     animeTitle: String,
     downloads: List<DownloadTask>,
+    selectionMode: Boolean,
+    selectedIds: Set<Long>,
+    onToggleSelect: (Long) -> Unit,
+    onEnterSelect: (Long) -> Unit,
     onPause: (Long) -> Unit,
     onResume: (Long) -> Unit,
     onCancel: (Long) -> Unit,
@@ -420,9 +494,22 @@ private fun AnimeSectionCard(
                 }
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+                    color = if (selectionMode && task.id in selectedIds) {
+                        // Round 120 (D-749): a checked row gets the primary
+                        // wash so the selection reads at a glance.
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                    },
                 ) {
-                    EpisodeRow(task = task, onMenu = { onMenu(task.id) })
+                    EpisodeRow(
+                        task = task,
+                        selectionMode = selectionMode,
+                        isSelected = task.id in selectedIds,
+                        onToggleSelect = { onToggleSelect(task.id) },
+                        onEnterSelect = { onEnterSelect(task.id) },
+                        onMenu = { onMenu(task.id) },
+                    )
                 }
             }
         }
@@ -433,8 +520,16 @@ private fun AnimeSectionCard(
 //  Episode row
 // ════════════════════════════════════════════════════════════════════════════
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
+private fun EpisodeRow(
+    task: DownloadTask,
+    selectionMode: Boolean,
+    isSelected: Boolean,
+    onToggleSelect: () -> Unit,
+    onEnterSelect: () -> Unit,
+    onMenu: () -> Unit,
+) {
     // D-213: restructured layout:
     //   Row 1: [Episode Name (weight 1f)] [3-dot button]   ← 3-dot is ONLY here, next to the name
     //   Row 2: [server(flex+…)][audio][quality][size] | [45%] ← pills in a weighted inner row,
@@ -443,19 +538,35 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
     //   Row 4: [error text] (if error)
     // The 3-dot is NOT full-height — it's in the top row only. The info row + progress
     // bar use the FULL width below the 3-dot, so the percentage is never cut off.
+    //
+    // ROUND 120 (D-749): select-mode row interaction — the whole row toggles its
+    // check (tap) and a long-press from NORMAL mode enters select mode with this
+    // row pre-checked. Outside select mode a tap stays inert (the kebab menu owns
+    // the row's actions, unchanged).
     Column(
         // D-215: reduced all spacing by ~50% (user asked for tighter layout).
         // top=2dp (was 4), bottom=5dp (was 10), horizontal=10dp (unchanged).
-        modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 5.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 5.dp)
+            .combinedClickable(
+                onClick = { if (selectionMode) onToggleSelect() },
+                onLongClick = { if (!selectionMode) onEnterSelect() },
+            ),
     ) {
-        // ── Row 1: Episode name + 3-dot button ──
-        // D-214: 3-dot button is now wider + shorter (40×24dp) + rotated 90°
-        // (MoreVert icon rotated so the 3 dots are horizontal). Matches the
-        // "kebab" menu orientation the user asked for.
+        // ── Row 1: Episode name + checkbox/3-dot button ──
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (selectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelect() },
+                    modifier = Modifier.size(28.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+            }
             val epName = task.episode.name.ifBlank {
                 "Episode ${task.episode.episodeNumber.toInt()}"
             }
@@ -470,25 +581,29 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(4.dp))
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.outlineVariant,
-                onClick = onMenu,
-            ) {
-                // D-214: wider + shorter button (was 32×32 square). Now 40×24.
-                Box(
-                    modifier = Modifier.size(width = 40.dp, height = 24.dp),
-                    contentAlignment = Alignment.Center,
+            // Round 120 (D-749): the kebab hides while selecting — the whole
+            // row is one big toggle then (two affordances would fight).
+            if (!selectionMode) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    onClick = onMenu,
                 ) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = "Options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        // D-214: rotate the icon 90° so the 3 dots are horizontal.
-                        modifier = Modifier
-                            .size(18.dp)
-                            .graphicsLayer(rotationZ = 90f),
-                    )
+                    // D-214: wider + shorter button (was 32×32 square). Now 40×24.
+                    Box(
+                        modifier = Modifier.size(width = 40.dp, height = 24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = "Options",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            // D-214: rotate the icon 90° so the 3 dots are horizontal.
+                            modifier = Modifier
+                                .size(18.dp)
+                                .graphicsLayer(rotationZ = 90f),
+                        )
+                    }
                 }
             }
         }
@@ -773,6 +888,354 @@ private fun MenuOption(
 // ════════════════════════════════════════════════════════════════════════════
 //  Helpers
 // ════════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════
+//  ROUND 120 (D-749): queue management — mode toggles, selection bar, reorder card
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * The two mode doors under the action bar — labeled pill toggles in the same
+ * visual family as the action bar's chips. "Select" enters multi-select
+ * (rows grow checkboxes); "Reorder" flattens the queue into an ordered list.
+ */
+@Composable
+private fun QueueModeToggles(
+    reorderActive: Boolean,
+    selectEnabled: Boolean,
+    reorderEnabled: Boolean,
+    onSelect: () -> Unit,
+    onToggleReorder: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        QueueModePill(
+            icon = Icons.Filled.Checklist,
+            label = "Select",
+            active = false,
+            enabled = selectEnabled,
+            modifier = Modifier.weight(1f),
+            onClick = onSelect,
+        )
+        QueueModePill(
+            icon = Icons.Filled.SwapVert,
+            label = if (reorderActive) "Done reordering" else "Reorder",
+            active = reorderActive,
+            enabled = reorderEnabled,
+            modifier = Modifier.weight(1f),
+            onClick = onToggleReorder,
+        )
+    }
+}
+
+@Composable
+private fun QueueModePill(
+    icon: ImageVector,
+    label: String,
+    active: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        color = if (active) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        },
+        onClick = onClick,
+        enabled = enabled,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (active) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                label,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (active) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * The multi-select contextual bar — replaces the action bar while selecting.
+ * Row 1: exit + the live count + check-all / clear-checks. Row 2: the three
+ * bulk operations in the action bar's chip style (pause / resume / remove).
+ */
+@Composable
+private fun QueueSelectionBar(
+    selectedCount: Int,
+    onSelectAll: () -> Unit,
+    onClearChecks: () -> Unit,
+    onPauseSelected: () -> Unit,
+    onResumeSelected: () -> Unit,
+    onRemoveSelected: () -> Unit,
+    onExit: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onExit) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Exit selection",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Text(
+                    "$selectedCount selected",
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onSelectAll) {
+                    Icon(
+                        Icons.Filled.DoneAll,
+                        contentDescription = "Select all",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                IconButton(onClick = onClearChecks) {
+                    Icon(
+                        Icons.Filled.Clear,
+                        contentDescription = "Clear checks",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SelectionActionChip(
+                    icon = Icons.Filled.Pause,
+                    label = "Pause",
+                    modifier = Modifier.weight(1f),
+                    enabled = selectedCount > 0,
+                    onClick = onPauseSelected,
+                )
+                SelectionActionChip(
+                    icon = Icons.Filled.PlayArrow,
+                    label = "Resume",
+                    modifier = Modifier.weight(1f),
+                    enabled = selectedCount > 0,
+                    onClick = onResumeSelected,
+                )
+                SelectionActionChip(
+                    icon = Icons.Filled.Delete,
+                    label = "Remove",
+                    modifier = Modifier.weight(1f),
+                    enabled = selectedCount > 0,
+                    isDestructive = true,
+                    onClick = onRemoveSelected,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectionActionChip(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    isDestructive: Boolean = false,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val tint = if (isDestructive) MaterialTheme.colorScheme.error
+    else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        onClick = onClick,
+        enabled = enabled,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                label,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = tint,
+            )
+        }
+    }
+}
+
+/**
+ * The flat reorder list — ONE card, every queue task in its persisted order
+ * with up/down controls. Each move goes through the VM (computed against the
+ * live sorted queue, persisted as the full order — the queue's scheduler and
+ * the display list both re-sort on the pref's change flow), so the
+ * arrangement survives process death and IS the download order. Up/down
+ * buttons (not drag) on purpose: the episode rows are variable-height, and
+ * button moves are deterministic without gesture math.
+ */
+@Composable
+private fun QueueReorderCard(
+    queue: List<DownloadTask>,
+    onMove: (taskId: Long, up: Boolean) -> Unit,
+    onDone: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+    ) {
+        Column {
+            // Header: what this list means + the exit.
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    modifier = Modifier.width(3.dp).height(20.dp),
+                    shape = RoundedCornerShape(2.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                ) {}
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Reorder queue",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        "Top of the list downloads first",
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    onClick = onDone,
+                ) {
+                    Text(
+                        "Done",
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    )
+                }
+            }
+
+            // The rows. `queue` arrives ALREADY sorted by the persisted order
+            // (the ViewModel sorts on queueOrder.changes) — the position you
+            // see is the position that downloads.
+            LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                items(queue.size) { index ->
+                    val task = queue[index]
+                    if (index > 0) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(1.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "${index + 1}.",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.width(28.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                task.episode.name.ifBlank {
+                                    "Episode ${task.episode.episodeNumber.toInt()}"
+                                },
+                                fontFamily = RobotoFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                task.content.title,
+                                fontFamily = RobotoFamily,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        IconButton(
+                            onClick = { if (index > 0) onMove(task.id, true) },
+                            enabled = index > 0,
+                        ) {
+                            Icon(
+                                Icons.Filled.KeyboardArrowUp,
+                                contentDescription = "Move up",
+                                tint = if (index > 0) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.outlineVariant,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                        IconButton(
+                            onClick = { if (index < queue.size - 1) onMove(task.id, false) },
+                            enabled = index < queue.size - 1,
+                        ) {
+                            Icon(
+                                Icons.Filled.KeyboardArrowDown,
+                                contentDescription = "Move down",
+                                tint = if (index < queue.size - 1) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.outlineVariant,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 // D-151-fix: made internal (was private) so DownloadedFilesScreen can reuse it
 // (same package — com.confused.anikuta.feature.download).

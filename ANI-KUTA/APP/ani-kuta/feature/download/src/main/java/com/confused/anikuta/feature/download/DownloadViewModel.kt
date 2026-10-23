@@ -48,14 +48,36 @@ class DownloadViewModel(
     /** Tracks task IDs we've already scheduled for the 10s auto-clear (avoids dupes). */
     private val autoClearScheduled = mutableSetOf<Long>()
 
+    /**
+     * ROUND 120 (D-749): the multi-selection — task ids currently checked in
+     * the queue's select mode. A plain StateFlow (NOT part of [state]) so a
+     * checkbox tap doesn't re-run the queue/downloaded/folder combine.
+     */
+    private val _selection = MutableStateFlow<Set<Long>>(emptySet())
+    val selection: StateFlow<Set<Long>> = _selection.asStateFlow()
+
     init {
-        // Combine queue + downloaded + folder URI into the UI state.
+        // Combine queue + downloaded + folder URI + the persisted queue order
+        // into the UI state.
         viewModelScope.launch {
             combine(
                 manager.getQueue(),
                 manager.getDownloadedEpisodes(),
                 preferences.downloadFolderUri.changes,
-            ) { active, downloaded, folderUri ->
+                preferences.queueOrder.changes,
+            ) { active, downloaded, folderUri, queueOrder ->
+                // ROUND 120 (D-749): the queue renders in the USER's order —
+                // listed tasks by position, unlisted (new) tasks after them,
+                // FIFO within each group (the exact sort the queue's scheduler
+                // applies, so what the user sees IS what downloads next).
+                val orderedQueue = if (queueOrder.isEmpty()) {
+                    active
+                } else {
+                    active.sortedBy { task ->
+                        val idx = queueOrder.indexOf(task.id.toString())
+                        if (idx >= 0) idx else queueOrder.size
+                    }
+                }
                 // Group the downloaded episodes by anime.
                 //
                 // Task 60 (round 20 — the Downloaded-page CRASH, "Key
@@ -106,7 +128,7 @@ class DownloadViewModel(
                     }
                 }.toMap()
                 DownloadUiState(
-                    queue = active,
+                    queue = orderedQueue,
                     downloaded = grouped,
                     folderUri = folderUri,
                     isLoading = false,
@@ -171,6 +193,75 @@ class DownloadViewModel(
     fun pauseAll() = viewModelScope.launch { manager.pauseAll() }
     fun resumeAll() = viewModelScope.launch { manager.resumeAll() }
     fun cancelAll() = viewModelScope.launch { manager.cancelAll() }
+
+    // ── ROUND 120 (D-749): multi-select + reorder ────────────────────────────
+
+    /** Toggles one task's membership in the selection. */
+    fun toggleSelected(taskId: Long) {
+        _selection.value = _selection.value.let { if (taskId in it) it - taskId else it + taskId }
+    }
+
+    /** Checks every task currently in the queue. */
+    fun selectAll() {
+        _selection.value = _state.value.queue.map { it.id }.toSet()
+    }
+
+    /** Clears the selection (leaves select mode in the screen). */
+    fun clearSelection() {
+        _selection.value = emptySet()
+    }
+
+    /** Bulk-pauses every selected task. */
+    fun pauseSelected() = viewModelScope.launch {
+        _selection.value.forEach { id -> runCatching { manager.pauseDownload(id) } }
+        _selection.value = emptySet()
+    }
+
+    /** Bulk-resumes every selected task. */
+    fun resumeSelected() = viewModelScope.launch {
+        _selection.value.forEach { id -> runCatching { manager.resumeDownload(id) } }
+        _selection.value = emptySet()
+    }
+
+    /** Bulk-cancels (removes) every selected task. */
+    fun cancelSelected() = viewModelScope.launch {
+        _selection.value.forEach { id -> runCatching { manager.cancelDownload(id) } }
+        // Drop the cancelled ids from any persisted order too (prune on write).
+        pruneQueueOrder(_selection.value)
+        _selection.value = emptySet()
+    }
+
+    /**
+     * Moves ONE task one slot in the queue order (the reorder list's up/down
+     * buttons). Round 120 (D-749): the VM computes the swap against the LIVE
+     * sorted queue + writes the full order atomically — a rapid double-tap
+     * before recomposition can't compute from a stale remembered list (the
+     * screen-side variant could drop the first move). Every write PRUNES to
+     * live task ids, so completed/cancelled ids never accumulate in the pref.
+     */
+    fun moveTask(taskId: Long, up: Boolean) = viewModelScope.launch {
+        val liveIds = _state.value.queue.map { it.id }
+        val idx = liveIds.indexOf(taskId)
+        if (idx < 0) return@launch
+        val target = if (up) idx - 1 else idx + 1
+        if (target < 0 || target >= liveIds.size) return@launch
+        preferences.queueOrder.set(
+            liveIds.toMutableList().apply {
+                val tmp = this[idx]
+                this[idx] = this[target]
+                this[target] = tmp
+            }.map(Long::toString),
+        )
+    }
+
+    /** Removes [gone] ids from the persisted order (cancel/delete cleanup). */
+    private suspend fun pruneQueueOrder(gone: Collection<Long>) {
+        val goneStr = gone.map(Long::toString).toSet()
+        val current = preferences.queueOrder.get()
+        if (current.any { it in goneStr }) {
+            preferences.queueOrder.set(current.filterNot { it in goneStr })
+        }
+    }
 
     // ── Downloaded-episode actions ──
 

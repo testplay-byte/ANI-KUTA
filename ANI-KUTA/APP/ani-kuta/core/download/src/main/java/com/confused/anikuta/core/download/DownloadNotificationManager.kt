@@ -155,7 +155,14 @@ class DownloadNotificationManager(
         }
     }
 
-    /** Posts the error notification (on the silent [CHANNEL_PROGRESS]). */
+    /**
+     * Posts the error notification (on the silent [CHANNEL_PROGRESS]).
+     *
+     * ROUND 120 (D-748): the notification used to be a dead end — tap opened
+     * the app and nothing else. It now carries a Retry action (the service's
+     * [DownloadService.ACTION_RETRY]) so a failed download restarts straight
+     * from the shade.
+     */
     suspend fun notifyError(task: DownloadTask) {
         try {
             val builder = NotificationCompat.Builder(context, CHANNEL_PROGRESS)
@@ -167,6 +174,11 @@ class DownloadNotificationManager(
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setContentIntent(openDownloadsScreenIntent())
+                .addAction(
+                    android.R.drawable.ic_media_play,
+                    "Retry",
+                    retryIntent(task.id),
+                )
 
             val thumbnail = loadThumbnail(task.content.mainId, task.content.coverUrl)
             if (thumbnail != null) builder.setLargeIcon(thumbnail)
@@ -185,6 +197,20 @@ class DownloadNotificationManager(
             NotificationManagerCompat.from(context).cancel(SUMMARY_ID)
         } catch (e: Exception) {
             DownloadLogger.w { "cancelSummary failed (non-fatal): ${e.message}" }
+        }
+    }
+
+    /**
+     * Round 120 (D-748): cancels a task's error notification — the Retry
+     * action calls this so a successful retry doesn't leave a stale
+     * "Download failed [Retry]" entry in the shade (a second tap on it would
+     * no-op: the task is QUEUED, not ERROR).
+     */
+    fun cancelErrorNotification(taskId: Long) {
+        try {
+            NotificationManagerCompat.from(context).cancel(taskId.toInt() + ERROR_OFFSET)
+        } catch (e: Exception) {
+            DownloadLogger.w { "cancelErrorNotification failed (non-fatal): ${e.message}" }
         }
     }
 
@@ -338,6 +364,22 @@ class DownloadNotificationManager(
         }
         return PendingIntent.getService(
             context, 1002, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    /**
+     * Round 120 (D-748): the per-task Retry action on error notifications.
+     * Unique request code per task (1003 + id, the M29 prefix pattern) so
+     * simultaneous failures each retry their OWN task.
+     */
+    private fun retryIntent(taskId: Long): PendingIntent {
+        val intent = Intent(context, DownloadService::class.java).apply {
+            action = DownloadService.ACTION_RETRY
+            putExtra(DownloadService.EXTRA_TASK_ID, taskId)
+        }
+        return PendingIntent.getService(
+            context, 1003 + taskId.toInt(), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }

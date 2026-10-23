@@ -21,7 +21,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -47,9 +46,12 @@ import org.koin.core.component.inject
  *    is persisted in SQLDelight so it recovers.
  *  - `stopSelf` when the queue empties (observed via the [queueCollector]).
  *
- * The service handles two intent actions:
+ * The service handles these intent actions:
  *  - [ACTION_PAUSE_ALL] → `manager.pauseAll()`.
  *  - [ACTION_CANCEL_ALL] → `manager.cancelAll()`.
+ *  - [ACTION_RETRY] (+ [EXTRA_TASK_ID]) → `manager.retryDownload(id)` — the
+ *    error notification's Retry button (round 120: the notification used to
+ *    be a dead end — tap opened the app, nothing else could restart the task).
  */
 class DownloadService : Service(), KoinComponent {
 
@@ -178,11 +180,42 @@ class DownloadService : Service(), KoinComponent {
             isForeground = true
         }
 
+        // ROUND 120 (D-748): intent handling used to `runBlocking` the queue
+        // operations on the MAIN thread — a pauseAll during a slow SAF/DB write
+        // froze the UI (and the notification action with it). The operations
+        // now run detached on the IO scope. NonCancellable matters: a
+        // pause-all can itself empty the queue, which makes the collector above
+        // stop this service and cancel the scope mid-write — the detached job
+        // still finishes persisting every task's PAUSED state.
         when (intent?.action) {
-            ACTION_PAUSE_ALL -> runBlocking { manager.pauseAll() }
-            ACTION_CANCEL_ALL -> runBlocking { manager.cancelAll() }
+            ACTION_PAUSE_ALL -> launchDetached { manager.pauseAll() }
+            ACTION_CANCEL_ALL -> launchDetached { manager.cancelAll() }
+            ACTION_RETRY -> {
+                val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
+                if (taskId > 0) {
+                    DownloadLogger.i { "Retry action for task $taskId" }
+                    // Round 120 (D-748): the tapped notification goes away
+                    // immediately — a retried task's state moves to the
+                    // summary notification; a lingering error entry with a
+                    // now-dead Retry button would lie.
+                    runCatching { notifier.cancelErrorNotification(taskId) }
+                    launchDetached { manager.retryDownload(taskId) }
+                }
+            }
         }
         return START_STICKY
+    }
+
+    /**
+     * Runs [block] on the IO scope OUTSIDE the service's cancellation tree —
+     * the job survives `onDestroy`'s `scope.cancel()` (round 120, see
+     * [onStartCommand]).
+     */
+    private fun launchDetached(block: suspend () -> Unit) {
+        scope.launch(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+            runCatching { block() }
+                .onFailure { DownloadLogger.e(it) { "detached service action failed" } }
+        }
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -199,7 +232,11 @@ class DownloadService : Service(), KoinComponent {
      * gracefully pause the queue + post a one-shot notification.
      */
     override fun onTimeout(startId: Int, foregroundServiceType: Int) {
-        runBlocking { manager.pauseAll() }
+        // ROUND 120 (D-748): was `runBlocking { manager.pauseAll() }` — a main
+        // thread block inside the timeout path. Detached + NonCancellable so
+        // the pause finishes even though this method immediately stops the
+        // service (and onDestroy cancels the scope).
+        launchDetached { manager.pauseAll() }
         notifier.notifyTimeLimitReached()
         stopForeground(STOP_FOREGROUND_REMOVE)
         isForeground = false
@@ -259,6 +296,12 @@ class DownloadService : Service(), KoinComponent {
 
         /** Intent action: cancel all downloads (clears the queue). */
         const val ACTION_CANCEL_ALL = "com.confused.anikuta.download.CANCEL_ALL"
+
+        /** Round 120: intent action — retry ONE failed task (error notification). */
+        const val ACTION_RETRY = "com.confused.anikuta.download.RETRY"
+
+        /** Round 120: the task id extra for [ACTION_RETRY]. */
+        const val EXTRA_TASK_ID = "task_id"
 
         /** Starts the foreground service (called by [DefaultDownloadManager.enqueueDownload]). */
         fun start(context: Context) {

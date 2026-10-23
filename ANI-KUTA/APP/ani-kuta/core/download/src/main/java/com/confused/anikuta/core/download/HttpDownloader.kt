@@ -84,6 +84,19 @@ class HttpDownloader(
             }
         }
 
+        // ── ROUND 120 (D-748): storage pre-flight ──
+        // Fail FAST + honestly when the volume can't hold the download — the
+        // old behavior burned the whole (retryable) attempt into a mid-write
+        // ENOSPC that surfaced as a cryptic "write failed". Required space:
+        // the known total + 10% margin when the size is already known,
+        // otherwise a 200 MB floor (episodes are typically 100 MB–2 GB). A
+        // `usableSpace <= 0` read (some volumes) skips the check rather than
+        // blocking a legitimate download. NOTE: this reads the TEMP volume —
+        // the SAF publish target is usually the same volume; a separate SD-card
+        // target can still ENOSPC at publish, which the isNoSpaceError catch
+        // below reports honestly.
+        ensureEnoughStorage(task)
+
         // ── D-539: the DASH branch — manifest + segments into the offline
         // cache, a self-contained pipeline (the file steps below — temp
         // validate, SAF publish of a VIDEO file, csdash-free .data.json — do
@@ -242,11 +255,76 @@ class HttpDownloader(
             throw e
         } catch (e: DownloadException) {
             tempCache.cleanupTask(task.id, preserveForResume = false)
+            // Round 120 (D-748): the fetchers pre-wrap mid-write failures —
+            // an ENOSPC IOException usually arrives HERE as a wrapped
+            // DownloadException, so the cause-walk runs on this branch too
+            // (not just the generic one).
+            if (isNoSpaceError(e)) {
+                throw DownloadException(
+                    "Not enough storage space — the download was interrupted mid-write. " +
+                        "Free up space and retry.",
+                    e,
+                )
+            }
             throw e
         } catch (e: Exception) {
             tempCache.cleanupTask(task.id, preserveForResume = false)
+            // ROUND 120 (D-748): storage-full mid-download (the pre-flight was
+            // skipped or the estimate was low) — a NON-RETRYABLE, human-readable
+            // failure; RetryPolicy would otherwise burn 3 attempts against a
+            // full disk.
+            if (isNoSpaceError(e)) {
+                throw DownloadException(
+                    "Not enough storage space — the download was interrupted mid-write. " +
+                        "Free up space and retry.",
+                    e,
+                )
+            }
             throw DownloadException("Video download failed: ${e.message ?: e.javaClass.simpleName}", e)
         }
+    }
+
+    /**
+     * ROUND 120 (D-748): throws a non-retryable [DownloadException] when the
+     * temp volume plainly can't hold this task. See the call site for the
+     * sizing rules + limitations.
+     */
+    private fun ensureEnoughStorage(task: DownloadTask) {
+        val usable = tempCache.getTempDir(task.id).usableSpace
+        if (usable <= 0L) return
+        val required = if (task.totalBytes > 0) {
+            task.totalBytes + task.totalBytes / 10
+        } else {
+            MIN_FREE_BYTES_FALLBACK
+        }
+        if (usable < required) {
+            throw DownloadException(
+                "Not enough storage space — " +
+                    "${required / (1024L * 1024L)} MB needed, " +
+                    "${usable / (1024L * 1024L)} MB free. Free up space and retry.",
+            )
+        }
+    }
+
+    /**
+     * ROUND 120 (D-748): true when [e] (or any of its causes) is a
+     * storage-full write failure — errno ENOSPC surfaces as "No space left on
+     * device" (IOException) across SAF + local file writes.
+     */
+    private fun isNoSpaceError(e: Throwable): Boolean {
+        var t: Throwable? = e
+        var depth = 0
+        while (t != null && depth < 5) {
+            val msg = t.message ?: t.javaClass.simpleName
+            if (msg.contains("ENOSPC", ignoreCase = true) ||
+                msg.contains("No space left", ignoreCase = true)
+            ) {
+                return true
+            }
+            t = t.cause
+            depth++
+        }
+        return false
     }
 
     // ── Routing ──────────────────────────────────────────────────────────────
@@ -516,5 +594,8 @@ class HttpDownloader(
 
         /** If the downloaded file is smaller than this AND starts with #EXTM3U → HLS. */
         private const val HLS_REDETECT_THRESHOLD = 500L * 1024
+
+        /** Round 120 (D-748): the pre-flight floor when the task size is unknown. */
+        private const val MIN_FREE_BYTES_FALLBACK = 200L * 1024 * 1024
     }
 }

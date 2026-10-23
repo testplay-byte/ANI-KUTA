@@ -173,4 +173,19 @@ class DownloadPreferences(private val store: PreferenceStore) {
     val downloadFolderUri = store.preference(
         "pref_dl_folder_uri", "", StringSerializer,
     )
+
+    // ── Queue management ──────────────────────────────────────────────────────
+
+    /**
+     * ROUND 120 (D-749): the user-reordered queue — download-task ids as
+     * strings, earliest-first. An empty list (the default) means pure FIFO
+     * (queued_at order, the historical behavior). Tasks missing from the list
+     * rank AFTER listed ones (new enqueues append); ids still in the list
+     * after their task left the queue are ignored harmlessly (rank lookups
+     * are by membership, the list is pruned opportunistically by the
+     * ViewModel when a new order is persisted).
+     */
+    val queueOrder = store.preference(
+        "pref_dl_queue_order", emptyList(), StringListSerializer,
+    )
 }

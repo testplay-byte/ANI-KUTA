@@ -408,6 +408,11 @@ class DownloadQueue(
     /**
      * The scheduler — picks the next QUEUED task(s) + launches their download
      * coroutines (up to the concurrency limit).
+     *
+     * ROUND 120 (D-749): QUEUED candidates are sorted by the user's persisted
+     * queue order BEFORE `take(slots)` — a reorder is REAL (the next download
+     * starts in the user's order, not just the UI's), while un-reordered
+     * queues keep the FIFO behavior (all ids unlisted → stable sort = no-op).
      */
     fun tryStartNext() {
         scope.launch {
@@ -416,7 +421,21 @@ class DownloadQueue(
                     DownloadLogger.d { "tryStartNext — connectivity check failed (Wi-Fi-only?), skipping" }
                     return@withLock
                 }
-                val queuedTasks = _tasks.value.filter { it.status == DownloadStatus.QUEUED }
+                val order = preferences.queueOrder.get()
+                val queuedTasks = _tasks.value
+                    .filter { it.status == DownloadStatus.QUEUED }
+                    .let { candidates ->
+                        if (order.isEmpty()) {
+                            candidates
+                        } else {
+                            // Stable sort: listed tasks by their position, then
+                            // unlisted (new) tasks in FIFO order after them.
+                            candidates.sortedBy { task ->
+                                val idx = order.indexOf(task.id.toString())
+                                if (idx >= 0) idx else order.size
+                            }
+                        }
+                    }
                 val activeCount = _tasks.value.count {
                     it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.RETRYING
                 }

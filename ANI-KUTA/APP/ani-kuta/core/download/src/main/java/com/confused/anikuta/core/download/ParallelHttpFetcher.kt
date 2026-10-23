@@ -186,6 +186,12 @@ class ParallelHttpFetcher(
      * fresh URL + restart clean (truncate temp + delete sidecar — the fresh proxy
      * may serve different bytes or not honor ranges). Max 1 attempt. Returns null
      * when not eligible or the re-resolve itself failed (caller rethrows original).
+     *
+     * ROUND 120 (D-748): a non-localhost 403/410 is ALSO eligible — that's an
+     * EXPIRED signed CDN link (the task sat paused/queued past the link's
+     * lifetime). The re-resolve re-picks the pinned server + quality; the
+     * `fresh.url == url` guard surfaces a flaky 403 to RetryPolicy instead of
+     * looping on the identical request.
      */
     private suspend fun tryReResolve(
         url: String,
@@ -197,18 +203,24 @@ class ParallelHttpFetcher(
         registry: CallRegistry,
     ): HttpDownloader.ReResolvedVideo? {
         val isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")
-        if (!isLocalhost || resolveContextJson == null || reResolver == null ||
+        val expiredCdn = !isLocalhost && error is HttpException &&
+            (error.code == 403 || error.code == 410)
+        if ((!isLocalhost && !expiredCdn) || resolveContextJson == null || reResolver == null ||
             reResolves >= MAX_RE_RESOLVE_ATTEMPTS
         ) {
             return null
         }
         DownloadLogger.w {
-            "ParallelHttpFetcher — ${error.javaClass.simpleName} on localhost URL; attempting " +
-                "re-resolve (attempt ${reResolves + 1}/$MAX_RE_RESOLVE_ATTEMPTS): ${error.message}"
+            "ParallelHttpFetcher — ${error.javaClass.simpleName} on " +
+                (if (isLocalhost) "localhost URL" else "remote URL (expired CDN link)") +
+                "; attempting re-resolve " +
+                "(attempt ${reResolves + 1}/$MAX_RE_RESOLVE_ATTEMPTS): ${error.message}"
         }
         // Release sibling workers blocked in reads (≤60s read timeout otherwise).
         registry.cancelAll()
         val fresh = reResolver.reResolve(resolveContextJson) ?: return null
+        // Same link again → the re-resolve can't help; let the caller rethrow.
+        if (expiredCdn && fresh.url == url) return null
         store.updateDownloadVideoUrl(taskId, fresh.url)
         runCatching { tempFile.delete() }
         sidecarFile(tempFile).delete()

@@ -127,10 +127,18 @@ class DefaultDownloadManager(
 
                 // Notify the foreground service of the active task count (so it can
                 // update the summary notification + stopSelf when the queue empties).
+                //
+                // ROUND 120 (D-748): the unconditional DownloadService.stop() that
+                // used to live here was THE auto-resume killer — the queue emits
+                // "all paused" the instant connectivity drops (every task flips to
+                // NETWORK_PAUSED), and stopping the service at that moment
+                // unregistered its NetworkCallback, so NOTHING was left to run
+                // resumeAll() when the network returned. The service owns its own
+                // lifecycle now (single-owner rule): it keeps itself alive while
+                // queue.hasNetworkPausedTasks() is true and stops itself when the
+                // queue truly empties — see DownloadService's own collector.
                 val active = tasks.filter { it.status.isActive || it.status == DownloadStatus.QUEUED }
-                if (active.isEmpty()) {
-                    DownloadService.stop(context)
-                }
+                DownloadLogger.d { "queue changed — ${active.size} active/queued task(s)" }
             }
         }
 

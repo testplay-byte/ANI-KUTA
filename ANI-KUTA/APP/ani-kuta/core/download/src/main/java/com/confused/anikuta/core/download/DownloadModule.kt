@@ -53,7 +53,14 @@ val downloadModule = module {
 
     // ── Storage (the NEW SAF + data.json system) ─────────────────────────────
     // TempDownloadCache — calls cleanupStale() on creation.
-    single { TempDownloadCache(androidContext()) }
+    // ROUND 120 (D-748): the stale sweep exempts tasks still in the queue —
+    // a download paused for >24h keeps its bytes (resume stays where it was).
+    single {
+        TempDownloadCache(androidContext()) {
+            runCatching { get<DownloadStore>().getActiveTasks().map { it.id }.toSet() }
+                .getOrDefault(emptySet())
+        }
+    }
     single {
         DownloadStorageProvider(
             context = androidContext(),

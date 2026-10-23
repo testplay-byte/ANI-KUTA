@@ -244,21 +244,23 @@ class DownloadOrchestrator(
                 headers = fallbackHeaders,
             )
         } + siblingVariantTracks(video, serverName, servers, fallbackHeaders)
-        val resolveContext = if (downloadUrl.startsWith("http://localhost") ||
-            downloadUrl.startsWith("http://127.0.0.1")
-        ) {
-            ResolveContext(
-                sourceId = sourceId,
-                episodeUrl = episodeUrl,
-                serverName = serverName,
-                audioLabel = audioLabel,
-                quality = video.quality,
-                mainId = content.mainId,
-                episodeKey = episodeInfo.episodeKey,
-            ).let { kotlinx.serialization.json.Json.encodeToString(ResolveContext.serializer(), it) }
-        } else {
-            null
-        }
+        // ROUND 120 (D-748): the resolve context is persisted for EVERY task,
+        // not just localhost proxy URLs. Signed CDN links (the non-localhost
+        // case) expire too — typically hours — and a task that sat
+        // paused/queued overnight used to resume into a dead 403 with NO
+        // recovery path: the fetchers only re-resolve when a context exists.
+        // The fetchers keep their localhost-first triggers; the non-localhost
+        // 403/410 trigger (SingleConnectionFetcher/ParallelHttpFetcher) now
+        // finds its context here. Cost: ~200 bytes of JSON per task.
+        val resolveContext = ResolveContext(
+            sourceId = sourceId,
+            episodeUrl = episodeUrl,
+            serverName = serverName,
+            audioLabel = audioLabel,
+            quality = video.quality,
+            mainId = content.mainId,
+            episodeKey = episodeInfo.episodeKey,
+        ).let { kotlinx.serialization.json.Json.encodeToString(ResolveContext.serializer(), it) }
 
         // (subtitleTracks + audioTracks built above with fallbackHeaders — D-FIX-SUB.)
 

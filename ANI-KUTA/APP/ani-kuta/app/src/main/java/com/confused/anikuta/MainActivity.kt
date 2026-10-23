@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.flow.asStateFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -2080,6 +2081,26 @@ fun AppRoot() {
         // the nav, over every screen. A pass-through overlay (it never
         // intercepts touches); the pill sits above the navigation bar.
         com.confused.anikuta.core.designsystem.component.toast.AppToastHost()
+
+        // ROUND 120 (D-749): the ASK-fallback download picker host — the SAME
+        // sheet the player page mounts, rendered at the app root (the AppToast
+        // pattern: any thread parks a request on the bus; THIS host renders
+        // it). Before this, EnqueueResult.ShowPicker logged + dropped the
+        // request — the user's tap silently did nothing when the auto-download
+        // engine needed a manual choice.
+        val downloadPickerRequest by DownloadPickerBus.request.collectAsState()
+        downloadPickerRequest?.let { pickerRequest ->
+            com.confused.anikuta.core.designsystem.component.download.DownloadVideoPickerSheet(
+                servers = pickerRequest.servers,
+                animeTitle = pickerRequest.animeTitle,
+                episodeName = pickerRequest.episodeName,
+                onVideoSelected = { video, serverName, audioLabel ->
+                    DownloadPickerBus.dismiss()
+                    pickerRequest.onPick(video, serverName, audioLabel)
+                },
+                onDismiss = { DownloadPickerBus.dismiss() },
+            )
+        }
         } // end CompositionLocalProvider Box
     } // end CompositionLocalProvider
 }
@@ -2217,8 +2238,52 @@ private fun handleDownloadEpisode(
                     com.confused.anikuta.core.common.Logger.i("MainActivity") {
                         "Download picker needed (ASK fallback) — ${result.servers.size} servers"
                     }
-                    // TODO: show the DownloadVideoPickerSheet (Phase D.6 follow-up).
-                    // For now, log only — the auto-download engine handles 99% of cases.
+                    // ROUND 120 (D-749): the dead end is wired — the SAME sheet
+                    // the player page mounts pops at the app root; the user's
+                    // pick funnels straight into enqueueSpecific with the
+                    // content/episode/source identity this coroutine already
+                    // resolved (a manual pick can't hit the ASK path again).
+                    DownloadPickerBus.show(
+                        DownloadPickerBus.Request(
+                            servers = result.servers,
+                            animeTitle = contentInfo.title,
+                            episodeName = episode.name,
+                            onPick = { video, serverName, audioLabel ->
+                                scope.launch {
+                                    try {
+                                        val pickResult = orchestrator.enqueueSpecific(
+                                            source = source ?: return@launch,
+                                            episode = episode,
+                                            content = contentInfo,
+                                            episodeInfo = episodeInfo,
+                                            video = video,
+                                            serverName = serverName,
+                                            audioLabel = audioLabel,
+                                        )
+                                        if (pickResult is EnqueueResult.Success) {
+                                            showDownloadToast(
+                                                "Download started",
+                                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.SUCCESS,
+                                            )
+                                        } else if (pickResult is EnqueueResult.Error) {
+                                            showDownloadToast(
+                                                "Download failed: ${pickResult.message}",
+                                                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                            )
+                                        }
+                                    } catch (e: Exception) {
+                                        com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
+                                            "ShowPicker onPick — enqueueSpecific failed"
+                                        }
+                                        showDownloadToast(
+                                            "Download failed: ${e.message}",
+                                            com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                                        )
+                                    }
+                                }
+                            },
+                        ),
+                    )
                 }
                 is EnqueueResult.NoSources -> {
                     com.confused.anikuta.core.common.Logger.w("MainActivity") {
@@ -2548,6 +2613,39 @@ private fun handleCsDownloadPick(
                 com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
             )
         }
+    }
+}
+
+/**
+ * ROUND 120 (D-749): the ASK-fallback download picker bus — the bridge between
+ * the non-compose download path (`handleDownloadEpisode`'s IO coroutine) and
+ * the app root's composition. Same shape as the AppToast singleton: any
+ * thread parks a [Request]; the ONE host in [AppRoot] renders the shared
+ * [com.confused.anikuta.core.designsystem.component.download.DownloadVideoPickerSheet].
+ * A new request replaces an un-answered one (the newer tap wins).
+ */
+private object DownloadPickerBus {
+    /** One pending picker: the server hierarchy + the pick callback. */
+    data class Request(
+        val servers: List<com.confused.anikuta.core.videoresolver.ResolverServer>,
+        val animeTitle: String,
+        val episodeName: String,
+        val onPick: (
+            video: com.confused.anikuta.core.videoresolver.ResolverVideo,
+            serverName: String,
+            audioLabel: String,
+        ) -> Unit,
+    )
+
+    private val _request = kotlinx.coroutines.flow.MutableStateFlow<Request?>(null)
+    val request: kotlinx.coroutines.flow.StateFlow<Request?> = _request.asStateFlow()
+
+    fun show(r: Request) {
+        _request.value = r
+    }
+
+    fun dismiss() {
+        _request.value = null
     }
 }
 
