@@ -725,6 +725,11 @@ class CsWatchViewModel(
     /** Task 56: the target episode row's flavor (see [selectEpisode] / [autoStart]). */
     private var preferredFlavor: String? = null
 
+    // ROUND 122 (R4): the per-episode DISMISSAL latch — the 95% ticker re-invoked
+    // offerUpNextCard() every tick, so a dismissed card resurrected ~100ms later
+    // (the device report). offerUpNextCard checks this set first.
+    private val dismissedEpisodeData = mutableSetOf<String>()
+
     /** Keeps currentLink valid when a snapshot replaces the list objects. */
     private fun refreshCurrentLink(links: List<CsVideoLink>) {
         val current = _uiState.value.currentLink ?: return
@@ -875,6 +880,9 @@ class CsWatchViewModel(
 
     /** Hides the Up Next card without advancing (round 120). */
     fun dismissUpNextCard() {
+        // ROUND 122 (R4): record the dismissal — the ticker's next offer attempt
+        // for THIS episode is suppressed (a new episode naturally re-arms).
+        currentKey?.episodeData?.let { dismissedEpisodeData.add(it) }
         _uiState.value = _uiState.value.copy(showUpNextCard = false)
     }
 
@@ -886,6 +894,8 @@ class CsWatchViewModel(
     fun offerUpNextCard() {
         val s = _uiState.value
         if (s.showUpNextCard) return
+        // ROUND 122 (R4): honor the user's dismissal for this episode.
+        if (currentKey?.episodeData in dismissedEpisodeData) return
         if (nextEpisode() == null) return
         _uiState.value = s.copy(showUpNextCard = true)
     }
@@ -931,7 +941,7 @@ class CsWatchViewModel(
      * anything else walks the raw order.
      */
     private fun nextInFlavor(
-        s: CsWatchUiState,
+        s: com.confused.anikuta.feature.cswatch.impl.CsWatchUiState,
         currentIndex: Int,
         direction: Int,
     ): com.confused.anikuta.feature.cswatch.api.CsSimpleEpisode? {
@@ -945,8 +955,22 @@ class CsWatchViewModel(
                 com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings.tagOf(it.name) == flavor
             }
         }
-        val position = candidates.indexOfFirst { it.data == current.data }
-        return candidates.getOrNull(position + direction)
+        // ROUND 122 (R3): NUMBER-based successor/precedessor — the episode list
+        // arrives in the WatchKey's serialization order, which the details page
+        // writes DESCENDING; the old positional `position + direction` walked
+        // that order and made "next after EP 2" the EPISODE 1 (the device
+        // report — same root cause as the MPV stack's fix). Strictly
+        // higher/lower, nearest number, never wrapping; duplicates excluded by
+        // the strict comparison.
+        val currentNum = current.episodeNumber
+        return when {
+            direction > 0 -> candidates
+                .filter { it.episodeNumber > currentNum }
+                .minByOrNull { it.episodeNumber }
+            else -> candidates
+                .filter { it.episodeNumber < currentNum }
+                .maxByOrNull { it.episodeNumber }
+        }
     }
 
     /** Switches the whole screen to another episode (sheet tap / next / prev). */

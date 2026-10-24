@@ -61,14 +61,18 @@ class AniSkipClient(
      * Fetches the op/ed skip times for one episode. Returns null when the
      * anime can't be mapped to MAL, the service is unreachable, or AniSkip
      * has no data — the caller then falls back to any manual timestamps.
+     *
+     * ROUND 122 (R5): [episodeLengthSec] is SECONDS (the AniSkip v2 contract —
+     * the round-121 code sent milliseconds; masked only because duration was
+     * never known at fetch time).
      */
     suspend fun fetchSkipTimes(
         anilistId: Int,
         episodeNumber: Int,
-        episodeLengthMs: Long,
+        episodeLengthSec: Long,
     ): SkipTimes? {
         val malId = resolveMalId(anilistId) ?: return null
-        return fetchSkipTimesByMal(malId, episodeNumber, episodeLengthMs)
+        return fetchSkipTimesByMal(malId, episodeNumber, episodeLengthSec)
     }
 
     /**
@@ -79,7 +83,7 @@ class AniSkipClient(
     suspend fun fetchSkipTimesByMal(
         malId: Int,
         episodeNumber: Int,
-        episodeLengthMs: Long,
+        episodeLengthSec: Long,
     ): SkipTimes? = withContext(Dispatchers.IO) {
         if (malId <= 0) return@withContext null
         val url = "https://api.aniskip.com/api/v2/skip-times/$malId/$episodeNumber".toHttpUrl()
@@ -88,7 +92,7 @@ class AniSkipClient(
             .addQueryParameter("types", "ed")
             .apply {
                 // The known length sharpens the results; omit when unknown.
-                if (episodeLengthMs > 0) addQueryParameter("episodeLength", episodeLengthMs.toString())
+                if (episodeLengthSec > 0) addQueryParameter("episodeLength", episodeLengthSec.toString())
             }
             .build()
         val response = runCatching {
@@ -127,29 +131,49 @@ class AniSkipClient(
     }.getOrNull()
 
     /**
-     * AniList → MAL via the public GraphQL endpoint. Cached, negatives
-     * included. GET-based (the query rides the query string — the AniList
-     * API allows GET for simple queries).
+     * AniList → MAL via the public GraphQL endpoint. Cached, definitive
+     * negatives included.
+     *
+     * ROUND 122 (R5) — THE primary AniSkip break: the round-121 code sent the
+     * query as GET query parameters, and AniList REJECTS GET on graphql.anilist.co
+     * with HTTP 404 ("Use POST request to access graphql subdomain") — every
+     * mapping failed, every popular anime got no skip data (verified live).
+     * This is now a POST with the JSON body AniList requires. A network/HTTP
+     * failure is NOT cached (the negative cache holds only definitive
+     * "this anime has no MAL id" answers), so a transient failure retries on
+     * the next episode open.
      */
     private fun resolveMalId(anilistId: Int): Int? {
         malIdCache[anilistId]?.let { return it.orElse(null) }
+        var reachedAniList = false
         val resolved: Int? = runCatching {
-            val url = "https://graphql.anilist.co".toHttpUrl().newBuilder()
-                .addQueryParameter("query", "query { Media(id: $anilistId) { idMal } }")
+            val body = "{\"query\":\"query { Media(id: $anilistId) { idMal } }\"}"
+            val request = Request.Builder()
+                .url("https://graphql.anilist.co")
+                .header("User-Agent", USER_AGENT)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .post(okhttp3.RequestBody.create(
+                    okhttp3.MediaType.parse("application/json"), body,
+                ))
                 .build()
-            client.newCall(
-                Request.Builder().url(url).header("User-Agent", USER_AGENT).build(),
-            ).execute().use { resp ->
+            client.newCall(request).execute().use { resp ->
+                reachedAniList = resp.isSuccessful
                 if (!resp.isSuccessful) return@runCatching null
-                val body = resp.body?.string() ?: return@runCatching null
-                JSONObject(body)
+                val text = resp.body?.string() ?: return@runCatching null
+                JSONObject(text)
                     .optJSONObject("data")
                     ?.optJSONObject("Media")
                     ?.takeIf { !it.isNull("idMal") }
                     ?.optInt("idMal")
             }
         }.getOrNull()
-        malIdCache[anilistId] = Optional.ofNullable(resolved)
+        // Cache ONLY definitive answers: an HTTP-200 response with no Media row
+        // (or a null idMal) means "no MAL mapping" — cache it. An exception or
+        // a failed response must stay un-cached so the next open retries.
+        if (reachedAniList) {
+            malIdCache[anilistId] = Optional.ofNullable(resolved)
+        }
         return resolved
     }
 

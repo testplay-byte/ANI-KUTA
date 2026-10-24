@@ -352,14 +352,42 @@ class DownloadQueue(
     }
 
     /**
-     * ROUND 121: auto-resumes tasks waiting on the network — now discovered BY
+     * ROUND 122 (R9): true when this throwable (or anything in its cause
+     * chain) is a transport failure — the fetchers wrap raw IOExceptions in
+     * DownloadException, so a class check on the surface exception misses.
+     */
+    private fun Throwable.isTransportFailure(): Boolean {
+        var t: Throwable? = this
+        var depth = 0
+        while (t != null && depth < 8) {
+            if (t is java.io.IOException || t is HttpException) return true
+            t = t.cause
+            depth++
+        }
+        return false
+    }
+
+    /**
+     * ROUND 121: auto-resumes tasks waiting on the network — discovered BY
      * STATUS (WAITING_FOR_NETWORK), not via a marker set. Covers tasks that
      * went waiting in a previous process too (the status is persisted).
+     *
+     * ROUND 122 (R9): ALSO heals the false ERRORs — tasks that died with a
+     * network-class failure (offline resume before the real connectivity
+     * check, a mid-download Wi-Fi blip that exhausted the wrapped-exception
+     * path) re-queue on network return via [resume] (which keeps the partial
+     * bytes — retry() would zero them). Only network-class errors are touched;
+     * a genuine 404/parse failure stays ERROR.
      */
     private suspend fun resumeNetworkPaused(reason: String) {
         val toResume = _tasks.value
             .filter { it.status == DownloadStatus.WAITING_FOR_NETWORK }
             .map { it.id }
+            .plus(
+                _tasks.value
+                    .filter { it.status == DownloadStatus.ERROR && isNetworkClassError(it.lastError) }
+                    .map { it.id },
+            )
         if (toResume.isEmpty()) {
             tryStartNext()
             return
@@ -693,11 +721,16 @@ class DownloadQueue(
                         // PAUSE for auto-resume instead of burning retry attempts into
                         // ERROR. This is what makes Wi-Fi-outage recovery smooth: the
                         // task waits for connectivity instead of dying.
+                        // ROUND 122 (R9): the fetchers WRAP raw IOExceptions in
+                        // DownloadException ("Video download failed: Unable to resolve
+                        // host…") — a bare `is IOException` check never matched and the
+                        // wrapped offline failure burned straight into ERROR. The cause
+                        // chain is walked now.
                         val networkAllowed = runCatching { connectivityCheck() }.getOrDefault(true)
-                        if (!networkAllowed && (e is java.io.IOException || e is HttpException)) {
+                        if (!networkAllowed && e.isTransportFailure()) {
                             DownloadLogger.w {
                                 "launchDownload — transport error while network disallowed " +
-                                    "for task ${task.id}: ${e.message}. Auto-pausing; will resume " +
+                                    "for task ${task.id}: ${e.message}. Auto-waiting; will resume " +
                                     "when connectivity returns."
                             }
                             pauseForNetwork(task.id)
@@ -840,3 +873,35 @@ class DownloadQueue(
         private const val AUTO_CLEAR_DELAY_MS = 10_000L
     }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 122 (R9): the network-class error classifier — FILE-level so the
+//  DownloadService's keep-alive filter shares it.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The real messages stored in lastError (every wrap site embeds the cause
+ * message verbatim): UnknownHostException ("Unable to resolve host …"),
+ * ConnectException ("Failed to connect to …"), SocketTimeoutException
+ * ("timeout"/"timed out"), SocketException ("Network is unreachable",
+ * "Software caused connection abort")… Substring matching over these markers
+ * identifies the FALSE errors — tasks that errored only because the network
+ * was down — so network-return can heal them (the device report: the
+ * offline-resume failures "would not resume even after getting the network").
+ * A genuine 404/parse failure never matches and stays ERROR.
+ */
+private val NETWORK_ERROR_MARKERS = listOf(
+    "unable to resolve host",
+    "no address associated with hostname",
+    "failed to connect to",
+    "network is unreachable",
+    "software caused connection abort",
+    "connection refused",
+    "connection reset",
+    "econnreset",
+    "timed out",
+    "timeout",
+)
+
+internal fun isNetworkClassError(message: String?): Boolean =
+    !message.isNullOrBlank() && NETWORK_ERROR_MARKERS.any { message.contains(it, ignoreCase = true) }

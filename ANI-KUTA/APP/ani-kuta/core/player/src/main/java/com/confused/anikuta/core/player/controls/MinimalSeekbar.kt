@@ -54,6 +54,8 @@ fun MinimalSeekbar(
     duration: Int,
     bufferAheadTime: Int = 0,
     onSeekTo: (Int) -> Unit,
+    // ROUND 122 (R5): the intro/outro bands (mode-independent, informational).
+    skipRanges: SkipRanges = SkipRanges(),
     modifier: Modifier = Modifier,
 ) {
     var scrubPosition by remember { mutableStateOf<Float?>(null) }
@@ -105,6 +107,40 @@ fun MinimalSeekbar(
                 .clip(RoundedCornerShape(3.dp))
                 .background(Color.White.copy(alpha = 0.3f)),
         )
+        // ROUND 122 (R5): the skip-range ribbon — amber intro band, red outro
+        // band (a manual outro runs to EOF), drawn before the progress fill so
+        // elapsed playback stays visible through them.
+        if (duration > 0 && trackWidthPx > 0 && skipRanges.hasIntro) {
+            val startFrac = (skipRanges.introStartSec!! / duration.toFloat()).coerceIn(0f, 1f)
+            val widthFrac = ((skipRanges.introEndSec!! - skipRanges.introStartSec!!) / duration.toFloat())
+                .coerceIn(0f, 1f - startFrac)
+            if (widthFrac > 0f) {
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset((trackWidthPx * startFrac).roundToInt(), 0) }
+                        .width(with(LocalDensity.current) { (trackWidthPx * widthFrac).toDp() })
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFFFFC107).copy(alpha = 0.45f)),
+                )
+            }
+        }
+        if (duration > 0 && trackWidthPx > 0 && skipRanges.hasOutro) {
+            val startFrac = (skipRanges.outroStartSec!! / duration.toFloat()).coerceIn(0f, 1f)
+            val endSec = skipRanges.outroEndSec ?: duration
+            val widthFrac = ((endSec - skipRanges.outroStartSec!!) / duration.toFloat())
+                .coerceIn(0f, 1f - startFrac)
+            if (widthFrac > 0f) {
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset((trackWidthPx * startFrac).roundToInt(), 0) }
+                        .width(with(LocalDensity.current) { (trackWidthPx * widthFrac).toDp() })
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFFF44336).copy(alpha = 0.45f)),
+                )
+            }
+        }
         // Buffer-ahead segment
         if (bufferProgress > progress) {
             Box(

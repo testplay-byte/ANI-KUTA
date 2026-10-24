@@ -56,6 +56,30 @@ class PlayerStateHolder {
     private val _loadingState = MutableStateFlow(PlayerLoadingState.READY)
     val loadingState: StateFlow<PlayerLoadingState> = _loadingState.asStateFlow()
 
+    // ROUND 122 (R1): bumped ONLY by a real MPV_EVENT_FILE_LOADED — the resume
+    // effect keys on this instead of loadingState, whose READY default (and the
+    // PLAYBACK_RESTART fallback's READY) fires before any file exists and made
+    // the old seek fire into an uninitialized core (silently dropped by mpv).
+    private val _fileLoadedGeneration = MutableStateFlow(0)
+    val fileLoadedGeneration: StateFlow<Int> = _fileLoadedGeneration.asStateFlow()
+
+    /**
+     * ROUND 122 (R2): true only when the CURRENT episode actually reached
+     * playback (a time-pos property event arrived while not switching).
+     * Every progress-persist and the 85% auto-mark gates on this — a failed
+     * load leaves the OLD file's pinned end-of-file position in the holder,
+     * and without this gate that stale position was saved under the new
+     * episode's key (the "failed episode gets marked watched + bar pinned
+     * at the end" device report).
+     */
+    @Volatile
+    var episodeReachedPlayback: Boolean = false
+        private set
+
+    fun markEpisodeReachedPlayback() {
+        episodeReachedPlayback = true
+    }
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
@@ -228,6 +252,10 @@ class PlayerStateHolder {
             autoRetryAttempted = false
             // Reset bufferedEnough — the new video hasn't buffered yet.
             bufferedEnough = false
+            // ROUND 122 (R2): a fresh switch invalidates the reached-playback
+            // gate — the OLD file's time-pos events (still arriving until the
+            // loadfile replaces it) must not mark the NEW episode as played.
+            episodeReachedPlayback = false
         } else {
             // Also clear episode-switch flag when clearing switching.
             _isSwitchingEpisode.value = false
@@ -427,5 +455,14 @@ class PlayerStateHolder {
         _duration.value = 0
         _bufferAheadTime.value = 0
         bufferedEnough = false
+        // ROUND 122 (R2): zeroing metrics without clearing the gate would let
+        // the OLD file's re-observed position persist again (the observer
+        // re-populates the zeroed values from the still-playing old file).
+        episodeReachedPlayback = false
+    }
+
+    /** ROUND 122 (R1): called by [PlayerObserver] on a real MPV_EVENT_FILE_LOADED. */
+    fun markFileLoaded() {
+        _fileLoadedGeneration.value += 1
     }
 }

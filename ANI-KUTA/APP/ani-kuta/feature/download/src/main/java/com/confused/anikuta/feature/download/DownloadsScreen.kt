@@ -6,6 +6,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+// ROUND 122-fix: the long-press drag gesture was used without its import.
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,8 +30,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -49,6 +50,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -57,9 +59,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -68,6 +72,7 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.download.DownloadStatus
 import com.confused.anikuta.core.download.DownloadTask
 import com.confused.anikuta.feature.download.components.DownloadsEmptyState
+import com.confused.anikuta.feature.download.components.rememberQueueDragDropState
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -162,7 +167,10 @@ fun DownloadsScreen(
     // paused; lumping them in would hide the auto-resume semantics).
     val waiting = queue.count { it.status == DownloadStatus.WAITING_FOR_NETWORK }
     val failed = queue.count { it.status == DownloadStatus.ERROR }
-    val hasActive = downloading > 0 || queued > 0
+    // ROUND 122 (R9): waiting tasks count as active — the PAUSE button must
+    // show while tasks wait (pausing a waiting task converts it to PAUSED,
+    // the user's intent wins; the device report: only RESUME showed).
+    val hasActive = downloading > 0 || queued > 0 || waiting > 0
 
     // Group queue by anime title.
     val groupedByAnime = remember(queue) {
@@ -330,7 +338,9 @@ fun DownloadsScreen(
             // stale recomposition.
             QueueReorderCard(
                 queue = queue,
-                onMove = { taskId, up -> viewModel.moveTask(taskId, up) },
+                // ROUND 122 (R10): drag-to-reorder — the FULL arrangement
+                // commits once on drag end.
+                onCommitReorder = viewModel::commitReorder,
                 onDone = { reorderMode = false },
             )
         } else {
@@ -1176,7 +1186,7 @@ private fun SelectionActionChip(
 @Composable
 private fun QueueReorderCard(
     queue: List<DownloadTask>,
-    onMove: (taskId: Long, up: Boolean) -> Unit,
+    onCommitReorder: (orderedIds: List<Long>) -> Unit,
     onDone: () -> Unit,
 ) {
     Surface(
@@ -1205,7 +1215,9 @@ private fun QueueReorderCard(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        "Top of the list downloads first",
+                        // ROUND 122 (R10): the drag instruction (the arrows are
+                        // gone) — the running task stays pinned on top.
+                        "Top of the list downloads first — long-press a row and drag",
                         fontFamily = RobotoFamily,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1231,9 +1243,39 @@ private fun QueueReorderCard(
             // The rows. `queue` arrives ALREADY sorted by the persisted order
             // (the ViewModel sorts on queueOrder.changes) — the position you
             // see is the position that downloads.
-            LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                items(queue.size) { index ->
-                    val task = queue[index]
+            //
+            // ROUND 122 (R10): LONG-PRESS DRAG instead of the arrow buttons
+            // (the device round: "I should be able to long press and drag them
+            // up or down"). The list swaps LOCALLY during the drag; the FULL
+            // order persists once on drop (commitReorder). The pinned
+            // DOWNLOADING/RETRYING rows (the VM sorts them to the top) are
+            // non-draggable and cannot be passed — the drag arranges the
+            // start order of everything else, which IS what the scheduler
+            // consumes.
+            val dragListState = rememberLazyListState()
+            val pinnedRows = queue.count {
+                it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.RETRYING
+            }
+            val localQueue = remember { mutableStateListOf<DownloadTask>() }
+            val dragState = rememberQueueDragDropState(dragListState) { from, to ->
+                if (to >= pinnedRows) {
+                    localQueue.add(to, localQueue.removeAt(from))
+                }
+            }
+            // Resync ONLY while no drag is in flight — progress ticks mutate
+            // the queue every second and would clobber an in-flight arrangement.
+            LaunchedEffect(queue) {
+                if (dragState.draggingItemIndex == null &&
+                    localQueue.map { it.id } != queue.map { it.id }
+                ) {
+                    localQueue.clear()
+                    localQueue.addAll(queue)
+                }
+            }
+            LazyColumn(state = dragListState, modifier = Modifier.fillMaxWidth()) {
+                items(localQueue.size, key = { localQueue[it].id }) { index ->
+                    val task = localQueue[index]
+                    val isDragging = dragState.draggingItemIndex == index
                     if (index > 0) {
                         Box(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(1.dp)
@@ -1241,7 +1283,45 @@ private fun QueueReorderCard(
                         )
                     }
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .zIndex(if (isDragging) 1f else 0f)
+                            .graphicsLayer {
+                                translationY = if (isDragging) dragState.draggingItemDelta else 0f
+                            }
+                            .then(
+                                if (index >= pinnedRows) {
+                                    Modifier.pointerInput(localQueue.size, pinnedRows) {
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = {
+                                                if (dragState.draggingItemIndex == null) {
+                                                    dragState.onDragStart(index)
+                                                }
+                                            },
+                                            onDrag = { change, amount ->
+                                                if (dragState.draggingItemIndex == index) {
+                                                    change.consume()
+                                                    dragState.onDrag(amount)
+                                                }
+                                            },
+                                            onDragEnd = {
+                                                if (dragState.draggingItemIndex == index) {
+                                                    onCommitReorder(localQueue.map { it.id })
+                                                    dragState.onDragInterrupted()
+                                                }
+                                            },
+                                            onDragCancel = {
+                                                if (dragState.draggingItemIndex == index) {
+                                                    dragState.onDragInterrupted()
+                                                }
+                                            },
+                                        )
+                                    }
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -1298,30 +1378,19 @@ private fun QueueReorderCard(
                                 )
                             }
                         }
-                        IconButton(
-                            onClick = { if (index > 0) onMove(task.id, true) },
-                            enabled = index > 0,
-                        ) {
-                            Icon(
-                                Icons.Filled.KeyboardArrowUp,
-                                contentDescription = "Move up",
-                                tint = if (index > 0) MaterialTheme.colorScheme.onSurfaceVariant
-                                else MaterialTheme.colorScheme.outlineVariant,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                        IconButton(
-                            onClick = { if (index < queue.size - 1) onMove(task.id, false) },
-                            enabled = index < queue.size - 1,
-                        ) {
-                            Icon(
-                                Icons.Filled.KeyboardArrowDown,
-                                contentDescription = "Move down",
-                                tint = if (index < queue.size - 1) MaterialTheme.colorScheme.onSurfaceVariant
-                                else MaterialTheme.colorScheme.outlineVariant,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
+                        // ROUND 122 (R10): the drag affordance (long-press the
+                        // row, or this handle) replaces the up/down arrows.
+                        Icon(
+                            Icons.Filled.DragHandle,
+                            contentDescription = if (index >= pinnedRows) {
+                                "Long-press and drag to reorder"
+                            } else {
+                                "Downloading — pinned to the top"
+                            },
+                            tint = if (index >= pinnedRows) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier.size(22.dp),
+                        )
                     }
                 }
             }

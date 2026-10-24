@@ -82,7 +82,10 @@ fun UpNextCard(
                 1.dp,
                 MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
             ),
-            modifier = Modifier.width(252.dp),
+            // ROUND 122 (R4): no hardcoded width — the HOST decides (fullscreen
+            // caps via its own widthIn; the portrait inset fills its padding).
+            // The fullscreen-tuned fixed width was what clipped the portrait card.
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

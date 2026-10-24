@@ -150,7 +150,14 @@ class DownloadService : Service(), KoinComponent {
                 // they get a "Waiting for network" summary (the old code kept
                 // the service alive on their behalf but left the eternal
                 // "Preparing downloads…" placeholder on screen).
-                val waiting = tasks.filter { it.status == DownloadStatus.WAITING_FOR_NETWORK }
+                val waiting = tasks.filter {
+                    it.status == DownloadStatus.WAITING_FOR_NETWORK ||
+                        // ROUND 122 (R9): network-class ERRORs keep the service
+                        // (and its NetworkCallback) alive too — an ERROR-only
+                        // queue used to stop the service, killing the callback
+                        // that heals those tasks on network return.
+                        (it.status == DownloadStatus.ERROR && isNetworkClassError(it.lastError))
+                }
                 if (active.isEmpty() && waiting.isEmpty()) {
                     // Queue emptied — gracefully leave foreground + stop.
                     withContext(Dispatchers.Main) {

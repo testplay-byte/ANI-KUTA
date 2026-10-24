@@ -81,6 +81,8 @@ fun MinimizedControls(
     /** ROUND 121: episode navigation in the top-right cluster. */
     onPrevEpisode: () -> Unit = {},
     onNextEpisode: () -> Unit = {},
+    // ROUND 122 (R5): the seek-bar skip-range ribbon.
+    skipRanges: SkipRanges = SkipRanges(),
     modifier: Modifier = Modifier,
 ) {
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
@@ -327,6 +329,7 @@ fun MinimizedControls(
                         duration = duration,
                         bufferAheadTime = bufferAheadTime,
                         onSeekTo = onSeekTo,
+                        skipRanges = skipRanges,
                         modifier = Modifier.weight(1f),
                     )
                     Box(modifier = Modifier.width(8.dp))

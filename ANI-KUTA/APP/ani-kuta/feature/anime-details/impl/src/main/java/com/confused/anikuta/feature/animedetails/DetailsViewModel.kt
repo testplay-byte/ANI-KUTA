@@ -3471,6 +3471,10 @@ class DetailsViewModel(
      */
     fun linkSource(source: AnimeCatalogueSource, sAnime: SAnime) {
         val animeId = currentAnimeId
+        // ROUND 122 (R11): capture the mainId NOW — the enrichment coroutine
+        // below persists with it; reading the var after suspension can race a
+        // screen swap.
+        val linkedMainId = currentMainId
         // ROUND 121 (D1-b/c): capture the link's generation at request start +
         // the PREVIOUS linked identity BEFORE it is overwritten below.
         val linkGen = ++relinkGeneration
@@ -3598,6 +3602,37 @@ class DetailsViewModel(
                         (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                             ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
                     )
+                    // ROUND 122 (R11): PERSIST the enriched ext_* axis — the
+                    // link write above stored the SPARSE search SAnime (tags/
+                    // status null), so the reopen path (loadLinkedSource) read
+                    // blanks until a manual refresh (the device report). Same
+                    // field mapping as resolveContentForExtension; the partial
+                    // updateExtensionAxis cannot touch the AniList data_* axis.
+                    val mainIdToPersist = linkedMainId
+                    if (mainIdToPersist != null) {
+                        runCatching {
+                            contentRepository.updateExtensionAxis(
+                                com.confused.anikuta.core.content.ContentDetails(
+                                    mainId = mainIdToPersist,
+                                    extensionType = if (source.id.isCloudstreamBridgedId()) "cloudstream" else "aniyomi",
+                                    extensionId = source.id.toString(),
+                                    sourceId = source.id,
+                                    animeUrl = sAnime.url,
+                                    extDescription = enriched.description,
+                                    extGenres = enriched.genres.joinToString(", "),
+                                    extStatus = enriched.status,
+                                    extAuthor = enriched.author,
+                                    extArtist = enriched.artist,
+                                    extThumbnailUrl = enriched.coverUrl,
+                                    extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
+                                        year = enriched.seasonYear,
+                                        score = enriched.averageScore,
+                                    ).toJson(),
+                                    extUpdatedAt = System.currentTimeMillis(),
+                                ),
+                            )
+                        }.onFailure { Logger.w(TAG) { "Enrichment persist failed: ${it.message}" } }
+                    }
                 } else if (enriched != null) {
                     Logger.d(TAG) { "Link enrichment discarded (stale relink generation $linkGen)" }
                 }

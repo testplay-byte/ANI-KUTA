@@ -125,7 +125,16 @@ class PlayerObserver(
 
         when (property) {
             "time-pos" -> {
-                value.toIntOrNull()?.let { stateHolder.updatePosition(it) }
+                value.toIntOrNull()?.let {
+                    stateHolder.updatePosition(it)
+                    // ROUND 122 (R2): a real position event means THIS file is
+                    // playing — arm the reached-playback gate. Only when NOT
+                    // switching: during a switch the OLD file still emits
+                    // time-pos and must not mark the NEW episode as played.
+                    if (!stateHolder.isSwitching.value) {
+                        stateHolder.markEpisodeReachedPlayback()
+                    }
+                }
             }
             "demuxer-cache-time" -> {
                 // Buffer-ahead time — how much of the video is demuxed/cached.
@@ -204,6 +213,10 @@ class PlayerObserver(
                 stateHolder.updateError(null)
                 stateHolder.updateLoadingState(PlayerLoadingState.READY)
                 stateHolder.updateBuffering(false)
+                // ROUND 122 (R1): the ONLY trustworthy "a file now exists"
+                // signal — the resume effect keys on this generation (the
+                // loadingState READY default fires before any file exists).
+                stateHolder.markFileLoaded()
                 // D-408 (round 32): re-apply the REMEMBERED subtitle style
                 // settings on every file load. The init-time setOptionString
                 // pass is not reliable on all devices (the live setProperty*

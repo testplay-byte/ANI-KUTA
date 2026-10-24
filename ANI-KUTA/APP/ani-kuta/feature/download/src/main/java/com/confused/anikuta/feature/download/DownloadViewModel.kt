@@ -273,6 +273,17 @@ class DownloadViewModel(
         )
     }
 
+    /**
+     * ROUND 122 (R10): drag-to-reorder — persists the FULL new order from the
+     * reorder card's local list on drag END. Pruned to live ids (a task can
+     * complete/cancel mid-drag), same convention as moveTask's full-list
+     * write; the queueOrder.changes flow re-sorts the displayed queue.
+     */
+    fun commitReorder(orderedIds: List<Long>) = viewModelScope.launch {
+        val liveIds = _state.value.queue.map { it.id }.toSet()
+        preferences.queueOrder.set(orderedIds.filter { it in liveIds }.map(Long::toString))
+    }
+
     /** Removes [gone] ids from the persisted order (cancel/delete cleanup). */
     private suspend fun pruneQueueOrder(gone: Collection<Long>) {
         val goneStr = gone.map(Long::toString).toSet()

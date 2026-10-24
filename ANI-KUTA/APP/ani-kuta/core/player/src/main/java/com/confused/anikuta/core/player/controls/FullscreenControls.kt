@@ -112,6 +112,9 @@ fun FullscreenControls(
     episodeInfo: String = "",
     qualityInfo: String = "",
     currentSpeed: Float = 1.0f,
+    // ROUND 122 (R5): the intro/outro bands drawn on the seek bar (mode-
+    // independent — informational, not tied to Off/Button/Auto).
+    skipRanges: SkipRanges = SkipRanges(),
 ) {
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
     val controlsLocked by stateHolder.controlsLocked.collectAsState()
@@ -350,6 +353,7 @@ fun FullscreenControls(
                                 isSeeking = false
                                 stateHolder.updateControlsVisible(true)
                             },
+                            skipRanges = skipRanges,
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(
@@ -400,6 +404,8 @@ private fun FullscreenSeekbarCustom(
     onSeekTo: (Int) -> Unit,
     onSeekStart: () -> Unit,
     onSeekEnd: () -> Unit,
+    // ROUND 122 (R5): the intro/outro bands.
+    skipRanges: SkipRanges = SkipRanges(),
 ) {
     var scrubPosition by remember { mutableStateOf<Float?>(null) }
     var barWidthPx by remember { mutableStateOf(0) }
@@ -465,6 +471,39 @@ private fun FullscreenSeekbarCustom(
             // D-463: the track's dark backing was REMOVED (the user: the
             // darker shadow belonged on the thumb, not the bar).
             drawRoundRect(color = trackColor, topLeft = Offset(0f, barY), size = Size(barWidth, barHeight), cornerRadius = cornerRadius)
+
+            // ROUND 122 (R5): the skip-range ribbon — an amber band for the
+            // intro, a red band for the outro, drawn UNDER the buffer/progress
+            // so elapsed playback stays readable. Shown for Off/Button/Auto
+            // alike (informational). Skipped while duration is unknown.
+            if (duration > 0) {
+                fun secFrac(sec: Int): Float = (sec.toFloat() / maxRange).coerceIn(0f, 1f)
+                if (skipRanges.hasIntro) {
+                    val s = secFrac(skipRanges.introStartSec!!)
+                    val e = secFrac(skipRanges.introEndSec!!)
+                    if (e > s) {
+                        drawRoundRect(
+                            color = Color(0xFFFFC107).copy(alpha = 0.45f),
+                            topLeft = Offset(barWidth * s, barY),
+                            size = Size(barWidth * (e - s), barHeight),
+                            cornerRadius = cornerRadius,
+                        )
+                    }
+                }
+                if (skipRanges.hasOutro) {
+                    val s = secFrac(skipRanges.outroStartSec!!)
+                    val e = secFrac(skipRanges.outroEndSec ?: duration)
+                    if (e > s) {
+                        drawRoundRect(
+                            color = Color(0xFFF44336).copy(alpha = 0.45f),
+                            topLeft = Offset(barWidth * s, barY),
+                            size = Size(barWidth * (e - s), barHeight),
+                            cornerRadius = cornerRadius,
+                        )
+                    }
+                }
+            }
+
             // Buffer-ahead segment (drawn between progress and end)
             if (bufferProgress > progress) {
                 drawRoundRect(
