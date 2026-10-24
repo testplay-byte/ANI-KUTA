@@ -1193,28 +1193,4 @@ class DefaultDownloadManager(
         _downloadedEpisodes.value = store.getDownloadedEpisodes()
     }
 
-    /**
-     * Checks whether the current network is allowed for downloads (Wi-Fi-only pref
-     * enforcement). Used by the queue's `connectivityCheck` callback.
-     *
-     * Returns `true` if:
-     *  - `wifiOnly` is OFF (any network is allowed), OR
-     *  - `wifiOnly` is ON AND the active network is Wi-Fi (or ethernet).
-     *
-     * Returns `true` on error (fail-open — better to attempt the download than to
-     * silently stall the queue).
-     */
-    fun isNetworkAllowed(): Boolean {
-        if (!preferences.wifiOnly.get()) return true
-        return try {
-            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val network = cm.activeNetwork ?: return true
-            val caps = cm.getNetworkCapabilities(network) ?: return true
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-        } catch (e: Exception) {
-            DownloadLogger.w { "isNetworkAllowed — connectivity check failed (fail-open): ${e.message}" }
-            true
-        }
     }
-}

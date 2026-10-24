@@ -532,12 +532,20 @@ fun WatchScreen(
             // pinned end-of-file position in the holder, and without these
             // guards that stale position was saved under the NEW episode's
             // key (the "failed episode gets marked watched" report).
-            if (dur > 0 && epUrl.isNotBlank() &&
+            // ROUND 123 (R10): log EVERY evaluation — the gated-out ticks were
+            // silent, which made the failed-episode case undiagnosable from
+            // logcat alone.
+            val persistDecision = dur > 0 && epUrl.isNotBlank() &&
                 stateHolder.episodeReachedPlayback &&
                 stateHolder.loadingState.value != PlayerLoadingState.ERROR &&
                 com.confused.anikuta.core.watchprogress.PlaybackResumePolicy
                     .shouldPersist(pos.toLong(), dur.toLong())
-            ) {
+            Logger.d(TAG) {
+                "PeriodicSave eval: pos=$pos dur=$dur epNum=${stateHolder.currentEpisodeNumber.value} " +
+                    "reachedPlayback=${stateHolder.episodeReachedPlayback} " +
+                    "loading=${stateHolder.loadingState.value} → save=$persistDecision"
+            }
+            if (persistDecision) {
                 val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
                 val progress = WatchProgress(
                     episodeKey = epKey,
@@ -737,12 +745,20 @@ fun WatchScreen(
                 .onFailure { Logger.w(TAG) { "resetAutoMarkSuppressed failed: ${it.message}" } }
                 .onSuccess { Logger.d(TAG) { "resetAutoMarkSuppressed: key=$epKey (re-armed)" } }
         }
+        // ROUND 123 (R4): a FRESH file load resets the offer bookkeeping for
+        // this episode — the device round: dismissing the card then replaying
+        // the episode never re-showed it. The dismissal survives orientation
+        // switches (no file load there) but expires on every reload (replay,
+        // retry, quality switch) — a new playback attempt is a fresh chance.
+        offeredNextKeys.remove(epKey)
+        dismissedNextKeys.remove(epKey)
         // D-746: the shared resume policy — watched → fresh start, partial →
         // exact position −15s (round 121), pref-off → fresh. Once per episode
-        // key, so quality switches never re-seek. The seek now fires AFTER a
-        // real FILE_LOADED (playback initialized — mpv accepts it), and is
-        // VERIFIED: a blind fire-and-forget seek that mpv drops must never
-        // silently cost the resume again.
+        // key, so quality switches never re-seek. The seek fires AFTER a real
+        // FILE_LOADED (playback initialized — mpv accepts it), and is VERIFIED
+        // with a 2-second poll — a dropped seek must never silently cost the
+        // resume again (round 123: the event-constant fix made FILE_LOADED
+        // trustworthy; this poll is the third layer).
         if (resumedEpisodeKeys[epKey] != true) {
             resumedEpisodeKeys[epKey] = true
             val decision = if (watchKey.startPosition > 0 &&
@@ -760,17 +776,44 @@ fun WatchScreen(
             }
             val resumeSec = (decision as? com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.Decision
                 .ResumeAtPosition)?.positionSeconds ?: 0L
+            val storedSnapshot = runCatching { watchProgressStore.get(epKey) }.getOrNull()
+                ?.let { "${it.position}/${it.duration}" }
+            Logger.i(TAG) {
+                "resume: key=$epKey decision=$decision → resumeSec=$resumeSec (stored=$storedSnapshot)"
+            }
             if (resumeSec > 0) {
+                val genAtLoad = fileLoadedGeneration
                 MPVLib.command(arrayOf("seek", resumeSec.toString(), "absolute"))
                 resumePillSec = resumeSec
-                Logger.i(TAG) { "D-746: resumed EP key=$epKey from ${resumeSec}s" }
-                // Verify: give mpv a beat to apply the seek, then read the live
-                // position. If it never moved (dropped command), re-issue ONCE.
-                delay(600L)
-                val posNow = stateHolder.position.value
-                if (posNow < resumeSec - 5) {
-                    Logger.w(TAG) { "D-746: resume seek not applied (pos=$posNow) — re-issuing once" }
-                    MPVLib.command(arrayOf("seek", resumeSec.toString(), "absolute"))
+                Logger.i(TAG) { "resume: seek #1 → ${resumeSec}s absolute" }
+                // Verify: poll the live position for up to 2s. If the seek was
+                // dropped (rare post-fix), re-issue once mid-poll.
+                var reissued = false
+                var verified = false
+                repeat(10) { attempt ->
+                    delay(200L)
+                    if (stateHolder.fileLoadedGeneration.value != genAtLoad) {
+                        return@repeat
+                    }
+                    val posNow = stateHolder.position.value
+                    Logger.d(TAG) { "resume: verify t=${(attempt + 1) * 200}ms pos=$posNow target=$resumeSec" }
+                    if (posNow >= resumeSec - 5) {
+                        verified = true
+                        return@repeat
+                    }
+                    if (!reissued && attempt >= 2) {
+                        reissued = true
+                        Logger.w(TAG) { "resume: seek not applied (pos=$posNow) — re-issuing" }
+                        MPVLib.command(arrayOf("seek", resumeSec.toString(), "absolute"))
+                    }
+                }
+                if (!verified) {
+                    Logger.w(TAG) {
+                        "resume: NOT VERIFIED after 2s (pos=${stateHolder.position.value}, target=$resumeSec) — " +
+                            "please capture logcat around 'resume:' lines"
+                    }
+                } else {
+                    Logger.i(TAG) { "resume: OK (pos=${stateHolder.position.value})" }
                 }
             }
         }
@@ -791,13 +834,41 @@ fun WatchScreen(
     // auto-play vs. button-only.
     LaunchedEffect(position, duration, currentEpisodeUrl, nextUpCardEnabled, skipTimestamps, episodeSkip) {
         if (duration <= 0 || !nextUpCardEnabled) return@LaunchedEffect
+        // ROUND 123 (R3): sanity gates — the device round showed the card
+        // firing minutes early. Three killers: (a) a stale cross-file
+        // position/duration pairing right after a switch (the old file's
+        // ~end position vs the new file's duration — reachedPlayback is
+        // still false for the new file at that instant); (b) an error
+        // state; (c) an implausible MANUAL outro stamp (per-series stamps
+        // from old testing fire forever). The 0.95×duration floor applies
+        // to EVERY path now.
+        if (isSwitching ||
+            !stateHolder.episodeReachedPlayback ||
+            stateHolder.loadingState.value == PlayerLoadingState.ERROR
+        ) {
+            return@LaunchedEffect
+        }
         val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
         if (offeredNextKeys[epKey] == true) return@LaunchedEffect
         val outroStart = episodeSkip?.takeIf { it.hasOutro }?.outroStartSec
             ?: skipTimestamps.takeIf { it.hasOutro }?.outroStartSec
-        val reached = com.confused.anikuta.core.watchprogress.PlaybackResumePolicy
-            .shouldOfferNextEpisode(position, duration) ||
-            (outroStart != null && position >= outroStart)
+        val plausibleOutro = outroStart != null &&
+            outroStart >= duration * 0.5f &&
+            outroStart < duration - 5
+        val fraction = position.toFloat() / duration
+        val reached = fraction >= 0.95f ||
+            (plausibleOutro && position >= (outroStart ?: 0))
+        Logger.i(TAG) {
+            val fractionStr = "%.2f".format(fraction)
+            val outroSource = when {
+                episodeSkip?.hasOutro == true -> "aniskip"
+                skipTimestamps.hasOutro -> "manual"
+                else -> "none"
+            }
+            "UpNext eval: pos=$position dur=$duration fraction=$fractionStr " +
+                "outroStart=$outroStart (source=$outroSource) " +
+                "plausibleOutro=$plausibleOutro reached=$reached key=$epKey"
+        }
         if (reached) offerNextEpisode(false)
     }
 
@@ -1017,11 +1088,19 @@ fun WatchScreen(
                     scope.launch {
                         val dur = stateHolder.duration.value
                         val epUrl = stateHolder.currentEpisodeUrl.value
-                        // ROUND 122 (R2): the same reached-playback gate as the
-                        // periodic save — an error-state EOF (stale metrics)
-                        // must never write the OLD file's end position under
-                        // the NEW episode's key.
-                        if (dur > 0 && epUrl.isNotBlank() && stateHolder.episodeReachedPlayback) {
+                        // ROUND 122 (R2) + ROUND 123 (R2): the reached-playback
+                        // AND not-error gates — an error-state EOF (stale
+                        // metrics) or a demuxer EOF from a dead stream must
+                        // never write the end position under this key.
+                        val writeAllowed = dur > 0 && epUrl.isNotBlank() &&
+                            stateHolder.episodeReachedPlayback &&
+                            stateHolder.loadingState.value != PlayerLoadingState.ERROR
+                        Logger.i(TAG) {
+                            "EOF hook: dur=$dur url=${epUrl.take(40)} reachedPlayback=" +
+                                "${stateHolder.episodeReachedPlayback} loading=${stateHolder.loadingState.value} " +
+                                "→ write=$writeAllowed"
+                        }
+                        if (writeAllowed) {
                             val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
                             runCatching {
                                 watchProgressStore.save(
@@ -1046,7 +1125,14 @@ fun WatchScreen(
                         // the 95% poll already does; a disabled card must not
                         // reappear at the end either (and `force` must not
                         // resurrect a card dismissed at 95%).
-                        if (nextUpCardEnabled) offerNextEpisode(true)
+                        // ROUND 123 (R2): the SAME gates as the write — a dead
+                        // stream's demuxer EOF must not summon the Up Next card
+                        // (the device round: the card appeared over a failure).
+                        val offerAllowed = nextUpCardEnabled &&
+                            stateHolder.episodeReachedPlayback &&
+                            stateHolder.loadingState.value != PlayerLoadingState.ERROR
+                        Logger.i(TAG) { "EOF hook: offerAllowed=$offerAllowed" }
+                        if (offerAllowed) offerNextEpisode(true)
                     }
                 }
 
@@ -1575,8 +1661,11 @@ fun WatchScreen(
         val oldDur = stateHolder.duration.value
         val oldEpUrl = stateHolder.currentEpisodeUrl.value
         val oldEpNum = stateHolder.currentEpisodeNumber.value
+        // ROUND 123 (R2): the not-error guard — a switch made from the error
+        // state must not save the stale high position under the old key.
         if (oldDur > 0 && oldEpUrl.isNotBlank() && watchKey.mainId.isNotBlank() &&
             stateHolder.episodeReachedPlayback &&
+            stateHolder.loadingState.value != PlayerLoadingState.ERROR &&
             com.confused.anikuta.core.watchprogress.PlaybackResumePolicy
                 .shouldPersist(oldPos.toLong(), oldDur.toLong())
         ) {
@@ -1913,10 +2002,19 @@ fun WatchScreen(
     LaunchedEffect(upNextVisible, upNextEpisode) {
         if (!upNextVisible || upNextEpisode == null) return@LaunchedEffect
         if (playerPreferences.autoPlayNext) {
+            // ROUND 123 (R3): the countdown only TICKS near the real end — an
+            // outro-triggered early card must not auto-advance while most of
+            // the episode remains (the user: "the timer should only run based
+            // on the proper logical orders"). The card stays visible with the
+            // countdown held at full until playback actually reaches 95%.
             upNextCountdown = com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.UP_NEXT_COUNTDOWN_SECONDS
             while (upNextVisible && upNextCountdown > 0) {
                 delay(1_000L)
                 if (!upNextVisible) return@LaunchedEffect
+                val pos = stateHolder.position.value
+                val dur = stateHolder.duration.value
+                val nearEnd = dur > 0 && pos.toFloat() >= dur * 0.95f
+                if (!nearEnd) continue
                 upNextCountdown = upNextCountdown - 1
             }
             if (upNextVisible && upNextCountdown <= 0) {
@@ -1973,6 +2071,14 @@ fun WatchScreen(
                 }.getOrNull()
                 val mal = details?.malId
                 val anilist = details?.anilistId
+                // ROUND 123 (R10): the full fetch decision in one line — the
+                // device round had AniSkip silently dead for three rounds
+                // (GET-404, then stale latches); this names the cause.
+                Logger.i(TAG) {
+                    "AniSkip fetch: mainId=${watchKey.mainId.take(12)} ep=$epNum malId=$mal " +
+                        "anilistId=$anilist durSec=$durSec (latched=" +
+                        "${playerPreferences.isEpisodeSkipFetched(watchKey.mainId, epNum)})"
+                }
                 // ROUND 122 (R5): latch ONLY when the attempt had an id to ask
                 // with — a no-id episode (or a failed metadata read) stays
                 // eligible forever; latching it made the FIRST failure
@@ -2140,22 +2246,6 @@ fun WatchScreen(
     // ROUND 121: the fullscreen episodes browser — the More button's sheet,
     // and the skip editor's new home (the control-bar entry retired for the
     // prev/next episode buttons).
-    if (showEpisodesSheet) {
-        PlayerEpisodesSheet(
-            episodes = episodeList,
-            currentUrl = currentEpisodeUrl,
-            onEpisodeSelect = { ep ->
-                showEpisodesSheet = false
-                onEpisodeSwitch(ep)
-            },
-            onOpenSkipEditor = {
-                showEpisodesSheet = false
-                showSkipEditorSheet = true
-            },
-            onDismiss = { showEpisodesSheet = false },
-        )
-    }
-
     // D-747: the Up Next bundle built once for BOTH modes (thumbnail falls back
     // to the cover; the countdown rides only when auto-play is ON).
     val upNextUi: UpNextUi? = if (upNextVisible) {
@@ -2172,6 +2262,14 @@ fun WatchScreen(
         }
     } else null
 
+    // ROUND 123 (R6): ONE root Box for the whole mode + overlay region — the
+    // drawer used to be composed BEFORE the player as a sibling root node of
+    // the nav host's AnimatedContent stack, which drew it UNDER the opaque
+    // player surface (invisible + untouchable — the "three dots do nothing"
+    // device report, fullscreen AND portrait). Inside this Box the mode is
+    // child #1 and the drawer mounts LAST (= topmost draw + hit-test); the
+    // ModalBottomSheets are window-level and unaffected by position.
+    Box(modifier = Modifier.fillMaxSize()) {
     if (playerMode == PlayerMode.FULLSCREEN) {
         FullscreenMode(
             watchKey = watchKey,
@@ -2339,6 +2437,25 @@ fun WatchScreen(
             onDismiss = { showSpeedSheet = false },
         )
     }
+
+        // ROUND 123 (R6): the episodes drawer — mounted LAST inside the root
+        // Box (topmost draw + hit-test order over the player surface).
+        if (showEpisodesSheet) {
+            PlayerEpisodesSheet(
+                episodes = episodeList,
+                currentUrl = currentEpisodeUrl,
+                onEpisodeSelect = { ep ->
+                    showEpisodesSheet = false
+                    onEpisodeSwitch(ep)
+                },
+                onOpenSkipEditor = {
+                    showEpisodesSheet = false
+                    showSkipEditorSheet = true
+                },
+                onDismiss = { showEpisodesSheet = false },
+            )
+        }
+    } // root Box (ROUND 123 R6)
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -36,16 +36,25 @@ class PlayerObserver(
     companion object {
         private const val TAG = "Anikuta:Core:Player:Observer"
 
-        // MPV event IDs (from mpv/client.h)
+        // MPV event IDs — from mpv/client.h (mpv_event_id). ROUND 123 (R1): the
+        // round-121/122 constants were WRONG and the logcat lied with them:
+        // FILE_LOADED was 11 (actually mpv's IDLE) and PLAYBACK_RESTART was 17
+        // (actually VIDEO_RECONFIG) — so the "FILE_LOADED" branch ran on the
+        // startup IDLE (empty core, seeks silently dropped — the downloaded-
+        // resume-at-0 bug) while the REAL FILE_LOADED (8) fell through to
+        // default. Correct values, cross-checked against mpv/client.h and the
+        // aniyomi-mpv-lib enum:
+        private const val MPV_EVENT_NONE = 0
+        private const val MPV_EVENT_SHUTDOWN = 1
+        private const val MPV_EVENT_LOG_MESSAGE = 2
         private const val MPV_EVENT_START_FILE = 6
         private const val MPV_EVENT_END_FILE = 7
-        private const val MPV_EVENT_FILE_LOADED = 11
-        private const val MPV_EVENT_PLAYBACK_RESTART = 17
-        private const val MPV_EVENT_TRACKS_CHANGED = 26
-        private const val MPV_EVENT_SHUTDOWN = 0
-        private const val MPV_EVENT_LOG_MESSAGE = 1
-        private const val MPV_EVENT_IDLE = 12
-        private const val MPV_EVENT_TICK = 27
+        private const val MPV_EVENT_FILE_LOADED = 8
+        private const val MPV_EVENT_TRACKS_CHANGED = 9 // deprecated upstream; property watch covers it
+        private const val MPV_EVENT_IDLE = 11
+        private const val MPV_EVENT_TICK = 14 // deprecated upstream
+        private const val MPV_EVENT_VIDEO_RECONFIG = 17
+        private const val MPV_EVENT_PLAYBACK_RESTART = 21
 
         /** Delay (ms) after sending sub-add/audio-add before reloading tracks.
          *  Without this, loadTracksFromMpv() runs before MPV has registered the
@@ -126,6 +135,13 @@ class PlayerObserver(
         when (property) {
             "time-pos" -> {
                 value.toIntOrNull()?.let {
+                    // ROUND 123 (R2): freeze position updates during ERROR —
+                    // a switching-error fired while the OLD file still plays
+                    // would otherwise repopulate the zeroed metrics (the
+                    // failed-episode bar at the old file's end).
+                    if (stateHolder.loadingState.value == PlayerLoadingState.ERROR) {
+                        return@let
+                    }
                     stateHolder.updatePosition(it)
                     // ROUND 122 (R2): a real position event means THIS file is
                     // playing — arm the reached-playback gate. Only when NOT
@@ -142,7 +158,12 @@ class PlayerObserver(
                 value.toIntOrNull()?.let { stateHolder.updateBufferAheadTime(it) }
             }
             "duration" -> {
-                value.toIntOrNull()?.let { stateHolder.updateDuration(it) }
+                value.toIntOrNull()?.let {
+                    // ROUND 123 (R2): the same ERROR freeze for duration.
+                    if (stateHolder.loadingState.value != PlayerLoadingState.ERROR) {
+                        stateHolder.updateDuration(it)
+                    }
+                }
             }
             "pause" -> {
                 stateHolder.updatePlaying(value != "yes")
@@ -202,7 +223,7 @@ class PlayerObserver(
      */
     fun onEvent(eventId: Int) {
         val eventName = eventName(eventId)
-        Logger.i(TAG) { "Event: $eventName ($eventId)" }
+        Logger.i(TAG) { "Event: $eventName (rawId=$eventId)" }
 
         when (eventId) {
             MPV_EVENT_FILE_LOADED -> {
@@ -490,33 +511,33 @@ class PlayerObserver(
 
     /**
      * Convert an MPV event ID to a human-readable name for logging.
+     * ROUND 123 (R1): corrected to the real mpv/client.h mapping — the old
+     * table mislabeled every id (8 printed as "FILE_ERROR", 11 as
+     * "FILE_LOADED") which is what hid the wrong-constant bug for months.
      */
     private fun eventName(id: Int): String = when (id) {
-        0 -> "SHUTDOWN"
-        1 -> "LOG_MESSAGE"
-        2 -> "GET_PROPERTY_REPLY"
-        3 -> "SET_PROPERTY_REPLY"
-        4 -> "COMMAND_REPLY"
-        5 -> "START_FILE_READ"
+        0 -> "NONE"
+        1 -> "SHUTDOWN"
+        2 -> "LOG_MESSAGE"
+        3 -> "GET_PROPERTY_REPLY"
+        4 -> "SET_PROPERTY_REPLY"
+        5 -> "COMMAND_REPLY"
         6 -> "START_FILE"
         7 -> "END_FILE"
-        8 -> "FILE_ERROR"
-        9 -> "IDLE"
-        10 -> "TICK"
-        11 -> "FILE_LOADED"
-        12 -> "IDLE"
-        13 -> "CACHE_UPDATE"
-        14 -> "AUDIO_RECONFIG"
-        15 -> "VIDEO_RECONFIG"
-        16 -> "SEEK"
-        17 -> "PLAYBACK_RESTART"
-        18 -> "PROPERTY_CHANGE"
-        19 -> "QUEUE_OVERFLOW"
-        20 -> "HOOK"
-        21 -> "RENDER"
-        22 -> "SEND_COMMAND_REPLY"
-        26 -> "TRACKS_CHANGED"
-        27 -> "TICK"
+        8 -> "FILE_LOADED"
+        9 -> "TRACKS_CHANGED"
+        10 -> "VIDEO_RECONFIG" // unused legacy id
+        11 -> "IDLE"
+        12 -> "TICK" // unused legacy id
+        13 -> "TICK"
+        14 -> "TICK" // deprecated
+        16 -> "CLIENT_MESSAGE"
+        17 -> "VIDEO_RECONFIG"
+        18 -> "AUDIO_RECONFIG"
+        20 -> "SEEK"
+        21 -> "PLAYBACK_RESTART"
+        22 -> "PROPERTY_CHANGE"
+        24 -> "QUEUE_OVERFLOW"
         else -> "UNKNOWN($id)"
     }
 }

@@ -1276,52 +1276,65 @@ private fun QueueReorderCard(
                 items(localQueue.size, key = { localQueue[it].id }) { index ->
                     val task = localQueue[index]
                     val isDragging = dragState.draggingItemIndex == index
-                    if (index > 0) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(1.dp)
-                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                        )
-                    }
                     Row(
                         modifier = Modifier
+                            // ROUND 123 (R8): fixed 52dp row height — the
+                            // variable-height rows were the drag jank's root
+                            // (the swap band math jumped between crossing
+                            // different heights, and the dragged row's finger
+                            // anchoring wobbled). One compact line reads fine
+                            // and swaps glide.
+                            .height(52.dp)
                             .fillMaxWidth()
+                            .animateItem()
                             .zIndex(if (isDragging) 1f else 0f)
                             .graphicsLayer {
                                 translationY = if (isDragging) dragState.draggingItemDelta else 0f
                             }
+                            .background(
+                                if (isDragging) {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                                } else {
+                                    Color.Transparent
+                                },
+                            )
                             .then(
                                 if (index >= pinnedRows) {
-                                    Modifier.pointerInput(localQueue.size, pinnedRows) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                if (dragState.draggingItemIndex == null) {
-                                                    dragState.onDragStart(index)
-                                                }
-                                            },
-                                            onDrag = { change, amount ->
-                                                if (dragState.draggingItemIndex == index) {
-                                                    change.consume()
-                                                    dragState.onDrag(amount)
-                                                }
-                                            },
-                                            onDragEnd = {
-                                                if (dragState.draggingItemIndex == index) {
-                                                    onCommitReorder(localQueue.map { it.id })
-                                                    dragState.onDragInterrupted()
-                                                }
-                                            },
-                                            onDragCancel = {
-                                                if (dragState.draggingItemIndex == index) {
-                                                    dragState.onDragInterrupted()
-                                                }
-                                            },
-                                        )
-                                    }
+                                    // KEYED ON THE TASK ID (not the index): the
+                                    // pointer handler must follow the ROW it was
+                                    // pressed on, not a position.
+                                    Modifier
+                                        .pointerInput(task.id) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = {
+                                                    if (dragState.draggingItemIndex == null) {
+                                                        dragState.onDragStart(index)
+                                                    }
+                                                },
+                                                onDrag = { change, amount ->
+                                                    if (dragState.draggingItemIndex != null) {
+                                                        change.consume()
+                                                        dragState.onDrag(amount)
+                                                    }
+                                                },
+                                                onDragEnd = {
+                                                    if (dragState.draggingItemIndex != null) {
+                                                        onCommitReorder(localQueue.map { it.id })
+                                                        dragState.onDragInterrupted()
+                                                    }
+                                                },
+                                                onDragCancel = {
+                                                    if (dragState.draggingItemIndex != null) {
+                                                        dragState.onDragInterrupted()
+                                                    }
+                                                },
+                                            )
+                                        }
                                 } else {
                                     Modifier
                                 },
                             )
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                            .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -1330,56 +1343,34 @@ private fun QueueReorderCard(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.width(28.dp),
+                            modifier = Modifier.width(30.dp),
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                task.episode.name.ifBlank {
+                                (task.episode.name.ifBlank {
                                     "Episode ${task.episode.episodeNumber.toInt()}"
-                                },
+                                }) + " — " + task.content.title,
                                 fontFamily = RobotoFamily,
-                                fontSize = 13.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            // ROUND 121 (reorder polish): the anime title AND
-                            // the live status per row — the flattened list used
-                            // to read as bare episode names with no sense of
-                            // what's running / waiting / paused.
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    task.content.title,
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    "  •  ",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.outlineVariant,
-                                )
-                                Text(
-                                    reorderStatusLabel(task),
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = when (task.status) {
-                                        DownloadStatus.DOWNLOADING -> MaterialTheme.colorScheme.primary
-                                        DownloadStatus.WAITING_FOR_NETWORK -> MaterialTheme.colorScheme.tertiary
-                                        DownloadStatus.ERROR -> MaterialTheme.colorScheme.error
-                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                    maxLines = 1,
-                                )
-                            }
+                            Text(
+                                reorderStatusLabel(task),
+                                fontFamily = RobotoFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = when (task.status) {
+                                    DownloadStatus.DOWNLOADING -> MaterialTheme.colorScheme.primary
+                                    DownloadStatus.WAITING_FOR_NETWORK -> MaterialTheme.colorScheme.tertiary
+                                    DownloadStatus.ERROR -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                maxLines = 1,
+                            )
                         }
-                        // ROUND 122 (R10): the drag affordance (long-press the
-                        // row, or this handle) replaces the up/down arrows.
                         Icon(
                             Icons.Filled.DragHandle,
                             contentDescription = if (index >= pinnedRows) {

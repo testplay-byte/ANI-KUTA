@@ -339,6 +339,15 @@ class ContentRepository(
             dataUpdatedAt = detail.dataUpdatedAt,
             mainId = detail.mainId,
         )
+        // ROUND 123 (R9/R10): the logcat persist probe — shows exactly WHICH
+        // fields a write carries, so a wipe (nulls) is visible in the device
+        // logcat without a debugger.
+        Logger.d(TAG) {
+            "updateDataSourceAxis mainId=${detail.mainId}: type=${detail.dataSourceType} " +
+                "status=${detail.dataStatus} genres=${detail.dataGenres?.take(60)} " +
+                "year=${detail.dataSeasonYear} score=${detail.dataScore} " +
+                "cover=${detail.dataCoverUrl != null} synopsis=${detail.dataSynopsis?.length ?: 0}ch"
+        }
     }
 
     /** Partial UPDATE of all extension fields (data-source fields untouched). */
@@ -358,6 +367,13 @@ class ContentRepository(
             extUpdatedAt = detail.extUpdatedAt,
             mainId = detail.mainId,
         )
+        // ROUND 123 (R9/R10): the logcat persist probe (see updateDataSourceAxis).
+        Logger.d(TAG) {
+            "updateExtensionAxis mainId=${detail.mainId}: type=${detail.extensionType} " +
+                "status=${detail.extStatus} genres=${detail.extGenres?.take(60)} " +
+                "author=${detail.extAuthor} cover=${detail.extThumbnailUrl != null} " +
+                "synopsis=${detail.extDescription?.length ?: 0}ch"
+        }
     }
 
     /** NULL all data-source fields (for unlink — fixes orphan-row bug). */

@@ -214,32 +214,60 @@ val downloadModule = module {
 // ── Module-private helpers ──────────────────────────────────────────────────
 
 /**
- * ROUND 122 (R9) — the REAL network-allowed check, replacing [wifiOnlyCheck].
+ * ROUND 122 (R9) + ROUND 123 (R7) — the REAL network-allowed check, shared by
+ * the queue's gates AND the service's NetworkCallback (single source of truth
+ * so the launcher and the healer can never disagree).
  *
- * The old check was a Wi-Fi-only TRANSPORT check with three `return true`
- * escapes — with wifiOnly OFF (the default) it returned true even FULLY
- * OFFLINE, so an offline resume went QUEUED → launched → UnknownHostException
- * → ERROR ("unable to resolve host", the device report) instead of waiting.
- * Every queue gate (resume/resumeAll/tryStartNext/launchDownload's catch)
- * reads this one lambda, so this single fix re-arms all of them:
+ * ROUND 123: requires NET_CAPABILITY_VALIDATED — INTERNET alone is a DECLARED
+ * capability, and the device round proved a registered-but-unusable network
+ * (cellular with no data, a dead VPN, lingering Wi-Fi teardown, captive
+ * portal) passes it and lets the launch happen → "unable to resolve host".
+ * VALIDATED is the OS's own "internet actually works" verdict. The few-seconds
+ * unvalidated window after connecting is covered by the service's
+ * onCapabilitiesChanged re-firing the auto-resume when validation completes.
  *
- * Returns `true` only when the active network exists, is INTERNET-capable,
- * and (when `wifiOnly` is ON) is Wi-Fi or ethernet.
- *
- * Fails open ONLY on unexpected exceptions (better to attempt than to stall);
- * a genuinely absent network fails CLOSED.
+ * Returns `true` only when the active network exists, is INTERNET-capable AND
+ * validated, and (when `wifiOnly` is ON) is Wi-Fi or ethernet. Fails open ONLY
+ * on unexpected exceptions; a genuinely absent/unusable network fails CLOSED.
  */
-private fun networkAllowedCheck(context: Context, preferences: DownloadPreferences): Boolean {
+internal fun networkAllowedCheck(context: Context, preferences: DownloadPreferences): Boolean {
     return try {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val network = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(network) ?: return false
-        if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
-        if (!preferences.wifiOnly.get()) return true
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+        val network = cm.activeNetwork
+        if (network == null) {
+            DownloadLogger.d { "networkAllowedCheck → false (activeNetwork=null)" }
+            return false
+        }
+        val caps = cm.getNetworkCapabilities(network)
+        if (caps == null) {
+            DownloadLogger.d { "networkAllowedCheck → false (caps=null)" }
+            return false
+        }
+        val hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        // compileSdk 36 hides NetworkCapabilities.getTransportTypes() — probe
+        // the known transports explicitly instead.
+        val transports = listOf(
+            NetworkCapabilities.TRANSPORT_WIFI to "wifi",
+            NetworkCapabilities.TRANSPORT_CELLULAR to "cellular",
+            NetworkCapabilities.TRANSPORT_ETHERNET to "ethernet",
+            NetworkCapabilities.TRANSPORT_VPN to "vpn",
+            NetworkCapabilities.TRANSPORT_BLUETOOTH to "bluetooth",
+        ).filter { caps.hasTransport(it.first) }.joinToString(",") { it.second }
+        val wifiOnly = preferences.wifiOnly.get()
+        val verdict = hasInternet && validated &&
+            (!wifiOnly || caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+        // ROUND 123 (R10): the full decision with raw inputs — a lying check
+        // must be visible in logcat (the device round's error was exactly this).
+        DownloadLogger.d {
+            "networkAllowedCheck → $verdict | hasInternet=$hasInternet validated=$validated " +
+                "transports=[$transports] wifiOnly=$wifiOnly"
+        }
+        verdict
     } catch (e: Exception) {
         DownloadLogger.w { "networkAllowedCheck — connectivity check failed (fail-open): ${e.message}" }
         true
     }
 }
+

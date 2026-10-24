@@ -223,6 +223,12 @@ class PlayerStateHolder {
             Logger.w(TAG) { "Error → $fullMessage" }
             _errorMessage.value = fullMessage
             _loadingState.value = PlayerLoadingState.ERROR
+            // ROUND 123 (R2): zero the metrics on error — the stale position/
+            // duration (an old file's pinned EOF, a partial playback before a
+            // stream died) must never sit on the seek bar or feed a save while
+            // the error is up. The observer FREEZES time-pos/duration during
+            // ERROR, so this zero sticks until the next real load.
+            resetPlaybackMetrics()
         } else {
             Logger.d(TAG) { "Error cleared" }
             _errorMessage.value = null
@@ -312,6 +318,8 @@ class PlayerStateHolder {
         }
         _errorMessage.value = fullMessage
         _loadingState.value = PlayerLoadingState.ERROR
+        // ROUND 123 (R2): the same zero-on-error as updateError (see there).
+        resetPlaybackMetrics()
     }
 
     /**

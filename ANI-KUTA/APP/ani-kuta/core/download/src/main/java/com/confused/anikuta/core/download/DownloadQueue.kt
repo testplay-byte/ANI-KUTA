@@ -81,6 +81,12 @@ class DownloadQueue(
 
     private val jobs = mutableMapOf<Long, Job>()
 
+    // ROUND 123 (R7): consecutive DNS-failure waits while the connectivity
+    // check claims "online" — the bounded escape hatch that keeps a bad
+    // hardcoded host from waiting forever. Reset on any successful download
+    // and on retry(). Guarded by the queue mutex (touched only in its paths).
+    private val consecutiveDnsWaits = mutableMapOf<Long, Int>()
+
     /** REVIEW-5 M43: guards the 10s auto-clear (prevents the leak per §A.11 fix #12). */
     private val autoClearScheduled = mutableSetOf<Long>()
 
@@ -213,6 +219,12 @@ class DownloadQueue(
     suspend fun retry(taskId: Long) = mutex.withLock {
         val task = _tasks.value.firstOrNull { it.id == taskId } ?: return@withLock
         if (task.status != DownloadStatus.ERROR) return@withLock
+        // ROUND 123 (R7): retry means restart-from-scratch — discard any
+        // partial temp preserved by a transport failure, so the downloader
+        // doesn't Range-resume a file the user explicitly reset (the display
+        // would say 0% while the file grew from 47%).
+        consecutiveDnsWaits.remove(taskId)
+        downloader.discardPartial(taskId)
         mutateTaskLocked(taskId) {
             it.copy(
                 status = DownloadStatus.QUEUED,
@@ -352,20 +364,11 @@ class DownloadQueue(
     }
 
     /**
-     * ROUND 122 (R9): true when this throwable (or anything in its cause
-     * chain) is a transport failure — the fetchers wrap raw IOExceptions in
-     * DownloadException, so a class check on the surface exception misses.
+     * ROUND 122 (R9) + ROUND 123 (R7): moved to FILE LEVEL (see the bottom of
+     * this file) so HttpDownloader's cleanup decision shares the exact
+     * classifier. The member wrapper keeps the call sites short.
      */
-    private fun Throwable.isTransportFailure(): Boolean {
-        var t: Throwable? = this
-        var depth = 0
-        while (t != null && depth < 8) {
-            if (t is java.io.IOException || t is HttpException) return true
-            t = t.cause
-            depth++
-        }
-        return false
-    }
+    private fun Throwable.isTransportFailure(): Boolean = isTransportFailureChain(this)
 
     /**
      * ROUND 121: auto-resumes tasks waiting on the network — discovered BY
@@ -658,6 +661,7 @@ class DownloadQueue(
                     progressChannel.close()
                     dbWriter.join()
                     DownloadLogger.i { "launchDownload — downloader.download COMPLETED for task ${task.id}, videoUri=${completed.videoUri}" }
+                    consecutiveDnsWaits.remove(task.id)
 
                     mutex.withLock {
                         // REVIEW-5 M36: use DynamicProgressTracker.complete() to flip 99→100.
@@ -727,11 +731,43 @@ class DownloadQueue(
                         // wrapped offline failure burned straight into ERROR. The cause
                         // chain is walked now.
                         val networkAllowed = runCatching { connectivityCheck() }.getOrDefault(true)
-                        if (!networkAllowed && e.isTransportFailure()) {
+                        val transportFailure = e.isTransportFailure()
+                        val dnsFailure = e.isDnsFailure()
+                        DownloadLogger.w {
+                            "launchDownload — task ${task.id} failed on attempt $attempt: " +
+                                "dns=$dnsFailure transport=$transportFailure networkAllowed=$networkAllowed " +
+                                "msg=${e.message} → WAIT|ERROR|RETRY decided below"
+                        }
+                        // ROUND 123 (R7): DNS-class failures WAIT regardless of
+                        // what the check said — a registered-but-unusable
+                        // network (dead VPN, lingering Wi-Fi, cellular without
+                        // data) passes VALIDATED checks in their dying window
+                        // and DNS is the first thing to die (the device round:
+                        // the same offline resume still errored). BOUNDED: a
+                        // bad hardcoded host in a dead extension must not wait
+                        // forever — after MAX_DNS_WAITS consecutive online
+                        // checks it becomes a visible, manually retryable ERROR
+                        // (which still self-heals on a real network restore —
+                        // its message matches the network-error markers).
+                        if (dnsFailure || (transportFailure && !networkAllowed)) {
+                            if (networkAllowed) {
+                                val waits = (consecutiveDnsWaits[task.id] ?: 0) + 1
+                                consecutiveDnsWaits[task.id] = waits
+                                if (waits > MAX_DNS_WAITS_BEFORE_ERROR) {
+                                    consecutiveDnsWaits.remove(task.id)
+                                    DownloadLogger.w {
+                                        "launchDownload — task ${task.id}: DNS failed $waits× while " +
+                                            "the check says online — likely a bad host; surfacing ERROR"
+                                    }
+                                    setErrorStatus(task.id, e.message ?: e.javaClass.simpleName)
+                                    _tasks.value.firstOrNull { it.id == task.id }?.let { onTaskError?.invoke(it) }
+                                    return@launch
+                                }
+                            }
                             DownloadLogger.w {
-                                "launchDownload — transport error while network disallowed " +
-                                    "for task ${task.id}: ${e.message}. Auto-waiting; will resume " +
-                                    "when connectivity returns."
+                                "launchDownload — transport/DNS failure for task ${task.id} " +
+                                    "(dns=$dnsFailure allowed=$networkAllowed): WAITING_FOR_NETWORK; " +
+                                    "will resume when connectivity returns"
                             }
                             pauseForNetwork(task.id)
                             return@launch
@@ -871,6 +907,14 @@ class DownloadQueue(
 
         /** The auto-clear delay for COMPLETED tasks (10 sec — per the OLD project's behavior). */
         private const val AUTO_CLEAR_DELAY_MS = 10_000L
+
+        /**
+         * ROUND 123 (R7): DNS-failure waits tolerated while the check says
+         * "online" before surfacing a real ERROR (a bad hardcoded host in a
+         * dead extension must not wait forever). Two flap cycles, then ERROR —
+         * which still self-heals on a genuine network restore.
+         */
+        private const val MAX_DNS_WAITS_BEFORE_ERROR = 2
     }
 }
 
@@ -905,3 +949,46 @@ private val NETWORK_ERROR_MARKERS = listOf(
 
 internal fun isNetworkClassError(message: String?): Boolean =
     !message.isNullOrBlank() && NETWORK_ERROR_MARKERS.any { message.contains(it, ignoreCase = true) }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ROUND 123 (R7): the shared failure classifiers — FILE-LEVEL so the
+//  HttpDownloader cleanup decision (preserve vs delete the partial) uses the
+//  EXACT same classification as the queue's wait path.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * True when this throwable (or anything in its cause chain, depth-capped) is
+ * a transport failure — the fetchers wrap raw IOExceptions in
+ * DownloadException ("Video download failed: …"), so a class check on the
+ * surface exception misses.
+ */
+internal fun isTransportFailureChain(t: Throwable?): Boolean {
+    var cur: Throwable? = t
+    var depth = 0
+    while (cur != null && depth < 8) {
+        if (cur is java.io.IOException || cur is HttpException) return true
+        cur = cur.cause
+        depth++
+    }
+    return false
+}
+
+/**
+ * ROUND 123 (R7): a DNS-class failure — the first thing to die on a network
+ * that is registered but unusable (dead VPN, lingering Wi-Fi teardown,
+ * cellular without data). Classified by TYPE over the cause chain
+ * (UnknownHostException) with a message fallback for the fetchers that
+ * flatten the cause (the two Android phrasings).
+ */
+internal fun Throwable.isDnsFailure(): Boolean {
+    var cur: Throwable? = this
+    var depth = 0
+    while (cur != null && depth < 8) {
+        if (cur is java.net.UnknownHostException) return true
+        cur = cur.cause
+        depth++
+    }
+    val msg = message ?: return false
+    return msg.contains("unable to resolve host", ignoreCase = true) ||
+        msg.contains("no address associated with hostname", ignoreCase = true)
+}

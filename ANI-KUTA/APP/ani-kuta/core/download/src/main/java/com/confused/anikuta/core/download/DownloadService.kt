@@ -64,6 +64,8 @@ class DownloadService : Service(), KoinComponent {
     private val manager by inject<DownloadManager>()
     private val notifier by inject<DownloadNotificationManager>()
     private val queue by inject<DownloadQueue>()
+    // ROUND 123 (R7): the shared network check's wifiOnly input.
+    private val downloadPreferences by inject<DownloadPreferences>()
 
     /** REVIEW-5 M22: heavy work on Dispatchers.IO; only notify() needs Dispatchers.Main. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -129,7 +131,12 @@ class DownloadService : Service(), KoinComponent {
                 ?: cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
             val isWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
                 caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
-            val hasInternet = isAvailable && caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            // ROUND 123 (R7): the SHARED check (with VALIDATED) instead of the
+            // local INTERNET-only test — the healer can no longer disagree
+            // with the launcher (a registered-but-unusable network used to
+            // pass here and re-trigger the same dead launches).
+            val hasInternet = isAvailable &&
+                networkAllowedCheck(applicationContext, downloadPreferences)
             queue.onNetworkChanged(isWifi = isWifi, hasInternet = hasInternet)
         }
     }

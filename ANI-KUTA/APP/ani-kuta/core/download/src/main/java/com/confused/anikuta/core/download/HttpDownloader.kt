@@ -254,7 +254,18 @@ class HttpDownloader(
             tempCache.cleanupTask(task.id, preserveForResume = true)
             throw e
         } catch (e: DownloadException) {
-            tempCache.cleanupTask(task.id, preserveForResume = false)
+            // ROUND 123 (R7): preserve the partial on TRANSPORT-class failures
+            // (the fetchers wrap raw IOExceptions — the cause chain decides).
+            // The device round: an offline resume's DNS error DELETED the temp
+            // + resume sidecars, so the network-return heal restarted from 0%
+            // even though the (already-built) Range/sidecar resume machinery
+            // was ready to continue. Genuine validation failures still clean.
+            val transport = isTransportFailureChain(e)
+            DownloadLogger.w {
+                "download failed task ${task.id}: ${e.javaClass.simpleName}: ${e.message} " +
+                    "→ temp ${if (transport) "PRESERVED for resume" else "DELETED"}"
+            }
+            tempCache.cleanupTask(task.id, preserveForResume = transport)
             // Round 120 (D-748): the fetchers pre-wrap mid-write failures —
             // an ENOSPC IOException usually arrives HERE as a wrapped
             // DownloadException, so the cause-walk runs on this branch too
@@ -268,7 +279,13 @@ class HttpDownloader(
             }
             throw e
         } catch (e: Exception) {
-            tempCache.cleanupTask(task.id, preserveForResume = false)
+            // ROUND 123 (R7): the same preserve-on-transport rule (see above).
+            val transport = isTransportFailureChain(e)
+            DownloadLogger.w {
+                "download failed task ${task.id}: ${e.javaClass.simpleName}: ${e.message} " +
+                    "→ temp ${if (transport) "PRESERVED for resume" else "DELETED"}"
+            }
+            tempCache.cleanupTask(task.id, preserveForResume = transport)
             // ROUND 120 (D-748): storage-full mid-download (the pre-flight was
             // skipped or the estimate was low) — a NON-RETRYABLE, human-readable
             // failure; RetryPolicy would otherwise burn 3 attempts against a
@@ -282,6 +299,16 @@ class HttpDownloader(
             }
             throw DownloadException("Video download failed: ${e.message ?: e.javaClass.simpleName}", e)
         }
+    }
+
+    /**
+     * ROUND 123 (R7): the queue's retry() facade — retry means
+     * restart-from-scratch, so any partial preserved by a transport failure
+     * must be discarded (otherwise the file would Range-resume from the stale
+     * offset while the UI shows 0%).
+     */
+    fun discardPartial(taskId: Long) {
+        tempCache.cleanupTask(taskId, preserveForResume = false)
     }
 
     /**

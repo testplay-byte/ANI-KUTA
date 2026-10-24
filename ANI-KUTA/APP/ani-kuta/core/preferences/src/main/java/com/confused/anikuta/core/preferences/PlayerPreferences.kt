@@ -480,6 +480,11 @@ class PlayerPreferences(private val store: PreferenceStore) {
         private const val KEY_PREFIX_SUB_TRACK_MEMORY = "pref_sub_track_memory_"
         private const val KEY_PREFIX_SKIP_TIMESTAMPS = "pref_skip_timestamps_"
         private const val KEY_PREFIX_EPISODE_SKIP = "pref_episode_skip_"
-        private const val KEY_PREFIX_EPISODE_SKIP_ASKED = "pref_episode_skip_asked_"
+        // ROUND 123 (R5): the "_v2" suffix ONE-TIME invalidates every latch the
+        // broken GET-based client (rounds 121-122) wrote — those episodes are
+        // permanently marked "asked" with no data, so the fixed POST client
+        // never got a chance to ask again (the "AniSkip still not working"
+        // device report: the same anime stayed silent across the fix).
+        private const val KEY_PREFIX_EPISODE_SKIP_ASKED = "pref_episode_skip_asked_v2_"
     }
 }

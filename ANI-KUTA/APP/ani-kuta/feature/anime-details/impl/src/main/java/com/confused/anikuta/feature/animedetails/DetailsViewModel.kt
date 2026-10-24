@@ -1856,6 +1856,22 @@ class DetailsViewModel(
                             dataUpdatedAt = System.currentTimeMillis(),
                         ),
                     )
+                    // ROUND 123 (R9/F5): TITLE SYNC — the refresh changed what
+                    // the user sees on the details screen, but main_entry.title
+                    // (what the Library shows) was left stale. Sync it whenever
+                    // the AniList axis is the displayed identity (the
+                    // switchDataSource pattern).
+                    val freshTitle = fresh.toUnifiedAnime().title
+                    val mainEntry = contentRepository.getMainEntryByMainId(mainId)
+                    if (mainEntry?.displaySource == "data_source" &&
+                        !freshTitle.isNullOrBlank() && freshTitle != mainEntry.title
+                    ) {
+                        contentRepository.updateMainEntryTitle(mainId, freshTitle)
+                        Logger.i(TAG) {
+                            "refreshAniListAxis — main_entry.title synced: " +
+                                "'${mainEntry.title}' → '$freshTitle' (displaySource=data_source)"
+                        }
+                    }
                 }
                 Logger.i(TAG) { "D.3 Stage 2: Refreshed AniList metadata" }
                 // D-235: Also refresh the airing schedule data.
@@ -1916,13 +1932,43 @@ class DetailsViewModel(
                                 com.confused.anikuta.core.content.ContentDetails(mainId = mainId),
                             )
                         }
+                        // ROUND 123 (R9/F4): FULL-FIELD persist — this branch
+                        // wrote only cover+description, so a refresh never
+                        // landed genres/status/author/year/score in the DB
+                        // (the user report: tags/status blank until refresh,
+                        // then STILL blank after reopen). Null-merge every
+                        // ext field, exactly like the AniList twin at
+                        // refreshAniListAxis.
+                        val freshGenres = enriched.genres.takeIf { it.isNotEmpty() }
+                            ?.joinToString(", ") ?: existingExt?.extGenres
                         contentRepository.updateExtensionAxis(
                             (existingExt ?: com.confused.anikuta.core.content.ContentDetails(mainId = mainId)).copy(
                                 extThumbnailUrl = enriched.coverUrl ?: existingExt?.extThumbnailUrl,
                                 extDescription = enriched.description ?: existingExt?.extDescription,
+                                extGenres = freshGenres,
+                                extStatus = enriched.status ?: existingExt?.extStatus,
+                                extAuthor = enriched.author ?: existingExt?.extAuthor,
+                                extArtist = enriched.artist ?: existingExt?.extArtist,
+                                extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
+                                    year = enriched.seasonYear ?: existingExt?.extExtras?.year,
+                                    score = enriched.averageScore ?: existingExt?.extExtras?.score,
+                                ).toJson(),
                                 extUpdatedAt = System.currentTimeMillis(),
                             ),
                         )
+                        // ROUND 123 (R9/F5): TITLE SYNC (see refreshAniListAxis) —
+                        // the extension axis is the displayed identity here.
+                        val freshExtTitle = enriched.title.ifBlank { title }
+                        val mainEntry = contentRepository.getMainEntryByMainId(mainId)
+                        if (mainEntry?.displaySource == "extension" &&
+                            freshExtTitle.isNotBlank() && freshExtTitle != mainEntry.title
+                        ) {
+                            contentRepository.updateMainEntryTitle(mainId, freshExtTitle)
+                            Logger.i(TAG) {
+                                "refreshExtensionAxis — main_entry.title synced: " +
+                                    "'${mainEntry.title}' → '$freshExtTitle' (displaySource=extension)"
+                            }
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -2153,7 +2199,32 @@ class DetailsViewModel(
                             // D-313: stale guard — this coroutine can outlive the screen
                             // (network fetch); never remerge old data over a new anime.
                             if (refreshed != null && loadGen == loadGeneration) {
-                                extensionBase = refreshed
+                                // ROUND 123 (R9): null-MERGE the refresh into the
+                                // cached base — fetchFromExtension legitimately
+                                // returns a SPARSE stub (a Cloudflare wall, a
+                                // plugin reload right after app start, a throwing
+                                // getAnimeDetails) and the old direct assignment
+                                // blanked the displayed fields AND the persisted
+                                // axis with them (the "tags missing on reopen"
+                                // device report).
+                                val merged = refreshed.copy(
+                                    description = refreshed.description ?: cachedDetails.extDescription,
+                                    genres = refreshed.genres.ifEmpty {
+                                        cachedDetails.extGenres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList()
+                                    },
+                                    status = refreshed.status ?: cachedDetails.extStatus,
+                                    coverUrl = refreshed.coverUrl ?: cachedDetails.extThumbnailUrl,
+                                    seasonYear = refreshed.seasonYear ?: seedYear,
+                                    averageScore = refreshed.averageScore ?: cachedDetails.extExtras.score,
+                                )
+                                if (merged != refreshed) {
+                                    Logger.i(TAG) {
+                                        "ext refresh null-merge: sparse fetch rescued " +
+                                            "${refreshed.genres.size}/${merged.genres.size} genres, " +
+                                            "desc=${if (refreshed.description == null && merged.description != null) "kept" else "fresh"}"
+                                    }
+                                }
+                                extensionBase = merged
                                 // ROUND 101 (WS-B): re-merge with the user's CURRENT
                                 // priority — the old hardcoded EXTENSION flip silently
                                 // overrode a user-selected AniList priority every time
@@ -2163,8 +2234,8 @@ class DetailsViewModel(
                                     (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                                         ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
                                 )
-                                // Persist the refreshed ext_* axis (silent).
-                                resolveContentForExtension(sourceId, animeUrl, title, refreshed)
+                                // Persist the refreshed (null-merged) ext_* axis (silent).
+                                resolveContentForExtension(sourceId, animeUrl, title, merged)
                             } else if (refreshed != null) {
                                 Logger.d(TAG) { "Background extension refresh discarded (stale generation)" }
                             }
@@ -2439,23 +2510,32 @@ class DetailsViewModel(
                     // (single transaction in the resolver). When unifiedAnime is null, fall
                     // back to the 5-arg overload (no metadata to persist).
                     if (unifiedAnime != null) {
+                        // ROUND 123 (R9/F1): null-PRESERVING persist — a sparse
+                        // fetch must never overwrite stored ext fields with
+                        // nulls (the AniList twin already did this; the ext
+                        // writes now match its discipline).
+                        val existingExt = contentRepository.getContentDetails(existingContent.mainId)
+                        val extGenres = unifiedAnime.genres.takeIf { it.isNotEmpty() }
+                            ?.joinToString(", ") ?: existingExt?.extGenres
                         val extensionDetail = com.confused.anikuta.core.content.ContentDetails(
                             mainId = existingContent.mainId,
                             extensionType = ecosystemName,
                             extensionId = sourceId.toString(),
                             sourceId = sourceId,
                             animeUrl = animeUrl,
-                            extDescription = unifiedAnime.description,
-                            extGenres = unifiedAnime.genres.joinToString(", "),
-                            extStatus = unifiedAnime.status,
-                            extAuthor = unifiedAnime.author,
-                            extArtist = unifiedAnime.artist,
-                            extThumbnailUrl = unifiedAnime.coverUrl,
+                            extDescription = unifiedAnime.description ?: existingExt?.extDescription,
+                            extGenres = extGenres,
+                            extStatus = unifiedAnime.status ?: existingExt?.extStatus,
+                            extAuthor = unifiedAnime.author ?: existingExt?.extAuthor,
+                            extArtist = unifiedAnime.artist ?: existingExt?.extArtist,
+                            extThumbnailUrl = unifiedAnime.coverUrl ?: existingExt?.extThumbnailUrl,
                             // Task 47: persist year + score in the additive
                             // extras JSON so cache-first reopens keep them.
                             extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
-                                year = unifiedAnime.seasonYear,
-                                score = unifiedAnime.averageScore,
+                                year = unifiedAnime.seasonYear
+                                    ?: existingExt?.extExtras?.year,
+                                score = unifiedAnime.averageScore
+                                    ?: existingExt?.extExtras?.score,
                             ).toJson(),
                             extUpdatedAt = System.currentTimeMillis(),
                         )
@@ -2501,6 +2581,9 @@ class DetailsViewModel(
             // D-142 + D-198: Store the extension detail (with coverUrl) for library display.
             // Without this, the library can't show cover images for extension-only entries.
             if (unifiedAnime != null) {
+                // ROUND 123 (R9/F1): null-preserve (the row was just created by
+                // resolveOrCreateForExtension; merge against whatever it holds).
+                val existingExt = contentRepository.getContentDetails(mainId)
                 contentRepository.updateExtensionAxis(
                     com.confused.anikuta.core.content.ContentDetails(
                         mainId = mainId,
@@ -2508,12 +2591,13 @@ class DetailsViewModel(
                         extensionId = sourceId.toString(),
                         sourceId = sourceId,
                         animeUrl = animeUrl,
-                        extDescription = unifiedAnime.description,
-                        extGenres = unifiedAnime.genres.joinToString(", "),
-                        extStatus = unifiedAnime.status,
-                        extAuthor = unifiedAnime.author,
-                        extArtist = unifiedAnime.artist,
-                        extThumbnailUrl = unifiedAnime.coverUrl,
+                        extDescription = unifiedAnime.description ?: existingExt?.extDescription,
+                        extGenres = unifiedAnime.genres.takeIf { it.isNotEmpty() }
+                            ?.joinToString(", ") ?: existingExt?.extGenres,
+                        extStatus = unifiedAnime.status ?: existingExt?.extStatus,
+                        extAuthor = unifiedAnime.author ?: existingExt?.extAuthor,
+                        extArtist = unifiedAnime.artist ?: existingExt?.extArtist,
+                        extThumbnailUrl = unifiedAnime.coverUrl ?: existingExt?.extThumbnailUrl,
                         // Task 47: persist year + score in the additive
                         // extras JSON so cache-first reopens keep them.
                         extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
@@ -3440,6 +3524,42 @@ class DetailsViewModel(
                                 (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                                     ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
                             )
+                            // ROUND 123 (R9/F3): PERSIST the enrichment — the old
+                            // code updated the in-memory base only, so the DB row
+                            // stayed blank and EVERY reopen re-ran this fetch with
+                            // empty tags/status/synopsis until the user manually
+                            // refreshed. Null-merge + ensure-row, same as F4.
+                            try {
+                                val existingExt = contentRepository.getContentDetails(mainId)
+                                if (existingExt == null) {
+                                    contentRepository.upsertContentDetails(
+                                        com.confused.anikuta.core.content.ContentDetails(mainId = mainId),
+                                    )
+                                }
+                                contentRepository.updateExtensionAxis(
+                                    (existingExt ?: com.confused.anikuta.core.content.ContentDetails(mainId = mainId)).copy(
+                                        extensionType = if (sourceId.isCloudstreamBridgedId()) "cloudstream" else "aniyomi",
+                                        extensionId = sourceId.toString(),
+                                        sourceId = sourceId,
+                                        animeUrl = animeUrl,
+                                        extThumbnailUrl = enriched.coverUrl ?: existingExt?.extThumbnailUrl,
+                                        extDescription = enriched.description ?: existingExt?.extDescription,
+                                        extGenres = enriched.genres.takeIf { it.isNotEmpty() }
+                                            ?.joinToString(", ") ?: existingExt?.extGenres,
+                                        extStatus = enriched.status ?: existingExt?.extStatus,
+                                        extAuthor = enriched.author ?: existingExt?.extAuthor,
+                                        extArtist = enriched.artist ?: existingExt?.extArtist,
+                                        extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
+                                            year = enriched.seasonYear ?: existingExt?.extExtras?.year,
+                                            score = enriched.averageScore ?: existingExt?.extExtras?.score,
+                                        ).toJson(),
+                                        extUpdatedAt = System.currentTimeMillis(),
+                                    ),
+                                )
+                                Logger.i(TAG) { "Reopen enrichment persisted to content_details (mainId=$mainId)" }
+                            } catch (pe: Exception) {
+                                Logger.w(TAG) { "Reopen enrichment persist failed: ${pe.message}" }
+                            }
                         } else if (enriched != null) {
                             Logger.d(TAG) { "Reopen enrichment discarded (stale generation)" }
                         }

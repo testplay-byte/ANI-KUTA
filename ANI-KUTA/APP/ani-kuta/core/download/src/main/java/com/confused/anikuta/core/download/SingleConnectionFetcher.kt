@@ -105,6 +105,13 @@ class SingleConnectionFetcher(
                 // Determine the effective resume offset (0 if server ignored Range).
                 val isPartial = response.code == 206
                 val effectiveResumeFrom = if (isPartial) resumeFrom else 0L
+                if (!isPartial && resumeFrom > 0L) {
+                    // ROUND 123 (R7): the server ignored our Range request —
+                    // the restart from 0 is now attributable from logcat.
+                    DownloadLogger.w {
+                        "download task $taskId: server ignored Range (200) — restarting from 0 (had $resumeFrom bytes)"
+                    }
+                }
                 val total = if (isPartial) {
                     // Content-Range: bytes <start>-<end>/<total>
                     response.header("Content-Range")?.substringAfterLast('/')?.toLongOrNull() ?: -1L

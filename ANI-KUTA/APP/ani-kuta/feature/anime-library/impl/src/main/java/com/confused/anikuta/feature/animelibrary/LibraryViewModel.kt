@@ -340,6 +340,12 @@ class LibraryViewModel(
     /** True once [allEntries] mirrors the DB (set by [loadLibraryImpl]). */
     private var allEntriesLoaded = false
 
+    // ROUND 123 (R9/R10): the read-diff probe — mainId → title as the LAST
+    // library load saw it. A title change between loads is logged with both
+    // values, so the device logcat shows exactly when the Library's displayed
+    // identity (main_entry.title) moved (or failed to move).
+    private var previousLibraryTitles: Map<String, String> = emptyMap()
+
     /**
      * Task 64: the in-memory category view of [allEntries] — the entries whose
      * mainId appears in a row of [allLibraryItems] with [categoryId]. Order
@@ -522,6 +528,23 @@ class LibraryViewModel(
                         ),
                     )
                 }
+            }
+
+            // ROUND 123 (R9/R10): read-diff logging (see previousLibraryTitles).
+            run {
+                val diff = buildString {
+                    for (e in entries) {
+                        val prev = previousLibraryTitles[e.mainId]
+                        if (prev != null && prev != e.title) {
+                            if (isNotEmpty()) append("; ")
+                            append("${e.mainId.takeLast(8)}: '$prev' → '${e.title}'")
+                        }
+                    }
+                }
+                if (diff.isNotEmpty()) {
+                    Logger.i(TAG) { "Library title diff since last load: $diff" }
+                }
+                previousLibraryTitles = entries.associate { it.mainId to it.title }
             }
 
             if (entries.isEmpty()) {

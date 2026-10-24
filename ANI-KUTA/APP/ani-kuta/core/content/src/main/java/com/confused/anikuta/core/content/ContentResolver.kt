@@ -424,6 +424,21 @@ class ContentResolver(
                     ),
                 )
             }
+            // ROUND 123 (R9/F5): TITLE SYNC — the Library row shows
+            // main_entry.title, which this flow NEVER wrote (the KDoc claimed
+            // it did). A relink to a source whose title differs left the
+            // Library showing the old name until a full data-source switch.
+            // Sync it whenever the extension axis is the displayed identity.
+            val freshTitle = title.trim()
+            if (existing.displaySource == "extension" && freshTitle.isNotEmpty() &&
+                freshTitle != existing.title
+            ) {
+                repo.updateMainEntryTitle(mainId, freshTitle)
+                Logger.i(TAG) {
+                    "linkExtensionToExisting — main_entry.title synced to the extension identity: " +
+                        "'${existing.title}' → '$freshTitle' (displaySource=extension)"
+                }
+            }
         }
         // ── D-540: the reconciliation hook — downloads follow the identity
         // change (downloaded_episode/download_queue content_id sync + the
