@@ -3,8 +3,10 @@ package com.confused.anikuta.core.network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
@@ -153,9 +155,7 @@ class AniSkipClient(
                 .header("User-Agent", USER_AGENT)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .post(okhttp3.RequestBody.create(
-                    okhttp3.MediaType.parse("application/json"), body,
-                ))
+                .post(body.toRequestBody("application/json".toMediaType()))
                 .build()
             client.newCall(request).execute().use { resp ->
                 reachedAniList = resp.isSuccessful
