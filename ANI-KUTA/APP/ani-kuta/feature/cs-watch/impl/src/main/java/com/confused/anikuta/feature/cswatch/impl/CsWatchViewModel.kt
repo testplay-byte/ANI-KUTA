@@ -941,7 +941,7 @@ class CsWatchViewModel(
      * anything else walks the raw order.
      */
     private fun nextInFlavor(
-        s: com.confused.anikuta.feature.cswatch.impl.CsWatchUiState,
+        s: CsWatchUiState,
         currentIndex: Int,
         direction: Int,
     ): com.confused.anikuta.feature.cswatch.api.CsSimpleEpisode? {
