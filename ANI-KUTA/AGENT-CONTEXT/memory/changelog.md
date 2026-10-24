@@ -1,5 +1,11 @@
 # Changelog (High-Level)
 
+## 1.1.20 (round 125 — device-round responses, part five; version unchanged per the standing rule)
+- PLAYER: the Up Next card can no longer appear over a failed load in ANY event ordering (the arming rule is strictly mid-file and the offer band excludes the end-of-file pin).
+- WATCH UI: portrait reverts completely to the bottom-up menus for subtitles/qualities (the right-side drawers are fullscreen-only now, and a bit wider there); in fullscreen the subtitle SETTINGS panel slides in from the LEFT as the right-side options drawer closes.
+- DOWNLOADS: the reorder drag is a true port of the settings-page reference (the gesture no longer dies on swaps — the glitch root — the dragged row is opaque with a shadow, rows are tinted); a 0%-paused task reads just "Paused".
+- DETAILS: switching to an extension source or refreshing no longer blanks the details (four writers fed sparse data into a strict display — all null-merge now); the status row no longer renders "0"; the Year/Score rows survive reopen; the database audit (7 design flaws, schema untouched) is delivered as an HTML report.
+
 ## 1.1.20 (round 124 — device-round responses, part four; version unchanged per the standing rule)
 - PLAYER: the failing-episode end-pin and the "Up Next card during a failure" are dead for real (the player's state is now reset on every open, and a dead stream's end-of-file no longer counts as "played"); the false "server not responding" error over a loaded-but-paused video is fixed (the watchdog asks the player itself and unpauses instead of erroring); the fullscreen top/bottom darkening fades with the controls.
 - WATCH: the Up Next card appears in the LAST 10 SECONDS of an episode (the user's explicit timing) and offers again after dismiss → seek back → finish; AniSkip now fetches with the real episode duration and recovers the MAL id from the episode URL (the two silent killers of the previous rounds); the fullscreen episodes drawer centers on the current episode and has no "Skip timestamps" entry (removed outright); qualities/servers and subtitles open as right-side drawers like the episodes drawer.
