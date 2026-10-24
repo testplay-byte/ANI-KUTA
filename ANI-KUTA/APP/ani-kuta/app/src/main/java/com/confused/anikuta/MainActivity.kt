@@ -200,6 +200,22 @@ class MainActivity : com.lagradost.cloudstream3.MainActivity() {
                 android.graphics.Color.TRANSPARENT,
             ),
         )
+        // ROUND 124 (R11): the POST_NOTIFICATIONS runtime request — it was
+        // only ever asked during ONBOARDING, so anyone who skipped onboarding
+        // (or restored data onto a new install) had notifications silently
+        // off forever: every postNotification() call no-ops without the grant
+        // (Android 13+). Asked once here per install; the system's own
+        // don't-ask-again handling prevents nagging.
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            registerForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+            ) { granted ->
+                Logger.i("Anikuta:MainActivity") { "POST_NOTIFICATIONS granted=$granted" }
+            }.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         // D-220: Handle AniList OAuth redirect (anikuta://anilist-auth#access_token=...).
         // The token is in the URL fragment (not query). Parse + pass to AniListTracker.
         handleAniListOAuthRedirect(intent)

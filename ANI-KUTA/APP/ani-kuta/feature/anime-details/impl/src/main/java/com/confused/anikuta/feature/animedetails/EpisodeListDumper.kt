@@ -54,7 +54,11 @@ object EpisodeListDumper {
     private const val MAX_NAME = 300
     private const val MAX_TITLE = 150
     private const val MAX_SUMMARY = 160
-    private const val MAX_URL = 200
+    // ROUND 124 (R12): 200 → 48 — the URLs are opaque base64 blobs; 200+ chars
+    // per episode per refresh buried the useful lines under kilobytes of noise
+    // in the device logcat (the round-124 capture: ~15 dump lines per refresh
+    // were pure URL). 48 chars is enough to correlate/dedupe rows.
+    private const val MAX_URL = 48
     private const val MAX_SCANLATOR = 60
 
     /**

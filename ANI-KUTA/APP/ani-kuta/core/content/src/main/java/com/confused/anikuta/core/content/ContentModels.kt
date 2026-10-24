@@ -158,6 +158,12 @@ data class ExtensionExtras(
     /** Task 47: the source-provided rating on the 0..100 scale the details
      * screen displays (SAnime.score is 0..10 — converted before persisting). */
     val score: Int? = null,
+    /** ROUND 124 (R9): the extension axis's REAL title — the reopen path used
+     * to derive a display name from the URL slug ("dandadan-lzcmw" →
+     * "dandadan lzcmw", the device report's wrong name after a kill+reopen).
+     * Persisted at every ext-axis write; additive JSON (ignoreUnknownKeys +
+     * encodeDefaults=false keep old rows and old readers compatible). */
+    val title: String? = null,
 ) {
     fun toJson(): String = extrasJson.encodeToString(ExtensionExtras.serializer(), this)
 

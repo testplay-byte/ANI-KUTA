@@ -7,8 +7,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 // ROUND 122-fix: the long-press drag gesture was used without its import.
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -50,6 +52,8 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +64,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,7 +77,7 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.download.DownloadStatus
 import com.confused.anikuta.core.download.DownloadTask
 import com.confused.anikuta.feature.download.components.DownloadsEmptyState
-import com.confused.anikuta.feature.download.components.rememberQueueDragDropState
+import kotlin.math.roundToInt
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -689,8 +694,16 @@ private fun EpisodeRow(
                 }
             }
             when (task.status) {
-                DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED -> {
+                DownloadStatus.DOWNLOADING -> {
                     PercentagePill("${task.progress}%")
+                }
+                // ROUND 124 (R8): PAUSED gets its OWN visible tag — it used to
+                // render the bare percentage exactly like an active download,
+                // so a paused row was indistinguishable from a downloading one
+                // (the device round: "just like how it shows the queued tag,
+                // it should show the paused tag properly, but it does not").
+                DownloadStatus.PAUSED -> {
+                    InfoPill("Paused — ${task.progress}%")
                 }
                 DownloadStatus.QUEUED, DownloadStatus.RETRYING -> {
                     InfoPill(if (task.status == DownloadStatus.RETRYING) "Retrying" else "Queued")
@@ -1217,7 +1230,7 @@ private fun QueueReorderCard(
                     Text(
                         // ROUND 122 (R10): the drag instruction (the arrows are
                         // gone) — the running task stays pinned on top.
-                        "Top of the list downloads first — long-press a row and drag",
+                        "Top of the list downloads first — drag by the handle",
                         fontFamily = RobotoFamily,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1252,86 +1265,59 @@ private fun QueueReorderCard(
             // non-draggable and cannot be passed — the drag arranges the
             // start order of everything else, which IS what the scheduler
             // consumes.
-            val dragListState = rememberLazyListState()
+            // ROUND 124 (R7): the drag REBUILT on the settings-page reorder
+            // pattern (DragReorderableList — the "Priority order" list the
+            // device round praised as the smooth reference): a plain Column of
+            // FIXED-height rows, the dragged row translated in the DRAW phase
+            // only, swaps decided by pure integer division over the row
+            // height, and the displaced neighbors SNAP (no placement springs
+            // fighting the finger — the LazyColumn + animateItem drag was the
+            // "way too glitchy… way too bad" report: spring placements
+            // competed with the mid-flight swap-band math). The gesture rides
+            // the HANDLE and starts immediately (no long-press wait). One
+            // commit of the full order on drop — the scheduler contract is
+            // unchanged, and the pinned DOWNLOADING/RETRYING rows still can't
+            // be dragged or passed (the target index coerces to >= pinnedRows).
+            val rowHeightDp = 52.dp
+            val rowHeightPx = with(LocalDensity.current) { rowHeightDp.toPx() }
             val pinnedRows = queue.count {
                 it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.RETRYING
             }
             val localQueue = remember { mutableStateListOf<DownloadTask>() }
-            val dragState = rememberQueueDragDropState(dragListState) { from, to ->
-                if (to >= pinnedRows) {
-                    localQueue.add(to, localQueue.removeAt(from))
-                }
-            }
+            var draggedIndex by remember { mutableIntStateOf(-1) }
+            var dragOffset by remember { mutableFloatStateOf(0f) }
             // Resync ONLY while no drag is in flight — progress ticks mutate
             // the queue every second and would clobber an in-flight arrangement.
             LaunchedEffect(queue) {
-                if (dragState.draggingItemIndex == null &&
+                if (draggedIndex < 0 &&
                     localQueue.map { it.id } != queue.map { it.id }
                 ) {
                     localQueue.clear()
                     localQueue.addAll(queue)
                 }
             }
-            LazyColumn(state = dragListState, modifier = Modifier.fillMaxWidth()) {
-                items(localQueue.size, key = { localQueue[it].id }) { index ->
-                    val task = localQueue[index]
-                    val isDragging = dragState.draggingItemIndex == index
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                localQueue.forEachIndexed { index, task ->
+                    val isDragging = index == draggedIndex
                     Row(
                         modifier = Modifier
-                            // ROUND 123 (R8): fixed 52dp row height — the
-                            // variable-height rows were the drag jank's root
-                            // (the swap band math jumped between crossing
-                            // different heights, and the dragged row's finger
-                            // anchoring wobbled). One compact line reads fine
-                            // and swaps glide.
-                            .height(52.dp)
+                            .height(rowHeightDp)
                             .fillMaxWidth()
-                            .animateItem()
                             .zIndex(if (isDragging) 1f else 0f)
                             .graphicsLayer {
-                                translationY = if (isDragging) dragState.draggingItemDelta else 0f
+                                translationY = if (isDragging) dragOffset else 0f
                             }
                             .background(
                                 if (isDragging) {
                                     MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
                                 } else {
                                     Color.Transparent
-                                },
-                            )
-                            .then(
-                                if (index >= pinnedRows) {
-                                    // KEYED ON THE TASK ID (not the index): the
-                                    // pointer handler must follow the ROW it was
-                                    // pressed on, not a position.
-                                    Modifier
-                                        .pointerInput(task.id) {
-                                            detectDragGesturesAfterLongPress(
-                                                onDragStart = {
-                                                    if (dragState.draggingItemIndex == null) {
-                                                        dragState.onDragStart(index)
-                                                    }
-                                                },
-                                                onDrag = { change, amount ->
-                                                    if (dragState.draggingItemIndex != null) {
-                                                        change.consume()
-                                                        dragState.onDrag(amount)
-                                                    }
-                                                },
-                                                onDragEnd = {
-                                                    if (dragState.draggingItemIndex != null) {
-                                                        onCommitReorder(localQueue.map { it.id })
-                                                        dragState.onDragInterrupted()
-                                                    }
-                                                },
-                                                onDragCancel = {
-                                                    if (dragState.draggingItemIndex != null) {
-                                                        dragState.onDragInterrupted()
-                                                    }
-                                                },
-                                            )
-                                        }
-                                } else {
-                                    Modifier
                                 },
                             )
                             .padding(horizontal = 12.dp),
@@ -1364,6 +1350,7 @@ private fun QueueReorderCard(
                                 fontWeight = FontWeight.SemiBold,
                                 color = when (task.status) {
                                     DownloadStatus.DOWNLOADING -> MaterialTheme.colorScheme.primary
+                                    DownloadStatus.PAUSED -> MaterialTheme.colorScheme.tertiary
                                     DownloadStatus.WAITING_FOR_NETWORK -> MaterialTheme.colorScheme.tertiary
                                     DownloadStatus.ERROR -> MaterialTheme.colorScheme.error
                                     else -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -1371,17 +1358,80 @@ private fun QueueReorderCard(
                                 maxLines = 1,
                             )
                         }
-                        Icon(
-                            Icons.Filled.DragHandle,
-                            contentDescription = if (index >= pinnedRows) {
-                                "Long-press and drag to reorder"
-                            } else {
-                                "Downloading — pinned to the top"
-                            },
-                            tint = if (index >= pinnedRows) MaterialTheme.colorScheme.onSurfaceVariant
-                            else MaterialTheme.colorScheme.outlineVariant,
-                            modifier = Modifier.size(22.dp),
-                        )
+                        // The handle — the gesture target. KEYED ON THE TASK ID:
+                        // the handler follows the ROW it was pressed on across
+                        // swaps (its closures read live state, never a stale
+                        // captured index — the reference pattern's discipline).
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .then(
+                                    if (index >= pinnedRows) {
+                                        Modifier.pointerInput(task.id) {
+                                            detectDragGestures(
+                                                onDragStart = {
+                                                    draggedIndex = index
+                                                    dragOffset = 0f
+                                                },
+                                                onDrag = { change, amount ->
+                                                    if (draggedIndex >= 0) {
+                                                        change.consume()
+                                                        dragOffset += amount.y
+                                                        val shift = (dragOffset / rowHeightPx).roundToInt()
+                                                        if (shift != 0) {
+                                                            val from = draggedIndex
+                                                            val target = (from + shift)
+                                                                .coerceIn(pinnedRows, localQueue.size - 1)
+                                                            if (target != from) {
+                                                                val moved = localQueue.removeAt(from)
+                                                                localQueue.add(target, moved)
+                                                                // REBASE — the row now occupies its
+                                                                // new slot; the offset measures from
+                                                                // there (the reference pattern).
+                                                                dragOffset -= (target - from) * rowHeightPx
+                                                                draggedIndex = target
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                onDragEnd = {
+                                                    if (draggedIndex >= 0) {
+                                                        onCommitReorder(localQueue.map { it.id })
+                                                        draggedIndex = -1
+                                                        dragOffset = 0f
+                                                    }
+                                                },
+                                                onDragCancel = {
+                                                    // Roll back to the source order (the
+                                                    // reference pattern — a cancelled gesture
+                                                    // must not leave a phantom arrangement).
+                                                    if (draggedIndex >= 0) {
+                                                        localQueue.clear()
+                                                        localQueue.addAll(queue)
+                                                        draggedIndex = -1
+                                                        dragOffset = 0f
+                                                    }
+                                                },
+                                            )
+                                        }
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.DragHandle,
+                                contentDescription = if (index >= pinnedRows) {
+                                    "Drag to reorder"
+                                } else {
+                                    "Downloading — pinned to the top"
+                                },
+                                tint = if (index >= pinnedRows) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.outlineVariant,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
                     }
                 }
             }

@@ -19,6 +19,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- ROUND 124 (R11): revives the background update-check scheduling after
+         a reboot or an app update — without it, every scheduled notification
+         chain died with the process until the next app open. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
     <!-- D-443: the smart-link ad's floating return pill — a system overlay
@@ -275,6 +279,21 @@
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
+
+        <!-- ROUND 124 (R11): re-arms the periodic update-check worker + the
+             smart-release one-shots on BOOT_COMPLETED / MY_PACKAGE_REPLACED
+             (WorkManager persists jobs, but the one-shot chains were only
+             ever armed while the app ran — scheduled notifications silently
+             died after a reboot until the next app open). -->
+        <receiver
+            android:name="com.confused.anikuta.notifications.BootCompletedReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Extension install foreground service (Phase 5a) -->
         <service

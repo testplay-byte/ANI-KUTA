@@ -147,8 +147,20 @@ class PlayerObserver(
                     // playing — arm the reached-playback gate. Only when NOT
                     // switching: during a switch the OLD file still emits
                     // time-pos and must not mark the NEW episode as played.
+                    // ROUND 124 (R1): only a NON-EOF position arms it — a dead
+                    // stream's demuxer fires eof-reached and keep-open then PINS
+                    // time-pos at the full duration; that pin must never read as
+                    // "this episode played" (the device logcat: pos==dur at EOF
+                    // armed the gate 2ms after FILE_LOADED, then the Up Next
+                    // card + the end-position save fired over the failure).
                     if (!stateHolder.isSwitching.value) {
-                        stateHolder.markEpisodeReachedPlayback()
+                        val dur = stateHolder.duration.value
+                        if (dur <= 0 || it < dur - 1) {
+                            if (!stateHolder.episodeReachedPlayback) {
+                                Logger.i(TAG) { "reached-playback ARMED (pos=$it dur=$dur)" }
+                            }
+                            stateHolder.markEpisodeReachedPlayback()
+                        }
                     }
                 }
             }

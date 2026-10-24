@@ -155,18 +155,29 @@ fun FullscreenControls(
                     .padding(start = 16.dp, top = 4.dp),
             )
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.55f),
-                            0.12f to Color.Transparent,
-                            0.85f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.65f),
+            // ROUND 124 (R6): the top/bottom darkening rides the CONTROLS
+            // visibility — it used to render unconditionally, so the screen
+            // kept darkened bands long after the controls faded (the device
+            // round: "the darkening effect… stays there even after the
+            // controls are gone").
+            AnimatedVisibility(
+                visible = controlsVisible,
+                enter = fadeIn(tween(ANIM_DURATION)),
+                exit = fadeOut(tween(ANIM_DURATION)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.Black.copy(alpha = 0.55f),
+                                0.12f to Color.Transparent,
+                                0.85f to Color.Transparent,
+                                1f to Color.Black.copy(alpha = 0.65f),
+                            ),
                         ),
-                    ),
-            )
+                )
+            }
 
             Box(
                 modifier = Modifier

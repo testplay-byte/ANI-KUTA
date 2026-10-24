@@ -478,8 +478,24 @@ fun WatchScreen(
                 !stateHolder.userPaused && stateHolder.errorMessage.value == null &&
                 !stateHolder.isSwitching.value
             ) {
-                Logger.w(TAG) { "Fatal-error watchdog: stuck at start for 15s (not user-paused)" }
-                stateHolder.setSwitchingError("This server is not responding. Try another server or quality.")
+                // ROUND 124 (R2): ask MPV ITSELF whether it's paused — the app
+                // flag desyncs (a quality-switch loadfile never forced
+                // pause=no, so a paused mpv read as "dead server"). A loaded
+                // file that is merely PAUSED gets unpaused (every loadfile in
+                // this app means autoplay) instead of a false "not responding"
+                // error — the device round: the error appeared, vanished and
+                // returned in a loop while tapping play started the video.
+                val mpvPaused = runCatching { MPVLib.getPropertyBoolean("pause") }.getOrDefault(false)
+                if (mpvPaused) {
+                    Logger.w(TAG) {
+                        "Fatal-error watchdog: mpv PAUSED at start (app flag not set) — " +
+                            "unpausing instead of erroring"
+                    }
+                    runCatching { MPVLib.setPropertyBoolean("pause", false) }
+                } else {
+                    Logger.w(TAG) { "Fatal-error watchdog: stuck at start for 15s (not user-paused)" }
+                    stateHolder.setSwitchingError("This server is not responding. Try another server or quality.")
+                }
             }
         }
     }
@@ -832,16 +848,15 @@ fun WatchScreen(
     // the effective outro start (AniSkip's ed interval, else the manual stamp)
     // when one exists. Once per episode key; the countdown effect below handles
     // auto-play vs. button-only.
-    LaunchedEffect(position, duration, currentEpisodeUrl, nextUpCardEnabled, skipTimestamps, episodeSkip) {
+    LaunchedEffect(position, duration, currentEpisodeUrl, nextUpCardEnabled) {
         if (duration <= 0 || !nextUpCardEnabled) return@LaunchedEffect
-        // ROUND 123 (R3): sanity gates — the device round showed the card
-        // firing minutes early. Three killers: (a) a stale cross-file
-        // position/duration pairing right after a switch (the old file's
-        // ~end position vs the new file's duration — reachedPlayback is
-        // still false for the new file at that instant); (b) an error
-        // state; (c) an implausible MANUAL outro stamp (per-series stamps
-        // from old testing fire forever). The 0.95×duration floor applies
-        // to EVERY path now.
+        // ROUND 123 (R3): the sanity gates (a stale cross-file pairing right
+        // after a switch; an error state) — kept.
+        // ROUND 124 (R3): the 95%-fraction window is RETIRED — the device
+        // round's order: "it should only appear 10 seconds before the episode
+        // is actually ending". A pure last-10-seconds rule now; the
+        // outro-based trigger returns once AniSkip carries real data (then
+        // the card will ride the outro start).
         if (isSwitching ||
             !stateHolder.episodeReachedPlayback ||
             stateHolder.loadingState.value == PlayerLoadingState.ERROR
@@ -849,25 +864,23 @@ fun WatchScreen(
             return@LaunchedEffect
         }
         val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
+        // ROUND 124 (R3b): a dismissal is per-APPROACH — seek back out of the
+        // end zone (below duration−15s) and both latches re-arm, so finishing
+        // the episode after a dismiss-then-seek-back offers the card again
+        // (the device report: dismiss → seek back → reach the end → no card).
+        if (dismissedNextKeys[epKey] == true && duration - position > 15f) {
+            dismissedNextKeys.remove(epKey)
+            offeredNextKeys.remove(epKey)
+            Logger.i(TAG) { "UpNext: latches re-armed (seeked back out of the end zone) key=$epKey" }
+        }
         if (offeredNextKeys[epKey] == true) return@LaunchedEffect
-        val outroStart = episodeSkip?.takeIf { it.hasOutro }?.outroStartSec
-            ?: skipTimestamps.takeIf { it.hasOutro }?.outroStartSec
-        val plausibleOutro = outroStart != null &&
-            outroStart >= duration * 0.5f &&
-            outroStart < duration - 5
-        val fraction = position.toFloat() / duration
-        val reached = fraction >= 0.95f ||
-            (plausibleOutro && position >= (outroStart ?: 0))
-        Logger.i(TAG) {
-            val fractionStr = "%.2f".format(fraction)
-            val outroSource = when {
-                episodeSkip?.hasOutro == true -> "aniskip"
-                skipTimestamps.hasOutro -> "manual"
-                else -> "none"
+        val secondsLeft = duration - position
+        val reached = secondsLeft <= 10f
+        if (reached || dismissedNextKeys[epKey] == true) {
+            Logger.i(TAG) {
+                "UpNext eval: pos=$position dur=$duration secondsLeft=$secondsLeft " +
+                    "reached=$reached dismissed=${dismissedNextKeys[epKey] == true} key=$epKey"
             }
-            "UpNext eval: pos=$position dur=$duration fraction=$fractionStr " +
-                "outroStart=$outroStart (source=$outroSource) " +
-                "plausibleOutro=$plausibleOutro reached=$reached key=$epKey"
         }
         if (reached) offerNextEpisode(false)
     }
@@ -1128,7 +1141,9 @@ fun WatchScreen(
                         // ROUND 123 (R2): the SAME gates as the write — a dead
                         // stream's demuxer EOF must not summon the Up Next card
                         // (the device round: the card appeared over a failure).
-                        val offerAllowed = nextUpCardEnabled &&
+                        // ROUND 124 (R1): dur>0 too — a fresh file with no
+                        // observed duration cannot be at its natural end.
+                        val offerAllowed = nextUpCardEnabled && dur > 0 &&
                             stateHolder.episodeReachedPlayback &&
                             stateHolder.loadingState.value != PlayerLoadingState.ERROR
                         Logger.i(TAG) { "EOF hook: offerAllowed=$offerAllowed" }
@@ -1229,6 +1244,15 @@ fun WatchScreen(
                     Logger.w(TAG) { "Failed to set http-header-fields: ${e.message}" }
                 }
 
+                // ROUND 124 (R1): the INITIAL open never reset the holder —
+                // the previous playback's pinned end-of-file metrics + the
+                // reached-playback gate survived into the new file (the device
+                // logcat: the EOF hook + the Up Next offer fired at
+                // FILE_LOADED+2ms with the OLD pos/dur, then the periodic save
+                // pinned the end + auto-marked the episode watched). Every
+                // switch path already resets; the initial open now does too.
+                stateHolder.resetPlaybackMetrics()
+                Logger.i(TAG) { "Initial load — playback metrics reset" }
                 Logger.i(TAG) { "Sending loadfile command to MPV..." }
                 // D.FIX: For fd:// URLs (offline playback), delay 500ms so the
                 // SurfaceView's surfaceCreated fires first. Without this delay, MPV
@@ -1562,6 +1586,11 @@ fun WatchScreen(
                 else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
             MPVLib.setOptionString("http-header-fields", headers)
             MPVLib.command(arrayOf("loadfile", cachedUrl(video.url, headers), "replace"))
+            // ROUND 124 (R2): every loadfile means autoplay — force pause=no
+            // (the init/switch paths already do; a paused leftover survived
+            // the replace and the watchdog read it as a dead server).
+            MPVLib.setPropertyBoolean("pause", false)
+            stateHolder.updateUserPaused(false)
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to switch quality" }
             stateHolder.setSwitchingError("Failed to switch: ${e.message}")
@@ -2013,7 +2042,8 @@ fun WatchScreen(
                 if (!upNextVisible) return@LaunchedEffect
                 val pos = stateHolder.position.value
                 val dur = stateHolder.duration.value
-                val nearEnd = dur > 0 && pos.toFloat() >= dur * 0.95f
+                // ROUND 124 (R3): the same window as the offer — the final 10s.
+                val nearEnd = dur > 0 && (dur - pos) <= 10
                 if (!nearEnd) continue
                 upNextCountdown = upNextCountdown - 1
             }
@@ -2046,7 +2076,12 @@ fun WatchScreen(
     // Cached-first; the negative latch (markEpisodeSkipFetched) stops re-asks
     // for anime the service doesn't cover. The episode-number check before
     // the state write discards a result that landed after a switch.
-    LaunchedEffect(currentEpisodeUrl) {
+    // ROUND 124 (R4): re-keyed on duration availability — the old effect ran
+    // ONCE at episode open while duration was still 0, asked the service with
+    // episodeLength=0 (a guaranteed miss), and the miss LATCHED permanently
+    // (the device round: AniSkip silent even on popular anime). The fetch now
+    // waits for the file's real duration.
+    LaunchedEffect(currentEpisodeUrl, duration > 0) {
         val epNum = stateHolder.currentEpisodeNumber.value.toInt()
         if (watchKey.mainId.isBlank() || epNum <= 0) {
             episodeSkip = null
@@ -2062,6 +2097,7 @@ fun WatchScreen(
             return@LaunchedEffect
         }
         val durSec = stateHolder.duration.value
+        if (durSec <= 0) return@LaunchedEffect
         var hadIdsForLatch = false
         val fetched = runCatching {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -2069,8 +2105,20 @@ fun WatchScreen(
                 val details = runCatching {
                     contentRepository.getContentDetails(watchKey.mainId)
                 }.getOrNull()
-                val mal = details?.malId
+                var mal = details?.malId
                 val anilist = details?.anilistId
+                // ROUND 124 (R4): the source's episode URLs embed the MAL id
+                // ("…&mal=57334&…") — a free, instant fallback when the DB row
+                // carries none (the device logcat: malId=null on a known
+                // AniList-linked anime).
+                if (mal == null || mal <= 0) {
+                    mal = Regex("mal=(\\d{1,8})")
+                        .find(stateHolder.currentEpisodeUrl.value)
+                        ?.groupValues?.get(1)?.toIntOrNull()
+                    if (mal != null) {
+                        Logger.i(TAG) { "AniSkip: malId=$mal recovered from the episode URL" }
+                    }
+                }
                 // ROUND 123 (R10): the full fetch decision in one line — the
                 // device round had AniSkip silently dead for three rounds
                 // (GET-404, then stale latches); this names the cause.
@@ -2227,22 +2275,11 @@ fun WatchScreen(
         stateHolder.setSwitchingEpisode(false)
     }
 
-    // ── D-748: the intro/outro marking sheet ──────────────────────────────────
-    var showSkipEditorSheet by remember { mutableStateOf(false) }
-    // ROUND 121: the fullscreen episodes browser (the More button's sheet) —
-    // also the skip editor's new home (the control-bar entry retired).
+    // ── D-748 / ROUND 124 (R5): the manual skip-timestamps EDITOR is REMOVED
+    // (the device round's outright order — its only entry died with the
+    // drawer chip; the stored stamps still feed the skip fallback below).
+    // ROUND 121: the fullscreen episodes browser (the More button's sheet).
     var showEpisodesSheet by remember { mutableStateOf(false) }
-    if (showSkipEditorSheet) {
-        SkipEditorSheet(
-            currentPositionSec = position,
-            timestamps = skipTimestamps,
-            onSet = { updated ->
-                skipTimestamps = updated
-                playerPreferences.setSkipTimestamps(watchKey.mainId, updated)
-            },
-            onDismiss = { showSkipEditorSheet = false },
-        )
-    }
     // ROUND 121: the fullscreen episodes browser — the More button's sheet,
     // and the skip editor's new home (the control-bar entry retired for the
     // prev/next episode buttons).
@@ -2447,10 +2484,6 @@ fun WatchScreen(
                 onEpisodeSelect = { ep ->
                     showEpisodesSheet = false
                     onEpisodeSwitch(ep)
-                },
-                onOpenSkipEditor = {
-                    showEpisodesSheet = false
-                    showSkipEditorSheet = true
                 },
                 onDismiss = { showEpisodesSheet = false },
             )
@@ -4083,7 +4116,6 @@ private fun PlayerEpisodesSheet(
     episodes: List<SimpleEpisode>,
     currentUrl: String,
     onEpisodeSelect: (SimpleEpisode) -> Unit,
-    onOpenSkipEditor: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sorted = remember(episodes) { episodes.sortedBy { it.episodeNumber } }
@@ -4095,9 +4127,15 @@ private fun PlayerEpisodesSheet(
     }
     val listState = rememberLazyListState()
     // Open ON the current episode — a 300-episode list must not open at ep 1.
+    // ROUND 124 (R5): CENTER on it (the device round's ask) — an instant prime
+    // jump first (the effect can run before the first layout lays items out),
+    // then the shared centered settle; the helper no-ops on out-of-range
+    // indices and clamps at the content edges, so the very first / very last
+    // episode simply rests at its edge (never forced past it, no glitch).
     androidx.compose.runtime.LaunchedEffect(sorted, currentUrl) {
         val idx = sorted.indexOfFirst { it.url == currentUrl }
         if (idx > 0) listState.scrollToItem(idx)
+        if (idx >= 0) listState.animateScrollToItemCentered(idx)
     }
     BackHandler(onBack = onDismiss)
     Box(modifier = Modifier.fillMaxSize()) {
@@ -4162,21 +4200,9 @@ private fun PlayerEpisodesSheet(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        // The skip editor's entry (the control-bar button retired).
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                            shape = RoundedCornerShape(10.dp),
-                            onClick = onOpenSkipEditor,
-                        ) {
-                            Text(
-                                "Skip timestamps",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                            )
-                        }
+                        // ROUND 124 (R5): the "Skip timestamps" entry is REMOVED
+                        // outright (the device round: "why do we need this
+                        // option at all? … completely remove it outright").
                     }
                     LazyColumn(
                         state = listState,
@@ -4248,119 +4274,6 @@ private fun PlayerEpisodesSheet(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-// ROUND 121-fix: the sheet's own opt-in — the PlayerEpisodesSheet insertion
-// above had claimed the @OptIn that used to sit on SkipEditorSheet.
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Composable
-private fun SkipEditorSheet(
-    currentPositionSec: Int,
-    timestamps: com.confused.anikuta.core.preferences.PlayerPreferences.SkipTimestamps,
-    onSet: (com.confused.anikuta.core.preferences.PlayerPreferences.SkipTimestamps) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
-        ) {
-            Text(
-                "Intro & outro",
-                fontFamily = RobotoFamily,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Text(
-                "Marked per series — saved for every episode. Position: ${formatPillTime(currentPositionSec.toLong())}",
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
-            )
-            SkipEditorRow(
-                title = "Intro start",
-                value = timestamps.introStartSec,
-                onStamp = { onSet(timestamps.copy(introStartSec = currentPositionSec)) },
-                onClear = { onSet(timestamps.copy(introStartSec = null)) },
-            )
-            SkipEditorRow(
-                title = "Intro end",
-                value = timestamps.introEndSec,
-                onStamp = { onSet(timestamps.copy(introEndSec = currentPositionSec)) },
-                onClear = { onSet(timestamps.copy(introEndSec = null)) },
-            )
-            SkipEditorRow(
-                title = "Outro start",
-                value = timestamps.outroStartSec,
-                onStamp = { onSet(timestamps.copy(outroStartSec = currentPositionSec)) },
-                onClear = { onSet(timestamps.copy(outroStartSec = null)) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun SkipEditorRow(
-    title: String,
-    value: Int?,
-    onStamp: () -> Unit,
-    onClear: () -> Unit,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    title,
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    if (value != null) formatPillTime(value.toLong()) else "Not set",
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(
-                "Set here",
-                color = MaterialTheme.colorScheme.primary,
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .clickable(onClick = onStamp)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-            )
-            if (value != null) {
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "Clear",
-                    color = MaterialTheme.colorScheme.error,
-                    fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable(onClick = onClear)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                )
             }
         }
     }

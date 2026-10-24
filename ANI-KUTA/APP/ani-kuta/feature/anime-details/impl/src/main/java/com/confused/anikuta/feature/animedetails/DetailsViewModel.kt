@@ -1952,6 +1952,8 @@ class DetailsViewModel(
                                 extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
                                     year = enriched.seasonYear ?: existingExt?.extExtras?.year,
                                     score = enriched.averageScore ?: existingExt?.extExtras?.score,
+                                    title = enriched.title.takeIf { it.isNotBlank() }
+                                        ?: existingExt?.extExtras?.title,
                                 ).toJson(),
                                 extUpdatedAt = System.currentTimeMillis(),
                             ),
@@ -2536,6 +2538,9 @@ class DetailsViewModel(
                                     ?: existingExt?.extExtras?.year,
                                 score = unifiedAnime.averageScore
                                     ?: existingExt?.extExtras?.score,
+                                title = unifiedAnime.title.takeIf { it.isNotBlank() }
+                                    ?: existingExt?.extExtras?.title
+                                    ?: title.takeIf { it.isNotBlank() },
                             ).toJson(),
                             extUpdatedAt = System.currentTimeMillis(),
                         )
@@ -2603,6 +2608,8 @@ class DetailsViewModel(
                         extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
                             year = unifiedAnime.seasonYear,
                             score = unifiedAnime.averageScore,
+                            title = unifiedAnime.title.takeIf { it.isNotBlank() }
+                                ?: existingExt?.extExtras?.title,
                         ).toJson(),
                         extUpdatedAt = System.currentTimeMillis(),
                     ),
@@ -3227,6 +3234,13 @@ class DetailsViewModel(
 
         viewModelScope.launch {
             mergeAniListIntoUnified(anilistId)
+            // ROUND 124 (R10): the user just CHOSE an AniList entry — switch
+            // the displayed data source to AniList automatically (the device
+            // round: "it does properly link, but it should switch the data
+            // source automatically to AniList"). switchDataSource re-merges,
+            // persists display_source + follows the title, and auto-refreshes
+            // the AniList axis — the whole round-102 contract.
+            switchDataSource(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
             _autoLinkState.value = AutoLinkState.Matched(anilistId, 1.0f, cached = false)
             _anilistSearchState.value = AniListSearchState.Idle
             _showManualLinkSheet.value = false
@@ -3474,8 +3488,18 @@ class DetailsViewModel(
         if (mainId != null && extensionBase == null) {
             val details = contentRepository.getContentDetails(mainId)
             if (details != null && details.hasExtensionLink) {
+                // ROUND 124 (R9): the REAL title first — the extras' persisted
+                // ext title, then main_entry.title; the URL-slug derivation
+                // ("dandadan-lzcmw" → "dandadan lzcmw") is the LAST resort
+                // only (the device report: the wrong name after kill+reopen,
+                // fixed by a manual refresh — the restore never asked the DB
+                // for the real title).
+                val restoredExtTitle = details.extExtras?.title
+                    ?: contentRepository.getMainEntryByMainId(mainId)?.title
+                        ?.takeIf { it.isNotBlank() }
+                    ?: (details.animeUrl ?: animeUrl).substringAfterLast("/").replace("-", " ")
                 extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
-                    title = (details.animeUrl ?: animeUrl).substringAfterLast("/").replace("-", " "),
+                    title = restoredExtTitle,
                     description = details.extDescription,
                     genres = details.extGenres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
                     status = details.extStatus,
@@ -3552,6 +3576,8 @@ class DetailsViewModel(
                                         extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
                                             year = enriched.seasonYear ?: existingExt?.extExtras?.year,
                                             score = enriched.averageScore ?: existingExt?.extExtras?.score,
+                                            title = enriched.title.takeIf { it.isNotBlank() }
+                                                ?: existingExt?.extExtras?.title,
                                         ).toJson(),
                                         extUpdatedAt = System.currentTimeMillis(),
                                     ),
@@ -3747,6 +3773,7 @@ class DetailsViewModel(
                                     extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
                                         year = enriched.seasonYear,
                                         score = enriched.averageScore,
+                                        title = enriched.title.takeIf { it.isNotBlank() },
                                     ).toJson(),
                                     extUpdatedAt = System.currentTimeMillis(),
                                 ),
