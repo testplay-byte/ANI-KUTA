@@ -154,8 +154,21 @@ class PlayerObserver(
                     // armed the gate 2ms after FILE_LOADED, then the Up Next
                     // card + the end-position save fired over the failure).
                     if (!stateHolder.isSwitching.value) {
+                        // ROUND 125 (R1): STRICT mid-file arming. The round-124
+                        // rule kept a `dur <= 0` arm-branch, and a dead stream
+                        // exploits BOTH orderings: (a) the EOF pin can arrive
+                        // BEFORE the duration property -> armed with dur=0 ->
+                        // the duration then arrives -> the poll offers (the
+                        // device round-125 report: the card STILL showed on a
+                        // failure); (b) the stream can emit pos=0 once before
+                        // EOFing -> armed at 0 -> same card. Only a GENUINE
+                        // mid-file position arms now: the duration must be
+                        // known and the position strictly inside the body.
+                        // Real playback always advances past pos=0 within
+                        // seconds, and every consumer of this gate requires
+                        // dur > 0 anyway — the strict rule loses nothing.
                         val dur = stateHolder.duration.value
-                        if (dur <= 0 || it < dur - 1) {
+                        if (dur > 0 && it > 0 && it < dur - 1) {
                             if (!stateHolder.episodeReachedPlayback) {
                                 Logger.i(TAG) { "reached-playback ARMED (pos=$it dur=$dur)" }
                             }

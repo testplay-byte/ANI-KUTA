@@ -874,8 +874,12 @@ fun WatchScreen(
             Logger.i(TAG) { "UpNext: latches re-armed (seeked back out of the end zone) key=$epKey" }
         }
         if (offeredNextKeys[epKey] == true) return@LaunchedEffect
-        val secondsLeft = duration - position
-        val reached = secondsLeft <= 10f
+        // ROUND 125 (R1): a pinned/overshooting position (secondsLeft < 0 —
+        // the dead-stream EOF pin) is the EOF hook's business, never the
+        // poll's; the poll owns only the genuine final-10-seconds band.
+        // (Float: `Int in FloatRange` has no stdlib operator.)
+        val secondsLeft = (duration - position).toFloat()
+        val reached = secondsLeft in 0f..10f
         if (reached || dismissedNextKeys[epKey] == true) {
             Logger.i(TAG) {
                 "UpNext eval: pos=$position dur=$duration secondsLeft=$secondsLeft " +
@@ -2393,6 +2397,9 @@ fun WatchScreen(
             currentTrackId = stateHolder.currentSubtitleTrack.collectAsState().value,
             onTrackSelected = onSubtitleSelected,
             onDismiss = { showSubtitleSheet = false },
+            // ROUND 125 (R2): the right-side drawer is a FULLSCREEN
+            // presentation — portrait reverts to the bottom-up sheet.
+            asDrawer = playerMode == PlayerMode.FULLSCREEN,
             onOpenSettings = {
                 showSubtitleSheet = false
                 showSubtitleSettingsSheet = true
@@ -2447,6 +2454,9 @@ fun WatchScreen(
             currentVideoTitle = currentVideoTitle,
             onQualitySelected = onQualitySelected,
             onDismiss = { showQualitySheet = false },
+            // ROUND 125 (R2): drawer in fullscreen only; portrait keeps the
+            // bottom-up sheet.
+            asDrawer = playerMode == PlayerMode.FULLSCREEN,
             currentServerName = currentServerName,
             currentAudioVersion = currentAudioVersion,
             // Task 58 (round 18): the debug report's context (Settings → Debug
@@ -2464,6 +2474,11 @@ fun WatchScreen(
                 catch (e: Exception) { Logger.w(TAG) { "Failed to apply subtitle settings: ${e.message}" } }
             },
             onDismiss = { showSubtitleSettingsSheet = false },
+            // ROUND 125 (R4): the settings panel slides from the LEFT in
+            // fullscreen (the mirror of the right-side subtitle drawer — the
+            // right drawer closes as this opens, see onOpenSettings above);
+            // portrait keeps the bottom-up sheet.
+            asDrawer = playerMode == PlayerMode.FULLSCREEN,
         )
     }
 

@@ -15,6 +15,10 @@ android {
 }
 
 dependencies {
+    // ROUND 125 (R2/R4): PlayerSideDrawer's BackHandler — material3 publishes
+    // activity-compose runtime-scope only, so the shell needs the explicit dep
+    // (every other Compose module in the repo declares it the same way).
+    implementation(libs.androidx.activity.compose)
     implementation(project(":core:common"))
     implementation(project(":core:designsystem"))
     implementation(project(":core:preferences"))

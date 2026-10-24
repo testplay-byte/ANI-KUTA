@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -86,10 +87,33 @@ fun SubtitleSettingsSheet(
     playerPreferences: PlayerPreferences,
     onApplySettings: () -> Unit,
     onDismiss: () -> Unit,
+    // ROUND 125 (R4): in FULLSCREEN the settings panel slides in from the
+    // LEFT — the mirror of the right-side subtitle options drawer ("the
+    // subtitle menu settings should not appear from the bottom up… they
+    // should appear from the left side smoothly as the right side subtitle
+    // options disappear"). Portrait keeps the bottom-up sheet.
+    asDrawer: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxHeight = screenHeight * 0.65f
+
+    val host: @Composable (content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) -> Unit =
+        if (asDrawer) {
+            { content -> PlayerSideDrawerShell(onDismiss = onDismiss, fromLeft = true, content = content) }
+        } else {
+            { content ->
+                ModalBottomSheet(
+                    onDismissRequest = onDismiss,
+                    sheetState = sheetState,
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    dragHandle = null,
+                ) {
+                    content()
+                }
+            }
+        }
 
     // Task 59 (round 19 — additive): bumped on reset — the panel's remember
     // blocks re-read the freshly-written preferences.
@@ -152,17 +176,13 @@ fun SubtitleSettingsSheet(
         )
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = null,
-    ) {
+    host {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = maxHeight),
+            modifier = if (asDrawer) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier.fillMaxWidth().heightIn(max = maxHeight)
+            },
         ) {
             // ── STICKY HEADER (does NOT scroll) ──
             Row(

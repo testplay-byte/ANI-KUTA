@@ -1909,7 +1909,31 @@ class DetailsViewModel(
             )
                 if (enriched != null) {
                     if (metaGen == loadGeneration) {
-                        extensionBase = enriched
+                        // ROUND 125 (R7/RC1): NULL-MERGE the enrichment into
+                        // the base — the raw assignment blanked whatever was
+                        // showing the moment a fetch came back sparse (the
+                        // provider returns a stub on a Cloudflare wall/plugin
+                        // hiccup). The extension-first load path fixed this
+                        // exact site long ago; the refresh path never got the
+                        // same fix ("if I refresh, then it would run into
+                        // similar kind of issues too").
+                        val previous = extensionBase
+                        extensionBase = if (previous != null) {
+                            previous.copy(
+                                title = enriched.title.takeIf { it.isNotBlank() } ?: previous.title,
+                                coverUrl = enriched.coverUrl ?: previous.coverUrl,
+                                bannerUrl = enriched.bannerUrl ?: previous.bannerUrl,
+                                description = enriched.description ?: previous.description,
+                                genres = enriched.genres.takeIf { it.isNotEmpty() } ?: previous.genres,
+                                status = enriched.status ?: previous.status,
+                                author = enriched.author ?: previous.author,
+                                artist = enriched.artist ?: previous.artist,
+                                seasonYear = enriched.seasonYear ?: previous.seasonYear,
+                                averageScore = enriched.averageScore ?: previous.averageScore,
+                            )
+                        } else {
+                            enriched
+                        }
                         remergeBases(
                             (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                                 ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
@@ -3498,14 +3522,30 @@ class DetailsViewModel(
                     ?: contentRepository.getMainEntryByMainId(mainId)?.title
                         ?.takeIf { it.isNotBlank() }
                     ?: (details.animeUrl ?: animeUrl).substringAfterLast("/").replace("-", " ")
+                // ROUND 125 (R7/RC5): normalize a LEGACY raw-int status — the
+                // old link write stored sAnime.status.toString() ("0"/"1"),
+                // which the details screen then rendered literally ("0" with a
+                // clock icon). Map like SAnime.toUnifiedAnime; also restore the
+                // persisted year + score from the extras (the restore never
+                // carried them — the Year/Score rows vanished on switch).
+                val restoredStatus = when (details.extStatus) {
+                    "1" -> "RELEASING"
+                    "2" -> "FINISHED"
+                    "3" -> "LICENSED"
+                    "4" -> "CANCELLED"
+                    "0", "UNKNOWN" -> null
+                    else -> details.extStatus
+                }
                 extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
                     title = restoredExtTitle,
                     description = details.extDescription,
                     genres = details.extGenres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
-                    status = details.extStatus,
+                    status = restoredStatus,
                     author = details.extAuthor,
                     artist = details.extArtist,
                     coverUrl = details.extThumbnailUrl,
+                    seasonYear = details.extExtras?.year,
+                    averageScore = details.extExtras?.score,
                     sourceId = details.sourceId,
                     sourceName = source.name,
                     animeUrl = details.animeUrl ?: animeUrl,
@@ -3543,7 +3583,26 @@ class DetailsViewModel(
                             seedYear,
                         )
                         if (enriched != null && enrichGen == loadGeneration) {
-                            extensionBase = enriched
+                            // ROUND 125 (R7/RC1): null-merge (see
+                            // refreshExtensionAxis) — the raw assignment could
+                            // DOWNGRADE the restored base to the sparse stub.
+                            val previous = extensionBase
+                            extensionBase = if (previous != null) {
+                                previous.copy(
+                                    title = enriched.title.takeIf { it.isNotBlank() } ?: previous.title,
+                                    coverUrl = enriched.coverUrl ?: previous.coverUrl,
+                                    bannerUrl = enriched.bannerUrl ?: previous.bannerUrl,
+                                    description = enriched.description ?: previous.description,
+                                    genres = enriched.genres.takeIf { it.isNotEmpty() } ?: previous.genres,
+                                    status = enriched.status ?: previous.status,
+                                    author = enriched.author ?: previous.author,
+                                    artist = enriched.artist ?: previous.artist,
+                                    seasonYear = enriched.seasonYear ?: previous.seasonYear,
+                                    averageScore = enriched.averageScore ?: previous.averageScore,
+                                )
+                            } else {
+                                enriched
+                            }
                             remergeBases(
                                 (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                                     ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
@@ -3688,18 +3747,33 @@ class DetailsViewModel(
             // link to a bit-62 CloudStream-bridged source used to persist
             // extensionType "aniyomi", lying about the entry's own ecosystem.
             val ecosystemName = if (source.id.isCloudstreamBridgedId()) "cloudstream" else "aniyomi"
+            // ROUND 125 (R7/RC2): the search SAnime is SPARSE (description/
+            // genre null on search rows) and its status int was written RAW
+            // ("0"/"1" rendered as the status row on the device). Map the
+            // status like SAnime.toUnifiedAnime does, and MERGE the extras —
+            // updateExtensionAxis SETs every column, so omitting extExtraJson
+            // here WIPED the stored year/score/title.
+            val linkedStatusString = when (sAnime.status) {
+                1 -> "RELEASING"
+                2 -> "FINISHED"
+                3 -> "LICENSED"
+                4 -> "CANCELLED"
+                else -> null
+            }
+            val existingDetailsAtLink = contentRepository.getContentDetails(mainId)
             val extensionDetail = com.confused.anikuta.core.content.ContentDetails(
                 mainId = mainId,
                 extensionType = ecosystemName,
                 extensionId = source.id.toString(),
                 sourceId = source.id,
                 animeUrl = sAnime.url,
-                extDescription = sAnime.description,
-                extGenres = sAnime.genre,
-                extStatus = sAnime.status.toString(),
-                extAuthor = sAnime.author,
-                extArtist = sAnime.artist,
-                extThumbnailUrl = sAnime.thumbnail_url,
+                extDescription = sAnime.description ?: existingDetailsAtLink?.extDescription,
+                extGenres = sAnime.genre ?: existingDetailsAtLink?.extGenres,
+                extStatus = linkedStatusString ?: existingDetailsAtLink?.extStatus,
+                extAuthor = sAnime.author ?: existingDetailsAtLink?.extAuthor,
+                extArtist = sAnime.artist ?: existingDetailsAtLink?.extArtist,
+                extThumbnailUrl = sAnime.thumbnail_url ?: existingDetailsAtLink?.extThumbnailUrl,
+                extExtraJson = existingDetailsAtLink?.extExtraJson,
                 extUpdatedAt = System.currentTimeMillis(),
             )
             contentResolver.linkExtensionToExisting(
@@ -3742,7 +3816,25 @@ class DetailsViewModel(
                     seedYear,
                 )
                 if (enriched != null && linkGen == relinkGeneration) {
-                    extensionBase = enriched
+                    // ROUND 125 (R7/RC1): null-merge into the base (the sparse
+                    // stub must not downgrade what's showing).
+                    val previousBase = extensionBase
+                    extensionBase = if (previousBase != null) {
+                        previousBase.copy(
+                            title = enriched.title.takeIf { it.isNotBlank() } ?: previousBase.title,
+                            coverUrl = enriched.coverUrl ?: previousBase.coverUrl,
+                            bannerUrl = enriched.bannerUrl ?: previousBase.bannerUrl,
+                            description = enriched.description ?: previousBase.description,
+                            genres = enriched.genres.takeIf { it.isNotEmpty() } ?: previousBase.genres,
+                            status = enriched.status ?: previousBase.status,
+                            author = enriched.author ?: previousBase.author,
+                            artist = enriched.artist ?: previousBase.artist,
+                            seasonYear = enriched.seasonYear ?: previousBase.seasonYear,
+                            averageScore = enriched.averageScore ?: previousBase.averageScore,
+                        )
+                    } else {
+                        enriched
+                    }
                     Logger.i(TAG) { "Extension base enriched with full details: ${enriched.displayName}" }
                     remergeBases(
                         (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
@@ -3757,6 +3849,13 @@ class DetailsViewModel(
                     val mainIdToPersist = linkedMainId
                     if (mainIdToPersist != null) {
                         runCatching {
+                            // ROUND 125 (R7/RC3): NULL-MERGE against the stored
+                            // row — this was the ONLY ext-axis writer that did
+                            // not merge, so a sparse enrichment ERASED stored
+                            // description/genres/status/author/artist/thumbnail
+                            // and rebuilt the extras from scratch (killing a
+                            // previously persisted year/score/title).
+                            val existingAtEnrich = contentRepository.getContentDetails(mainIdToPersist)
                             contentRepository.updateExtensionAxis(
                                 com.confused.anikuta.core.content.ContentDetails(
                                     mainId = mainIdToPersist,
@@ -3764,16 +3863,20 @@ class DetailsViewModel(
                                     extensionId = source.id.toString(),
                                     sourceId = source.id,
                                     animeUrl = sAnime.url,
-                                    extDescription = enriched.description,
-                                    extGenres = enriched.genres.joinToString(", "),
-                                    extStatus = enriched.status,
-                                    extAuthor = enriched.author,
-                                    extArtist = enriched.artist,
-                                    extThumbnailUrl = enriched.coverUrl,
+                                    extDescription = enriched.description ?: existingAtEnrich?.extDescription,
+                                    extGenres = enriched.genres.takeIf { it.isNotEmpty() }
+                                        ?.joinToString(", ") ?: existingAtEnrich?.extGenres,
+                                    extStatus = enriched.status ?: existingAtEnrich?.extStatus,
+                                    extAuthor = enriched.author ?: existingAtEnrich?.extAuthor,
+                                    extArtist = enriched.artist ?: existingAtEnrich?.extArtist,
+                                    extThumbnailUrl = enriched.coverUrl ?: existingAtEnrich?.extThumbnailUrl,
                                     extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
-                                        year = enriched.seasonYear,
-                                        score = enriched.averageScore,
-                                        title = enriched.title.takeIf { it.isNotBlank() },
+                                        year = enriched.seasonYear
+                                            ?: existingAtEnrich?.extExtras?.year,
+                                        score = enriched.averageScore
+                                            ?: existingAtEnrich?.extExtras?.score,
+                                        title = enriched.title.takeIf { it.isNotBlank() }
+                                            ?: existingAtEnrich?.extExtras?.title,
                                     ).toJson(),
                                     extUpdatedAt = System.currentTimeMillis(),
                                 ),

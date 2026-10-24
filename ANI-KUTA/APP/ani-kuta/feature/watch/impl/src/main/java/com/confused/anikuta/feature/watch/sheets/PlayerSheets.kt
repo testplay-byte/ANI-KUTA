@@ -1,18 +1,10 @@
 package com.confused.anikuta.feature.watch
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -55,6 +47,9 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import com.confused.anikuta.core.player.controls.PlayerSideDrawerShell
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -131,73 +126,6 @@ import org.koin.compose.koinInject
  *   stages + sub-add's that file and selects it.
  * @param onDismiss Close the sheet.
  */
-/**
- * ROUND 124 (R5): the right-side drawer shell shared by the qualities/servers
- * and the subtitles drawers — the exact pattern of the fullscreen episodes
- * drawer (scrim + slide-in from the right + the ≤40% panel). The device
- * round's order: "for the qualities and server selection and for the
- * subtitles selection… go with our right side menu, which appears smoothly
- * from the right side… the layout, the functionality, everything handled
- * well."
- */
-@Composable
-private fun RightDrawerShell(
-    onDismiss: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val configuration = LocalConfiguration.current
-    val panelMaxWidth = with(LocalDensity.current) {
-        ((configuration.screenWidthDp * 0.4f).dp).coerceAtMost(360.dp)
-    }
-    BackHandler(onBack = onDismiss)
-    Box(modifier = Modifier.fillMaxSize()) {
-        // The scrim — tap to close (no ripple; a quiet dismissal surface).
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.45f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss,
-                ),
-        )
-        // The panel — slides in from the right edge (the MutableTransitionState
-        // makes the ENTER animation run on composition; the caller mounts this
-        // composable conditionally).
-        val enterState = remember {
-            MutableTransitionState(false).apply { targetState = true }
-        }
-        AnimatedVisibility(
-            visibleState = enterState,
-            enter = slideInHorizontally(
-                initialOffsetX = { it },
-                animationSpec = tween(260, easing = FastOutSlowInEasing),
-            ) + fadeIn(animationSpec = tween(200)),
-            exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
-            modifier = Modifier.align(Alignment.CenterEnd),
-        ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(topStart = 18.dp, bottomStart = 18.dp),
-                shadowElevation = 10.dp,
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .widthIn(max = panelMaxWidth)
-                    .fillMaxWidth(),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding(),
-                    content = content,
-                )
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubtitleTracksSheet(
@@ -210,19 +138,58 @@ fun SubtitleTracksSheet(
     onAddSubtitleFile: () -> Unit = {},
     storageSubtitles: List<com.confused.anikuta.core.download.ResolvedSubtitleTrack> = emptyList(),
     onLoadStorageSubtitle: (com.confused.anikuta.core.download.ResolvedSubtitleTrack) -> Unit = {},
+    // ROUND 125 (R2): the drawer is a FULLSCREEN presentation only — portrait
+    // keeps the bottom-up sheet (the device round's correction: "if I am in
+    // portrait mode and I click on the subtitles option… it opens up a right
+    // side menu which is not good… properly revert this completely to the
+    // exact same how it was before"). The body below is byte-identical for
+    // both presentations; only the host differs.
+    asDrawer: Boolean = false,
 ) {
-    // Refresh tracks when the drawer opens — catches cases where tracks were
-    // loaded before FILE_LOADED completed, or where the user opens the drawer
-    // after external subs have finished downloading.
+    // Refresh tracks when the surface opens — catches cases where tracks were
+    // loaded before FILE_LOADED completed, or where the user opens it after
+    // external subs have finished downloading.
     LaunchedEffect(Unit) { onRefreshTracks() }
 
-    // ROUND 124 (R5): the bottom sheet became a right-side drawer (the
-    // shared shell — see [RightDrawerShell]).
-    RightDrawerShell(onDismiss = onDismiss) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val maxSheetHeight = LocalConfiguration.current.screenHeightDp.dp * 0.70f
+    // ROUND 125 (R3): the fullscreen drawers run a touch wider than the
+    // episodes drawer (the device round: "the qualities menu could be a
+    // little bit more wider").
+    val host: @Composable (content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) -> Unit =
+        if (asDrawer) {
+            { content ->
+                PlayerSideDrawerShell(
+                    onDismiss = onDismiss,
+                    widthFraction = 0.45f,
+                    maxWidthDp = 400,
+                    content = content,
+                )
+            }
+        } else {
+            { content ->
+                ModalBottomSheet(
+                    onDismissRequest = onDismiss,
+                    sheetState = sheetState,
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    dragHandle = null,
+                ) {
+                    content()
+                }
+            }
+        }
+    host {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 20.dp),
+            modifier = if (asDrawer) {
+                Modifier.fillMaxSize().padding(top = 20.dp)
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = maxSheetHeight)
+                    .padding(top = 20.dp)
+                    .navigationBarsPadding()
+            },
         ) {
             // ── Header ──
             Row(
@@ -576,9 +543,13 @@ fun QualitySheet(
     animeTitle: String = "",
     episodeNumber: Float = 0f,
     debugPreferences: DebugPreferences = koinInject(),
+    // ROUND 125 (R2): the drawer is a FULLSCREEN presentation only — portrait
+    // keeps the bottom-up sheet (see SubtitleTracksSheet).
+    asDrawer: Boolean = false,
 ) {
-    // ROUND 124 (R5): the bottom sheet became a right-side drawer — the
-    // maxSheetHeight machinery died with it (a full-height panel now).
+    // ROUND 125 (R2): the presentation split (see SubtitleTracksSheet) —
+    // the round-124 drawer-only conversion reverted for portrait.
+    // ROUND 125 (R3): the fullscreen drawer runs wider (0.45 / 400dp).
     // Task 55 (round 15 — ADDITIVE): the formatting toggle (shared pref with
     // the CS sheets + the ResolverSheet; read at open).
     var formatted by remember { mutableStateOf(playerPreferences.resolveSheetFormatted) }
@@ -591,12 +562,42 @@ fun QualitySheet(
         .collectAsState(initial = false)
     val copyFeedback = rememberQualityCopyFeedback()
 
-    // ROUND 124 (R5): the right-side drawer shell (see SubtitleTracksSheet).
-    RightDrawerShell(onDismiss = onDismiss) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val maxSheetHeight = LocalConfiguration.current.screenHeightDp.dp * 0.70f
+    val host: @Composable (content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) -> Unit =
+        if (asDrawer) {
+            { content ->
+                PlayerSideDrawerShell(
+                    onDismiss = onDismiss,
+                    widthFraction = 0.45f,
+                    maxWidthDp = 400,
+                    content = content,
+                )
+            }
+        } else {
+            { content ->
+                ModalBottomSheet(
+                    onDismissRequest = onDismiss,
+                    sheetState = sheetState,
+                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    dragHandle = null,
+                ) {
+                    content()
+                }
+            }
+        }
+    host {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
+            modifier = if (asDrawer) {
+                Modifier.fillMaxSize().padding(horizontal = 16.dp)
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = maxSheetHeight)
+                    .padding(horizontal = 16.dp)
+                    .navigationBarsPadding()
+            },
         ) {
             // ── Header (Task 60 — round 20 — display-layer only): the
             // "Qualities and Servers" HEADING carries the formatting control
