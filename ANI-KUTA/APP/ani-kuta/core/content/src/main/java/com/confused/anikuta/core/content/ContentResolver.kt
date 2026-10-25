@@ -129,9 +129,23 @@ class ContentResolver(
         repo.insertMainEntry(record)
 
         // Store the AniList detail on the data-source axis of content_details.
-        if (anilistDetail != null) {
-            upsertContentDetailsForAniList(mainId, anilistDetail, now)
-        }
+        // ROUND 126 (D-785): the null-detail path now writes a MINIMAL
+        // discriminated row (type + ref id) — the idempotency lookup
+        // (getMainEntryByAniListId) JOINs content_details on this ref id, so
+        // a create without the row made the function NON-IDEMPOTENT (every
+        // null-detail call minted a duplicate main_entry; the schema lock
+        // test caught it). The KDoc's "pass null to skip the detail write"
+        // now means "skip the METADATA", not "skip the identity row".
+        upsertContentDetailsForAniList(
+            mainId,
+            anilistDetail ?: ContentDetails(
+                mainId = mainId,
+                dataSourceType = "anilist",
+                dataSourceRefId = anilistId.toString(),
+                dataUpdatedAt = now,
+            ),
+            now,
+        )
 
         Logger.i(TAG) {
             "Created content for AniList $anilistId: mainId=$mainId, contentId='$contentId'"

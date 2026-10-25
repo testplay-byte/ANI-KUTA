@@ -528,6 +528,13 @@ fun WatchScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // ROUND 126 (R1): the played-time floor for ANY watch-mark — the device
+    // round's spec: "the episode will only get marked as watched if… the
+    // user has actually watched and actually played that episode for more
+    // than one minute." The fraction threshold itself is the user's own
+    // setting (watchPreferences.autoMarkThreshold) inside the store.
+    val MIN_PLAYED_FOR_WATCHED_MS = 60_000L
+
     // ── Periodic watch progress save (every 10s) ──
     // Phase WP: saves to SqlDelightWatchProgressStore (persistent — survives app restart).
     // The 85% auto-mark logic is in the store. Reads values directly from the state
@@ -551,14 +558,22 @@ fun WatchScreen(
             // ROUND 123 (R10): log EVERY evaluation — the gated-out ticks were
             // silent, which made the failed-episode case undiagnosable from
             // logcat alone.
+            // ROUND 126 (R1): the played-time gate — the device round's spec:
+            // a watch-mark needs the fraction threshold AND >=1 minute of
+            // ACTUAL playback. A dead stream that plays ~2s and pins at EOF
+            // fails the gate here (its save would otherwise trip the store's
+            // auto-mark at the pinned 100%).
+            val playedLongEnough = stateHolder.playbackTimeMs >= MIN_PLAYED_FOR_WATCHED_MS
             val persistDecision = dur > 0 && epUrl.isNotBlank() &&
                 stateHolder.episodeReachedPlayback &&
+                playedLongEnough &&
                 stateHolder.loadingState.value != PlayerLoadingState.ERROR &&
                 com.confused.anikuta.core.watchprogress.PlaybackResumePolicy
                     .shouldPersist(pos.toLong(), dur.toLong())
             Logger.d(TAG) {
                 "PeriodicSave eval: pos=$pos dur=$dur epNum=${stateHolder.currentEpisodeNumber.value} " +
                     "reachedPlayback=${stateHolder.episodeReachedPlayback} " +
+                    "playedMs=${stateHolder.playbackTimeMs} " +
                     "loading=${stateHolder.loadingState.value} → save=$persistDecision"
             }
             if (persistDecision) {
@@ -1109,8 +1124,13 @@ fun WatchScreen(
                         // AND not-error gates — an error-state EOF (stale
                         // metrics) or a demuxer EOF from a dead stream must
                         // never write the end position under this key.
+                        // ROUND 126 (R1): the played-time gate — a dead
+                        // stream's EOF (reachedPlayback armed by its ~2s of
+                        // real playback) must not write a 100% completion
+                        // that auto-marks the episode watched.
                         val writeAllowed = dur > 0 && epUrl.isNotBlank() &&
                             stateHolder.episodeReachedPlayback &&
+                            stateHolder.playbackTimeMs >= MIN_PLAYED_FOR_WATCHED_MS &&
                             stateHolder.loadingState.value != PlayerLoadingState.ERROR
                         Logger.i(TAG) {
                             "EOF hook: dur=$dur url=${epUrl.take(40)} reachedPlayback=" +
@@ -1320,6 +1340,7 @@ fun WatchScreen(
             // persist the stale end-of-file position on exit.
             if (dur > 0 && epUrl.isNotBlank() &&
                 stateHolder.episodeReachedPlayback &&
+                stateHolder.playbackTimeMs >= MIN_PLAYED_FOR_WATCHED_MS &&
                 stateHolder.loadingState.value != PlayerLoadingState.ERROR &&
                 com.confused.anikuta.core.watchprogress.PlaybackResumePolicy
                     .shouldPersist(pos.toLong(), dur.toLong())

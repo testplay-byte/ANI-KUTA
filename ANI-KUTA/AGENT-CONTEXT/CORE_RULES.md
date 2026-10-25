@@ -88,6 +88,10 @@ repo-root/
 - Reuse before you write. Look a few files over before implementing.
 - No unrequested abstractions (no interface with one impl, no factory for one product). **Exception:** an interface with one impl is OK when a future swap is explicitly planned (e.g. `WatchProgressStore` — was in-memory in Phase 5c, swapped to SQLDelight in Phase WP; or a player-host interface for MPV → ExoPlayer swap).
 - Mark deliberate simplifications with a `ponytail:` comment naming the ceiling + upgrade path.
+- **Every database write logs itself (D-785, the user's standing order):** table, key, and what
+  changed (payload shape / old→new for identity fields), at DEBUG for hot paths and INFO for
+  identity/structural writes — so any device report's logcat answers "what was written, where,
+  on what action". A write that cannot be seen in the log is a bug waiting for a report.
 - **Player lifecycle scaffolding is NOT boilerplate.** `DisposableEffect`s (keep-screen-on, immersive mode, app-exit pause/resume), watchdogs (switching timeout, fatal-error, auto-hide controls), and periodic progress saves are load-bearing per ADR-025 + D-049. Do not delete them as "unnecessary complexity" without explicit user confirmation.
 
 > See `skills/ponytail.md` for the full lazy-senior-dev decision ladder.

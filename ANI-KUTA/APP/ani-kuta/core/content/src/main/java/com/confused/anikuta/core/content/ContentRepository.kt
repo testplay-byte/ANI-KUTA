@@ -311,6 +311,17 @@ class ContentRepository(
             extUpdatedAt = detail.extUpdatedAt,
             coverAccentArgb = detail.coverAccentArgb,
         )
+        // ROUND 126 (R2): the DB-write logging standard (D-785) — every write
+        // names its table, key and payload shape. This one is a FULL-ROW
+        // INSERT OR REPLACE: the log says so loudly, because a careless
+        // caller here erases BOTH axes (flaw B2 in the database report).
+        Logger.w(TAG) {
+            "DB WRITE content_details FULL-ROW REPLACE mainId=${detail.mainId} — " +
+                "data(desc=${detail.dataSynopsis?.length ?: 0}ch genres=${detail.dataGenres != null} " +
+                "status=${detail.dataStatus != null} cover=${detail.dataCoverUrl != null}) " +
+                "ext(desc=${detail.extDescription?.length ?: 0}ch genres=${detail.extGenres != null} " +
+                "status=${detail.extStatus != null} cover=${detail.extThumbnailUrl != null})"
+        }
     }
 
     /**
@@ -379,16 +390,19 @@ class ContentRepository(
     /** NULL all data-source fields (for unlink — fixes orphan-row bug). */
     fun clearDataSourceAxis(mainId: String) {
         contentQueries.clearDataSourceAxis(mainId)
+        Logger.i(TAG) { "DB WRITE content_details CLEAR data axis: mainId=$mainId (unlink)" }
     }
 
     /** NULL all extension fields (for unlink — fixes orphan-row bug). */
     fun clearExtensionAxis(mainId: String) {
         contentQueries.clearExtensionAxis(mainId)
+        Logger.i(TAG) { "DB WRITE content_details CLEAR ext axis: mainId=$mainId (unlink)" }
     }
 
     /** Hard-delete the content_details row (CASCADE on main_entry handles this normally). */
     fun deleteContentDetails(mainId: String) {
         contentQueries.deleteContentDetails(mainId)
+        Logger.i(TAG) { "DB WRITE content_details DELETE row: mainId=$mainId" }
     }
 
     // ── Lookup: data_source ────────────────────────────────────────────────

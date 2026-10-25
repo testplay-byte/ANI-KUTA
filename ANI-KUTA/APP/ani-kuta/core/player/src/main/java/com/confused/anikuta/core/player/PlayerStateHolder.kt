@@ -367,7 +367,23 @@ class PlayerStateHolder {
         _isPlaying.value = playing
     }
 
+    // ROUND 126 (R1): the ACTUAL played time of the current file — the
+    // device round's watched-mark spec: an episode is auto-marked watched
+    // only when it was finished past the user's threshold AND actually
+    // played for more than one minute. A dead stream that plays ~2s and
+    // then pins at EOF must never accumulate this (and the completion
+    // writers gate on it).
+    @Volatile
+    var playbackTimeMs: Long = 0
+        private set
+
     fun updatePosition(position: Int) {
+        // Accumulate real playback time: a small FORWARD delta is playback;
+        // seeks (big/negative deltas) and the EOF pin are not.
+        val delta = position - _position.value
+        if (delta in 1..5) {
+            playbackTimeMs += delta * 1000L
+        }
         _position.value = position
     }
 
@@ -463,6 +479,8 @@ class PlayerStateHolder {
         _duration.value = 0
         _bufferAheadTime.value = 0
         bufferedEnough = false
+        // ROUND 126 (R1): the new file's played time starts from zero.
+        playbackTimeMs = 0
         // ROUND 122 (R2): zeroing metrics without clearing the gate would let
         // the OLD file's re-observed position persist again (the observer
         // re-populates the zeroed values from the still-playing old file).

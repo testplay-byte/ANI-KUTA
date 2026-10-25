@@ -21,4 +21,10 @@ dependencies {
     // Koin
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
+
+    // ROUND 126 (D-785): the schema-behavior lock tests — the REAL generated
+    // queries against an in-memory SQLite (JVM), no Robolectric.
+    testImplementation(libs.junit)
+    testImplementation(libs.sqldelight.sqlite.driver)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
