@@ -1,5 +1,10 @@
 # Changelog (High-Level)
 
+## 1.1.20 (round 126 — the database round: docs, tests, standards; version unchanged per the standing rule)
+- PLAYER: a failed episode can no longer be marked watched — a watch-mark now requires the user's own finish threshold AND at least one minute of actual playback (the round's remaining bug).
+- DATABASE: the full schema documentation lives in the repo (DOCUMENTATION/database/ — SCHEMA/DATA-FLOWS/FLAWS, ready for manga, novels, and backup/restore); every database write logs itself (a standing coding standard); the schema behavior is locked by 10 in-memory-SQLite unit tests — which caught and fixed a real duplicate-row flaw in the AniList resolve path on their first run.
+- PLANNING: the workspace planning folder cleaned (the resolved plans and old test packs archived); the database report updated with the decisions now waiting on the user.
+
 ## 1.1.20 (round 125 — device-round responses, part five; version unchanged per the standing rule)
 - PLAYER: the Up Next card can no longer appear over a failed load in ANY event ordering (the arming rule is strictly mid-file and the offer band excludes the end-of-file pin).
 - WATCH UI: portrait reverts completely to the bottom-up menus for subtitles/qualities (the right-side drawers are fullscreen-only now, and a bit wider there); in fullscreen the subtitle SETTINGS panel slides in from the LEFT as the right-side options drawer closes.
