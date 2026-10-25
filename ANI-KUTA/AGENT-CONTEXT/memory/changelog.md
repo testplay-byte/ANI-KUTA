@@ -1,5 +1,10 @@
 # Changelog (High-Level)
 
+## 1.1.20 (round 127 — the database hardening wave; version unchanged per the standing rule)
+- PLAYER: the watch-mark's one-minute rule is now CUMULATIVE (the user's device report): the total time actually played is persisted per episode (a real schema migration that upgrades old installs in place), so finishing a previously-partially-watched episode by seeking marks it — while a fresh failed stream still never gets marked. Both players (MPV + CloudStream) accumulate.
+- DATABASE: every registered flaw fixed — the download scan can no longer roll entries back in time, an axis write can no longer erase stored metadata (storage-level merge; explicit switches stay), display-source flips validate, restored extension-only downloads get their cover/details back, titles are single-truth with a validated writer, content-id ecosystems derive from one helper, and the twin id columns cannot drift.
+- TESTS: 219 tests, 0 failures across all 10 test-bearing modules — including the first schema-MIGRATION test (old database → new, data preserved) and the cumulative watch-mark lock tests replaying every device scenario. Two latent repo defects exposed and fixed on the way.
+
 ## 1.1.20 (round 126 — the database round: docs, tests, standards; version unchanged per the standing rule)
 - PLAYER: a failed episode can no longer be marked watched — a watch-mark now requires the user's own finish threshold AND at least one minute of actual playback (the round's remaining bug).
 - DATABASE: the full schema documentation lives in the repo (DOCUMENTATION/database/ — SCHEMA/DATA-FLOWS/FLAWS, ready for manga, novels, and backup/restore); every database write logs itself (a standing coding standard); the schema behavior is locked by 10 in-memory-SQLite unit tests — which caught and fixed a real duplicate-row flaw in the AniList resolve path on their first run.
