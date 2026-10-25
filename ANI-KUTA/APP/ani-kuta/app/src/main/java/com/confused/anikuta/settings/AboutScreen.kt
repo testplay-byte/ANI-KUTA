@@ -1,5 +1,7 @@
 package com.confused.anikuta.settings
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +24,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.InstallMobile
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -245,6 +249,42 @@ fun AboutScreen(
                                 )
                             }
                         }
+                    }
+
+                    // ── Community (round 128, the user's order): Discord + Website,
+                    // below the App version section, above the Updates section. ──
+                    item {
+                        SettingsSectionLabel("Community")
+                    }
+                    item {
+                        LinkRow(
+                            icon = { SettingsIconTile {
+                                Icon(
+                                    imageVector = Icons.Filled.Groups,
+                                    contentDescription = "Discord",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            } },
+                            title = "Discord",
+                            subtitle = "Join the community server",
+                            url = "https://discord.gg/X7JCCxX4Hr",
+                        )
+                    }
+                    item {
+                        LinkRow(
+                            icon = { SettingsIconTile {
+                                Icon(
+                                    imageVector = Icons.Filled.Public,
+                                    contentDescription = "Website",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            } },
+                            title = "Website",
+                            subtitle = "confused-creature-180.github.io/ANI-KUTA",
+                            url = "https://confused-creature-180.github.io/ANI-KUTA/",
+                        )
                     }
 
                     // ── Updates section ──
@@ -643,6 +683,68 @@ private fun GeneralToggleCard(
             }
             Spacer(modifier = Modifier.width(12.dp))
             Switch(checked = checked, onCheckedChange = onCheckedChange)
+        }
+    }
+}
+
+/**
+ * ROUND 128 (the user's order): a tappable external-link row in the About
+ * screen's Community section (Discord / Website). Opens via the raw-Intent
+ * pattern the rest of the settings screens use (TrackersScreen's OAuth link,
+ * UpdateBottomSheet's GitHub link) — there is no LocalUriHandler anywhere in
+ * the app by design.
+ */
+@Composable
+private fun LinkRow(
+    icon: @Composable () -> Unit,
+    title: String,
+    subtitle: String,
+    url: String,
+) {
+    val context = LocalContext.current
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }.onFailure {
+                        com.confused.anikuta.core.common.Logger.w("AboutScreen") {
+                            "Failed to open URL: $url (${it.message})"
+                        }
+                    }
+                }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            icon()
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = subtitle,
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
     }
 }

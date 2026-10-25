@@ -90,21 +90,28 @@ fun CollapsingHeader(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    // ROUND 128 (the device report — the Profile screen's scroll-0 state had
+    // too much empty space around the heading): optional expanded-state knobs.
+    // Defaults are the historical design, so every other screen is unchanged;
+    // the Profile screen passes tighter values.
+    expandedTitleSize: Float = 32f,
+    expandedPaddingTop: Float = 8f,
+    expandedPaddingBottom: Float = 4f,
 ) {
-    val targetFontSize = if (collapsed) 24f else 32f
+    val targetFontSize = if (collapsed) 24f else expandedTitleSize
     val fontSize by animateFloatAsState(
         targetValue = targetFontSize,
         animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
         label = "headerFontSize",
     )
 
-    val targetPaddingTop = if (collapsed) 2f else 8f
+    val targetPaddingTop = if (collapsed) 2f else expandedPaddingTop
     val paddingTop by animateFloatAsState(
         targetValue = targetPaddingTop,
         animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
         label = "headerPaddingTop",
     )
-    val targetPaddingBottom = if (collapsed) 0f else 4f
+    val targetPaddingBottom = if (collapsed) 0f else expandedPaddingBottom
     val paddingBottom by animateFloatAsState(
         targetValue = targetPaddingBottom,
         animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),

@@ -140,6 +140,12 @@ fun ProfileScreen(
             CollapsingHeader(
                 title = "My Profile",
                 collapsed = collapsed,
+                // ROUND 128: the scroll-0 state had too much empty padding above
+                // and below the heading (the device report) — a tighter expanded
+                // header for THIS screen only (the shared defaults are unchanged).
+                expandedTitleSize = 26f,
+                expandedPaddingTop = 2f,
+                expandedPaddingBottom = 0f,
                 // D-558: the heading IS the back button (leading arrow + tappable title).
                 onBack = onBack,
                 actions = {
@@ -304,7 +310,7 @@ private fun StatsTab(
                         scaleY = s
                         transformOrigin = TransformOrigin.Center
                     }
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    .padding(horizontal = 12.dp),
             ) {
                 SegmentedToggle(
                     options = listOf("Stats", "Timeline"),

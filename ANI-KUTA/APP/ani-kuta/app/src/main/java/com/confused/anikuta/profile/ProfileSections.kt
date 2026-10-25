@@ -1172,7 +1172,7 @@ fun TimelineTab(
         state = listState,
         modifier = Modifier.fillMaxWidth(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 12.dp, end = 12.dp, top = 8.dp, bottom = 110.dp),
+            start = 12.dp, end = 12.dp, top = 0.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         item {
@@ -1186,7 +1186,7 @@ fun TimelineTab(
                         scaleX = s
                         scaleY = s
                     }
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    .padding(horizontal = 12.dp),
             ) {
                 SegmentedToggle(
                     options = listOf("Stats", "Timeline"),
