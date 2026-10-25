@@ -1,5 +1,9 @@
 # Changelog (High-Level)
 
+## 1.1.6 / 10106 — RELEASE (round 128 — the professional line; the mainline keeps 1.1.20/10120)
+- RELEASED: the signed all-ABI **v1.1.6** is LIVE on the official repo (Confused-Creature-180/ANI-KUTA, stable latest) — 5 APKs + 5 ZIPs + SHA256SUMS.txt, every asset verified. The website chip + the device-probe ARCHITEC label updated; the README download links re-pointed.
+- APP: the About screen gained a Community section (Discord + Website) and the Profile page's top no longer carries the empty padding at scroll 0.
+
 ## 1.1.20 (round 127 — the database hardening wave; version unchanged per the standing rule)
 - PLAYER: the watch-mark's one-minute rule is now CUMULATIVE (the user's device report): the total time actually played is persisted per episode (a real schema migration that upgrades old installs in place), so finishing a previously-partially-watched episode by seeking marks it — while a fresh failed stream still never gets marked. Both players (MPV + CloudStream) accumulate.
 - DATABASE: every registered flaw fixed — the download scan can no longer roll entries back in time, an axis write can no longer erase stored metadata (storage-level merge; explicit switches stay), display-source flips validate, restored extension-only downloads get their cover/details back, titles are single-truth with a validated writer, content-id ecosystems derive from one helper, and the twin id columns cannot drift.
