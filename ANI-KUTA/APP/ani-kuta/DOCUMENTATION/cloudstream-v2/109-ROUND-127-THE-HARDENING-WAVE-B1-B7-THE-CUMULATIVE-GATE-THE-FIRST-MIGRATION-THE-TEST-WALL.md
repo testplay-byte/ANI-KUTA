@@ -121,7 +121,7 @@ unchanged.
 
 ## 7. CI ledger (D-472)
 
-Commit `«HEAD»` → Build APK run **«RUN_ID» GREEN first-try** (the
+Commit `0a331f34` (25 files, +1432/−135) → Build APK run **40191393617 GREEN first-try** (the
 `anikuta-apk` artifact, versionCode 10120; the mainline stays 1.1.20/10120).
 ONE run — inside the D-472 budget. The test suites ride `test`/`check` per
 the doc 102 §7 disclosure; the pre-push verification ran ALL of them locally.
