@@ -182,6 +182,34 @@ class ContentRepository(
         Logger.i(TAG) { "Inserted main_entry: mainId=${record.mainId}, title='${record.title}'" }
     }
 
+    /**
+     * ROUND 127 (B1, D-791): the scanner's insert — INSERT OR IGNORE, never
+     * REPLACE. Restores a main_entry from the durable .data.json snapshot only
+     * when the row is genuinely missing; a row that already exists (however it
+     * got there — the DB is canonical per D-242, and a concurrent resolver may
+     * have just created it) is left untouched. Closes both the rollback and
+     * the check-then-insert race of the old INSERT OR REPLACE.
+     */
+    fun insertMainEntryIfMissing(record: ContentRecord) {
+        contentQueries.insertMainEntryIfMissing(
+            mainId = record.mainId,
+            contentId = record.contentId,
+            title = record.title,
+            contentType = record.contentType,
+            contentFormat = record.contentFormat,
+            dataSourceId = record.dataSourceId,
+            systemId = record.systemId,
+            extensionRepoId = record.extensionRepoId,
+            extensionId = record.extensionId,
+            sourceId = record.sourceId,
+            animeUrl = record.animeUrl,
+            displaySource = record.displaySource,
+            createdAt = record.createdAt,
+            updatedAt = record.updatedAt,
+        )
+        Logger.i(TAG) { "DB WRITE main_entry INSERT-IF-MISSING mainId=${record.mainId} title='${record.title}' (B1 — an existing row was not touched)" }
+    }
+
     fun updateMainEntrySources(
         mainId: String,
         dataSourceId: Long?,
@@ -215,16 +243,59 @@ class ContentRepository(
         Logger.d(TAG) { "Updated main_entry contentId: mainId=$mainId, contentId=$contentId" }
     }
 
+    /**
+     * ROUND 127 (B5, D-797): the SINGLE display-truth writer. `main_entry.title`
+     * is what every screen shows; the extension/data-source titles are caches
+     * that sync INTO this column (rounds 124–125 wired the writers; the readers
+     * prefer this column). A blank/whitespace candidate — a URL-slug fallback
+     * or an empty fetch result — is refused: the truth can be renamed, never
+     * blanked.
+     */
     fun updateMainEntryTitle(mainId: String, title: String) {
+        if (title.isBlank()) {
+            Logger.w(TAG) {
+                "REFUSED title write mainId=$mainId: blank candidate — main_entry.title left unchanged (B5)"
+            }
+            return
+        }
         contentQueries.updateMainEntryTitle(
-            title = title,
+            title = title.trim(),
             updatedAt = System.currentTimeMillis(),
             mainId = mainId,
         )
         Logger.d(TAG) { "Updated main_entry title: mainId=$mainId, title=$title" }
     }
 
+    /**
+     * ROUND 127 (B3, D-794): the display_source flip is VALIDATED — a row can
+     * only claim to display an axis that is actually linked in its
+     * content_details. 'data_source' requires a data axis (data_source_type),
+     * 'extension' requires an ext axis (extension_type); anything else is not a
+     * display_source value at all. A refused flip is logged loudly and ignored
+     * (the caller's stale view must not manufacture a row that displays an
+     * empty axis).
+     */
     fun updateMainEntryDisplaySource(mainId: String, displaySource: String) {
+        val allowed = setOf("data_source", "extension")
+        if (displaySource !in allowed) {
+            Logger.w(TAG) {
+                "REFUSED display_source write mainId=$mainId: '$displaySource' is not a valid value " +
+                    "(expected 'data_source' | 'extension') — row left unchanged (B3)"
+            }
+            return
+        }
+        val details = getContentDetails(mainId)
+        val axisLinked = when (displaySource) {
+            "data_source" -> details?.dataSourceType != null
+            else -> details?.extensionType != null
+        }
+        if (!axisLinked) {
+            Logger.w(TAG) {
+                "REFUSED display_source flip mainId=$mainId → '$displaySource': that axis is not linked " +
+                    "(data=${details?.dataSourceType} ext=${details?.extensionType}) — row left unchanged (B3)"
+            }
+            return
+        }
         contentQueries.updateMainEntryDisplaySource(
             displaySource = displaySource,
             updatedAt = System.currentTimeMillis(),
@@ -332,7 +403,14 @@ class ContentRepository(
         contentQueries.updateCoverAccentArgb(mainId = mainId, argb = argb)
     }
 
-    /** Partial UPDATE of all data-source fields (extension fields untouched). */
+    /**
+     * ROUND 127 (B2, D-792): MERGE-update of the data-source axis — every
+     * metadata column is COALESCE'd in the SQL, so a null field PRESERVES the
+     * stored value instead of erasing it. This is the storage-level fix for the
+     * "refresh replaces good data with a parsed stub" report class: a partial
+     * write can no longer wipe an axis, even from a forgetful caller. For the
+     * intentional whole-axis switch use [replaceDataSourceAxis].
+     */
     fun updateDataSourceAxis(detail: ContentDetails) {
         contentQueries.updateDataSourceAxis(
             dataSourceType = detail.dataSourceType,
@@ -351,22 +429,57 @@ class ContentRepository(
             mainId = detail.mainId,
         )
         // ROUND 123 (R9/R10): the logcat persist probe — shows exactly WHICH
-        // fields a write carries, so a wipe (nulls) is visible in the device
-        // logcat without a debugger.
+        // fields a write carries. With the merge semantics a null field now
+        // PRESERVES (the log's nulls are "untouched", not "erased").
         Logger.d(TAG) {
-            "updateDataSourceAxis mainId=${detail.mainId}: type=${detail.dataSourceType} " +
+            "updateDataSourceAxis MERGE mainId=${detail.mainId}: type=${detail.dataSourceType} " +
                 "status=${detail.dataStatus} genres=${detail.dataGenres?.take(60)} " +
                 "year=${detail.dataSeasonYear} score=${detail.dataScore} " +
                 "cover=${detail.dataCoverUrl != null} synopsis=${detail.dataSynopsis?.length ?: 0}ch"
         }
     }
 
-    /** Partial UPDATE of all extension fields (data-source fields untouched). */
+    /**
+     * ROUND 127 (B2, D-792): the intentional FULL-axis replace — a SWITCH to a
+     * different data source. The incoming object IS the new axis truth: stale
+     * fields from the previous source must NOT survive (a COALESCE merge here
+     * would mix two sources' metadata in one row). Warns loudly per D-785 —
+     * this is the one axis write that is allowed to erase.
+     */
+    fun replaceDataSourceAxis(detail: ContentDetails) {
+        contentQueries.replaceDataSourceAxis(
+            dataSourceType = detail.dataSourceType,
+            dataSourceRefId = detail.dataSourceRefId,
+            dataScore = detail.dataScore,
+            dataEpisodes = detail.dataEpisodes,
+            dataSeason = detail.dataSeason,
+            dataSeasonYear = detail.dataSeasonYear,
+            dataStatus = detail.dataStatus,
+            dataGenres = detail.dataGenres,
+            dataSynopsis = detail.dataSynopsis,
+            dataCoverUrl = detail.dataCoverUrl,
+            dataBannerUrl = detail.dataBannerUrl,
+            dataExtraJson = detail.dataExtraJson,
+            dataUpdatedAt = detail.dataUpdatedAt,
+            mainId = detail.mainId,
+        )
+        Logger.w(TAG) {
+            "DB WRITE content_details REPLACE data axis mainId=${detail.mainId}: " +
+                "type=${detail.dataSourceType} ref=${detail.dataSourceRefId} — " +
+                "the previous data axis was intentionally overwritten (switch)"
+        }
+    }
+
+    /**
+     * ROUND 127 (B2 + B7, D-792/D-795): MERGE-update of the extension axis
+     * (COALESCE — nulls preserve). B7: the INTEGER source_id is derived in the
+     * SQL from the canonical TEXT extension_id, so the twin columns cannot
+     * drift. For the intentional whole-axis switch use [replaceExtensionAxis].
+     */
     fun updateExtensionAxis(detail: ContentDetails) {
         contentQueries.updateExtensionAxis(
             extensionType = detail.extensionType,
             extensionId = detail.extensionId,
-            sourceId = detail.sourceId,
             animeUrl = detail.animeUrl,
             extDescription = detail.extDescription,
             extGenres = detail.extGenres,
@@ -380,10 +493,38 @@ class ContentRepository(
         )
         // ROUND 123 (R9/R10): the logcat persist probe (see updateDataSourceAxis).
         Logger.d(TAG) {
-            "updateExtensionAxis mainId=${detail.mainId}: type=${detail.extensionType} " +
+            "updateExtensionAxis MERGE mainId=${detail.mainId}: type=${detail.extensionType} " +
+                "extId=${detail.extensionId} " +
                 "status=${detail.extStatus} genres=${detail.extGenres?.take(60)} " +
                 "author=${detail.extAuthor} cover=${detail.extThumbnailUrl != null} " +
                 "synopsis=${detail.extDescription?.length ?: 0}ch"
+        }
+    }
+
+    /**
+     * ROUND 127 (B2 + B7, D-792/D-795): the intentional FULL-axis replace for a
+     * SWITCH to a different extension source (see [replaceDataSourceAxis]).
+     * B7: source_id is derived from extension_id in the SQL.
+     */
+    fun replaceExtensionAxis(detail: ContentDetails) {
+        contentQueries.replaceExtensionAxis(
+            extensionType = detail.extensionType,
+            extensionId = detail.extensionId,
+            animeUrl = detail.animeUrl,
+            extDescription = detail.extDescription,
+            extGenres = detail.extGenres,
+            extStatus = detail.extStatus,
+            extAuthor = detail.extAuthor,
+            extArtist = detail.extArtist,
+            extThumbnailUrl = detail.extThumbnailUrl,
+            extExtraJson = detail.extExtraJson,
+            extUpdatedAt = detail.extUpdatedAt,
+            mainId = detail.mainId,
+        )
+        Logger.w(TAG) {
+            "DB WRITE content_details REPLACE ext axis mainId=${detail.mainId}: " +
+                "type=${detail.extensionType} extId=${detail.extensionId} — " +
+                "the previous ext axis was intentionally overwritten (switch)"
         }
     }
 
@@ -417,6 +558,13 @@ class ContentRepository(
 
     fun getSystemByName(name: String): SystemInfo? {
         return contentQueries.getSystemByName(name).executeAsOneOrNull()?.let {
+            SystemInfo(it.id, it.name, it.display_name, it.package_prefix)
+        }
+    }
+
+    /** ROUND 127 (B4, D-793): the scanner's systemId → system row lookup. */
+    fun getSystemById(id: Long): SystemInfo? {
+        return contentQueries.getSystemById(id).executeAsOneOrNull()?.let {
             SystemInfo(it.id, it.name, it.display_name, it.package_prefix)
         }
     }
@@ -535,6 +683,20 @@ class ContentRepository(
      * system row + extension_type. IDEMPOTENT (already-healed rows are
      * skipped); called once at app start.
      */
+    /**
+     * ROUND 127 (B7, D-795): reconcile every content_details row whose INTEGER
+     * source_id disagrees with the derivation from the canonical TEXT
+     * extension_id. Runs at startup (next to [healCloudstreamEcosystem]) —
+     * after it, the ext-axis writes keep the pair agreeing by construction
+     * (the SQL derives source_id; see updateExtensionAxis/replaceExtensionAxis).
+     */
+    fun reconcileExtensionIds() {
+        val mismatched = contentQueries.countExtensionIdMismatches().executeAsOne()
+        if (mismatched == 0L) return
+        contentQueries.reconcileExtensionIds()
+        Logger.i(TAG) { "DB WRITE content_details RECONCILE ext ids (B7) — realigned $mismatched row(s)" }
+    }
+
     fun healCloudstreamEcosystem() {
         val csSystem = getSystemByName("cloudstream") ?: return
         var healedEntries = 0

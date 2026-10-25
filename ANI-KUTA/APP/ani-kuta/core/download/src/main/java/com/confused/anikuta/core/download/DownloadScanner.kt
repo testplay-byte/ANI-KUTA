@@ -114,6 +114,14 @@ class DownloadScanner(
                 if (dataJson.anilistId != null) {
                     upsertAniListDetail(dataJson)
                 }
+                // ROUND 127 (B4, D-793): restore the EXTENSION axis for
+                // extension-only downloads (anilistId == null — the common
+                // case) and for AniList-linked rows whose details row was
+                // missing. The snapshot's extensionId/sourceId/animeUrl/cover
+                // are exactly what the ext axis needs; without this a restored
+                // extension-only entry had bare title + no cover + blank
+                // extension details until the user manually re-opened it.
+                restoreExtensionAxisFromSnapshot(dataJson)
 
                 // D-151-fix: write-back — update data.json with the latest DB data.
                 // After upsertContentRecord (which ensures the DB has at least the
@@ -478,6 +486,13 @@ class DownloadScanner(
      * If the row exists, it's already at least as fresh as `.data.json`, so
      * we leave it alone + let `reconcileDataJsonFromContent` bring `.data.json`
      * up to date with the DB.
+     *
+     * ROUND 127 (B1, D-791): the insert itself is now INSERT OR IGNORE
+     * ([ContentRepository.insertMainEntryIfMissing]) — the existence check
+     * above was a check-then-insert race: a row created between the check and
+     * the insert (e.g. by a concurrent `resolveOrCreateForExtension` after the
+     * user tapped the title mid-scan) was still clobbered wholesale by the old
+     * INSERT OR REPLACE, rolling it back to its download-time state.
      */
     private fun upsertContentRecord(data: ContentDataJson) {
         // D-242: don't overwrite an existing main_entry row — the DB is canonical.
@@ -506,9 +521,9 @@ class DownloadScanner(
             updatedAt = now,
         )
         DownloadLogger.i {
-            "upsertContentRecord — restoring mainId=${data.mainId} from .data.json (reinstall recognition)"
+            "upsertContentRecord — restoring mainId=${data.mainId} from .data.json (reinstall recognition, insert-if-missing)"
         }
-        contentRepository.insertMainEntry(record)
+        contentRepository.insertMainEntryIfMissing(record)
     }
 
     /**
@@ -536,27 +551,78 @@ class DownloadScanner(
         // Now: start from the EXISTING row (copy preserves everything), update ONLY
         // the axis identity + timestamp; seed dataCoverUrl from .data.json when the
         // row is fresh.
+        // ROUND 127 (B1, D-791): an EXISTING row is not touched at all anymore —
+        // the DB is canonical (D-242) and the old path re-committed the row's own
+        // values with a fresh data_updated_at on EVERY scan (the same clock-
+        // rolling pattern B1 registered). Only the MISSING-row restore path
+        // writes (seeding identity + cover from the snapshot).
         val existing = contentRepository.getContentDetails(data.mainId)
-        val detail = if (existing != null) {
-            existing.copy(
-                dataSourceType = if (data.anilistId != null) "anilist" else existing.dataSourceType,
-                dataSourceRefId = data.anilistId?.toString() ?: existing.dataSourceRefId,
-                dataUpdatedAt = now,
-            )
-        } else {
-            DownloadLogger.i {
-                "upsertAniListDetail — creating missing content_details row for mainId=${data.mainId}"
+        if (existing != null) {
+            DownloadLogger.d {
+                "upsertAniListDetail — mainId=${data.mainId} already has a details row; " +
+                    "skipping (DB is canonical, no stale snapshot re-commit)"
             }
+            return
+        }
+        DownloadLogger.i {
+            "upsertAniListDetail — creating missing content_details row for mainId=${data.mainId}"
+        }
+        contentRepository.upsertContentDetails(ContentDetails(mainId = data.mainId))
+        val detail = ContentDetails(
+            mainId = data.mainId,
+            dataSourceType = if (data.anilistId != null) "anilist" else null,
+            dataSourceRefId = data.anilistId?.toString(),
+            dataUpdatedAt = now,
+            dataCoverUrl = data.coverUrl?.takeIf { it.isNotBlank() },
+        )
+        contentRepository.updateDataSourceAxis(detail)
+    }
+
+    /**
+     * ROUND 127 (B4, D-793): restore the EXTENSION axis of content_details from
+     * the durable `.data.json` snapshot. Restored extension-only downloads used
+     * to come back with a bare title and NO ext axis (no cover, no genres, no
+     * description) — the snapshot format always carried the needed fields, but
+     * nothing ever wrote them into content_details.
+     *
+     * Guarded to the genuine-restore case: a row whose ext axis is ALREADY
+     * linked is left alone (the DB is canonical, D-242 — a relinked entry must
+     * not be dragged back to the snapshot's older extension identity by a
+     * stale `.data.json`). The write itself is the COALESCE merge, so only the
+     * fields the snapshot actually carries are filled in.
+     */
+    private fun restoreExtensionAxisFromSnapshot(data: ContentDataJson) {
+        val extId = data.extensionId?.toString()
+            ?: data.sourceId?.toString()
+            ?: return // no extension identity in the snapshot — nothing to restore
+        val existing = contentRepository.getContentDetails(data.mainId)
+        if (existing?.extensionType != null) {
+            DownloadLogger.d {
+                "restoreExtensionAxisFromSnapshot — mainId=${data.mainId} already has an ext axis; skipping (DB is canonical)"
+            }
+            return
+        }
+        if (existing == null) {
             contentRepository.upsertContentDetails(ContentDetails(mainId = data.mainId))
+        }
+        // The ecosystem discriminator from the snapshot's system FK (the seeded
+        // system names ARE the extension_type values).
+        val extensionType = data.systemId?.let { contentRepository.getSystemById(it)?.name }
+        val now = System.currentTimeMillis()
+        contentRepository.updateExtensionAxis(
             ContentDetails(
                 mainId = data.mainId,
-                dataSourceType = if (data.anilistId != null) "anilist" else null,
-                dataSourceRefId = data.anilistId?.toString(),
-                dataUpdatedAt = now,
-                dataCoverUrl = data.coverUrl?.takeIf { it.isNotBlank() },
-            )
+                extensionType = extensionType,
+                extensionId = extId,
+                animeUrl = data.animeUrl,
+                extThumbnailUrl = data.coverUrl?.takeIf { it.isNotBlank() },
+                extUpdatedAt = now,
+            ),
+        )
+        DownloadLogger.i {
+            "restoreExtensionAxisFromSnapshot — restored ext axis for mainId=${data.mainId} " +
+                "(type=$extensionType extId=$extId url=${data.animeUrl?.take(40)} cover=${data.coverUrl != null})"
         }
-        contentRepository.updateDataSourceAxis(detail)
     }
 
     /**

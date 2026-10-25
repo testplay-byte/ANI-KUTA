@@ -36,6 +36,23 @@ fun Long?.isCloudstreamBridgedId(): Boolean =
     this != null && (this and CLOUDSTREAM_SOURCE_ID_FLAG) != 0L
 
 /**
+ * ROUND 127 (B6, D-796): the ONE ecosystem-derivation helper for content_id
+ * regeneration from an EXISTING row. The extension identity is the truth: a
+ * CloudStream-bridged id says "cloudstream" outright; otherwise the row's
+ * system FK is resolved to its real name (no more hardcoded "aniyomi" — a
+ * Sora/MangaYomi row's id keeps its own ecosystem shape across link/unlink
+ * cycles); an unlinked row (no system FK) keeps the null, preserving the
+ * legacy id shape. Content_id regeneration sites call THIS — they used to
+ * hand-roll the derivation and two of them hardcoded "aniyomi".
+ */
+fun ecosystemNameForEntry(repo: ContentRepository, entry: ContentRecord): String? =
+    when {
+        entry.extensionId.isCloudstreamBridgedId() -> "cloudstream"
+        entry.systemId != null -> repo.getSystemById(entry.systemId!!)?.name ?: "aniyomi"
+        else -> null
+    }
+
+/**
  * Resolves external IDs (anilistId, sourceId+animeUrl) to the internal mainId.
  *
  * - If a main_entry record exists for the given ID → return its mainId.
@@ -304,7 +321,8 @@ class ContentResolver(
             }
             val newContentId = ContentIdGenerator.generate(
                 dataSource = "anilist",
-                system = existing.systemId?.let { "aniyomi" }, // Simplified — could look up the system name.
+                // B6 (D-796): the row's real ecosystem, not a hardcoded "aniyomi".
+                system = ecosystemNameForEntry(repo, existing),
                 repoUrl = null, // Could look up the repo URL from the extension.
                 extensionPkg = null, // Could look up from the extension.
                 sourceId = existing.sourceId,
@@ -489,10 +507,9 @@ class ContentResolver(
 
             val newContentId = ContentIdGenerator.generate(
                 dataSource = null,
-                // D-540: the content's own ecosystem (CS-bridged extension_id
-                // → "cloudstream"), not a hardcoded "aniyomi".
-                system = if (existing.extensionId.isCloudstreamBridgedId()) "cloudstream"
-                else existing.systemId?.let { "aniyomi" },
+                // B6 (D-796): the row's real ecosystem via the shared helper
+                // (was an inline derivation — same semantics, one home now).
+                system = ecosystemNameForEntry(repo, existing),
                 repoUrl = null,
                 extensionPkg = null,
                 sourceId = existing.sourceId,
@@ -598,7 +615,8 @@ class ContentResolver(
             repo.updateDataSourceAxis(anilistDetail.copy(mainId = mainId, dataUpdatedAt = now))
             val newContentId = ContentIdGenerator.generate(
                 dataSource = "anilist",
-                system = existing.systemId?.let { "aniyomi" },
+                // B6 (D-796): the row's real ecosystem, not a hardcoded "aniyomi".
+                system = ecosystemNameForEntry(repo, existing),
                 repoUrl = null,
                 extensionPkg = null,
                 sourceId = existing.sourceId,

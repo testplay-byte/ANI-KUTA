@@ -30,7 +30,7 @@ import kotlinx.coroutines.withContext
  */
 class SqlDelightWatchProgressStore(
     private val database: AnikutaDatabase,
-    preferencesStore: PreferenceStore,
+    private val watchPreferences: WatchPreferences,
 ) : WatchProgressStore {
 
     companion object {
@@ -38,7 +38,11 @@ class SqlDelightWatchProgressStore(
         private val dispatchers = Dispatchers.IO
     }
 
-    private val watchPreferences = WatchPreferences(preferencesStore)
+    /** The production convenience form — builds [DefaultWatchPreferences] from the raw store. */
+    constructor(database: AnikutaDatabase, preferencesStore: PreferenceStore) : this(
+        database,
+        DefaultWatchPreferences(preferencesStore),
+    )
 
     override suspend fun save(episodeKey: String, progress: WatchProgress) = withContext(dispatchers) {
         val threshold = watchPreferences.autoMarkThreshold
@@ -50,14 +54,30 @@ class SqlDelightWatchProgressStore(
         val userMarkedWatched = existing?.user_marked_watched?.toInt() == 1
         val wasCompleted = existing?.completed?.toInt() == 1
 
+        // ROUND 127 (D-789): the cumulative actually-played total. The caller
+        // passes what it knows (persisted base + this session's accumulation);
+        // the stored value can only grow (a repeating 10s save passes the same
+        // or a bigger total — max() keeps it idempotent, never double-counting).
+        // Callers that don't track played time (defaults to 0) simply can't
+        // lower a stored total.
+        val cumulativePlayedMs = maxOf(existing?.played_time_ms ?: 0L, progress.playedTimeMs)
+
         // Determine the new completed state.
-        // Rule: if fraction > threshold AND NOT autoMarkSuppressed → completed = true (auto-mark fires).
+        // Rule: if fraction > threshold AND the cumulative played total reached
+        // WatchProgress.MIN_PLAYED_FOR_WATCHED_MS AND NOT autoMarkSuppressed →
+        // completed = true (auto-mark fires). The played-time condition is the
+        // user's spec: an episode is watched when it was genuinely watched for
+        // more than one minute IN TOTAL — so seeking to the end after earlier
+        // real watching marks it, but a fresh failed stream that plays ~2s and
+        // pins at EOF never does (its total stays under the floor).
         // If fraction <= threshold AND was completed AND NOT autoMarkSuppressed → stay completed (rewind, IM9).
         // If autoMarkSuppressed → completed stays false (user un-marked; must re-cross threshold).
+        val fractionOverThreshold = progress.progressFraction > threshold &&
+            cumulativePlayedMs >= WatchProgress.MIN_PLAYED_FOR_WATCHED_MS
         val shouldComplete = when {
             userMarkedWatched -> true // sticky — stays completed regardless.
             autoMarkSuppressed -> false // suppressed — don't auto-mark.
-            progress.progressFraction > threshold -> true // auto-mark fires.
+            fractionOverThreshold -> true // auto-mark fires (fraction + played total).
             wasCompleted -> true // rewind — keep completed (IM9).
             else -> false
         }
@@ -82,17 +102,19 @@ class SqlDelightWatchProgressStore(
             first_watched_at = firstWatchedAt,
             auto_mark_suppressed = if (autoMarkSuppressed) 1L else 0L,
             user_marked_watched = if (userMarkedWatched) 1L else 0L,
+            played_time_ms = cumulativePlayedMs,
         )
 
         if (justCompleted) {
             Logger.i(TAG) {
-                "save — auto-marked watched (threshold=${threshold}, fraction=${progress.progressFraction}): " +
+                "save — auto-marked watched (threshold=${threshold}, fraction=${progress.progressFraction}, " +
+                    "playedMs=$cumulativePlayedMs): " +
                     "key=$episodeKey pos=${progress.position}s dur=${progress.duration}s watchCount=$newWatchCount"
             }
         } else {
             Logger.d(TAG) {
                 "save: key=$episodeKey pos=${progress.position}s dur=${progress.duration}s " +
-                    "fraction=${progress.progressFraction} completed=$shouldComplete"
+                    "fraction=${progress.progressFraction} playedMs=$cumulativePlayedMs completed=$shouldComplete"
             }
         }
     }
@@ -159,6 +181,7 @@ class SqlDelightWatchProgressStore(
                 first_watched_at = null,
                 auto_mark_suppressed = 1L,
                 user_marked_watched = 0L,
+                played_time_ms = 0L,
             )
             Logger.i(TAG) { "setAutoMarkSuppressed — INSERTED new row (was no-op before): key=$episodeKey mainId=$mainId → isWatched=false (suppressed)" }
         } else {
@@ -191,6 +214,7 @@ class SqlDelightWatchProgressStore(
                 first_watched_at = now,
                 auto_mark_suppressed = 0L,
                 user_marked_watched = 1L,
+                played_time_ms = 0L,
             )
             Logger.i(TAG) { "setUserMarkedWatched — INSERTED new row (was no-op before): key=$episodeKey mainId=$mainId → isWatched=true (sticky)" }
         } else {
@@ -318,6 +342,7 @@ class SqlDelightWatchProgressStore(
             firstWatchedAt = first_watched_at,
             autoMarkSuppressed = auto_mark_suppressed.toInt() == 1,
             userMarkedWatched = user_marked_watched.toInt() == 1,
+            playedTimeMs = played_time_ms,
         )
     }
 }

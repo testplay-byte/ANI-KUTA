@@ -292,6 +292,17 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                         .get<com.confused.anikuta.core.content.ContentRepository>()
                         .healCloudstreamEcosystem()
                 }
+                // ROUND 127 (B7, D-795): realign any content_details row whose
+                // INTEGER source_id disagrees with its canonical TEXT
+                // extension_id — the ext-axis writes keep the pair agreeing by
+                // construction after this.
+                runCatching {
+                    org.koin.core.context.GlobalContext.get()
+                        .get<com.confused.anikuta.core.content.ContentRepository>()
+                        .reconcileExtensionIds()
+                }.onFailure { t ->
+                    Logger.w("AnikutaApp") { "Extension-id reconciliation failed: ${t.message}" }
+                }
                 // Task 80-b: the dedup sent-log's designed 90-day retention
                 // NEVER ran (cleanupOldSent had zero production callers), so
                 // the notification_sent table grew forever. One sweep per app

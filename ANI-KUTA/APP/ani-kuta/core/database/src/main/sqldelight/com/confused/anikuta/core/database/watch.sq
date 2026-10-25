@@ -5,7 +5,17 @@
 -- Phase WP (PLAN §1.1): extended with main_id (FK → content, for JOINs + backup),
 -- watch_count, first_watched_at, auto_mark_suppressed (CF1: user un-marked →
 -- suppress 85% auto-mark), user_marked_watched (CF1: user explicitly marked).
--- The old 6 columns + 5 new = 11 total. Migration via DatabaseDriverFactory.onOpen.
+-- The old 6 columns + 5 new = 11 total. Legacy migration via
+-- DatabaseDriverFactory.onOpen (column probes, kept as a safety net).
+--
+-- ROUND 127 (D-789): played_time_ms — the CUMULATIVE time the user actually
+-- played this episode across ALL sessions (ms). The auto-mark requires BOTH
+-- the fraction threshold AND played_time_ms >= WatchProgress.MIN_PLAYED_FOR_WATCHED_MS
+-- (60s), so a seek-to-end after having genuinely watched the episode marks it,
+-- while a fresh failed stream (~2s played, pinned at EOF) never can. Written
+-- monotonic (max of stored vs incoming) by SqlDelightWatchProgressStore.save.
+-- First VERSIONED migration: 1.sqm (schema version 1 → 2); existing installs
+-- are stamped user_version = 1 and upgrade via AndroidSqliteDriver.Callback.
 
 CREATE TABLE IF NOT EXISTS watch_progress (
     episode_key TEXT NOT NULL PRIMARY KEY,
@@ -20,6 +30,7 @@ CREATE TABLE IF NOT EXISTS watch_progress (
     first_watched_at INTEGER,                               -- the first time the user watched this episode
     auto_mark_suppressed INTEGER NOT NULL DEFAULT 0,        -- CF1: user manually un-marked → suppress auto-mark until next play
     user_marked_watched INTEGER NOT NULL DEFAULT 0,         -- CF1: user explicitly marked watched (sticky)
+    played_time_ms INTEGER NOT NULL DEFAULT 0,              -- ROUND 127 (D-789): cumulative actually-played ms across all sessions (monotonic)
     FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
 );
 
@@ -37,10 +48,12 @@ CREATE INDEX IF NOT EXISTS idx_watch_progress_completed_at ON watch_progress(com
 upsertWatchProgress:
 INSERT OR REPLACE INTO watch_progress(
     episode_key, position, duration, completed, completed_at, last_watched_at,
-    main_id, watch_count, first_watched_at, auto_mark_suppressed, user_marked_watched
+    main_id, watch_count, first_watched_at, auto_mark_suppressed, user_marked_watched,
+    played_time_ms
 ) VALUES (
     :episode_key, :position, :duration, :completed, :completed_at, :last_watched_at,
-    :main_id, :watch_count, :first_watched_at, :auto_mark_suppressed, :user_marked_watched
+    :main_id, :watch_count, :first_watched_at, :auto_mark_suppressed, :user_marked_watched,
+    :played_time_ms
 );
 
 -- Get progress for a specific episode

@@ -157,6 +157,11 @@ VALUES (:name, :displayName, :type, :createdAt);
 getSystemByName:
 SELECT * FROM system WHERE name = :name;
 
+-- ROUND 127 (B4, D-793): the scanner maps a restored download's systemId FK
+-- back to its system row to derive the content_details extension_type.
+getSystemById:
+SELECT * FROM system WHERE id = :id;
+
 getAllSystems:
 SELECT * FROM system ORDER BY name ASC;
 
@@ -204,6 +209,23 @@ SELECT * FROM main_entry WHERE content_id = :contentId;
 
 insertMainEntry:
 INSERT OR REPLACE INTO main_entry(
+    main_id, content_id, title, content_type, content_format,
+    data_source_id, system_id, extension_repo_id, extension_id, source_id,
+    anime_url, display_source, created_at, updated_at
+) VALUES (
+    :mainId, :contentId, :title, :contentType, :contentFormat,
+    :dataSourceId, :systemId, :extensionRepoId, :extensionId, :sourceId,
+    :animeUrl, :displaySource, :createdAt, :updatedAt
+);
+
+-- ROUND 127 (B1, D-791): the scanner's insert — INSERT OR IGNORE, never
+-- REPLACE. The scanner restores from the durable .data.json snapshot; an
+-- existing DB row is canonical (D-242) and must never be clobbered by it
+-- (the old INSERT OR REPLACE + check-then-insert race could roll a relinked
+-- row back to its download-time state). A row that appeared between the
+-- caller's existence check and this insert is simply left untouched.
+insertMainEntryIfMissing:
+INSERT OR IGNORE INTO main_entry(
     main_id, content_id, title, content_type, content_format,
     data_source_id, system_id, extension_repo_id, extension_id, source_id,
     anime_url, display_source, created_at, updated_at
@@ -273,7 +295,35 @@ INSERT OR REPLACE INTO content_details(
     :coverAccentArgb
 );
 
+-- ROUND 127 (B2, D-792): the axis updates are now MERGES — every metadata
+-- column is `COALESCE(:col, col)`, so a caller that passes null for a field it
+-- didn't fetch PRESERVES the stored value instead of erasing it. This is the
+-- storage-level fix for the "refresh replaces good data with a parsed stub"
+-- report class: even a forgetful writer can no longer wipe an axis. Callers
+-- that genuinely mean "replace this whole axis" (a data-source/extension
+-- SWITCH) use replaceDataSourceAxis / replaceExtensionAxis below. The
+-- *_updated_at columns always advance (they stamp the write, not the payload).
 updateDataSourceAxis:
+UPDATE content_details SET
+    data_source_type = COALESCE(:dataSourceType, data_source_type),
+    data_source_ref_id = COALESCE(:dataSourceRefId, data_source_ref_id),
+    data_score = COALESCE(:dataScore, data_score),
+    data_episodes = COALESCE(:dataEpisodes, data_episodes),
+    data_season = COALESCE(:dataSeason, data_season),
+    data_season_year = COALESCE(:dataSeasonYear, data_season_year),
+    data_status = COALESCE(:dataStatus, data_status),
+    data_genres = COALESCE(:dataGenres, data_genres),
+    data_synopsis = COALESCE(:dataSynopsis, data_synopsis),
+    data_cover_url = COALESCE(:dataCoverUrl, data_cover_url),
+    data_banner_url = COALESCE(:dataBannerUrl, data_banner_url),
+    data_extra_json = COALESCE(:dataExtraJson, data_extra_json),
+    data_updated_at = :dataUpdatedAt
+WHERE main_id = :mainId;
+
+-- ROUND 127 (B2, D-792): the intentional full-axis replace (a SWITCH to a
+-- different data source — the incoming object IS the new axis truth, stale
+-- fields from the previous source must not survive). Callers log loudly.
+replaceDataSourceAxis:
 UPDATE content_details SET
     data_source_type = :dataSourceType,
     data_source_ref_id = :dataSourceRefId,
@@ -290,11 +340,34 @@ UPDATE content_details SET
     data_updated_at = :dataUpdatedAt
 WHERE main_id = :mainId;
 
+-- ROUND 127 (B2 + B7, D-792/D-795): the ext-axis MERGE (see updateDataSourceAxis).
+-- B7: source_id is no longer a separate input — it is DERIVED from
+-- extension_id (NULLIF(CAST(...), 0)): one canonical id, the INTEGER twin
+-- always agrees by construction, and the two columns can no longer drift.
 updateExtensionAxis:
+UPDATE content_details SET
+    extension_type = COALESCE(:extensionType, extension_type),
+    extension_id = COALESCE(:extensionId, extension_id),
+    source_id = COALESCE(NULLIF(CAST(:extensionId AS INTEGER), 0), source_id),
+    anime_url = COALESCE(:animeUrl, anime_url),
+    ext_description = COALESCE(:extDescription, ext_description),
+    ext_genres = COALESCE(:extGenres, ext_genres),
+    ext_status = COALESCE(:extStatus, ext_status),
+    ext_author = COALESCE(:extAuthor, ext_author),
+    ext_artist = COALESCE(:extArtist, ext_artist),
+    ext_thumbnail_url = COALESCE(:extThumbnailUrl, ext_thumbnail_url),
+    ext_extra_json = COALESCE(:extExtraJson, ext_extra_json),
+    ext_updated_at = :extUpdatedAt
+WHERE main_id = :mainId;
+
+-- ROUND 127 (B2 + B7, D-792/D-795): the intentional full-axis replace for a
+-- SWITCH to a different extension source (see replaceDataSourceAxis). B7: the
+-- INTEGER source_id is derived from the canonical TEXT extension_id.
+replaceExtensionAxis:
 UPDATE content_details SET
     extension_type = :extensionType,
     extension_id = :extensionId,
-    source_id = :sourceId,
+    source_id = NULLIF(CAST(:extensionId AS INTEGER), 0),
     anime_url = :animeUrl,
     ext_description = :extDescription,
     ext_genres = :extGenres,
@@ -350,3 +423,20 @@ SELECT * FROM content_details;
 -- D-223: Update the adaptive cover accent color (extracted from cover image).
 updateCoverAccentArgb:
 UPDATE content_details SET cover_accent_argb = :argb WHERE main_id = :mainId;
+
+-- ROUND 127 (B7, D-795): one-time reconciliation — every row whose INTEGER
+-- source_id disagrees with the derivation from the canonical TEXT extension_id
+-- is realigned (numeric extension ids: source_id = the same number; non-numeric
+-- ids (CloudStream source names): source_id = NULL). Runs at startup next to
+-- healCloudstreamEcosystem; after it, the ext-axis writes keep the pair
+-- agreeing by construction (see updateExtensionAxis/replaceExtensionAxis).
+reconcileExtensionIds:
+UPDATE content_details
+SET source_id = NULLIF(CAST(extension_id AS INTEGER), 0)
+WHERE extension_id IS NOT NULL
+  AND IFNULL(source_id, -1) <> IFNULL(NULLIF(CAST(extension_id AS INTEGER), 0), -1);
+
+countExtensionIdMismatches:
+SELECT COUNT(*) FROM content_details
+WHERE extension_id IS NOT NULL
+  AND IFNULL(source_id, -1) <> IFNULL(NULLIF(CAST(extension_id AS INTEGER), 0), -1);

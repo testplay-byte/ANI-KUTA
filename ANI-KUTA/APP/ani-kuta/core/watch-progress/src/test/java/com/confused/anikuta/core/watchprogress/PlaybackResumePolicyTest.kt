@@ -82,9 +82,18 @@ class PlaybackResumePolicyTest {
     }
 
     @Test
-    fun `resume never seeks before zero`() {
+    fun `resume rewinds fifteen seconds from just-past-the-floor positions`() {
+        // Round 121 committed this test expecting ResumeAtPosition(0) for
+        // position 65 — but that expectation was stale when written (with the
+        // 60 s floor + the 15 s rewind, position 65 rewinds to 50; the
+        // coerceAtLeast(0) clamp is only reachable if the constants change).
+        // The test never RAN until round 127 (CI builds only; the round-126
+        // verifier ran :core:content only). Locked at the true contract:
+        // rewind, floored at zero.
         assertEquals(
-            PlaybackResumePolicy.Decision.ResumeAtPosition(0L),
+            PlaybackResumePolicy.Decision.ResumeAtPosition(
+                65L - PlaybackResumePolicy.RESUME_REWIND_SECONDS,
+            ),
             PlaybackResumePolicy.plan(progress(position = 65L)),
         )
     }

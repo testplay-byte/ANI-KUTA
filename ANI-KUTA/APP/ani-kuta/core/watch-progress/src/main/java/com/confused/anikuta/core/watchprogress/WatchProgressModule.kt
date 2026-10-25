@@ -10,6 +10,9 @@ import org.koin.dsl.module
  * [WatchProgressStore] impl. The SQLDelight impl persists to the `watch_progress`
  * table + implements the two-flag auto-mark state machine (CF1) + reads the
  * configurable threshold from [WatchPreferences].
+ *
+ * ROUND 127 (D-789): [WatchPreferences] is an interface now (JVM-testable
+ * store); the production binding is [DefaultWatchPreferences].
  */
 val watchProgressModule = module {
     single<WatchProgressStore> {
@@ -18,5 +21,5 @@ val watchProgressModule = module {
             preferencesStore = get<PreferenceStore>(),
         )
     }
-    single { WatchPreferences(get<PreferenceStore>()) }
+    single<WatchPreferences> { DefaultWatchPreferences(get<PreferenceStore>()) }
 }

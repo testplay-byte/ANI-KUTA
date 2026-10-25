@@ -76,7 +76,7 @@ source id means CloudStream), never a hardcoded name.
 
 | File | Tables | Stores | Key linkage |
 |---|---|---|---|
-| `watch.sq` | `watch_progress` | Per-episode resume position/duration, the watched state machine (completed + `auto_mark_suppressed` + `user_marked_watched`), watch_count, timestamps. The auto-mark fires on `save()` when the fraction exceeds `watchPreferences.autoMarkThreshold` (the user's setting; default 0.85). | `episode_key` (PK) + `main_id` |
+| `watch.sq` | `watch_progress` | Per-episode resume position/duration, the watched state machine (completed + `auto_mark_suppressed` + `user_marked_watched`), watch_count, timestamps, and `played_time_ms` — the CUMULATIVE actually-played milliseconds across all sessions (D-789). The auto-mark fires on `save()` when the fraction exceeds `watchPreferences.autoMarkThreshold` (the user's setting; default 0.85) **AND** the played total reached 60 s — watched = genuinely finished AND genuinely watched (round 126's per-session gate became cumulative in round 127). | `episode_key` (PK) + `main_id` |
 | `library.sq` | `library_category`, `library_item` | The user's categories and which `main_id`s are in them (added_at order). | `main_id` |
 | `genres.sq` | `genre`, `content_genre` | The genre vocabulary + the content↔genre join. | `main_id` |
 | `track.sq` | `track_entry`, `content_tracking_state` | Tracker (AniList/MAL) bindings and the tracked progress state. | `main_id` |
@@ -99,7 +99,20 @@ source id means CloudStream), never a hardcoded name.
 2. **New optional metadata goes in the extras JSON** (`data_extra_json` /
    `ext_extra_json`, `ignoreUnknownKeys = true`) before it earns a column
    (the Task 47/D-777 pattern — additive, no migration).
-3. **Schema CHANGES need the user's §30 signal** (versioned `.sqm` migrations
-   are still gated on Q2 — the `onOpen` guard pattern is the interim).
+3. **Schema CHANGES go through versioned `.sqm` migrations.** Round 127
+   (D-789/D-798) introduced the first one (`1.sqm`, v1 → v2: the
+   `watch_progress.played_time_ms` column); every future schema change adds
+   `N.sqm`, and `SchemaMigrationTest` (core/database) proves each migration
+   converts a real v1-shaped database **with its data intact** — the user's
+   requirement that an app update upgrades old installs in place. The old
+   `onOpen` column probes in `DatabaseDriverFactory` remain as a safety net
+   (all guarded/idempotent); new changes must NOT go through them.
 4. **Every write logs itself** (D-785, CORE_RULES §5) — see DATA-FLOWS.md for
    the write-path map and FLAWS.md for the known traps.
+5. **Axis writes MERGE by default; replace is explicit** (D-792, round 127).
+   `updateDataSourceAxis`/`updateExtensionAxis` are COALESCE merges (a null
+   field preserves the stored value — the "refresh replaces good data with a
+   stub" wipe class is impossible); `replaceDataSourceAxis`/`replaceExtensionAxis`
+   are the intentional whole-axis switches and log at WARN. In content_details
+   the TEXT `extension_id` is canonical: the INTEGER `source_id` is derived in
+   the SQL and can never drift (B7/D-795).

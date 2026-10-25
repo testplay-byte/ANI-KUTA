@@ -146,6 +146,14 @@ class CsWatchViewModel(
     private var resolveJob: Job? = null
     private var currentKey: CsWatchKey? = null
 
+    // ROUND 127 (D-789): the CURRENT episode's actually-played accumulation for
+    // the cumulative watch-mark gate — session ms (this open) + the position of
+    // the last saveProgress call (small forward deltas are playback; seeks are
+    // not). Reset at every currentKey assignment (a new episode starts fresh);
+    // the persisted cumulative base comes from the store row at save time.
+    private var playedSessionMs: Long = 0
+    private var lastSavePositionMs: Long = -1
+
     /**
      * Task 53 / RC-6: a resolution produced OUTSIDE this VM (the resolve
      * sheet at the details-page entry) — adopted by [initialize] instead of
@@ -343,6 +351,7 @@ class CsWatchViewModel(
 
         val key = seed.key
         currentKey = key
+        resetPlayedAccumulator()
         flavorOrdinals = com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings
             .flavorOrdinals(key.parseEpisodeList())
         observeProgress(key.mainId)
@@ -426,6 +435,7 @@ class CsWatchViewModel(
 
     private fun seedAndResolve(key: CsWatchKey) {
         currentKey = key
+        resetPlayedAccumulator()
         flavorOrdinals = com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings
             .flavorOrdinals(key.parseEpisodeList())
         observeProgress(key.mainId)
@@ -456,6 +466,7 @@ class CsWatchViewModel(
         resolveJob?.cancel()
         resolveJob = null
         currentKey = key
+        resetPlayedAccumulator()
         flavorOrdinals = com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings
             .flavorOrdinals(key.parseEpisodeList())
         observeProgress(key.mainId)
@@ -1061,6 +1072,15 @@ class CsWatchViewModel(
     fun saveProgress(positionMs: Long, durationMs: Long) {
         val key = currentKey ?: return
         if (durationMs <= 0) return
+        // ROUND 127 (D-789): accumulate the session's actually-played time the
+        // same way the MPV holder does — a small FORWARD delta between saves is
+        // playback; a seek (big jump) or a rewind is not. The ticker fires every
+        // 10s, so real deltas are ~10s; anything above the 60s slack is a seek.
+        if (lastSavePositionMs >= 0) {
+            val deltaMs = positionMs - lastSavePositionMs
+            if (deltaMs in 1..60_000L) playedSessionMs += deltaMs
+        }
+        lastSavePositionMs = positionMs
         // Task 57 (P1): the ordinal-aware key — sub and dub rows of the SAME
         // episode write to one row (watching sub 80% shows 80% on the dub too).
         val epKey = progressEpisodeKey()
@@ -1078,10 +1098,18 @@ class CsWatchViewModel(
                 firstWatchedAt = previous?.firstWatchedAt ?: System.currentTimeMillis(),
                 autoMarkSuppressed = previous?.autoMarkSuppressed ?: false,
                 userMarkedWatched = previous?.userMarkedWatched ?: false,
+                // The persisted cumulative total + this session's accumulation.
+                playedTimeMs = (previous?.playedTimeMs ?: 0L) + playedSessionMs,
             )
             runCatching { watchProgressStore.save(epKey, progress) }
                 .onFailure { Logger.w(TAG) { "progress save failed: ${it.message}" } }
         }
+    }
+
+    /** ROUND 127 (D-789): a new episode starts its played-time session fresh. */
+    private fun resetPlayedAccumulator() {
+        playedSessionMs = 0
+        lastSavePositionMs = -1
     }
 
     override fun onCleared() {
