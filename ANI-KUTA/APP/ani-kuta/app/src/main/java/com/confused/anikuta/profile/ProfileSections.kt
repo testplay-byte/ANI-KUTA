@@ -1186,6 +1186,7 @@ fun TimelineTab(
                         scaleX = s
                         scaleY = s
                     }
+                    .collapsingTabBand(scrollFraction)
                     .padding(horizontal = 12.dp),
             ) {
                 SegmentedToggle(

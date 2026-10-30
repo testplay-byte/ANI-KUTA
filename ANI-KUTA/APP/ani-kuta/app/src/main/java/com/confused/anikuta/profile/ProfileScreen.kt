@@ -43,11 +43,14 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -56,6 +59,7 @@ import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.settings.SegmentedToggle
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import org.koin.compose.viewmodel.koinViewModel
@@ -282,6 +286,32 @@ fun ProfileScreen(
 
 // ── Stats Tab ─────────────────────────────────────────────────────────────────
 
+/**
+ * ROUND 129 (the device report: "the profile screen is still glitched"): the
+ * tab band used to fade/scale VISUALLY only (graphicsLayer) while keeping its
+ * full layout height — between the top of the list and the magnetic snap
+ * there was a see-through ~42dp hole under the header where the band used to
+ * be. This modifier collapses the band in LAYOUT, driven by the same scroll
+ * fraction: the band's measured viewport shrinks with the scroll, the content
+ * below slides up naturally, and a fully-collapsed band reports a 0dp height.
+ * The child is measured at its natural (unconstrained) height every pass, so
+ * the shrink never feeds back into the measurement; the LazyColumn's offset
+ * clamping converges (the fixed point sits at half-collapse, where the
+ * magnetic snap takes over on finger-up).
+ */
+internal fun Modifier.collapsingTabBand(
+    fraction: () -> Float,
+): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(
+        constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity),
+    )
+    val f = fraction().coerceIn(0f, 1f)
+    val target = (placeable.height * (1f - f)).roundToInt()
+    layout(constraints.maxWidth, target) {
+        placeable.placeRelative(0, 0)
+    }
+}.clipToBounds()
+
 @Composable
 private fun StatsTab(
     state: ProfileUiState,
@@ -297,7 +327,8 @@ private fun StatsTab(
         contentPadding = PaddingValues(bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Item 0: full-size tab bar — scrolls away + shrinks via graphicsLayer.
+        // Item 0: full-size tab bar — collapses in LAYOUT with the scroll
+        // (ROUND 129) + fades/shrinks visually via graphicsLayer.
         item {
             Box(
                 modifier = Modifier
@@ -310,6 +341,7 @@ private fun StatsTab(
                         scaleY = s
                         transformOrigin = TransformOrigin.Center
                     }
+                    .collapsingTabBand(scrollFraction)
                     .padding(horizontal = 12.dp),
             ) {
                 SegmentedToggle(
