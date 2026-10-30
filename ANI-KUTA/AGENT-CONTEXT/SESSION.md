@@ -1,7 +1,7 @@
 # SESSION — Read This At The Start Of Every Session
 
 > A 60-second orientation. Read this FIRST, every time, before any work.
-> Refreshed in **Round 128 (2026-10-26).** If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
+> Refreshed in **Round 129 (2026-10-26).** If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
 
 ---
 
@@ -12,13 +12,13 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 
 ---
 
-## 📍 Current State (refreshed Round 128, 2026-10-26 — THE COMMUNITY LINKS, THE PROFILE TOP FIX, THE PROFESSIONAL v1.1.6 RELEASE: LIVE on the official repo with 11 verified assets, the website updated; run 40211073870, release head 46424a67)
+## 📍 Current State (refreshed Round 129, 2026-10-26 — the Profile tab band collapses in LAYOUT (D-802): the still-glitched report root-caused to the fade-but-occupy band; run 41129501186, head 93715cbb)
 
 - **Mainline branch:** `main` — this IS the default branch, renamed from `feature/round-57-cloudstream-downloads` in Round 118 (D-743). Round 120 was implemented ON `main` from its own baseline: the user's standing order is that the backup branch (`backup/main-pre-revert-2026-10-21`) is IGNORED (it will be deleted by the user) — its "round 120-131 fixes" were never the reference. `feature/test-controller-v5` stays dormant (kept by explicit user order).
 - **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only). Latest **debug** release: **v1.1.73 / 10173** (round 119 — LIVE on testplay-byte; carries the round-119 set; the round-120 code is NOT in any release yet — the next debug release is the user's order, per D-738). Latest **professional** release: **v1.1.5 / 10105 — LIVE on the official repo** (Confused-Creature-180/ANI-KUTA; doc 99 §7 has the execution record).
 - **⚠ THE PHASE (D-738):** every round ends at **CI green** (the Build APK debug run's `anikuta-apk` artifact — versionCode 10120, the standing in-place-update wrinkle over v1.1.73); releases of either kind need the user's explicit order.
-- **Round 128 (doc 110, D-799..D-801):** the app fixes (16c0980a, run 40210497739 GREEN): the About Community section (Discord + Website, the user's exact placement) and the Profile scroll-0 tightening (optional CollapsingHeader knobs, Profile-only). THE PROFESSIONAL RELEASE: release/1.1.6 (bump 46424a67, 10106/1.1.6) -> run 40211073870 GREEN -> release 423572649 on Confused-Creature-180/ANI-KUTA (STABLE latest, 11 assets verified, /releases/latest -> v1.1.6); the website (gh-pages b82d1bb) carries the v1.1.6 chip + the ARCHITEC probe label; the official README links re-pointed (df87201). DISCLOSED INCIDENT: two contents-API PUTs meant for gh-pages landed on official main — removed immediately, tree verified clean; the lesson (D-801): non-default-branch edits go through a real CLONE, git branch --show-current between every step. Mainline 1.1.20/10120 untouched; the round-128 code is in NO debug release yet (D-738). CI this cycle: 2 runs (inside D-472). **The user's next report is the input to round 129.**
-- **Latest records:** Round 128 = doc **110**; the next record is **111**; the next decision is **D-802** (latest = D-801). `AGENT-CONTEXT/download-research/` numbering: the round records moved to `DOCUMENTATION/cloudstream-v2/` (the 100-series).
+- **Round 129 (doc 111, D-802):** the user's second "profile still glitched" report root-caused: the tab band faded via graphicsLayer while keeping its full layout height — a see-through hole under the header until the magnetic snap fired. FIX: `Modifier.collapsingTabBand(fraction)` collapses the band's measured height with the scroll fraction (state-in-measure, no recomposition, no feedback; 0dp when fully collapsed), both tabs, run 41129501186 GREEN. The round-128 app fixes (About Community section + the header tightening) ride the same unreleased mainline — the user needs the LATEST Build APK artifact (run 41129501186) to see them. Mainline 1.1.20/10120; v1.1.6/10106 is the LIVE professional release.
+- **Latest records:** Round 129 = doc **111**; the next record is **112**; the next decision is **D-803** (latest = D-802). `AGENT-CONTEXT/download-research/` numbering: the round records moved to `DOCUMENTATION/cloudstream-v2/` (the 100-series).
 - **The per-round loop (D-738 form):** device feedback → implement on the mainline → CI green (Build APK debug run — ≤2 runs/cycle, disclosed ledger, D-472; docs-only pushes build nothing) → **STOP — hand the user the artifact link + the test checklist** → LIVE-mirror docs → ntfy. No release steps.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` / `**.md` pushes build NOTHING. `DASHBOARD/webpage/**` pushes DO trigger the Pages deploy.
 - **THIS SESSION'S NOTIFICATION:** ntfy topic **THE-TASK-IS-DONE** (the §11 default; the round-119 SESSION override TASK808DONE is historical).

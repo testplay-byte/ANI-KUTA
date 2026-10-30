@@ -4,6 +4,9 @@
 
 ## Decisions
 
+## D-802 (round 129): THE PROFILE TAB BAND COLLAPSES IN LAYOUT
+The user's "still glitched" after round 128 pointed at the structural flaw the padding fix missed: the tab band faded/scaled via graphicsLayer while keeping its full layout height — a see-through ~42dp hole under the header between the top and the magnetic snap, and the snap threshold (56dp) exceeded the band's real height. FIX: `Modifier.collapsingTabBand(fraction)` — a layout modifier measuring the band natural, reporting `natural * (1-f)` (f = the same scroll fraction); state read inside measure (no recomposition), unconstrained child measurement (no feedback), the offset clamping converges at half-collapse where the snap resolves rest states. Both tabs applied; the fade/scale layer sits outside the clip. Lesson banked: when a "glitch" report survives a static-spacing fix, look for DYNAMIC state that changes appearance but not layout (graphicsLayer is the prime suspect).
+
 ## D-799 (round 128): THE ABOUT COMMUNITY SECTION
 More > About gains a "Community" section exactly between the App version and the Updates sections (the user's placement): Discord -> https://discord.gg/X7JCCxX4Hr and Website -> https://confused-creature-180.github.io/ANI-KUTA/. Rows use the app's raw-Intent link pattern (the TrackersScreen/UpdateBottomSheet precedent — no LocalUriHandler anywhere by design) via a private LinkRow composable styled like the manual-check row (SettingsIconTile + title + subtitle).
 
