@@ -1,5 +1,11 @@
 # Changelog (High-Level)
 
+## 1.1.74 / 10174 — RELEASE (round 130 — the debug line; carries rounds 126-130)
+- RELEASED: the **v1.1.74** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum-verified) — v1.1.73 installs get the in-app update offer.
+- PLAYER: the intro/outro skip data works again (the poisoned negative latch fixed at its root — a three-way Found/NotFound/Error contract; mixed-op/ed types; the length-mismatch retry), and the Up Next dismissal survives process death (replay-from-zero still resets it; seek-back still re-arms it).
+- DOWNLOADS: the service starts at app open when pending work exists (the force-stop/reboot auto-start gap); the progress writer no longer leaks.
+- DATABASE/DISK: the download folder's .data.json no longer rolls its download-recency timestamp on every scan.
+
 ## 1.1.6 / 10106 — RELEASE (round 128 — the professional line; the mainline keeps 1.1.20/10120)
 - RELEASED: the signed all-ABI **v1.1.6** is LIVE on the official repo (Confused-Creature-180/ANI-KUTA, stable latest) — 5 APKs + 5 ZIPs + SHA256SUMS.txt, every asset verified. The website chip + the device-probe ARCHITEC label updated; the README download links re-pointed.
 - APP: the About screen gained a Community section (Discord + Website) and the Profile page's top no longer carries the empty padding at scroll 0.

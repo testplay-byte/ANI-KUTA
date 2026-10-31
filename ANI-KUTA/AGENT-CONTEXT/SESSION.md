@@ -1,7 +1,7 @@
 # SESSION — Read This At The Start Of Every Session
 
 > A 60-second orientation. Read this FIRST, every time, before any work.
-> Refreshed in **Round 129 (2026-10-26).** If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
+> Refreshed in **Round 130 (2026-10-31).** If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
 
 ---
 
@@ -12,13 +12,13 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 
 ---
 
-## 📍 Current State (refreshed Round 129, 2026-10-26 — the Profile tab band collapses in LAYOUT (D-802): the still-glitched report root-caused to the fade-but-occupy band; run 41129501186, head 93715cbb)
+## 📍 Current State (refreshed Round 130, 2026-10-31 — the skip contract, the durable dismissal, the downloads open-start, and the v1.1.74 DEBUG RELEASE LIVE; run 41196747242, release run 41197352617, mainline head d00c6726)
 
 - **Mainline branch:** `main` — this IS the default branch, renamed from `feature/round-57-cloudstream-downloads` in Round 118 (D-743). Round 120 was implemented ON `main` from its own baseline: the user's standing order is that the backup branch (`backup/main-pre-revert-2026-10-21`) is IGNORED (it will be deleted by the user) — its "round 120-131 fixes" were never the reference. `feature/test-controller-v5` stays dormant (kept by explicit user order).
 - **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only). Latest **debug** release: **v1.1.73 / 10173** (round 119 — LIVE on testplay-byte; carries the round-119 set; the round-120 code is NOT in any release yet — the next debug release is the user's order, per D-738). Latest **professional** release: **v1.1.5 / 10105 — LIVE on the official repo** (Confused-Creature-180/ANI-KUTA; doc 99 §7 has the execution record).
 - **⚠ THE PHASE (D-738):** every round ends at **CI green** (the Build APK debug run's `anikuta-apk` artifact — versionCode 10120, the standing in-place-update wrinkle over v1.1.73); releases of either kind need the user's explicit order.
-- **Round 129 (doc 111, D-802):** the user's second "profile still glitched" report root-caused: the tab band faded via graphicsLayer while keeping its full layout height — a see-through hole under the header until the magnetic snap fired. FIX: `Modifier.collapsingTabBand(fraction)` collapses the band's measured height with the scroll fraction (state-in-measure, no recomposition, no feedback; 0dp when fully collapsed), both tabs, run 41129501186 GREEN. The round-128 app fixes (About Community section + the header tightening) ride the same unreleased mainline — the user needs the LATEST Build APK artifact (run 41129501186) to see them. Mainline 1.1.20/10120; v1.1.6/10106 is the LIVE professional release.
-- **Latest records:** Round 129 = doc **111**; the next record is **112**; the next decision is **D-803** (latest = D-802). `AGENT-CONTEXT/download-research/` numbering: the round records moved to `DOCUMENTATION/cloudstream-v2/` (the 100-series).
+- **Round 130 (doc 112, D-803..D-806):** the research round executed: the AniSkip three-way contract (the poisoned negative latch was the bands' root cause — only definitive answers latch now, the key v3 expires every poisoned latch, mixed types + the length-mismatch retry added), the DURABLE Up Next dismissal (dismiss -> kill -> reopen at the resume position keeps it; a fresh replay clears it), the downloads OPEN-START (ensureServiceForPendingWork at app open — the force-stop/reboot gap), and the honest .data.json stamps (scans stamp lastScanAt, never updatedAt). The adversarial verifier found 5 defects (2 in the fix's own class) — all fixed pre-push; 219 tests green. THE RELEASE: v1.1.74/10174 LIVE on testplay-byte (stable latest, Routine A, release run 41197352617 GREEN) — v1.1.73 installs get the offer carrying rounds 126-130. The WatchScreen size: a three-phase PLAN delivered, awaiting the user's order. The downloads device re-test checklist: doc 112.
+- **Latest records:** Round 130 = doc **112**; the next record is **113**; the next decision is **D-807** (latest = D-806). `AGENT-CONTEXT/download-research/` numbering: the round records moved to `DOCUMENTATION/cloudstream-v2/` (the 100-series).
 - **The per-round loop (D-738 form):** device feedback → implement on the mainline → CI green (Build APK debug run — ≤2 runs/cycle, disclosed ledger, D-472; docs-only pushes build nothing) → **STOP — hand the user the artifact link + the test checklist** → LIVE-mirror docs → ntfy. No release steps.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` / `**.md` pushes build NOTHING. `DASHBOARD/webpage/**` pushes DO trigger the Pages deploy.
 - **THIS SESSION'S NOTIFICATION:** ntfy topic **THE-TASK-IS-DONE** (the §11 default; the round-119 SESSION override TASK808DONE is historical).
