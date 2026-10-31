@@ -83,7 +83,58 @@ class DefaultDownloadManager(
      */
     private val deleteMutex = Mutex()
 
+    private companion object {
+        /** The message markers a self-healable network-class ERROR carries (mirrors DownloadQueue.isNetworkClassError). */
+        private val NETWORK_ERROR_MARKERS = listOf(
+            "unable to resolve host",
+            "failed to connect",
+            "network is unreachable",
+            "software caused connection abort",
+            "connection refused",
+            "connection reset",
+            "timed out",
+            "timeout",
+            "no address associated with hostname",
+            "econnreset",
+        )
+    }
+
     // ── Downloaded-episodes cache (refreshed on every queue change + scan/delete) ─
+
+    /**
+     * ROUND 130 (the re-test audit's HIGH finding, 5.1): the download service
+     * hosts the NetworkCallback AND the startup self-heal sweep — but nothing
+     * at app open STARTED it. After a force-stop (or reboot) while offline,
+     * reopening the app and reconnecting left WAITING tasks waiting forever:
+     * the sweep existed inside a service nobody launched. Call once at app
+     * start: if the persisted queue holds any task that can still move
+     * (queued / stale-downloading / waiting / network-class error), start the
+     * service — its onCreate sweep resumes exactly what the network allows.
+     * PAUSED is deliberately excluded: the user's pause intent wins, and a
+     * paused-only queue must not resurrect a foreground notification.
+     */
+    fun ensureServiceForPendingWork() {
+        val resumable = runCatching { store.getActiveTasks() }.getOrDefault(emptyList()).any { task ->
+            when (task.status) {
+                DownloadStatus.QUEUED,
+                DownloadStatus.DOWNLOADING,
+                DownloadStatus.RETRYING,
+                DownloadStatus.WAITING_FOR_NETWORK,
+                -> true
+                DownloadStatus.ERROR -> task.lastError?.lowercase()?.let { msg ->
+                    NETWORK_ERROR_MARKERS.any { it in msg }
+                } == true
+                else -> false
+            }
+        }
+        if (resumable) {
+            DownloadLogger.i {
+                "ensureServiceForPendingWork — pending work in the persisted queue; " +
+                    "starting the download service (the onCreate self-heal sweep resumes what the network allows)"
+            }
+            DownloadService.start(context)
+        }
+    }
 
     private val _downloadedEpisodes = MutableStateFlow<List<DownloadedEpisode>>(emptyList())
     override fun getDownloadedEpisodes(): StateFlow<List<DownloadedEpisode>> =

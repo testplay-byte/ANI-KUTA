@@ -56,13 +56,32 @@ class AniSkipClient(
         val fromService: Boolean,
     )
 
+    /**
+     * ROUND 130 (the device report: "the seek bar does not show the proper
+     * intro and outro bars"): the fetch result now DISTINGUISHES the three
+     * outcomes, because only one of them may latch the per-episode negative
+     * cache:
+     *  - [Found] — the service answered with intervals.
+     *  - [NotFound] — the service answered (HTTP 200, `found:false` or no
+     *    usable intervals): a DEFINITIVE miss for this episode; the caller
+     *    may latch it.
+     *  - [Error] — network/transport/parse trouble (the old code collapsed
+     *    this into the same null as NotFound, and the caller latched BOTH —
+     *    one flaky fetch permanently silenced an episode's skip data).
+     */
+    sealed class FetchResult {
+        data class Found(val skip: SkipTimes) : FetchResult()
+        object NotFound : FetchResult()
+        object Error : FetchResult()
+    }
+
     /** AniList id → MAL id (absent = resolved-and-missing). */
     private val malIdCache = ConcurrentHashMap<Int, Optional<Int>>()
 
     /**
-     * Fetches the op/ed skip times for one episode. Returns null when the
-     * anime can't be mapped to MAL, the service is unreachable, or AniSkip
-     * has no data — the caller then falls back to any manual timestamps.
+     * Fetches the op/ed skip times for one episode. The three-way
+     * [FetchResult] says which outcome it was (see the type's doc) — the
+     * caller falls back to any manual timestamps on every non-Found.
      *
      * ROUND 122 (R5): [episodeLengthSec] is SECONDS (the AniSkip v2 contract —
      * the round-121 code sent milliseconds; masked only because duration was
@@ -72,8 +91,19 @@ class AniSkipClient(
         anilistId: Int,
         episodeNumber: Int,
         episodeLengthSec: Long,
-    ): SkipTimes? {
-        val malId = resolveMalId(anilistId) ?: return null
+    ): FetchResult {
+        // ROUND 130 (the verifier's Defect 1): resolveMalId returns null BOTH
+        // for a definitive "no MAL twin" (cached) and for a TRANSIENT failure
+        // (an exception / non-200 from the AniList hop — deliberately not
+        // cached). Only the cached negative may latch; a transient one is
+        // Error so the next episode open retries instead of silencing the
+        // episode forever.
+        val malId = resolveMalId(anilistId)
+            ?: return if (malIdCache.containsKey(anilistId)) {
+                FetchResult.NotFound
+            } else {
+                FetchResult.Error
+            }
         return fetchSkipTimesByMal(malId, episodeNumber, episodeLengthSec)
     }
 
@@ -86,34 +116,82 @@ class AniSkipClient(
         malId: Int,
         episodeNumber: Int,
         episodeLengthSec: Long,
-    ): SkipTimes? = withContext(Dispatchers.IO) {
-        if (malId <= 0) return@withContext null
-        val url = "https://api.aniskip.com/api/v2/skip-times/$malId/$episodeNumber".toHttpUrl()
+    ): FetchResult = withContext(Dispatchers.IO) {
+        if (malId <= 0) return@withContext FetchResult.Error
+        suspend fun buildUrl(episodeLengthSec: Long) = "https://api.aniskip.com/api/v2/skip-times/$malId/$episodeNumber"
+            .toHttpUrl()
             .newBuilder()
+            // ROUND 130 (the provider research): mixed-op/mixed-ed are real
+            // submission types the old query dropped — mixed-eds are common
+            // late-series outros, and every dropped type is a missing band.
             .addQueryParameter("types", "op")
+            .addQueryParameter("types", "mixed-op")
             .addQueryParameter("types", "ed")
+            .addQueryParameter("types", "mixed-ed")
             .apply {
                 // The known length sharpens the results; omit when unknown.
                 if (episodeLengthSec > 0) addQueryParameter("episodeLength", episodeLengthSec.toString())
             }
             .build()
-        val response = runCatching {
+        fun call(url: okhttp3.HttpUrl) = runCatching {
             client.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build()).execute()
-        }.getOrNull() ?: return@withContext null
-        response.use { resp ->
-            if (!resp.isSuccessful) return@withContext null
-            val body = runCatching { resp.body?.string() }.getOrNull() ?: return@withContext null
-            parseSkipTimes(body)
+        }.getOrNull()
+
+        val first = call(buildUrl(episodeLengthSec))
+            ?: return@withContext FetchResult.Error
+        first.use { resp ->
+            if (!resp.isSuccessful) return@withContext FetchResult.Error
+            val body = runCatching { resp.body?.string() }.getOrNull()
+                ?: return@withContext FetchResult.Error
+            when (val parsed = parseSkipTimes(body)) {
+                is Parsed.Found -> FetchResult.Found(parsed.skip)
+                is Parsed.DefinitiveMiss -> {
+                    // ROUND 130 (the provider research): AniSkip answers the
+                    // SAME 404 for "no submission" AND "wrong episodeLength" —
+                    // a stream that cuts differently from the listing would
+                    // poison the episode as a miss. Retry ONCE without the
+                    // length (the parameter is optional): the server then
+                    // matches any submission for the episode.
+                    if (episodeLengthSec > 0) {
+                        val retry = call(buildUrl(0L))
+                            ?: return@use FetchResult.Error
+                        retry.use { resp2 ->
+                            // ROUND 130 (the verifier's Defect 2): the RETRY's
+                            // own failures are transient — Error, never
+                            // NotFound (only the server's explicit "no data"
+                            // for this episode may latch).
+                            if (!resp2.isSuccessful) return@use FetchResult.Error
+                            val body2 = runCatching { resp2.body?.string() }.getOrNull()
+                                ?: return@use FetchResult.Error
+                            when (val parsed2 = parseSkipTimes(body2)) {
+                                is Parsed.Found -> FetchResult.Found(parsed2.skip)
+                                is Parsed.DefinitiveMiss -> FetchResult.NotFound
+                                is Parsed.Malformed -> FetchResult.Error
+                            }
+                        }
+                    } else {
+                        FetchResult.NotFound
+                    }
+                }
+                is Parsed.Malformed -> FetchResult.Error
+            }
         }
     }
 
-    /** org.json parsing — every field guarded; malformed → null. */
-    private fun parseSkipTimes(body: String): SkipTimes? = runCatching {
+    /** The parser's three-way outcome (ROUND 130 — see [FetchResult]). */
+    private sealed class Parsed {
+        data class Found(val skip: SkipTimes) : Parsed()
+        object DefinitiveMiss : Parsed()
+        object Malformed : Parsed()
+    }
+
+    /** org.json parsing — every field guarded; malformed → [Parsed.Malformed]. */
+    private fun parseSkipTimes(body: String): Parsed = runCatching {
         val root = JSONObject(body)
-        if (!root.optBoolean("found", false)) return@runCatching null
+        if (!root.optBoolean("found", false)) return@runCatching Parsed.DefinitiveMiss
         var intro: Interval? = null
         var outro: Interval? = null
-        val results = root.optJSONArray("results") ?: return@runCatching null
+        val results = root.optJSONArray("results") ?: return@runCatching Parsed.Malformed
         for (i in 0 until results.length()) {
             val entry = results.optJSONObject(i) ?: continue
             val interval = entry.optJSONObject("interval") ?: continue
@@ -123,14 +201,16 @@ class AniSkipClient(
             val parsed = Interval(start.toInt(), end.toInt())
             when (entry.optString("skipType")) {
                 "op", "mixed-op" -> if (intro == null) intro = parsed
-                "ed" -> if (outro == null) outro = parsed
+                // ROUND 130: mixed-ed too (a late-series ED overlapped with
+                // the episode's last scenes) — the old parser dropped it.
+                "ed", "mixed-ed" -> if (outro == null) outro = parsed
                 // "recap" skips exist too — deliberately ignored until the
                 // user asks for them.
             }
         }
-        if (intro == null && outro == null) return@runCatching null
-        SkipTimes(intro = intro, outro = outro, fromService = true)
-    }.getOrNull()
+        if (intro == null && outro == null) return@runCatching Parsed.DefinitiveMiss
+        Parsed.Found(SkipTimes(intro = intro, outro = outro, fromService = true))
+    }.getOrElse { Parsed.Malformed }
 
     /**
      * AniList → MAL via the public GraphQL endpoint. Cached, definitive

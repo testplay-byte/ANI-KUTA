@@ -450,7 +450,38 @@ class PlayerPreferences(private val store: PreferenceStore) {
         store.putBoolean(KEY_PREFIX_EPISODE_SKIP_ASKED + mainId + "_" + episodeNumber, true)
     }
 
+    // ── ROUND 130 (D-804): the DURABLE Up Next dismissals ────────────────────
+    // The in-session dismissal map in WatchScreen dies with the process. This
+    // ordered string list (one episode key per line, newest last, capped)
+    // survives process death so a dismissed card stays dismissed after the
+    // app is killed mid-episode and reopened at the resume position. The
+    // re-arm semantics live at the call sites: a seek back out of the end
+    // zone REMOVES the key (also durably), and a genuine fresh replay (the
+    // resume decision says "start at beginning") clears it too — a new
+    // playback attempt from zero is a fresh chance, exactly like in-session.
+    fun getDurableUpNextDismissals(): Set<String> {
+        val raw = store.getString(KEY_UPNEXT_DISMISSED, "") ?: ""
+        return raw.split("\n").filter { it.isNotBlank() }.toSet()
+    }
+
+    fun addDurableUpNextDismissal(key: String) {
+        if (key.isBlank()) return
+        val current = (store.getString(KEY_UPNEXT_DISMISSED, "") ?: "")
+            .split("\n").filter { it.isNotBlank() }
+        val updated = (current - key) + key
+        store.putString(KEY_UPNEXT_DISMISSED, updated.takeLast(UPNEXT_DISMISS_MAX).joinToString("\n"))
+    }
+
+    fun removeDurableUpNextDismissal(key: String) {
+        val current = (store.getString(KEY_UPNEXT_DISMISSED, "") ?: "")
+            .split("\n").filter { it.isNotBlank() }
+        if (key !in current) return
+        store.putString(KEY_UPNEXT_DISMISSED, (current - key).joinToString("\n"))
+    }
+
     companion object {
+        private const val KEY_UPNEXT_DISMISSED = "pref_upnext_dismissed_episodes"
+        private const val UPNEXT_DISMISS_MAX = 256
         private const val KEY_SPEED = "player_speed"
         private const val KEY_AUTOPLAY_NEXT = "player_autoplay_next"
         private const val KEY_RESUME = "player_resume"
@@ -485,6 +516,11 @@ class PlayerPreferences(private val store: PreferenceStore) {
         // permanently marked "asked" with no data, so the fixed POST client
         // never got a chance to ask again (the "AniSkip still not working"
         // device report: the same anime stayed silent across the fix).
-        private const val KEY_PREFIX_EPISODE_SKIP_ASKED = "pref_episode_skip_asked_v2_"
+        // ROUND 130: the "_v3" suffix — the same rescue for the latches the
+        // round-123 client wrote on TRANSIENT failures (the client collapsed
+        // network errors into the same null as a definitive "no data", and the
+        // caller latched both). Every poisoned v2 latch expires on update; the
+        // new client only latches definitive answers, so this is the last key.
+        private const val KEY_PREFIX_EPISODE_SKIP_ASKED = "pref_episode_skip_asked_v3_"
     }
 }

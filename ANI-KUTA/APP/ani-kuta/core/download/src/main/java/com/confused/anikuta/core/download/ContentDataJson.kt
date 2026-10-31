@@ -121,6 +121,15 @@ data class ContentDataJson(
     val createdAt: Long,
     @SerialName("updatedAt")
     val updatedAt: Long,
+    // ROUND 130 (D-805): when a SCAN touched this file last (the scanner's
+    // reconciliation). Deliberately SEPARATE from updatedAt, which keeps its
+    // "last download-flow write" meaning — a scan used to roll updatedAt to
+    // "scan time", which corrupted the duplicate-folder arbitration (the
+    // scanned folder always won future comparisons regardless of which was
+    // genuinely downloaded later). Nullable with a default: old files parse
+    // fine (ignoreUnknownKeys) and new files open on old builds.
+    @SerialName("lastScanAt")
+    val lastScanAt: Long? = null,
 ) {
     companion object {
         /** The current data.json schema version. */

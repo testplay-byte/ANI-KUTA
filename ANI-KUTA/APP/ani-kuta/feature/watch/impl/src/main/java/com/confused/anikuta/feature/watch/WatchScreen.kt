@@ -649,6 +649,13 @@ fun WatchScreen(
     // CS ticker re-offering). One map honored by EVERY offer path muzzles them
     // all; a new episode key naturally re-arms.
     val dismissedNextKeys = remember { mutableStateMapOf<String, Boolean>() }
+    // ROUND 130 (D-804): the DURABLE twin — survives process death. A
+    // dismissal recorded here keeps the card suppressed after a kill + reopen
+    // at the resume position; the re-arm paths (seek-back, a genuine fresh
+    // replay) remove from BOTH stores.
+    var durableDismissedKeys = remember {
+        mutableStateOf(playerPreferences.getDurableUpNextDismissals())
+    }
 
     // D-748: intro/outro skipping — the per-series timestamps + the pill state
     // + the once-per-episode auto-skip bookkeeping.
@@ -743,7 +750,7 @@ fun WatchScreen(
     // a dismissed card (the device report's resurrection).
     val offerNextEpisode: (Boolean) -> Unit = { force ->
         val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
-        if (dismissedNextKeys[epKey] == true) {
+        if (dismissedNextKeys[epKey] == true || epKey in durableDismissedKeys.value) {
             Logger.i(TAG) { "Up Next: suppressed (dismissed by the user) key=$epKey force=$force" }
         } else if (force || offeredNextKeys[epKey] != true) {
             offeredNextKeys[epKey] = true
@@ -829,6 +836,18 @@ fun WatchScreen(
                     resumeEnabled = playerPreferences.resumeFromLastPosition,
                 )
             }
+            // ROUND 130 (D-804): a genuine FRESH replay (the policy says start
+            // at beginning — the user replayed the episode, or resume is off)
+            // clears the durable dismissal: a new attempt from zero is a fresh
+            // chance. A process-death RESUME (ResumeAtPosition) KEEPS it — the
+            // card stays dismissed after a kill + reopen at the saved position.
+            if (decision == com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.Decision.StartAtBeginning &&
+                epKey in durableDismissedKeys.value
+            ) {
+                playerPreferences.removeDurableUpNextDismissal(epKey)
+                durableDismissedKeys.value = durableDismissedKeys.value - epKey
+                Logger.i(TAG) { "UpNext: durable dismissal cleared (fresh replay) key=$epKey" }
+            }
             val resumeSec = (decision as? com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.Decision
                 .ResumeAtPosition)?.positionSeconds ?: 0L
             val storedSnapshot = runCatching { watchProgressStore.get(epKey) }.getOrNull()
@@ -907,9 +926,15 @@ fun WatchScreen(
         // end zone (below duration−15s) and both latches re-arm, so finishing
         // the episode after a dismiss-then-seek-back offers the card again
         // (the device report: dismiss → seek back → reach the end → no card).
-        if (dismissedNextKeys[epKey] == true && duration - position > 15f) {
+        if ((dismissedNextKeys[epKey] == true || epKey in durableDismissedKeys.value) &&
+            duration - position > 15f
+        ) {
             dismissedNextKeys.remove(epKey)
             offeredNextKeys.remove(epKey)
+            // ROUND 130 (D-804): the re-arm is durable too — seeking back out
+            // of the end zone clears the persisted dismissal as well.
+            playerPreferences.removeDurableUpNextDismissal(epKey)
+            durableDismissedKeys.value = durableDismissedKeys.value - epKey
             Logger.i(TAG) { "UpNext: latches re-armed (seeked back out of the end zone) key=$epKey" }
         }
         if (offeredNextKeys[epKey] == true) return@LaunchedEffect
@@ -2138,7 +2163,14 @@ fun WatchScreen(
     // can never resurrect (the device report: dismiss in one orientation,
     // reappear after the mode switch).
     val onDismissUpNext: () -> Unit = {
-        dismissedNextKeys[buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)] = true
+        val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
+        dismissedNextKeys[epKey] = true
+        // ROUND 130 (D-804): the dismissal is now DURABLE — it survives process
+        // death and suppresses the card after a kill + reopen at the resume
+        // position. Cleared by the seek-back re-arm above and by a genuine
+        // fresh replay (the resume decision lands on StartAtBeginning).
+        playerPreferences.addDurableUpNextDismissal(epKey)
+        durableDismissedKeys.value = durableDismissedKeys.value + epKey
         upNextVisible = false
         upNextCountdown = 0
     }
@@ -2158,6 +2190,10 @@ fun WatchScreen(
             episodeSkip = null
             return@LaunchedEffect
         }
+        // ROUND 130: clear the previous episode's intervals at effect entry —
+        // the state was remembered per SERIES, so a switched-to episode briefly
+        // showed the OLD episode's bands before the fetch resolved.
+        episodeSkip = null
         val cached = playerPreferences.getEpisodeSkipTimes(watchKey.mainId, epNum)
         if (cached != null) {
             episodeSkip = cached
@@ -2169,8 +2205,7 @@ fun WatchScreen(
         }
         val durSec = stateHolder.duration.value
         if (durSec <= 0) return@LaunchedEffect
-        var hadIdsForLatch = false
-        val fetched = runCatching {
+        val result = runCatching {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 // Synchronous DB read + network — off the main thread.
                 val details = runCatching {
@@ -2198,23 +2233,24 @@ fun WatchScreen(
                         "anilistId=$anilist durSec=$durSec (latched=" +
                         "${playerPreferences.isEpisodeSkipFetched(watchKey.mainId, epNum)})"
                 }
-                // ROUND 122 (R5): latch ONLY when the attempt had an id to ask
-                // with — a no-id episode (or a failed metadata read) stays
-                // eligible forever; latching it made the FIRST failure
-                // permanent across restarts (the "AniSkip not working at all"
-                // report). A WITH-id miss is definitive (the service answered
-                // "no data") and stays latched.
-                hadIdsForLatch = (mal != null && mal > 0) || (anilist != null && anilist > 0)
+                // ROUND 130: the three-way contract — Found (intervals) /
+                // NotFound (the service answered "no data": DEFINITIVE, may
+                // latch) / Error (network or parse: TRANSIENT, must NOT latch —
+                // the old client collapsed it into the same null as NotFound
+                // and one flaky fetch permanently silenced the episode). No ids
+                // is Error too: the row may gain ids later (an AniList link).
                 when {
                     mal != null && mal > 0 ->
                         aniSkipClient.fetchSkipTimesByMal(mal, epNum, durSec.toLong())
                     anilist != null && anilist > 0 ->
                         aniSkipClient.fetchSkipTimes(anilist, epNum, durSec.toLong())
-                    else -> null
+                    else -> com.confused.anikuta.core.network.AniSkipClient.FetchResult.Error
                 }
             }
-        }.getOrNull()
-        if (hadIdsForLatch) {
+        }.getOrElse { com.confused.anikuta.core.network.AniSkipClient.FetchResult.Error }
+        val fetched = (result as? com.confused.anikuta.core.network.AniSkipClient.FetchResult.Found)?.skip
+        if (result !is com.confused.anikuta.core.network.AniSkipClient.FetchResult.Error) {
+            // A definitive answer (intervals OR an explicit "no data") — latch.
             playerPreferences.markEpisodeSkipFetched(watchKey.mainId, epNum)
         }
         val stored = fetched?.let {
@@ -2225,11 +2261,13 @@ fun WatchScreen(
                 outroEndSec = it.outro?.endSec,
             )
         }
-        playerPreferences.setEpisodeSkipTimes(watchKey.mainId, epNum, stored)
+        if (fetched != null) {
+            playerPreferences.setEpisodeSkipTimes(watchKey.mainId, epNum, stored)
+        }
         Logger.i(TAG) {
             "AniSkip: EP $epNum → intro=${fetched?.intro?.let { "${it.startSec}-${it.endSec}s" }} " +
                 "outro=${fetched?.outro?.let { "${it.startSec}-${it.endSec}s" }} " +
-                "(miss=${fetched == null})"
+                "outcome=${result::class.simpleName}"
         }
         if (stateHolder.currentEpisodeNumber.value.toInt() == epNum) episodeSkip = stored
     }

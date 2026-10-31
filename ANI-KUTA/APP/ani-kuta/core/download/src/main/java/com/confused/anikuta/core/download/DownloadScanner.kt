@@ -697,7 +697,9 @@ class DownloadScanner(
                 "sourceId changed=${dataJson.sourceId != latest.sourceId}, " +
                 "anilistId changed=${dataJson.anilistId != latest.anilistId})"
         }
-        storage.writeDataJson(latest, contentDir, index)
+        // ROUND 130 (D-805): the scan path — lastScanAt rolls, updatedAt (the
+        // download-recency signal the duplicate arbitration reads) stays honest.
+        storage.writeDataJson(latest, contentDir, index, stampUpdatedAt = false)
     }
 
     /** Returns true if [fileName] looks like a downloaded video file. */

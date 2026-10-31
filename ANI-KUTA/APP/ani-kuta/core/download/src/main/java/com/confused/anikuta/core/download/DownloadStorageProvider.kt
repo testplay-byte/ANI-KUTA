@@ -534,6 +534,11 @@ class DownloadStorageProvider(
         content: DownloadContentInfo,
         folder: DocumentFile,
         index: Map<String, DocumentFile> = folder.listFiles().associateBy { it.name!! },
+        // ROUND 130 (D-805): true (the default) = a download-flow write — the
+        // file's updatedAt rolls (a real download touched the folder). false =
+        // the scanner's reconciliation — only lastScanAt rolls; updatedAt
+        // KEEPS its download-recency meaning for the duplicate arbitration.
+        stampUpdatedAt: Boolean = true,
     ): Unit = treeMutex.withLock {
         withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
@@ -574,9 +579,24 @@ class DownloadStorageProvider(
             providerName = content.providerName ?: existing?.providerName,
             coverUrl = content.coverUrl ?: existing?.coverUrl,
             anilistId = content.anilistId ?: existing?.anilistId,
-            updatedAt = now,
-        )
-        writeDataJsonRaw(updated, folder, index)
+        ).let { base ->
+            // ROUND 130 (D-805): the stamp is now mode-aware + change-gated —
+            // a scan-only pass that changes NOTHING writes no file at all.
+            val stamped = if (stampUpdatedAt) {
+                base.copy(updatedAt = now)
+            } else {
+                val scanStamp = base.copy(lastScanAt = now)
+                // (the verifier's Defect 5): compare CONTENT (base preserves
+                // the existing stamps) — scanStamp never equals existing
+                // because its lastScanAt is this scan's clock.
+                if (existing != null && base == existing) {
+                    null // identical content — skip the IO entirely
+                } else {
+                    scanStamp
+                }
+            }
+            if (stamped != null) writeDataJsonRaw(stamped, folder, index)
+        }
         }
     }
 
@@ -1273,7 +1293,10 @@ class DownloadStorageProvider(
         val updated = existing.copy(
             schemaVersion = ContentDataJson.CURRENT_SCHEMA_VERSION,
             episodes = episodes.sortedWith(compareBy({ it.episodeNumber }, { it.episodeKey })),
-            updatedAt = System.currentTimeMillis(),
+            // ROUND 130 (D-805): the scan stamps lastScanAt, NOT updatedAt —
+            // the download-recency signal stays honest for the duplicate
+            // arbitration (a scanned folder no longer automatically wins).
+            lastScanAt = System.currentTimeMillis(),
         )
         writeDataJsonRaw(updated, folder, index)
         DownloadLogger.i {

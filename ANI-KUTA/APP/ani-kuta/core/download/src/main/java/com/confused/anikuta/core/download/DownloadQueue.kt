@@ -3,6 +3,7 @@ package com.confused.anikuta.core.download
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.delay
@@ -547,10 +548,23 @@ class DownloadQueue(
             // D-151-fix: outer retry loop. Catches retryable exceptions (IOException,
             // HttpException 5xx/429) + retries up to retryPolicy.maxAttempts with
             // exponential backoff. Non-retryable exceptions go straight to ERROR.
+            // ROUND 130 (the re-test audit, 5.2): the per-attempt progress channel
+            // + dbWriter used to leak on every retry/pause/network-wait (the
+            // writer was a SIBLING of the download job and the channel was only
+            // closed on the success path). They are tracked here so the outer
+            // finally (and the next attempt's re-arm) always disposes them.
+            var activeProgressChannel: Channel<ProgressUpdate>? = null
+            var activeDbWriter: kotlinx.coroutines.Job? = null
             try {
                 var attempt = 0
                 while (true) {
                     attempt++
+                    // ROUND 130 (5.2): dispose the PREVIOUS attempt's pair before
+                    // re-arming (close idempotent; cancel a no-op on a finished
+                    // job). cancelAndJoin so an in-flight stale updateProgress
+                    // cannot land after the next attempt's fresh updateState.
+                    activeProgressChannel?.close()
+                    activeDbWriter?.cancelAndJoin()
                     try {
                         permits.withPermit {
                             DownloadLogger.i { "launchDownload — permit acquired for task ${task.id} (attempt $attempt/${retryPolicy.maxAttempts})" }
@@ -569,7 +583,11 @@ class DownloadQueue(
                         store.updateState(
                             id = task.id,
                             status = DownloadStatus.DOWNLOADING,
-                            progress = task.progress,
+                            // ROUND 130 (the re-test audit, 5.3): the FRESH
+                            // snapshot (re-read under this mutex), not the
+                            // launch-time capture — a resume-from-47% briefly
+                            // wrote the stale launch progress to the DB.
+                            progress = current?.progress ?: task.progress,
                             startedAt = now(),
                             completedAt = null,
                             errorMessage = null,
@@ -591,6 +609,7 @@ class DownloadQueue(
 
                     // ── REVIEW-5 M34: single-coroutine DB writer (consumes the channel). ──
                     val progressChannel = Channel<ProgressUpdate>(Channel.CONFLATED)
+                    activeProgressChannel = progressChannel
                     val dbWriter = scope.launch {
                         var lastFlush = 0L
                         progressChannel.consumeEach { upd ->
@@ -609,6 +628,7 @@ class DownloadQueue(
                             }
                         }
                     }
+                    activeDbWriter = dbWriter
 
                     DownloadLogger.i { "launchDownload — calling downloader.download for task ${task.id}" }
                     val completed = downloader.download(task) { downloaded, totalIn ->
@@ -799,6 +819,10 @@ class DownloadQueue(
                     }
                 } // end while(true)
             } finally {
+                // ROUND 130 (5.2): no abandoned writer survives the launch —
+                // every exit (success, pause, cancel, error) disposes the pair.
+                activeProgressChannel?.close()
+                activeDbWriter?.cancelAndJoin()
                 jobs.remove(task.id)
                 tryStartNext()
             }

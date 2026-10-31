@@ -285,6 +285,17 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             kotlinx.coroutines.CoroutineScope(
                 kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
             ).launch {
+                // ROUND 130 (the re-test audit's HIGH finding): nothing used to
+                // start the download service at app open — after a force-stop or
+                // reboot while offline, WAITING tasks waited forever even after
+                // reconnecting (the self-heal sweep lives inside the service).
+                // One guarded start at open fixes the whole class.
+                runCatching {
+                    (downloadManager as? com.confused.anikuta.core.download.DefaultDownloadManager)
+                        ?.ensureServiceForPendingWork()
+                }.onFailure { t ->
+                    Logger.w("AnikutaApp") { "Download service start-for-pending failed: ${t.message}" }
+                }
                 // D-540: the ecosystem heal runs BEFORE the scan — relabelled
                 // rows are what the scan reconciles the .data.json files from.
                 runCatching {
