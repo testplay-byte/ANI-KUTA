@@ -265,10 +265,14 @@ class PlayerPreferences(private val store: PreferenceStore) {
 
     // ── Player UI ──────────────────────────────────────────────────────────────
 
-    /** Whether to use gesture controls (swipe to seek, brightness, volume) */
-    var gestureControlsEnabled: Boolean
-        get() = store.getBoolean(KEY_GESTURES, true)
-        set(value) = store.putBoolean(KEY_GESTURES, value)
+    /**
+     * Whether player gestures are enabled — the D-809 master gate. Was an
+     * unread `var` (key `player_gestures`) until round 131 gave it consumers;
+     * same key, so any stored value survives.
+     */
+    val gestureControlsEnabled = store.preference(
+        KEY_GESTURES, true, BooleanSerializer,
+    )
 
     /** Whether to use hardware decoding (legacy field, superseded by tryHwDecoding) */
     var hardwareDecoding: Boolean
@@ -330,6 +334,29 @@ class PlayerPreferences(private val store: PreferenceStore) {
     /** Outro-skip mode — same vocabulary as [skipIntroMode]. */
     val skipOutroMode = store.preference(
         "pref_player_skip_outro_mode", "BUTTON", StringSerializer,
+    )
+
+    // ── Round 131 (D-809): touch gestures ─────────────────────────────────────
+    //
+    // Vertical side-swipes map to user-chosen actions (right defaults to
+    // VOLUME, left to BRIGHTNESS); the horizontal swipe live-seeks with the
+    // video visibly moving while the finger drags. [gestureControlsEnabled]
+    // (the legacy `player_gestures` flag, so far unread) stays the master
+    // gate — every gesture checks it before acting.
+
+    /** Right-side vertical swipe action: `"VOLUME"` (default) / `"BRIGHTNESS"` / `"NONE"`. */
+    val gestureRightSideAction = store.preference(
+        "pref_player_gesture_right_side", "VOLUME", StringSerializer,
+    )
+
+    /** Left-side vertical swipe action: `"BRIGHTNESS"` (default) / `"VOLUME"` / `"NONE"`. */
+    val gestureLeftSideAction = store.preference(
+        "pref_player_gesture_left_side", "BRIGHTNESS", StringSerializer,
+    )
+
+    /** Whether the horizontal swipe live-seeks (video moves while dragging). Default on. */
+    val gestureHorizontalSeekEnabled = store.preference(
+        "pref_player_gesture_horizontal_seek", true, BooleanSerializer,
     )
 
     // ── Round 120 (D-748): per-series intro/outro timestamps ─────────────────

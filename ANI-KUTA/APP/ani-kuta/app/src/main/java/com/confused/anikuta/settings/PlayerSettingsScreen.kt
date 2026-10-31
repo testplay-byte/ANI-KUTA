@@ -116,6 +116,20 @@ fun PlayerSettingsScreen(
         initial = preferences.skipOutroMode.get(),
     )
 
+    // ── Round 131 (D-809): player gestures ────────────────────────────────────
+    val gestureEnabled by preferences.gestureControlsEnabled.changes.collectAsState(
+        initial = preferences.gestureControlsEnabled.get(),
+    )
+    val gestureRight by preferences.gestureRightSideAction.changes.collectAsState(
+        initial = preferences.gestureRightSideAction.get(),
+    )
+    val gestureLeft by preferences.gestureLeftSideAction.changes.collectAsState(
+        initial = preferences.gestureLeftSideAction.get(),
+    )
+    val gestureHorizontalSeek by preferences.gestureHorizontalSeekEnabled.changes.collectAsState(
+        initial = preferences.gestureHorizontalSeekEnabled.get(),
+    )
+
     var expandedSection by remember { mutableIntStateOf(0) }
 
     // ── D-558: the search-landing scroll + AUTO-EXPAND. The four preference
@@ -254,6 +268,64 @@ fun PlayerSettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(top = 10.dp),
                                 )
+                                Text(
+                                    "Gestures",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
+                                )
+                                SettingsSwitchRow(
+                                    title = "Player gestures",
+                                    subtitle = "Swipe on the video for volume, brightness, and seek",
+                                    checked = gestureEnabled,
+                                    onCheckedChange = { preferences.gestureControlsEnabled.set(it) },
+                                )
+                                if (gestureEnabled) {
+                                    Text(
+                                        "Right side · swipe up/down",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+                                    )
+                                    SegmentedRow(
+                                        options = listOf(
+                                            "Volume" to (gestureRight == "VOLUME"),
+                                            "Brightness" to (gestureRight == "BRIGHTNESS"),
+                                            "None" to (gestureRight == "NONE"),
+                                        ),
+                                    ) { idx ->
+                                        preferences.gestureRightSideAction.set(
+                                            when (idx) { 0 -> "VOLUME"; 1 -> "BRIGHTNESS"; else -> "NONE" },
+                                        )
+                                    }
+                                    Text(
+                                        "Left side · swipe up/down",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(top = 10.dp, bottom = 6.dp),
+                                    )
+                                    SegmentedRow(
+                                        options = listOf(
+                                            "Brightness" to (gestureLeft == "BRIGHTNESS"),
+                                            "Volume" to (gestureLeft == "VOLUME"),
+                                            "None" to (gestureLeft == "NONE"),
+                                        ),
+                                    ) { idx ->
+                                        preferences.gestureLeftSideAction.set(
+                                            when (idx) { 0 -> "BRIGHTNESS"; 1 -> "VOLUME"; else -> "NONE" },
+                                        )
+                                    }
+                                    SettingsSwitchRow(
+                                        title = "Swipe to seek",
+                                        subtitle = "Drag horizontally — the video follows your finger",
+                                        checked = gestureHorizontalSeek,
+                                        onCheckedChange = { preferences.gestureHorizontalSeekEnabled.set(it) },
+                                    )
+                                }
                             }
                         }
                     }

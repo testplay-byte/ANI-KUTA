@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -115,6 +116,8 @@ fun FullscreenControls(
     // ROUND 122 (R5): the intro/outro bands drawn on the seek bar (mode-
     // independent — informational, not tied to Off/Button/Auto).
     skipRanges: SkipRanges = SkipRanges(),
+    // ROUND 131 (D-809): swipe gestures (volume/brightness sides + live seek).
+    gestureConfig: PlayerGestureConfig = PlayerGestureConfig(),
 ) {
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
     val controlsLocked by stateHolder.controlsLocked.collectAsState()
@@ -133,6 +136,11 @@ fun FullscreenControls(
     // all — the shared cumulative indicator (+10 → +20 → +30 …, 2× the hold)
     // now renders here exactly like the minimized view's.
     val seekFeedback = rememberDoubleTapSeekState()
+
+    // ROUND 131 (D-809): swipe gestures + their OSD. The window feeds the
+    // brightness gesture; the state restores the override on dispose.
+    val gestureState = rememberPlayerGestureState()
+    val gestureWindow = (LocalContext.current as? android.app.Activity)?.window
 
     Box(modifier = modifier.fillMaxSize()) {
         if (controlsLocked) {
@@ -203,6 +211,26 @@ fun FullscreenControls(
             // D-456/D-470: the cumulative double-tap seek pill — fullscreen
             // keeps the pill INWARD (96dp); renders regardless of controls.
             DoubleTapSeekIndicator(state = seekFeedback, sidePadding = 96.dp)
+
+            // ROUND 131 (D-809): the swipe-gesture surface — an EARLIER sibling
+            // than the control rows (they stay hit-tested first, so the seekbar
+            // and buttons win their touches). Coexists with the tap Box above.
+            if (gestureConfig.enabled) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(gestureConfig) {
+                            detectPlayerGestures(
+                                state = gestureState,
+                                config = gestureConfig,
+                                window = gestureWindow,
+                                positionSec = { position },
+                                durationSec = { duration },
+                                onSeekTo = onSeekTo,
+                            )
+                        },
+                )
+            }
 
             // ── ERROR BANNER (non-intrusive, top-aligned) ──
             // Replaces the old full-screen PlayerErrorOverlay "dialog box".
@@ -399,6 +427,10 @@ fun FullscreenControls(
                     }
                 }
             }
+
+            // ROUND 131 (D-809): the gesture OSD — drawn last so it sits on
+            // top of every control layer while a swipe is in progress.
+            GestureOsd(state = gestureState)
         }
     }
 }

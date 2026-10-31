@@ -638,59 +638,29 @@ fun WatchScreen(
     // position in seconds (auto-hides after PlaybackResumePolicy.RESUME_PILL_DURATION_MS).
     var resumePillSec by remember { androidx.compose.runtime.mutableLongStateOf(-1L) }
 
-    // D-747: the Up Next state + the per-episode offer bookkeeping.
-    var upNextEpisode by remember { mutableStateOf<SimpleEpisode?>(null) }
-    var upNextVisible by remember { mutableStateOf(false) }
-    var upNextCountdown by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    val offeredNextKeys = remember { mutableStateMapOf<String, Boolean>() }
-    // ROUND 122 (R4): the per-episode DISMISSAL latch — the device round showed
-    // a dismissed card resurrecting (the mode switch was the correlated action;
-    // the real holes were the EOF force-offer bypassing the once-latch and the
-    // CS ticker re-offering). One map honored by EVERY offer path muzzles them
-    // all; a new episode key naturally re-arms.
-    val dismissedNextKeys = remember { mutableStateMapOf<String, Boolean>() }
-    // ROUND 130 (D-804): the DURABLE twin — survives process death. A
-    // dismissal recorded here keeps the card suppressed after a kill + reopen
-    // at the resume position; the re-arm paths (seek-back, a genuine fresh
-    // replay) remove from BOTH stores.
-    var durableDismissedKeys = remember {
-        mutableStateOf(playerPreferences.getDurableUpNextDismissals())
-    }
+    // ROUND 131 (D-808): the Up Next + skip state machines moved into
+    // WatchPlaybackController (the size plan's Phase 2) — the effects below
+    // keep their keys VERBATIM and are now thin callers, so the timing
+    // semantics are unchanged. (The controller is created just below, after
+    // its injected dependencies.)
 
-    // D-748: intro/outro skipping — the per-series timestamps + the pill state
-    // + the once-per-episode auto-skip bookkeeping.
-    var skipTimestamps by remember(watchKey.mainId) {
-        mutableStateOf(playerPreferences.getSkipTimestamps(watchKey.mainId))
-    }
-    // ROUND 121: the AniSkip service data for the CURRENT episode (per-
-    // episode intervals — the service knows more than a per-series stamp).
-    // Precedence: AniSkip interval > the manual per-series stamps (fallback
-    // for content the service doesn't cover; still editable via the sheet).
-    var episodeSkip by remember(watchKey.mainId) {
-        mutableStateOf<com.confused.anikuta.core.preferences.PlayerPreferences.EpisodeSkipTimes?>(null)
-    }
+
     val aniSkipClient = koinInject<com.confused.anikuta.core.network.AniSkipClient>()
     val contentRepository = koinInject<com.confused.anikuta.core.content.ContentRepository>()
 
-    // ROUND 122 (R5): the effective skip ranges drawn ON the seek bar —
-    // AniSkip wins per side, the manual stamps are the fallback, and the
-    // ribbon shows for Off/Button/Auto ALIKE (the user's order: "it should
-    // properly show on the progress bar itself from where to where the intro
-    // is and from where to where the outro is, regardless of the user's
-    // settings"). Deliberately never reads the mode prefs.
-    val skipRanges = androidx.compose.runtime.remember(episodeSkip, skipTimestamps) {
-        com.confused.anikuta.core.player.controls.SkipRanges(
-            introStartSec = episodeSkip?.takeIf { it.hasIntro }?.introStartSec
-                ?: skipTimestamps.takeIf { it.hasIntro }?.introStartSec,
-            introEndSec = episodeSkip?.takeIf { it.hasIntro }?.introEndSec
-                ?: skipTimestamps.takeIf { it.hasIntro }?.introEndSec,
-            outroStartSec = episodeSkip?.takeIf { it.hasOutro }?.outroStartSec
-                ?: skipTimestamps.takeIf { it.hasOutro }?.outroStartSec,
-            outroEndSec = episodeSkip?.takeIf { it.hasOutro }?.outroEndSec,
+    // ROUND 131 (D-808): the Phase-2 holder — the Up Next bookkeeping AND the
+    // AniSkip/skip machine live here now (state + logic); the effects below
+    // are thin callers with their keys verbatim.
+    val watchController = remember(watchKey.mainId) {
+        WatchPlaybackController(
+            playerPreferences = playerPreferences,
+            aniSkipClient = aniSkipClient,
+            contentRepository = contentRepository,
+            mainId = watchKey.mainId,
         )
     }
-    var skipPill by remember { mutableStateOf<SkipPillState?>(null) }
-    val autoSkippedKeys = remember { mutableStateMapOf<String, Boolean>() }
+
+    // (skipRanges/skipPill/autoSkippedKeys live on the controller now.)
     val nextUpCardEnabled by playerPreferences.nextUpCardEnabled.changes.collectAsState(
         initial = playerPreferences.nextUpCardEnabled.get(),
     )
@@ -699,6 +669,27 @@ fun WatchScreen(
     )
     val skipOutroMode by playerPreferences.skipOutroMode.changes.collectAsState(
         initial = playerPreferences.skipOutroMode.get(),
+    )
+
+    // ROUND 131 (D-809): gesture wiring — the master gate finally gets its
+    // consumer, plus the per-side actions and the horizontal-seek toggle.
+    val gestureEnabled by playerPreferences.gestureControlsEnabled.changes.collectAsState(
+        initial = playerPreferences.gestureControlsEnabled.get(),
+    )
+    val gestureRightRaw by playerPreferences.gestureRightSideAction.changes.collectAsState(
+        initial = playerPreferences.gestureRightSideAction.get(),
+    )
+    val gestureLeftRaw by playerPreferences.gestureLeftSideAction.changes.collectAsState(
+        initial = playerPreferences.gestureLeftSideAction.get(),
+    )
+    val gestureHorizontalSeek by playerPreferences.gestureHorizontalSeekEnabled.changes.collectAsState(
+        initial = playerPreferences.gestureHorizontalSeekEnabled.get(),
+    )
+    val gestureConfig = com.confused.anikuta.core.player.controls.PlayerGestureConfig(
+        enabled = gestureEnabled,
+        rightSide = com.confused.anikuta.core.player.controls.gestureSideActionFrom(gestureRightRaw),
+        leftSide = com.confused.anikuta.core.player.controls.gestureSideActionFrom(gestureLeftRaw),
+        horizontalSeek = gestureHorizontalSeek,
     )
 
     // D-746/D-747/D-748: the Up Next successor. ROUND 122 (R3): the old lookup
@@ -749,20 +740,11 @@ fun WatchScreen(
     // runs BEFORE the once-latch so the EOF hook's force flag cannot resurrect
     // a dismissed card (the device report's resurrection).
     val offerNextEpisode: (Boolean) -> Unit = { force ->
-        val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
-        if (dismissedNextKeys[epKey] == true || epKey in durableDismissedKeys.value) {
-            Logger.i(TAG) { "Up Next: suppressed (dismissed by the user) key=$epKey force=$force" }
-        } else if (force || offeredNextKeys[epKey] != true) {
-            offeredNextKeys[epKey] = true
-            val next = nextEpisodeInList()
-            if (next != null) {
-                Logger.i(TAG) { "Up Next: offering ${next.name} (force=$force, key=$epKey)" }
-                upNextEpisode = next
-                upNextVisible = true
-            } else if (force) {
-                Logger.i(TAG) { "Up Next: EOF with no successor (end of list) — key=$epKey" }
-            }
-        }
+        watchController.offerNext(
+            stateHolder.currentEpisodeNumber.value,
+            force,
+            { nextEpisodeInList() },
+        )
     }
 
     // D-247: when playback fails while playing through the CACHE, the next retry
@@ -807,8 +789,7 @@ fun WatchScreen(
         // the episode never re-showed it. The dismissal survives orientation
         // switches (no file load there) but expires on every reload (replay,
         // retry, quality switch) — a new playback attempt is a fresh chance.
-        offeredNextKeys.remove(epKey)
-        dismissedNextKeys.remove(epKey)
+        watchController.onFileLoadedReset(epKey)
         // D-746: the shared resume policy — watched → fresh start, partial →
         // exact position −15s (round 121), pref-off → fresh. Once per episode
         // key, so quality switches never re-seek. The seek fires AFTER a real
@@ -842,11 +823,9 @@ fun WatchScreen(
             // chance. A process-death RESUME (ResumeAtPosition) KEEPS it — the
             // card stays dismissed after a kill + reopen at the saved position.
             if (decision == com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.Decision.StartAtBeginning &&
-                epKey in durableDismissedKeys.value
+                epKey in watchController.durableDismissedKeys
             ) {
-                playerPreferences.removeDurableUpNextDismissal(epKey)
-                durableDismissedKeys.value = durableDismissedKeys.value - epKey
-                Logger.i(TAG) { "UpNext: durable dismissal cleared (fresh replay) key=$epKey" }
+                watchController.clearDurableOnFreshReplay(epKey)
             }
             val resumeSec = (decision as? com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.Decision
                 .ResumeAtPosition)?.positionSeconds ?: 0L
@@ -926,28 +905,22 @@ fun WatchScreen(
         // end zone (below duration−15s) and both latches re-arm, so finishing
         // the episode after a dismiss-then-seek-back offers the card again
         // (the device report: dismiss → seek back → reach the end → no card).
-        if ((dismissedNextKeys[epKey] == true || epKey in durableDismissedKeys.value) &&
-            duration - position > 15f
-        ) {
-            dismissedNextKeys.remove(epKey)
-            offeredNextKeys.remove(epKey)
-            // ROUND 130 (D-804): the re-arm is durable too — seeking back out
-            // of the end zone clears the persisted dismissal as well.
-            playerPreferences.removeDurableUpNextDismissal(epKey)
-            durableDismissedKeys.value = durableDismissedKeys.value - epKey
-            Logger.i(TAG) { "UpNext: latches re-armed (seeked back out of the end zone) key=$epKey" }
-        }
-        if (offeredNextKeys[epKey] == true) return@LaunchedEffect
+        watchController.reArmIfSeekedBack(
+            stateHolder.currentEpisodeNumber.value,
+            position.toFloat(),
+            duration.toFloat(),
+        )
+        if (watchController.offeredNextKeys[epKey] == true) return@LaunchedEffect
         // ROUND 125 (R1): a pinned/overshooting position (secondsLeft < 0 —
         // the dead-stream EOF pin) is the EOF hook's business, never the
         // poll's; the poll owns only the genuine final-10-seconds band.
         // (Float: `Int in FloatRange` has no stdlib operator.)
         val secondsLeft = (duration - position).toFloat()
         val reached = secondsLeft in 0f..10f
-        if (reached || dismissedNextKeys[epKey] == true) {
+        if (reached || watchController.dismissedNextKeys[epKey] == true) {
             Logger.i(TAG) {
                 "UpNext eval: pos=$position dur=$duration secondsLeft=$secondsLeft " +
-                    "reached=$reached dismissed=${dismissedNextKeys[epKey] == true} key=$epKey"
+                    "reached=$reached dismissed=${watchController.dismissedNextKeys[epKey] == true} key=$epKey"
             }
         }
         if (reached) offerNextEpisode(false)
@@ -959,11 +932,8 @@ fun WatchScreen(
     // Leaving an episode (switch/dismiss) hides the card for the old episode.
     // ROUND 122 (R4): prune the offer/dismiss latches to the current key only.
     LaunchedEffect(currentEpisodeUrl) {
-        upNextVisible = false
-        upNextCountdown = 0
         val currentKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
-        offeredNextKeys.keys.removeAll { it != currentKey }
-        dismissedNextKeys.keys.removeAll { it != currentKey }
+        watchController.pruneTo(currentKey)
     }
 
     // Reads from the state holder's currentResolvedVideosKey so the QualitySheet
@@ -2094,6 +2064,8 @@ fun WatchScreen(
         }
     }
 
+    watchController.onEpisodeSwitch = { onEpisodeSwitch(it) }
+
     // ── Skip forward (next episode) handler ──
     // ROUND 122 (R3): number-based (nearest strictly-higher episode number) —
     // the list is ascending-sorted now, but duplicates (sub/dub) and any
@@ -2124,38 +2096,37 @@ fun WatchScreen(
     // Only while auto-play is ON: a 10s countdown on the card, then advance.
     // When OFF the card is button-only — the pref had ZERO consumers before
     // round 120, so this is where the setting finally does something.
-    LaunchedEffect(upNextVisible, upNextEpisode) {
-        if (!upNextVisible || upNextEpisode == null) return@LaunchedEffect
+    LaunchedEffect(watchController.upNextVisible, watchController.upNextEpisode) {
+        if (!watchController.upNextVisible || watchController.upNextEpisode == null) return@LaunchedEffect
         if (playerPreferences.autoPlayNext) {
             // ROUND 123 (R3): the countdown only TICKS near the real end — an
             // outro-triggered early card must not auto-advance while most of
             // the episode remains (the user: "the timer should only run based
             // on the proper logical orders"). The card stays visible with the
             // countdown held at full until playback actually reaches 95%.
-            upNextCountdown = com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.UP_NEXT_COUNTDOWN_SECONDS
-            while (upNextVisible && upNextCountdown > 0) {
+            watchController.setCountdown(com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.UP_NEXT_COUNTDOWN_SECONDS)
+            while (watchController.upNextVisible && watchController.upNextCountdown > 0) {
                 delay(1_000L)
-                if (!upNextVisible) return@LaunchedEffect
+                if (!watchController.upNextVisible) return@LaunchedEffect
                 val pos = stateHolder.position.value
                 val dur = stateHolder.duration.value
                 // ROUND 124 (R3): the same window as the offer — the final 10s.
                 val nearEnd = dur > 0 && (dur - pos) <= 10
                 if (!nearEnd) continue
-                upNextCountdown = upNextCountdown - 1
+                watchController.setCountdown(watchController.upNextCountdown - 1)
             }
-            if (upNextVisible && upNextCountdown <= 0) {
-                val next = upNextEpisode
-                upNextVisible = false
+            if (watchController.upNextVisible && watchController.upNextCountdown <= 0) {
+                val next = watchController.upNextEpisode
+                watchController.hideCard()
                 if (next != null) onEpisodeSwitch(next)
             }
         } else {
-            upNextCountdown = 0
+            watchController.setCountdown(0)
         }
     }
 
     val onPlayUpNext: () -> Unit = {
-        val next = upNextEpisode
-        upNextVisible = false
+        val next = watchController.onPlayUpNext()
         if (next != null) onEpisodeSwitch(next)
     }
     // ROUND 122 (R4): the dismissal is RECORDED per episode — the EOF force and
@@ -2163,16 +2134,9 @@ fun WatchScreen(
     // can never resurrect (the device report: dismiss in one orientation,
     // reappear after the mode switch).
     val onDismissUpNext: () -> Unit = {
-        val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
-        dismissedNextKeys[epKey] = true
-        // ROUND 130 (D-804): the dismissal is now DURABLE — it survives process
-        // death and suppresses the card after a kill + reopen at the resume
-        // position. Cleared by the seek-back re-arm above and by a genuine
-        // fresh replay (the resume decision lands on StartAtBeginning).
-        playerPreferences.addDurableUpNextDismissal(epKey)
-        durableDismissedKeys.value = durableDismissedKeys.value + epKey
-        upNextVisible = false
-        upNextCountdown = 0
+        // ROUND 131: in the controller — in-session + durable (D-804), the
+        // card hidden, the countdown reset.
+        watchController.onDismiss(stateHolder.currentEpisodeNumber.value)
     }
 
     // ── ROUND 121: the AniSkip fetch — per episode, cached in prefs ───────────
@@ -2187,89 +2151,22 @@ fun WatchScreen(
     LaunchedEffect(currentEpisodeUrl, duration > 0) {
         val epNum = stateHolder.currentEpisodeNumber.value.toInt()
         if (watchKey.mainId.isBlank() || epNum <= 0) {
-            episodeSkip = null
+            watchController.clearEpisodeSkip()
             return@LaunchedEffect
         }
-        // ROUND 130: clear the previous episode's intervals at effect entry —
-        // the state was remembered per SERIES, so a switched-to episode briefly
-        // showed the OLD episode's bands before the fetch resolved.
-        episodeSkip = null
-        val cached = playerPreferences.getEpisodeSkipTimes(watchKey.mainId, epNum)
-        if (cached != null) {
-            episodeSkip = cached
-            return@LaunchedEffect
-        }
-        if (playerPreferences.isEpisodeSkipFetched(watchKey.mainId, epNum)) {
-            episodeSkip = null
-            return@LaunchedEffect
-        }
-        val durSec = stateHolder.duration.value
-        if (durSec <= 0) return@LaunchedEffect
-        val result = runCatching {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                // Synchronous DB read + network — off the main thread.
-                val details = runCatching {
-                    contentRepository.getContentDetails(watchKey.mainId)
-                }.getOrNull()
-                var mal = details?.malId
-                val anilist = details?.anilistId
-                // ROUND 124 (R4): the source's episode URLs embed the MAL id
-                // ("…&mal=57334&…") — a free, instant fallback when the DB row
-                // carries none (the device logcat: malId=null on a known
-                // AniList-linked anime).
-                if (mal == null || mal <= 0) {
-                    mal = Regex("mal=(\\d{1,8})")
-                        .find(stateHolder.currentEpisodeUrl.value)
-                        ?.groupValues?.get(1)?.toIntOrNull()
-                    if (mal != null) {
-                        Logger.i(TAG) { "AniSkip: malId=$mal recovered from the episode URL" }
-                    }
-                }
-                // ROUND 123 (R10): the full fetch decision in one line — the
-                // device round had AniSkip silently dead for three rounds
-                // (GET-404, then stale latches); this names the cause.
-                Logger.i(TAG) {
-                    "AniSkip fetch: mainId=${watchKey.mainId.take(12)} ep=$epNum malId=$mal " +
-                        "anilistId=$anilist durSec=$durSec (latched=" +
-                        "${playerPreferences.isEpisodeSkipFetched(watchKey.mainId, epNum)})"
-                }
-                // ROUND 130: the three-way contract — Found (intervals) /
-                // NotFound (the service answered "no data": DEFINITIVE, may
-                // latch) / Error (network or parse: TRANSIENT, must NOT latch —
-                // the old client collapsed it into the same null as NotFound
-                // and one flaky fetch permanently silenced the episode). No ids
-                // is Error too: the row may gain ids later (an AniList link).
-                when {
-                    mal != null && mal > 0 ->
-                        aniSkipClient.fetchSkipTimesByMal(mal, epNum, durSec.toLong())
-                    anilist != null && anilist > 0 ->
-                        aniSkipClient.fetchSkipTimes(anilist, epNum, durSec.toLong())
-                    else -> com.confused.anikuta.core.network.AniSkipClient.FetchResult.Error
-                }
-            }
-        }.getOrElse { com.confused.anikuta.core.network.AniSkipClient.FetchResult.Error }
-        val fetched = (result as? com.confused.anikuta.core.network.AniSkipClient.FetchResult.Found)?.skip
-        if (result !is com.confused.anikuta.core.network.AniSkipClient.FetchResult.Error) {
-            // A definitive answer (intervals OR an explicit "no data") — latch.
-            playerPreferences.markEpisodeSkipFetched(watchKey.mainId, epNum)
-        }
-        val stored = fetched?.let {
-            com.confused.anikuta.core.preferences.PlayerPreferences.EpisodeSkipTimes(
-                introStartSec = it.intro?.startSec,
-                introEndSec = it.intro?.endSec,
-                outroStartSec = it.outro?.startSec,
-                outroEndSec = it.outro?.endSec,
-            )
-        }
-        if (fetched != null) {
-            playerPreferences.setEpisodeSkipTimes(watchKey.mainId, epNum, stored)
-        }
-        Logger.i(TAG) {
-            "AniSkip: EP $epNum → intro=${fetched?.intro?.let { "${it.startSec}-${it.endSec}s" }} " +
-                "outro=${fetched?.outro?.let { "${it.startSec}-${it.endSec}s" }} " +
-                "outcome=${result::class.simpleName}"
-        }
-        if (stateHolder.currentEpisodeNumber.value.toInt() == epNum) episodeSkip = stored
+        // ROUND 130: the controller clears the previous episode's intervals at
+        // effect entry (a switched-to episode never shows the old bands).
+        watchController.clearEpisodeSkip()
+        // ROUND 131 (D-808): the cached-first + latch + fetch logic lives in
+        // the controller now (the same gates, the same three-way contract).
+        watchController.fetchEpisodeSkipTimes(
+            episodeNumber = epNum,
+            episodeUrl = stateHolder.currentEpisodeUrl.value,
+            durationSec = stateHolder.duration.value.toLong(),
+            // The old stale-result guard: a cancelled/slow ep-N fetch must
+            // never clobber the switched-to episode's bands.
+            isCurrent = { stateHolder.currentEpisodeNumber.value.toInt() == epNum },
+        )
     }
 
     // ── Round 120 (D-748), reworked ROUND 121: intro/outro skip ──────────────
@@ -2281,90 +2178,25 @@ fun WatchScreen(
     // (post-credits content plays; the episode then ends into the Up Next
     // flow); with only a manual start stamp, the skip jumps to the NEXT
     // episode (the Aniyomi "skip ending" semantic).
-    LaunchedEffect(position, duration, currentEpisodeUrl, skipTimestamps, episodeSkip, skipIntroMode, skipOutroMode) {
-        if (duration <= 0) {
-            skipPill = null
-            return@LaunchedEffect
-        }
-        val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
-        // ROUND 121-fix: EpisodeSkipTimes and SkipTimestamps are UNRELATED
-        // types — the bare `a ?: b` LUB'd to Any and the property accesses
-        // below didn't resolve. Normalize to plain Ints here (AniSkip wins,
-        // manual stamps are the fallback; manual outros have no end → null,
-        // which keeps the jump-to-next-episode semantics for them).
-        val aniIntro = episodeSkip?.takeIf { it.hasIntro }
-        val aniOutro = episodeSkip?.takeIf { it.hasOutro }
-        val manualIntro = skipTimestamps.takeIf { it.hasIntro }
-        val manualOutro = skipTimestamps.takeIf { it.hasOutro }
-        val introStartSec = aniIntro?.introStartSec ?: manualIntro?.introStartSec
-        val introEndSec = aniIntro?.introEndSec ?: manualIntro?.introEndSec
-        val outroStartSec = aniOutro?.outroStartSec ?: manualOutro?.outroStartSec
-        val outroEndSec = aniOutro?.outroEndSec
-        val inIntro = introStartSec != null && introEndSec != null &&
-            position >= (introStartSec ?: 0) - 3 &&
-            position < (introEndSec ?: 0)
-        val inOutro = outroStartSec != null &&
-            position >= (outroStartSec ?: 0) &&
-            position < duration - 2
-
-        when {
-            inIntro && skipIntroMode == "AUTO" -> {
-                if (autoSkippedKeys[epKey] != true) {
-                    autoSkippedKeys[epKey] = true
-                    val target = introEndSec ?: 0
-                    Logger.i(TAG) { "D-748: auto-skipping intro → ${target}s ($epKey)" }
-                    MPVLib.command(arrayOf("seek", target.toString(), "absolute"))
-                }
-                skipPill = null
-            }
-            inIntro && skipIntroMode == "BUTTON" ->
-                skipPill = SkipPillState.Intro(endSec = introEndSec ?: 0)
-            inOutro && skipOutroMode == "AUTO" -> {
-                if (autoSkippedKeys["$epKey|outro"] != true) {
-                    autoSkippedKeys["$epKey|outro"] = true
-                    // AniSkip ed end → finish the credits (Up Next follows at
-                    // EOF); manual start-only → jump the episode entirely.
-                    if (outroEndSec != null && outroEndSec < duration - 2) {
-                        Logger.i(TAG) { "D-748: auto-skipping outro → ed end ${outroEndSec}s ($epKey)" }
-                        MPVLib.command(arrayOf("seek", outroEndSec.toString(), "absolute"))
-                    } else {
-                        val next = nextEpisodeInList()
-                        Logger.i(TAG) { "D-748: auto-skipping outro ($epKey) next=${next?.episodeNumber}" }
-                        if (next != null) onEpisodeSwitch(next)
-                        else MPVLib.command(arrayOf("seek", duration.toString(), "absolute"))
-                    }
-                }
-                skipPill = null
-            }
-            inOutro && skipOutroMode == "BUTTON" ->
-                skipPill = SkipPillState.Outro(endSec = outroEndSec)
-            else -> skipPill = null
-        }
+    LaunchedEffect(position, duration, currentEpisodeUrl, watchController.skipTimestamps, watchController.episodeSkip, skipIntroMode, skipOutroMode) {
+        // ROUND 131 (D-808): the window math + the AUTO/BUTTON decision live
+        // in the controller (the same inputs, the same MPV seeks, the same
+        // once-per-episode-key bookkeeping).
+        watchController.onPlaybackTick(
+            episodeNumber = stateHolder.currentEpisodeNumber.value,
+            positionSec = position,
+            durationSec = duration,
+            skipIntroMode = skipIntroMode,
+            skipOutroMode = skipOutroMode,
+            nextEpisodeInList = { nextEpisodeInList() },
+        )
     }
 
     val onSkipPillAction: () -> Unit = {
-        when (val pill = skipPill) {
-            is SkipPillState.Intro -> {
-                Logger.i(TAG) { "Skip intro tapped → ${pill.endSec}s" }
-                MPVLib.command(arrayOf("seek", pill.endSec.toString(), "absolute"))
-            }
-            is SkipPillState.Outro -> {
-                // An AniSkip ed end seeks there (post-credits content); a
-                // manual start-only outro jumps to the next episode.
-                val edEnd = pill.endSec
-                if (edEnd != null && edEnd < duration - 2) {
-                    Logger.i(TAG) { "Skip outro tapped → ed end ${edEnd}s" }
-                    MPVLib.command(arrayOf("seek", edEnd.toString(), "absolute"))
-                } else {
-                    val next = nextEpisodeInList()
-                    Logger.i(TAG) { "Skip outro tapped → next=${next?.episodeNumber}" }
-                    if (next != null) onEpisodeSwitch(next)
-                    else MPVLib.command(arrayOf("seek", duration.toString(), "absolute"))
-                }
-            }
-            null -> Unit
-        }
-        skipPill = null
+        watchController.onSkipPillAction(
+            durationSec = duration,
+            nextEpisodeInList = { nextEpisodeInList() },
+        )
     }
 
     val onRestartFromStart: () -> Unit = {
@@ -2394,8 +2226,8 @@ fun WatchScreen(
     // prev/next episode buttons).
     // D-747: the Up Next bundle built once for BOTH modes (thumbnail falls back
     // to the cover; the countdown rides only when auto-play is ON).
-    val upNextUi: UpNextUi? = if (upNextVisible) {
-        upNextEpisode?.let { next ->
+    val upNextUi: UpNextUi? = if (watchController.upNextVisible) {
+        watchController.upNextEpisode?.let { next ->
             val meta = episodeMetadata[next.episodeNumber.toInt()]
             UpNextUi(
                 episode = next,
@@ -2403,7 +2235,7 @@ fun WatchScreen(
                 title = meta?.title ?: next.name,
                 thumbnailUrl = meta?.thumbnailUrl,
                 coverFallbackUrl = watchKey.coverUrl,
-                countdown = if (playerPreferences.autoPlayNext) upNextCountdown else null,
+                countdown = if (playerPreferences.autoPlayNext) watchController.upNextCountdown else null,
             )
         }
     } else null
@@ -2443,7 +2275,7 @@ fun WatchScreen(
             upNext = upNextUi,
             onPlayUpNext = onPlayUpNext,
             onDismissUpNext = onDismissUpNext,
-            skipPill = skipPill,
+            skipPill = watchController.skipPill,
             onSkipPillAction = onSkipPillAction,
             resumePillSec = resumePillSec,
             onRestartFromStart = onRestartFromStart,
@@ -2451,7 +2283,8 @@ fun WatchScreen(
             onNextEpisode = onSkipForward,
             onOpenEpisodesSheet = { showEpisodesSheet = true },
             onCancelSwitch = onCancelSwitch,
-            skipRanges = skipRanges,
+            skipRanges = watchController.skipRanges,
+            gestureConfig = gestureConfig,
         )
     } else {
         MinimizedMode(
@@ -2484,14 +2317,15 @@ fun WatchScreen(
             upNext = upNextUi,
             onPlayUpNext = onPlayUpNext,
             onDismissUpNext = onDismissUpNext,
-            skipPill = skipPill,
+            skipPill = watchController.skipPill,
             onSkipPillAction = onSkipPillAction,
             resumePillSec = resumePillSec,
             onRestartFromStart = onRestartFromStart,
             onPrevEpisode = onSkipBackward,
             onNextEpisode = onSkipForward,
             onCancelSwitch = onCancelSwitch,
-            skipRanges = skipRanges,
+            skipRanges = watchController.skipRanges,
+            gestureConfig = gestureConfig,
         )
     }
 
@@ -2653,6 +2487,9 @@ private fun MinimizedMode(
     onCancelSwitch: () -> Unit = {},
     // ROUND 122 (R5): the seek-bar skip-range ribbon.
     skipRanges: com.confused.anikuta.core.player.controls.SkipRanges = com.confused.anikuta.core.player.controls.SkipRanges(),
+    // ROUND 131 (D-809): swipe gestures (volume/brightness sides + live seek).
+    gestureConfig: com.confused.anikuta.core.player.controls.PlayerGestureConfig =
+        com.confused.anikuta.core.player.controls.PlayerGestureConfig(),
 ) {
     val listState = rememberLazyListState()
 
@@ -3031,6 +2868,7 @@ private fun MinimizedMode(
                     onPrevEpisode = onPrevEpisode,
                     onNextEpisode = onNextEpisode,
                     skipRanges = skipRanges,
+                    gestureConfig = gestureConfig,
                 )
 
                 // Episode switching overlay — shown over the player while a new
@@ -3691,792 +3529,6 @@ private fun MinimizedMode(
             },
             onDismiss = { downloadPickerEpisode = null },
         )
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  FULLSCREEN MODE — edge-to-edge player + ported FullscreenControls
-// ════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun FullscreenMode(
-    watchKey: WatchKey,
-    stateHolder: PlayerStateHolder,
-    mpvView: AnikutaMPVView?,
-    initMpv: (AnikutaMPVView) -> Unit,
-    onMpvViewCreated: (AnikutaMPVView) -> Unit,
-    onTogglePlay: () -> Unit,
-    onSeekRelative: (Int) -> Unit,
-    onSeekTo: (Int) -> Unit,
-    onBack: () -> Unit,
-    onQualityClick: () -> Unit = {},
-    onSubtitleClick: () -> Unit = {},
-    onSpeedClick: () -> Unit = {},
-    onSkipForward: () -> Unit = {},
-    onRetry: () -> Unit = {},
-    onDismissError: () -> Unit = {},
-    isSwitchingEpisode: Boolean = false,
-    switchingEpisodeTitle: String = "",
-    currentSpeed: Float = 1.0f,
-    // ── Round 120 overlays (D-746/D-747/D-748) ──
-    upNext: UpNextUi? = null,
-    onPlayUpNext: () -> Unit = {},
-    onDismissUpNext: () -> Unit = {},
-    skipPill: SkipPillState? = null,
-    onSkipPillAction: () -> Unit = {},
-    resumePillSec: Long = -1L,
-    onRestartFromStart: () -> Unit = {},
-    // ── ROUND 121: episode navigation (the top-right cluster) ──
-    onPrevEpisode: () -> Unit = {},
-    onNextEpisode: () -> Unit = {},
-    onOpenEpisodesSheet: () -> Unit = {},
-    // ROUND 121: cancel a stuck episode switch (the overlay's button).
-    onCancelSwitch: () -> Unit = {},
-    // ROUND 122 (R5): the seek-bar skip-range ribbon.
-    skipRanges: com.confused.anikuta.core.player.controls.SkipRanges = com.confused.anikuta.core.player.controls.SkipRanges(),
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black),
-    ) {
-        PlayerSurface(
-            mpvView = mpvView,
-            initMpv = initMpv,
-            onMpvViewCreated = onMpvViewCreated,
-            modifier = Modifier.fillMaxSize(),
-        )
-
-        // Ported FullscreenControls — handles all gestures, overlay, seekbar, etc.
-        com.confused.anikuta.core.player.controls.FullscreenControls(
-            stateHolder = stateHolder,
-            onBack = onBack,
-            onTogglePlay = onTogglePlay,
-            onSeekRelative = onSeekRelative,
-            onSeekTo = onSeekTo,
-            onMinimize = onBack,
-            onLockToggle = { stateHolder.updateControlsLocked(!stateHolder.controlsLocked.value) },
-            onQualityClick = onQualityClick,
-            onSubtitleClick = onSubtitleClick,
-            onSpeedClick = onSpeedClick,
-            // ROUND 121: the episodes browser (the previously dead More button).
-            onMoreClick = onOpenEpisodesSheet,
-            onPrevEpisode = onPrevEpisode,
-            onNextEpisode = onNextEpisode,
-            onSkipForward = onSkipForward,
-            onRetry = onRetry,
-            onDismissError = onDismissError,
-            animeTitle = watchKey.animeTitle,
-            episodeInfo = if (watchKey.episodeTitle.isNotBlank()) "EP ${formatEpisodeNumber(watchKey.episodeNumber)}" else "",
-            qualityInfo = watchKey.quality,
-            currentSpeed = currentSpeed,
-            skipRanges = skipRanges,
-        )
-
-        // Episode switching overlay — shown over the fullscreen player while a
-        // new episode resolves + loads. ONLY shown for episode switches (not
-        // quality/server switches).
-        if (isSwitchingEpisode) {
-            EpisodeSwitchingOverlay(
-                episodeTitle = switchingEpisodeTitle.ifBlank { null },
-                onCancel = onCancelSwitch,
-            )
-        }
-
-        // Round 120 overlays: Up Next card, skip pill, resume pill.
-        PlayerRound120Overlays(
-            upNext = upNext,
-            onPlayUpNext = onPlayUpNext,
-            onDismissUpNext = onDismissUpNext,
-            skipPill = skipPill,
-            onSkipPillAction = onSkipPillAction,
-            resumePillSec = resumePillSec,
-            onRestartFromStart = onRestartFromStart,
-        )
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  Player surface (shared AndroidView — never recreated)
-// ════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun PlayerSurface(
-    mpvView: AnikutaMPVView?,
-    initMpv: (AnikutaMPVView) -> Unit,
-    onMpvViewCreated: (AnikutaMPVView) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    AndroidView(
-        factory = { ctx ->
-            val layoutId = ctx.resources.getIdentifier("mpv_view", "layout", ctx.packageName)
-            val view = (mpvView ?: LayoutInflater.from(ctx).inflate(layoutId, null) as AnikutaMPVView).also { v ->
-                if (mpvView == null) {
-                    onMpvViewCreated(v)
-                    initMpv(v)
-                }
-            }
-            (view.parent as? android.view.ViewGroup)?.removeView(view)
-            view
-        },
-        modifier = modifier,
-    )
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  ROUND 103 (WS-4): the private EpisodeListRow is RETIRED — both player
-//  stacks and the settings preview render through the ONE shared four-paradigm
-//  dispatcher (:core:designsystem/component/playerlist/PlayerEpisodeListEntry).
-// ════════════════════════════════════════════════════════════════════════════
-
-// ════════════════════════════════════════════════════════════════════════════
-//  Helpers
-// ════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun ControlButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    size: Int = 40,
-) {
-    Surface(
-        color = Color.Black.copy(alpha = 0.4f),
-        shape = CircleShape,
-        modifier = Modifier
-            .size(size.dp)
-            .clickable(onClick = onClick),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                tint = Color.White,
-                modifier = Modifier.size((size * 0.55f).dp),
-            )
-        }
-    }
-}
-
-private fun formatEpisodeNumber(num: Float): String {
-    return com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(num)
-}
-
-// ── Audio availability parsing (shared with details page) ──
-
-private data class AudioAvailability(
-    val hasSub: Boolean,
-    val hasDub: Boolean,
-    val hasHsub: Boolean,
-) {
-    val hasAny: Boolean get() = hasSub || hasDub || hasHsub
-    val labels: List<String> get() = buildList {
-        if (hasSub) add("SUB")
-        if (hasDub) add("DUB")
-        if (hasHsub) add("HSUB")
-    }
-}
-
-private fun parseAudioAvailability(scanlator: String?, episodeName: String): AudioAvailability {
-    val haystack = ((scanlator ?: "") + " " + episodeName).uppercase()
-    val hasHsub = haystack.contains("HSUB") || haystack.contains("HARDSUB")
-    val hasSub = haystack.contains("SUB") && !hasHsub
-    val hasDub = haystack.contains("DUB") && !hasHsub
-    return AudioAvailability(hasSub = hasSub, hasDub = hasDub, hasHsub = hasHsub)
-}
-
-private fun formatDate(epochMillis: Long): String {
-    if (epochMillis <= 0) return ""
-    val sdf = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault())
-    return sdf.format(java.util.Date(epochMillis))
-}
-
-/**
- * Builds the standardized `episode_key` for `WatchProgressStore` saves.
- *
- * Phase WP (episode_key standardization — PLAN §1.9): the standard format is
- * `"${mainId}|${padded_5_digit}"` where `mainId` is the content's stable UUID
- * (from `:core:content`) + `padded_5_digit` is the zero-padded episode number.
- * This format is STABLE across extension reinstalls, source URL changes, AND
- * backup/restore — unlike the old `"$sourceId|$epUrl"` format which broke when
- * `sourceId` changed.
- *
- * Fallback: if `mainId` is blank (shouldn't happen — WatchKey is constructed
- * with it), falls back to the old `"$sourceId|$epUrl"`-style key using the
- * episode number instead of the URL (best-effort — logged WARN so the gap is
- * visible). This is a safety net, not the intended path.
- *
- * @param mainId The content's stable `main_id` (UUID).
- * @param episodeNumber The current episode number (from `PlayerStateHolder`).
- */
-private fun buildEpisodeKey(mainId: String, episodeNumber: Float): String {
-    if (mainId.isBlank()) {
-        com.confused.anikuta.core.common.Logger.w("Anikuta:Feature:Watch") {
-            "buildEpisodeKey — mainId is blank; falling back to non-standard key. " +
-                "WatchKey should be constructed with mainId. (episodeNumber=$episodeNumber)"
-        }
-    }
-    // Round 120 (D-746): delegated to the single shared builder (the format was
-    // hand-rolled in three modules — one drift away from split progress rows).
-    return com.confused.anikuta.core.watchprogress.EpisodeKeys.build(mainId, episodeNumber)
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  ROUND 122 (R8): episode-switch server/quality/audio CONTINUITY
-//  Mirrors the downloads' pinned re-resolve matcher (app/download/ReResolver)
-//  with a wider logged fallback ladder. Terminal fallback is the old
-//  first-of-first behavior — the pick can never fail, only degrade.
-// ════════════════════════════════════════════════════════════════════════════
-
-/** The continuity pin captured from the episode being left. */
-private data class EpisodePin(val server: String, val audio: String, val quality: String)
-
-/** The continuity pick's result (the video + where it came from, for logging/UI). */
-private data class PinnedPick(
-    // ROUND 122-fix: the PLAY target is the resolver's flat ResolvedVideo (it
-    // carries the extension `headers` mpv needs) — the structured ResolverVideo
-    // row has `videoHeaders` but no `headers`, and the switch code reads
-    // `video.headers`. The ladder picks a ResolverVideo row, then maps it back
-    // to its flat twin by url (VideoResolver builds both from the same
-    // Video.videoUrl, so the match is exact).
-    val video: ResolvedVideo,
-    val resolverVideo: ResolverVideo?,
-    val serverName: String,
-    val audioLabel: String,
-)
-
-/** Extracts the numeric resolution from a quality label ("1080p" → 1080). */
-private fun qualityNumber(quality: String): Int? =
-    Regex("(\\d{3,4})p").find(quality)?.groupValues?.get(1)?.toIntOrNull()
-
-/** Nearest-resolution video (ties → first); null quality targets take the first. */
-private fun nearestQualityVideo(videos: List<ResolverVideo>, targetQuality: String): ResolverVideo? {
-    val target = qualityNumber(targetQuality) ?: return videos.firstOrNull()
-    return videos.minByOrNull { video ->
-        val q = qualityNumber(video.quality)
-        if (q == null) Int.MAX_VALUE / 2 else kotlin.math.abs(q - target)
-    }
-}
-
-private fun pickPinnedVideo(
-    servers: List<com.confused.anikuta.core.videoresolver.ResolverServer>,
-    pin: EpisodePin?,
-    flatFirst: ResolvedVideo,
-    resolved: List<ResolvedVideo>,
-): PinnedPick {
-    // ROUND 122-fix: map a picked structured ResolverVideo row back to its flat
-    // ResolvedVideo twin (same Video.videoUrl on both sides) so the caller keeps
-    // its ResolvedVideo-based url/headers flow; the flat first-of-list is the
-    // terminal fallback.
-    fun playVideo(v: ResolverVideo): ResolvedVideo =
-        resolved.firstOrNull { it.url == v.url } ?: flatFirst
-
-    val fallback = PinnedPick(
-        video = flatFirst,
-        resolverVideo = servers.firstOrNull()?.audioVersions?.firstOrNull()?.videos?.firstOrNull(),
-        serverName = "",
-        audioLabel = "",
-    )
-    if (pin == null || (pin.server.isBlank() && pin.audio.isBlank() && pin.quality.isBlank())) {
-        return fallback
-    }
-    // Flatten once: (serverName, audioLabel, video) rows in grouping order.
-    val rows = servers.flatMap { s ->
-        s.audioVersions.flatMap { av -> av.videos.map { Triple(s.name, av.label, it) } }
-    }
-    if (rows.isEmpty()) return fallback
-    val eq = { a: String, b: String -> a.isNotBlank() && b.isNotBlank() && a.equals(b, ignoreCase = true) }
-
-    // L1 — exact server + audio + quality (the ReResolver parity tier).
-    rows.firstOrNull { (s, a, v) -> eq(s, pin.server) && eq(a, pin.audio) && eq(v.quality, pin.quality) }
-        ?.let { (s, a, v) ->
-            Logger.i("Anikuta:Feature:Watch") { "Watch continuity: L1 exact server+audio+quality → $s/$a/${v.quality}" }
-            return PinnedPick(playVideo(v), v, s, a)
-        }
-    // L2 — same server + same audio, nearest resolution.
-    rows.filter { (s, a) -> eq(s, pin.server) && eq(a, pin.audio) }
-        .let { same ->
-            nearestQualityVideo(same.map { it.third }, pin.quality)?.let { v ->
-                val hit = same.first { it.third === v || it.third.url == v.url }
-                Logger.i("Anikuta:Feature:Watch") { "Watch continuity: L2 same server+audio, nearest quality → ${hit.first}/${hit.second}/${v.quality}" }
-                return PinnedPick(playVideo(v), v, hit.first, hit.second)
-            }
-        }
-    // L3 — same server (prefer the same audio flavor when it survived), nearest resolution.
-    rows.filter { (s, _) -> eq(s, pin.server) }
-        .let { sameServer ->
-            if (sameServer.isNotEmpty()) {
-                val preferred = sameServer.filter { (_, a, _) -> eq(a, pin.audio) }
-                    .ifEmpty { sameServer }
-                nearestQualityVideo(preferred.map { it.third }, pin.quality)?.let { v ->
-                    val hit = preferred.first { it.third.url == v.url }
-                    Logger.i("Anikuta:Feature:Watch") { "Watch continuity: L3 same server → ${hit.first}/${hit.second}/${v.quality}" }
-                    return PinnedPick(playVideo(v), v, hit.first, hit.second)
-                }
-            }
-        }
-    // L4 — same audio flavor on any server (language kept, hoster changed).
-    rows.filter { (_, a, _) -> eq(a, pin.audio) }
-        .let { sameAudio ->
-            nearestQualityVideo(sameAudio.map { it.third }, pin.quality)?.let { v ->
-                val hit = sameAudio.first { it.third.url == v.url }
-                Logger.i("Anikuta:Feature:Watch") { "Watch continuity: L4 same audio → ${hit.first}/${hit.second}/${v.quality}" }
-                return PinnedPick(playVideo(v), v, hit.first, hit.second)
-            }
-        }
-    // L5 — the hoster renamed across episodes: fuzzy server match (prefix/
-    // contains), smallest name difference, same audio preferred, nearest quality.
-    if (pin.server.isNotBlank()) {
-        val fuzzy = rows.filter { (s, _, _) ->
-            s.startsWith(pin.server, ignoreCase = true) || s.contains(pin.server, ignoreCase = true)
-        }.minByOrNull { (s, _, _) -> kotlin.math.abs(s.length - pin.server.length) }
-        if (fuzzy != null) {
-            val pool = rows.filter { (s, _, _) -> s == fuzzy.first }
-            val preferred = pool.filter { (_, a, _) -> eq(a, pin.audio) }.ifEmpty { pool }
-            nearestQualityVideo(preferred.map { it.third }, pin.quality)?.let { v ->
-                val hit = preferred.first { it.third.url == v.url }
-                Logger.i("Anikuta:Feature:Watch") { "Watch continuity: L5 fuzzy server '${pin.server}'→'${hit.first}' ${hit.second}/${v.quality}" }
-                return PinnedPick(playVideo(v), v, hit.first, hit.second)
-            }
-        }
-    }
-    Logger.i("Anikuta:Feature:Watch") { "Watch continuity: no match (L6) — first-of-list fallback" }
-    return fallback
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  Round 120 (D-746/D-747/D-748): the player overlays + the skip editor
-// ════════════════════════════════════════════════════════════════════════════
-
-/** The Up Next bundle handed to both player modes (built once at the call site). */
-private data class UpNextUi(
-    val episode: SimpleEpisode,
-    val label: String,
-    val title: String,
-    val thumbnailUrl: String?,
-    val coverFallbackUrl: String,
-    /** Null = no countdown (auto-play off); 0 = about to advance. */
-    val countdown: Int?,
-)
-
-/** Which skip pill is showing (computed per position tick). */
-private sealed interface SkipPillState {
-    data class Intro(val endSec: Int) : SkipPillState
-
-    /** Round 121: [endSec] = AniSkip's ed end (seek there); null = the manual
-     *  start-only outro (the pill jumps to the next episode). */
-    data class Outro(val endSec: Int?) : SkipPillState
-}
-
-/**
- * The round-120 overlay layer over the player surface: the Up Next card
- * (bottom-end), the intro/outro skip pill (above it), and the resume
- * affordance (bottom-center). Pass-through for touches outside its children.
- */
-@Composable
-private fun PlayerRound120Overlays(
-    upNext: UpNextUi?,
-    onPlayUpNext: () -> Unit,
-    onDismissUpNext: () -> Unit,
-    skipPill: SkipPillState?,
-    onSkipPillAction: () -> Unit,
-    resumePillSec: Long,
-    onRestartFromStart: () -> Unit,
-    // ROUND 122 (R4): the portrait (minimized) player hosts the card OUTSIDE
-    // the 16:9 box now (full-width inset above the episode list) — the old
-    // fullscreen-tuned geometry clipped it there.
-    showUpNextCard: Boolean = true,
-) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        if (showUpNextCard) {
-            com.confused.anikuta.core.designsystem.component.player.UpNextCard(
-                visible = upNext != null,
-                episodeLabel = upNext?.label ?: "",
-                episodeTitle = upNext?.title ?: "",
-                thumbnailUrl = upNext?.thumbnailUrl,
-                coverFallbackUrl = upNext?.coverFallbackUrl,
-                countdownSecondsLeft = upNext?.countdown,
-                countdownTotalSeconds = com.confused.anikuta.core.watchprogress.PlaybackResumePolicy.UP_NEXT_COUNTDOWN_SECONDS,
-                onPlay = onPlayUpNext,
-                onDismiss = onDismissUpNext,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    // ROUND 122 (R4): the card is fillMaxWidth now — cap it to
-                    // its designed width here; the bottom nudge (76→84dp) is
-                    // the user's "move the card a little up in landscape".
-                    .widthIn(max = 300.dp)
-                    .padding(end = 14.dp, bottom = 84.dp),
-            )
-        }
-
-        skipPill?.let { pill ->
-            SkipPill(
-                label = when (pill) {
-                    is SkipPillState.Intro -> "Skip intro"
-                    // ROUND 121-fix: Outro became a data class — needs `is`.
-                    is SkipPillState.Outro -> "Skip outro"
-                },
-                onClick = onSkipPillAction,
-                // Sit above the Up Next card when both are showing (fullscreen
-                // only — the portrait card no longer lives in this Box, so the
-                // old 232dp stack offset is gone with it).
-                bottomPadding = if (showUpNextCard && upNext != null) 240.dp else 76.dp,
-                modifier = Modifier.align(Alignment.BottomEnd),
-            )
-        }
-
-        if (resumePillSec >= 0) {
-            ResumePill(
-                positionSec = resumePillSec,
-                onRestart = onRestartFromStart,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 76.dp),
-            )
-        }
-    }
-}
-
-/** The Aniyomi-style skip affordance — a compact glass pill at the bottom-end. */
-@Composable
-private fun SkipPill(
-    label: String,
-    onClick: () -> Unit,
-    bottomPadding: androidx.compose.ui.unit.Dp,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        color = Color.Black.copy(alpha = 0.55f),
-        shape = RoundedCornerShape(50),
-        modifier = modifier
-            .padding(end = 14.dp, bottom = bottomPadding)
-            .clip(RoundedCornerShape(50))
-            .clickable(onClick = onClick),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-        ) {
-            Text(
-                label,
-                color = Color.White,
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                Icons.Filled.SkipNext,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-    }
-}
-
-/**
- * The D-746 resume affordance — "Resumed · mm:ss [Restart]", bottom-center for
- * a few seconds after a resume seek. Non-blocking (playback already resumed);
- * Restart is the escape hatch for "I wanted it fresh".
- */
-@Composable
-private fun ResumePill(
-    positionSec: Long,
-    onRestart: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        color = Color.Black.copy(alpha = 0.55f),
-        shape = RoundedCornerShape(50),
-        modifier = modifier.clip(RoundedCornerShape(50)),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-        ) {
-            Text(
-                "Resumed · ${formatPillTime(positionSec)}",
-                color = Color.White,
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "Restart",
-                color = MaterialTheme.colorScheme.primary,
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .clickable(onClick = onRestart)
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            )
-        }
-    }
-}
-
-/**
- * The D-748 intro/outro marking sheet — stamps the CURRENT playback position as
- * the intro start/end or the outro start for this series (per-series memory:
- * openings share a length within a season, so one marking covers the rewatch).
- * Persisted through PlayerPreferences (round 120 scoped the database OUT).
- */
-// ════════════════════════════════════════════════════════════════════════════
-//  ROUND 122 (R7): PlayerEpisodesSheet — the fullscreen More button's episode
-//  browser, REBUILT as a RIGHT-SIDE DRAWER (the device round: "instead of the
-//  bottom-up menu, a left-right side menu should appear… from the right side…
-//  not more than 40% of the screen"). Same content: the episode list (tap to
-//  switch without leaving fullscreen) + the skip-timestamps entry.
-// ════════════════════════════════════════════════════════════════════════════
-@Composable
-private fun PlayerEpisodesSheet(
-    episodes: List<SimpleEpisode>,
-    currentUrl: String,
-    onEpisodeSelect: (SimpleEpisode) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val sorted = remember(episodes) { episodes.sortedBy { it.episodeNumber } }
-    // The 40% cap: 40% of the real screen width, hard-capped so ultra-wide
-    // landscape screens don't grow a ribbon-wide drawer.
-    val configuration = LocalConfiguration.current
-    val panelMaxWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
-        ((configuration.screenWidthDp * 0.4f).dp).coerceAtMost(340.dp)
-    }
-    val listState = rememberLazyListState()
-    // Open ON the current episode — a 300-episode list must not open at ep 1.
-    // ROUND 124 (R5): CENTER on it (the device round's ask) — an instant prime
-    // jump first (the effect can run before the first layout lays items out),
-    // then the shared centered settle; the helper no-ops on out-of-range
-    // indices and clamps at the content edges, so the very first / very last
-    // episode simply rests at its edge (never forced past it, no glitch).
-    androidx.compose.runtime.LaunchedEffect(sorted, currentUrl) {
-        val idx = sorted.indexOfFirst { it.url == currentUrl }
-        if (idx > 0) listState.scrollToItem(idx)
-        if (idx >= 0) listState.animateScrollToItemCentered(idx)
-    }
-    BackHandler(onBack = onDismiss)
-    Box(modifier = Modifier.fillMaxSize()) {
-        // The scrim — tap to close (no ripple; a quiet dismissal surface).
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.45f))
-                .clickable(
-                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss,
-                ),
-        )
-        // The panel — slides in from the right edge (the MutableTransitionState
-        // makes the ENTER animation run on composition; the composable is
-        // conditionally mounted by the caller).
-        val enterState = remember {
-            MutableTransitionState(false).apply { targetState = true }
-        }
-        AnimatedVisibility(
-            visibleState = enterState,
-            enter = slideInHorizontally(
-                initialOffsetX = { it },
-                animationSpec = tween(260, easing = FastOutSlowInEasing),
-            ) + fadeIn(animationSpec = tween(200)),
-            exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
-            modifier = Modifier.align(Alignment.CenterEnd),
-        ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(topStart = 18.dp, bottomStart = 18.dp),
-                shadowElevation = 10.dp,
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .widthIn(max = panelMaxWidth)
-                    .fillMaxWidth(),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding(),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Episodes",
-                                fontFamily = RobotoFamily,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onBackground,
-                            )
-                            Text(
-                                "${sorted.size} episodes — tap to play",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        // ROUND 124 (R5): the "Skip timestamps" entry is REMOVED
-                        // outright (the device round: "why do we need this
-                        // option at all? … completely remove it outright").
-                    }
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 10.dp, vertical = 4.dp,
-                        ),
-                    ) {
-                        items(
-                            count = sorted.size,
-                            key = { i -> sorted[i].url },
-                        ) { i ->
-                            val ep = sorted[i]
-                            val isCurrent = ep.url == currentUrl
-                            Surface(
-                                color = if (isCurrent) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 3.dp),
-                                onClick = { onEpisodeSelect(ep) },
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                                ) {
-                                    Text(
-                                        formatEpisodeNumber(ep.episodeNumber),
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isCurrent) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                        modifier = Modifier.width(46.dp),
-                                    )
-                                    Text(
-                                        com.confused.anikuta.core.common.EpisodeTitleParser
-                                            .getDisplayTitle(ep.name, ep.episodeNumber),
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 13.sp,
-                                        fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
-                                        color = if (isCurrent) {
-                                            MaterialTheme.colorScheme.onBackground
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    if (isCurrent) {
-                                        Text(
-                                            "NOW",
-                                            fontFamily = RobotoFamily,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** mm:ss (or h:mm:ss for the long ones) — the pills' compact time format. */
-private fun formatPillTime(totalSec: Long): String {
-    val s = totalSec.coerceAtLeast(0)
-    val h = s / 3600
-    val m = (s % 3600) / 60
-    val sec = s % 60
-    return if (h > 0) {
-        String.format("%d:%02d:%02d", h, m, sec)
-    } else {
-        String.format("%d:%02d", m, sec)
-    }
-}
-
-/**
- * Builds the video-caching identity for the currently playing video.
- *
- * Video caching (test-feature branch): the cache key must be STABLE across sessions
- * for the same server+audio+quality pick — extension localhost proxy URLs change
- * every resolve (D-066), so identity comes from mainId + episodeNumber + sourceId +
- * the ResolverVideo.videoTitle's "server|audio|quality" prefix (videoTitle is the
- * codebase's documented stable-identity string — see ResolverTypes.kt).
- *
- * Returns null when a stable identity can't be derived (no videoTitle / blank
- * mainId) → caching is skipped for that playback (fail-open, play direct).
- */
-private fun buildCacheId(
-    mainId: String,
-    animeTitle: String,
-    episodeNumber: Float,
-    episodeTitle: String,
-    sourceId: Long,
-    videoTitle: String,
-): PlaybackVideoId? {
-    if (mainId.isBlank()) return null
-    val serverKey = serverKeyFromVideoTitle(videoTitle)
-    if (serverKey.isBlank()) return null
-    return PlaybackVideoId(
-        mainId = mainId,
-        animeTitle = animeTitle,
-        episodeNumber = episodeNumber,
-        episodeTitle = episodeTitle,
-        sourceId = sourceId,
-        serverKey = serverKey,
-        quality = serverKey.substringAfterLast('|'),
-    )
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  Phase 4: Star Rating Bar (TEMPORARY — for testing)
-// ════════════════════════════════════════════════════════════════════════════
-
-/**
- * A row of 10 clickable stars for per-episode rating. Each star = 10 points.
- * Tapping a star sets the rating. Tapping the same star again clears it.
- */
-@Composable
-private fun WatchStarRatingBar(
-    rating: Int?,
-    onRate: (Int) -> Unit,
-) {
-    val currentStars = rating?.let { (it / 10).coerceIn(0, 10) } ?: 0
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        for (i in 1..10) {
-            Icon(
-                imageVector = if (i <= currentStars) Icons.Filled.Star else Icons.Filled.StarBorder,
-                contentDescription = "Rate $i stars",
-                tint = if (i <= currentStars) MaterialTheme.colorScheme.primary
-                       else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .size(20.dp)
-                    .clickable {
-                        if (i == currentStars) onRate(0) else onRate(i)
-                    },
-            )
-        }
     }
 }
 

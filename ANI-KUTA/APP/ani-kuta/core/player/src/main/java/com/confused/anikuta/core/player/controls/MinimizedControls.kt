@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -83,6 +84,8 @@ fun MinimizedControls(
     onNextEpisode: () -> Unit = {},
     // ROUND 122 (R5): the seek-bar skip-range ribbon.
     skipRanges: SkipRanges = SkipRanges(),
+    // ROUND 131 (D-809): swipe gestures (volume/brightness sides + live seek).
+    gestureConfig: PlayerGestureConfig = PlayerGestureConfig(),
     modifier: Modifier = Modifier,
 ) {
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
@@ -101,6 +104,10 @@ fun MinimizedControls(
     // D-456: the cumulative double-tap seek state (+10 → +20 → +30 …, 2× the
     // visible hold) — shared with the fullscreen controls.
     val seekFeedback = rememberDoubleTapSeekState()
+
+    // ROUND 131 (D-809): swipe gestures + their OSD (same layer as fullscreen).
+    val gestureState = rememberPlayerGestureState()
+    val gestureWindow = (LocalContext.current as? android.app.Activity)?.window
 
     Box(
         modifier = modifier
@@ -139,6 +146,25 @@ fun MinimizedControls(
                 )
             },
     ) {
+        // ROUND 131 (D-809): the swipe-gesture surface — the FIRST child so
+        // every other overlay (seekbar, buttons) is hit-tested before it.
+        if (gestureConfig.enabled) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(gestureConfig) {
+                        detectPlayerGestures(
+                            state = gestureState,
+                            config = gestureConfig,
+                            window = gestureWindow,
+                            positionSec = { position },
+                            durationSec = { duration },
+                            onSeekTo = onSeekTo,
+                        )
+                    },
+            )
+        }
+
         // Gradient overlay for control readability
         AnimatedVisibility(
             visible = controlsVisible,
@@ -210,6 +236,8 @@ fun MinimizedControls(
         // Double-tap feedback animation — the SEEK pill is the shared,
         // cumulative D-456 indicator; the play/pause circle stays as before.
         DoubleTapSeekIndicator(state = seekFeedback)
+        // ROUND 131 (D-809): the gesture OSD — above the feedback overlays.
+        GestureOsd(state = gestureState)
         doubleTapAnim?.let { feedback ->
             Box(
                 modifier = Modifier.fillMaxSize(),
