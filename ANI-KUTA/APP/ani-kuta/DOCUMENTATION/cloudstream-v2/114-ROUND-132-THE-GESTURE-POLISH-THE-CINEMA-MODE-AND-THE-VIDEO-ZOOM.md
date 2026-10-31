@@ -6,9 +6,9 @@
 > UX, the FULLSCREEN TAP BUG, and three new features — the portrait CINEMA
 > MODE (swipe down from center), the portrait swipe-up-to-fullscreen, the
 > landscape swipe-down-to-portrait, and the video zoom (preset button +
-> magnetic pinch). Decisions D-811..D-813. No release ordered — the round
-> ends at CI green (the artifact carries versionCode 10120; see §5 for the
-> install wrinkle over v1.1.75).
+> magnetic pinch). Decisions D-811..D-814 — the user
+> then ordered the **v1.1.76 debug release** (§6), so the §5 install wrinkle
+> is moot.
 
 ## 1. The gesture OSD rework (D-811)
 
@@ -111,3 +111,14 @@ is the green **Build APK** run (versionCode **10120**) — one versionCode
 BELOW the installed v1.1.75 (10175). Install with `adb install -d`, or
 uninstall-then-install (app data lost), or ask for the v1.1.76 release and
 the in-app updater takes over. The device-test pack notes this at the top.
+
+## 6. The v1.1.76 release (D-814)
+
+The user ordered the release right after the round-132 read-out. Routine A
+on the round-132 green head (`56bb3ba6`): release branch `release/1.1.76`,
+ONE bump commit (10120/1.1.20 -> **10176 / 1.1.76**), branch + annotated tag
+`v1.1.76` -> the Release APK workflow (run 41234482390, green first-try).
+Verified live: the APK's SHA256 matches the release's SHA256SUMS.txt and the
+manifest carries 10176/1.1.76 with the arm64 libs. v1.1.75 installs get the
+in-app update offer carrying round 132. CI ledger this cycle: 2 runs (the
+Build APK + the Release APK), inside D-472.
