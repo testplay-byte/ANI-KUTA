@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Lock
 // ROUND 121-fix: SkipForward is NOT in the pinned material-icons-extended
@@ -46,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -141,8 +143,27 @@ fun FullscreenControls(
     // brightness gesture; the state restores the override on dispose.
     val gestureState = rememberPlayerGestureState()
     val gestureWindow = (LocalContext.current as? android.app.Activity)?.window
+    // ROUND 132: the center-swipe actions ride on the STATE (refreshed every
+    // recomposition below — the config's captured lambdas can go stale when
+    // the cinema/mode state changes).
+    gestureState.centerSwipeUpAction = gestureConfig.centerSwipeUpAction
+    gestureState.centerSwipeDownAction = gestureConfig.centerSwipeDownAction
+    // The seek-gesture suppresses the spinner + the center play/±10s row
+    // ("while I am seeking, the loading should not show").
+    val gestureSeeking = gestureConfig.enabled && gestureState.isSeekGestureActive
 
-    Box(modifier = modifier.fillMaxSize()) {
+    // ROUND 132: the video zoom (preset cycle button + the two-finger pinch).
+    val videoZoomState = rememberVideoZoomState()
+    var zoomOsdVisible by remember { mutableStateOf(false) }
+    var zoomOsdLabel by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(zoomOsdVisible) {
+        if (zoomOsdVisible) {
+            kotlinx.coroutines.delay(1200)
+            zoomOsdVisible = false
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize().onSizeChanged { videoZoomState.containerSize = it }) {
         if (controlsLocked) {
             Box(
                 modifier = Modifier
@@ -187,6 +208,10 @@ fun FullscreenControls(
                 )
             }
 
+            // ROUND 132: the tap detector + the gesture drags + the pinch zoom
+            // all live on the SAME node (chained pointerInputs). The round-131
+            // build put the drags on a LATER SIBLING Box and the device round
+            // showed fullscreen taps died — the sibling swallowed the hit path.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -205,32 +230,44 @@ fun FullscreenControls(
                                 },
                             )
                         }
+                    }
+                    .pointerInput(
+                        gestureConfig.enabled,
+                        gestureConfig.rightSide,
+                        gestureConfig.leftSide,
+                        gestureConfig.horizontalSeek,
+                    ) {
+                        detectPlayerGestures(
+                            state = gestureState,
+                            config = gestureConfig,
+                            window = gestureWindow,
+                            positionSec = { position },
+                            durationSec = { duration },
+                            onSeekTo = onSeekTo,
+                        )
+                    }
+                    .pointerInput(gestureConfig.enabled, gestureConfig.zoomEnabled) {
+                        if (gestureConfig.enabled && gestureConfig.zoomEnabled) {
+                            // The pinch — activates ONLY on a second finger.
+                            detectTwoFingerZoom(
+                                onZoom = { mult ->
+                                    videoZoomState.pinchZoom(mult)
+                                    zoomOsdLabel = null
+                                    zoomOsdVisible = true
+                                },
+                                onEnd = {
+                                    videoZoomState.snapOnRelease()
+                                    zoomOsdLabel = null
+                                    zoomOsdVisible = true
+                                },
+                            )
+                        }
                     },
             )
 
             // D-456/D-470: the cumulative double-tap seek pill — fullscreen
             // keeps the pill INWARD (96dp); renders regardless of controls.
             DoubleTapSeekIndicator(state = seekFeedback, sidePadding = 96.dp)
-
-            // ROUND 131 (D-809): the swipe-gesture surface — an EARLIER sibling
-            // than the control rows (they stay hit-tested first, so the seekbar
-            // and buttons win their touches). Coexists with the tap Box above.
-            if (gestureConfig.enabled) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(gestureConfig) {
-                            detectPlayerGestures(
-                                state = gestureState,
-                                config = gestureConfig,
-                                window = gestureWindow,
-                                positionSec = { position },
-                                durationSec = { duration },
-                                onSeekTo = onSeekTo,
-                            )
-                        },
-                )
-            }
 
             // ── ERROR BANNER (non-intrusive, top-aligned) ──
             // Replaces the old full-screen PlayerErrorOverlay "dialog box".
@@ -314,8 +351,11 @@ fun FullscreenControls(
             }
 
             // ── Center controls (fade only) ──
+            // ROUND 132: while a seek GESTURE drives playback, the center
+            // play/pause + ±10s buttons hide (the seek OSD replaces them);
+            // the top/bottom rows keep their normal auto-hide rhythm.
             AnimatedVisibility(
-                visible = controlsVisible,
+                visible = controlsVisible && !gestureSeeking,
                 enter = fadeIn(tween(ANIM_DURATION)),
                 exit = fadeOut(tween(ANIM_DURATION)),
                 modifier = Modifier.fillMaxSize(),
@@ -331,9 +371,13 @@ fun FullscreenControls(
                         FSSkipButton(label = "-10s", onClick = { onSeekRelative(-10) })
                         Box(contentAlignment = Alignment.Center) {
                             // Once buffered 1%, hide spinner even if isSwitching is true.
-                            val showSpinner = buffering ||
-                                (isSwitching && !stateHolder.bufferedEnough) ||
-                                (loadingState == PlayerLoadingState.LOADING && duration == 0)
+                            // ROUND 132: no spinner while a seek gesture drives
+                            // playback — it buffers silently behind the seek OSD.
+                            val showSpinner = !gestureSeeking && (
+                                buffering ||
+                                    (isSwitching && !stateHolder.bufferedEnough) ||
+                                    (loadingState == PlayerLoadingState.LOADING && duration == 0)
+                                )
                             if (showSpinner) {
                                 CircularProgressIndicator(
                                     color = MaterialTheme.colorScheme.primary,
@@ -413,6 +457,17 @@ fun FullscreenControls(
                                         modifier = Modifier.padding(4.dp),
                                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                                     ) {
+                                        // ROUND 132: the video-scale presets cycle
+                                        // (Fit -> Fill W -> Fill H -> Crop), LEFT of the speed.
+                                        FSSmallButton(
+                                            icon = Icons.Default.AspectRatio,
+                                            contentDescription = "Video zoom: " + videoZoomState.mode.label,
+                                            onClick = {
+                                                videoZoomState.cyclePreset()
+                                                zoomOsdLabel = videoZoomState.mode.label
+                                                zoomOsdVisible = true
+                                            },
+                                        )
                                         FSSpeedButton(speed = currentSpeed, onClick = onSpeedClick)
                                         FSSmallButton(icon = Icons.Default.RotateRight, contentDescription = "Rotate", onClick = onRotateClick)
                                         FSSkipIconButton(onClick = onSkipForward)
@@ -426,6 +481,11 @@ fun FullscreenControls(
                         }
                     }
                 }
+            }
+
+            // ROUND 132: the zoom readout (the pinch factor / the preset label).
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                ZoomOsd(visible = zoomOsdVisible, factor = videoZoomState.freeZoom, label = zoomOsdLabel)
             }
 
             // ROUND 131 (D-809): the gesture OSD — drawn last so it sits on

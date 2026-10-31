@@ -79,6 +79,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -415,6 +418,21 @@ fun WatchScreen(
     // ── Back handler — only intercept in fullscreen (minimized → exit) ──
     BackHandler(enabled = playerMode == PlayerMode.FULLSCREEN) {
         stateHolder.updateMode(PlayerMode.MINIMIZED)
+    }
+
+    // ── ROUND 132 (D-812): the portrait CINEMA MODE ──
+    // Swipe DOWN from the center third: the player glides to the vertical
+    // center of the screen, every other element (top bar, episode list, the
+    // Up Next card) fades out, and the whole background turns OLED black
+    // (or the accent color, per the setting). Playback + ALL gestures keep
+    // working. Exit: swipe UP from the center, or the BACK gesture — both
+    // glide the player back up instead of navigating away.
+    var cinemaMode by remember { mutableStateOf(false) }
+    val cinemaOled by playerPreferences.cinemaOledBlack.changes.collectAsState(
+        initial = playerPreferences.cinemaOledBlack.get(),
+    )
+    BackHandler(enabled = cinemaMode && playerMode == PlayerMode.MINIMIZED) {
+        cinemaMode = false
     }
 
     // ── Auto-hide controls ──
@@ -2284,7 +2302,12 @@ fun WatchScreen(
             onOpenEpisodesSheet = { showEpisodesSheet = true },
             onCancelSwitch = onCancelSwitch,
             skipRanges = watchController.skipRanges,
-            gestureConfig = gestureConfig,
+            // ROUND 132: swipe DOWN from the center third = back to portrait;
+            // the pinch zoom is a fullscreen-only capability.
+            gestureConfig = gestureConfig.copy(
+                zoomEnabled = true,
+                centerSwipeDownAction = { stateHolder.updateMode(PlayerMode.MINIMIZED) },
+            ),
         )
     } else {
         MinimizedMode(
@@ -2303,7 +2326,10 @@ fun WatchScreen(
             onSeekRelative = { delta -> MPVLib.command(arrayOf("seek", delta.toString(), "relative")) },
             onSeekTo = { pos -> MPVLib.setPropertyInt("time-pos", pos) },
             onBack = onBack,
-            onMaximize = { stateHolder.updateMode(PlayerMode.FULLSCREEN) },
+            onMaximize = {
+                cinemaMode = false
+                stateHolder.updateMode(PlayerMode.FULLSCREEN)
+            },
             onQualityClick = { showQualitySheet = true },
             onSubtitleClick = { showSubtitleSheet = true },
             onRetry = onRetry,
@@ -2325,7 +2351,22 @@ fun WatchScreen(
             onNextEpisode = onSkipForward,
             onCancelSwitch = onCancelSwitch,
             skipRanges = watchController.skipRanges,
-            gestureConfig = gestureConfig,
+            cinema = cinemaMode,
+            cinemaOled = cinemaOled,
+            // ROUND 132: the center-third vertical swipes — UP exits cinema
+            // (or goes fullscreen from the normal state), DOWN enters cinema.
+            gestureConfig = gestureConfig.copy(
+                centerSwipeUpAction = {
+                    if (cinemaMode) {
+                        cinemaMode = false
+                    } else {
+                        stateHolder.updateMode(PlayerMode.FULLSCREEN)
+                    }
+                },
+                centerSwipeDownAction = if (cinemaMode) null else ({ cinemaMode = true }),
+                // The portrait 16:9 box is short — 12% of it is a pocket-trigger.
+                centerTriggerFraction = 0.30f,
+            ),
         )
     }
 
@@ -2490,8 +2531,36 @@ private fun MinimizedMode(
     // ROUND 131 (D-809): swipe gestures (volume/brightness sides + live seek).
     gestureConfig: com.confused.anikuta.core.player.controls.PlayerGestureConfig =
         com.confused.anikuta.core.player.controls.PlayerGestureConfig(),
+    // ── ROUND 132 (D-812): the portrait CINEMA MODE ──
+    // Swipe down from the center third glides the player to the screen's
+    // vertical center over a full-black (or accent) background; everything
+    // else fades out. Swipe up from the center (or BACK) glides it back.
+    cinema: Boolean = false,
+    cinemaOled: Boolean = true,
 ) {
     val listState = rememberLazyListState()
+
+    // The cinema animation state: the background color + the player's glide.
+    val cinemaProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (cinema) 1f else 0f,
+        animationSpec = tween(380, easing = FastOutSlowInEasing),
+        label = "cinemaProgress",
+    )
+    val cinemaBackground by androidx.compose.animation.animateColorAsState(
+        targetValue = if (cinema) {
+            if (cinemaOled) Color.Black else MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.background
+        },
+        animationSpec = tween(380),
+        label = "cinemaBackground",
+    )
+    // The player's measured geometry (root coords) — the glide target is the
+    // screen's vertical center.
+    var playerTopPx by remember { mutableStateOf(0f) }
+    var playerHeightPx by remember { mutableStateOf(0f) }
+    var rootHeightPx by remember { mutableStateOf(0) }
+    var rootTopPx by remember { mutableStateOf(0f) }
 
     // Phase 4: per-episode rating state (self-contained in MinimizedMode).
     val ratingStore = koinInject<com.confused.anikuta.core.ratings.RatingStore>()
@@ -2763,7 +2832,8 @@ private fun MinimizedMode(
 
     // Header height: 48dp when expanded, 0dp when collapsed.
     val headerHeight by animateDpAsState(
-        targetValue = if (collapsed) 0.dp else 48.dp,
+        // Cinema hides the top bar with everything else.
+        targetValue = if (collapsed || cinema) 0.dp else 48.dp,
         animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "headerHeight",
     )
@@ -2771,7 +2841,11 @@ private fun MinimizedMode(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .onGloballyPositioned { coords ->
+                rootHeightPx = coords.size.height
+                rootTopPx = coords.boundsInRoot().top
+            }
+            .background(cinemaBackground),
     ) {
         // ── Top bar area — wraps in a Box with clipToBounds so the top bar
         // slides up + fades out smoothly when scrolling. The Box height
@@ -2838,7 +2912,23 @@ private fun MinimizedMode(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 6.dp),
+                .padding(horizontal = 6.dp, vertical = 6.dp)
+                .onGloballyPositioned { coords ->
+                    playerTopPx = coords.boundsInRoot().top
+                    playerHeightPx = coords.size.height.toFloat()
+                }
+                .graphicsLayer {
+                    // The cinema glide: from the natural top slot to the
+                    // screen's vertical center (translation drives it; the
+                    // layout never changes so playback is untouched).
+                    if (cinemaProgress > 0f && rootHeightPx > 0 && playerHeightPx > 0f) {
+                        // Both bounds are root-space — correct even if a future
+                        // wrapper offsets the Column from the composition root.
+                        val travel = (rootTopPx + rootHeightPx / 2f) -
+                            playerHeightPx / 2f - playerTopPx
+                        translationY = travel * cinemaProgress
+                    }
+                },
         ) {
             Box(
                 modifier = Modifier
@@ -2904,7 +2994,7 @@ private fun MinimizedMode(
         // stationary inset between the player and the episode list. Never
         // clipped, never covers the video, the Play button always reachable.
         androidx.compose.animation.AnimatedVisibility(
-            visible = upNext != null,
+            visible = upNext != null && !cinema,
             enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
             exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
         ) {
@@ -2929,6 +3019,13 @@ private fun MinimizedMode(
         // ── Scrollable content: episode description + episode list ──
         // Wrapped in a Box so we can overlay a ScrollBlurOverlay at the top edge,
         // creating a gradient blur effect where the content meets the player.
+        // ROUND 132: cinema fades the whole content away (and unmounts it —
+        // nothing clickable remains under the black).
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !cinema,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
@@ -3476,7 +3573,8 @@ private fun MinimizedMode(
                 modifier = Modifier.align(Alignment.TopCenter),
             )
         } // end Box
-    }
+    } // the cinema AnimatedVisibility (the scrollable content)
+    } // Column
 
     // ── ROUND 109 (D-721): THE DOWNLOAD PICKER SHEET — the bottom-up
     //    resolved-video list the v1.1.65 device round ordered ("how it gets

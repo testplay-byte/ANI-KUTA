@@ -359,6 +359,15 @@ class PlayerPreferences(private val store: PreferenceStore) {
         "pref_player_gesture_horizontal_seek", true, BooleanSerializer,
     )
 
+    /**
+     * The cinema mode's background (round 132): true = full OLED black
+     * (default); false = the accent (primary) color. Everything except the
+     * centered player hides either way.
+     */
+    val cinemaOledBlack = store.preference(
+        "pref_player_cinema_oled", true, BooleanSerializer,
+    )
+
     // ── Round 120 (D-748): per-series intro/outro timestamps ─────────────────
     //
     // The user marks where a series' intro/outro starts; the player remembers

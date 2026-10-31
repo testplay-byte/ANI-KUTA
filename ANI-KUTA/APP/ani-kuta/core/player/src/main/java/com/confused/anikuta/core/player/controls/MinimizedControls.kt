@@ -108,10 +108,34 @@ fun MinimizedControls(
     // ROUND 131 (D-809): swipe gestures + their OSD (same layer as fullscreen).
     val gestureState = rememberPlayerGestureState()
     val gestureWindow = (LocalContext.current as? android.app.Activity)?.window
+    // ROUND 132: the center-swipe actions ride on the STATE (refreshed every
+    // recomposition — the config's captured lambdas can go stale).
+    gestureState.centerSwipeUpAction = gestureConfig.centerSwipeUpAction
+    gestureState.centerSwipeDownAction = gestureConfig.centerSwipeDownAction
+    // The seek-gesture suppresses the spinner + the center play/pause.
+    val gestureSeeking = gestureConfig.enabled && gestureState.isSeekGestureActive
 
     Box(
         modifier = modifier
             .fillMaxSize()
+            // ROUND 132: the drag detector chained on the SAME node as the tap
+            // detector (the round-131 sibling Box pattern is retired — same-node
+            // pointer inputs is the reliable tap+drag pairing).
+            .pointerInput(
+                gestureConfig.enabled,
+                gestureConfig.rightSide,
+                gestureConfig.leftSide,
+                gestureConfig.horizontalSeek,
+            ) {
+                detectPlayerGestures(
+                    state = gestureState,
+                    config = gestureConfig,
+                    window = gestureWindow,
+                    positionSec = { position },
+                    durationSec = { duration },
+                    onSeekTo = onSeekTo,
+                )
+            }
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = { stateHolder.updateControlsVisible(!controlsVisible) },
@@ -146,25 +170,6 @@ fun MinimizedControls(
                 )
             },
     ) {
-        // ROUND 131 (D-809): the swipe-gesture surface — the FIRST child so
-        // every other overlay (seekbar, buttons) is hit-tested before it.
-        if (gestureConfig.enabled) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(gestureConfig) {
-                        detectPlayerGestures(
-                            state = gestureState,
-                            config = gestureConfig,
-                            window = gestureWindow,
-                            positionSec = { position },
-                            durationSec = { duration },
-                            onSeekTo = onSeekTo,
-                        )
-                    },
-            )
-        }
-
         // Gradient overlay for control readability
         AnimatedVisibility(
             visible = controlsVisible,
@@ -209,9 +214,13 @@ fun MinimizedControls(
         // hide the spinner even if isSwitching is still true. The video is
         // loading successfully — the spinner is no longer needed.
         // User: "If the video has buffered 1%, then the loading animation will go away."
-        val showSpinner = buffering ||
-            (isSwitching && !stateHolder.bufferedEnough) ||
-            (loadingState == PlayerLoadingState.LOADING && duration == 0)
+        // ROUND 132: no spinner while a seek gesture drives playback — it
+        // buffers silently behind the seek OSD.
+        val showSpinner = !gestureSeeking && (
+            buffering ||
+                (isSwitching && !stateHolder.bufferedEnough) ||
+                (loadingState == PlayerLoadingState.LOADING && duration == 0)
+            )
         if (showSpinner) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -315,10 +324,16 @@ fun MinimizedControls(
                     )
                 }
 
-                // Center: play/pause with themed-dark glass
+                // Center: play/pause with themed-dark glass.
+                // ROUND 132: hidden while a seek gesture drives playback.
+                AnimatedVisibility(
+                    visible = !gestureSeeking,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.align(Alignment.Center),
+                ) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
                         .size(72.dp)
                         .pointerInput(Unit) {
                             detectTapGestures { onTogglePlay() }
@@ -342,6 +357,7 @@ fun MinimizedControls(
                             )
                         }
                     }
+                }
                 }
 
                 // Bottom: seekbar + fullscreen

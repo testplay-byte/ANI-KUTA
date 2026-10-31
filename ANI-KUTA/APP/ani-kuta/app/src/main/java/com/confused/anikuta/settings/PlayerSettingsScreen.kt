@@ -129,6 +129,10 @@ fun PlayerSettingsScreen(
     val gestureHorizontalSeek by preferences.gestureHorizontalSeekEnabled.changes.collectAsState(
         initial = preferences.gestureHorizontalSeekEnabled.get(),
     )
+    // ── Round 132: the cinema mode's background ──────────────────────────────
+    val cinemaOled by preferences.cinemaOledBlack.changes.collectAsState(
+        initial = preferences.cinemaOledBlack.get(),
+    )
 
     var expandedSection by remember { mutableIntStateOf(0) }
 
@@ -326,6 +330,20 @@ fun PlayerSettingsScreen(
                                         onCheckedChange = { preferences.gestureHorizontalSeekEnabled.set(it) },
                                     )
                                 }
+                                Text(
+                                    "Cinema mode",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
+                                )
+                                SettingsSwitchRow(
+                                    title = "OLED black background",
+                                    subtitle = "Swipe down from the player's center: pure black when on, accent color when off — the screen elements hide either way",
+                                    checked = cinemaOled,
+                                    onCheckedChange = { preferences.cinemaOledBlack.set(it) },
+                                )
                             }
                         }
                     }
