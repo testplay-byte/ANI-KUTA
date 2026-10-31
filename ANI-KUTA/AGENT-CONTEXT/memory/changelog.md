@@ -1,5 +1,9 @@
 # Changelog (High-Level)
 
+## 1.1.20 (round 132 — the gesture polish, the cinema mode, the video zoom; version unchanged per the standing rule)
+- PLAYER/GESTURES: the OSD shows on the side opposite the finger with a fixed-width label (MAX at the cap), a muted icon at volume 0, shadows, and theme colors; the horizontal seek sensitivity is now ~5 minutes per full-width drag; the buffering spinner and the center buttons hide while a seek gesture drives playback; the fullscreen tap-to-toggle bug (a round-131 sibling-Box regression) is fixed; the center third is a reserved gesture dead zone.
+- PLAYER/CINEMA MODE: swipe down from the portrait player's center and the video glides to the screen's vertical center over a full black (or accent, per setting) background with every other element hidden — exit by swipe up or the back gesture. Swipe up from the center goes fullscreen; landscape swipe down returns to portrait.
+- PLAYER/ZOOM: the fullscreen zoom button (left of speed) cycles Fit/Fill W/Fill H/Crop, and a two-finger pinch zooms centered with magnetic snaps at 1x/1.25x/1.5x/2x/3x.
 ## 1.1.75 / 10175 — RELEASE (round 131 — the debug line; carries rounds 126-131)
 - RELEASED: the **v1.1.75** debug release is LIVE on testplay-byte (stable latest, arm64-v8a) — v1.1.74 installs get the in-app update offer.
 - PLAYER: real swipe gestures in both modes and orientations — right-side vertical = volume, left-side = brightness, horizontal = a live seek where the video visibly follows the finger — with a proper OSD (side-hugging % panels; a centered delta+target panel for seek) and full settings (master switch, per-side actions, swipe-to-seek toggle) in Player > Playback behavior.

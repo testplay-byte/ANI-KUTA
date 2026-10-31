@@ -3,6 +3,9 @@
 > One-line lessons from mistakes, corrections, and insights.
 > Read at task start (grep for tags matching your task type). Append when you learn something.
 
+## THE SIBLING DETECTOR LESSON (round 132)
+A full-size pointerInput Box placed as a LATER SIBLING of the tap detector's Box swallowed the tap path entirely on device (fullscreen taps dead) while the same layer worked fine as a FIRST CHILD under a PARENT-held tap detector (minimized) — Compose's sibling hit-testing is not "dispatch to all overlapping siblings". RULE: multiple detectors on one surface go on the SAME node as chained .pointerInput() modifiers (the canonical tap+drag pairing); never as sibling Boxes. Also: a gesture feature that rides config LAMBDAS which change identity with UI state must copy those lambdas into a mutable state field every recomposition — a captured config goes stale by the time a long gesture fires.
+
 ## THE EXTRACTION LESSON (round 131)
 Refactoring state machines OUT of a Composable is not a pure move: the old inline code carried IMPLICIT environment contracts — the AniSkip fetch ran inside withContext(Dispatchers.IO), the successor lookup ran lazily inside the offer branch, the stale-result guard sat at the write site. The first controller draft dropped all three ("the effect calls it off the main thread" — it didn't; the OLD code did the shifting). The adversarial verifier caught all of them. RULE: when extracting, inventory what the surrounding code did to make the moved body SAFE (dispatchers, guards, laziness, ordering) and re-create each one explicitly; then diff every LaunchedEffect key list against git HEAD.
 
