@@ -1,5 +1,10 @@
 # Changelog (High-Level)
 
+## 1.1.77 / 10177 — RELEASE (round 133 — the debug line; carries rounds 126-133)
+- RELEASED: the **v1.1.77** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum-verified) — v1.1.76 installs get the in-app update offer.
+- UPDATER: a failed update check (network down, HTTP 403 rate limit, malformed response) now shows the real error on the About screen's error card instead of a false "You are on the latest version" — the silent-failure contract is gone.
+- ABOUT: the Community > Website row reads "Go to the website" (no URL).
+
 ## 1.1.76 / 10176 — RELEASE (round 132 — the debug line; carries rounds 126-132)
 - RELEASED: the **v1.1.76** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum-verified) — v1.1.75 installs get the in-app update offer.
 - PLAYER/GESTURES: the OSD shows on the side opposite the finger with a fixed-width label (MAX at the cap), a muted icon at volume 0, shadows, and theme colors; the horizontal seek sensitivity is now ~5 minutes per full-width drag; the buffering spinner and the center buttons hide while a seek gesture drives playback; the fullscreen tap-to-toggle bug (a round-131 sibling-Box regression) is fixed; the center third is a reserved gesture dead zone.

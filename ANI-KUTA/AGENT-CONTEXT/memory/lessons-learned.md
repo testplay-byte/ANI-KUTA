@@ -3,6 +3,9 @@
 > One-line lessons from mistakes, corrections, and insights.
 > Read at task start (grep for tags matching your task type). Append when you learn something.
 
+## THE SILENT NEGATIVE (round 133)
+A UI that reports a NEGATIVE result ("no update found") must distinguish "checked and nothing found" from "could not check" — collapsing both into one null (the old UpdateSource contract: "never throw, return null on failure") makes every failure read as a verified negative, and the user's real bug report becomes undiagnosable from the outside. The updater's code path was provably correct; the CONTRACT was the bug. RULE: error paths surface their cause to the user AND the log, never into the success-shaped result.
+
 ## THE SIBLING DETECTOR LESSON (round 132)
 A full-size pointerInput Box placed as a LATER SIBLING of the tap detector's Box swallowed the tap path entirely on device (fullscreen taps dead) while the same layer worked fine as a FIRST CHILD under a PARENT-held tap detector (minimized) — Compose's sibling hit-testing is not "dispatch to all overlapping siblings". RULE: multiple detectors on one surface go on the SAME node as chained .pointerInput() modifiers (the canonical tap+drag pairing); never as sibling Boxes. Also: a gesture feature that rides config LAMBDAS which change identity with UI state must copy those lambdas into a mutable state field every recomposition — a captured config goes stale by the time a long gesture fires.
 

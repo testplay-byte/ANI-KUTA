@@ -4,6 +4,9 @@
 
 ## Decisions
 
+## D-815 (round 133): THE HONEST UPDATE CHECK — a failed check is never "up to date"
+The report: the in-app check found no update while v1.1.76 was live. Every code step verified correct (the .debug->testplay-byte wiring, the live unauthenticated API, the tuple pick, the compare) — the defect was the UpdateSource contract: "never throw, return null on failure" made a FAILED check (HTTP error, 403 rate limit, dead network, malformed response) indistinguishable from "no update"; both flashed "You are on the latest version". FIX: sources throw UpdateCheckException when the check itself fails (the message names the HTTP code, the rate limit, or the network error); the manager records it as lastCheckError (the About error card renders it) and flashes "up to date" ONLY when a source answered; null means ONLY "answered + current is newest". Rule: a UI that reports a NEGATIVE result must distinguish "checked and nothing found" from "could not check".
+
 ## D-814 (round 132): THE v1.1.76 DEBUG RELEASE — the in-app path restored
 The user ordered the release right after the round-132 report ("ok do the release now too"). Routine A on the round-132 green head: release/1.1.76 cut from main, ONE bump commit (10120/1.1.20 -> 10176/1.1.76), branch + annotated tag v1.1.76 pushed -> release-apk.yml run 41234482390 GREEN first-try. Verified live: the APK's SHA256 matches the release's SHA256SUMS.txt and the manifest carries 10176/1.1.76 with the arm64 libs. v1.1.75 installs get the in-app update offer carrying round 132 (the CI-artifact 10120 wrinkle from section 5 of doc 114 is moot). CI ledger: 2 runs this cycle.
 
