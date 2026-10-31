@@ -1,7 +1,7 @@
 # SESSION — Read This At The Start Of Every Session
 
 > A 60-second orientation. Read this FIRST, every time, before any work.
-> Refreshed in **Round 130 (2026-10-31).** If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
+> Refreshed in **Round 131 (2026-10-31).** If `memory/progress.md` shows a NEWER round than this file's stamps, trust progress.md — and refresh this file at the phase boundary (the Round-77 lesson).
 
 ---
 
@@ -12,13 +12,14 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 
 ---
 
-## 📍 Current State (refreshed Round 130, 2026-10-31 — the skip contract, the durable dismissal, the downloads open-start, and the v1.1.74 DEBUG RELEASE LIVE; run 41196747242, release run 41197352617, mainline head d00c6726)
+## 📍 Current State (refreshed Round 131, 2026-10-31 — the WatchScreen split (Phases 1+2), the player gestures, and the v1.1.75 DEBUG RELEASE LIVE; run 41212413757, release run on tag v1.1.75, mainline head d179102a)
 
 - **Mainline branch:** `main` — this IS the default branch, renamed from `feature/round-57-cloudstream-downloads` in Round 118 (D-743). Round 120 was implemented ON `main` from its own baseline: the user's standing order is that the backup branch (`backup/main-pre-revert-2026-10-21`) is IGNORED (it will be deleted by the user) — its "round 120-131 fixes" were never the reference. `feature/test-controller-v5` stays dormant (kept by explicit user order).
-- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only). Latest **debug** release: **v1.1.73 / 10173** (round 119 — LIVE on testplay-byte; carries the round-119 set; the round-120 code is NOT in any release yet — the next debug release is the user's order, per D-738). Latest **professional** release: **v1.1.5 / 10105 — LIVE on the official repo** (Confused-Creature-180/ANI-KUTA; doc 99 §7 has the execution record).
+- **Versions:** the mainline carries **1.1.20 / 10120** (D-430: version bumps ride the RELEASE branch only). Latest **debug** release: **v1.1.75 / 10175** (round 131 — LIVE on testplay-byte; carries rounds 126-131). Latest **professional** release: **v1.1.6 / 10106 — LIVE on the official repo** (Confused-Creature-180/ANI-KUTA; round 128).
 - **⚠ THE PHASE (D-738):** every round ends at **CI green** (the Build APK debug run's `anikuta-apk` artifact — versionCode 10120, the standing in-place-update wrinkle over v1.1.73); releases of either kind need the user's explicit order.
+- **Round 131 (doc 113, D-807..D-810):** the WatchScreen split executed (Phases 1+2 of the doc-112 plan; Phase 3 deferred): WatchScreen.kt 4,482 -> ~3,3xx lines across three files — the stateless tail verbatim into WatchScreenUi.kt, the Up Next + AniSkip machines into a remember-owned WatchPlaybackController, every LaunchedEffect key byte-identical (zero behavior change, verifier-diffed). The player gestures landed (D-809): right vertical = volume, left vertical = brightness, horizontal = a live seek the video visibly follows; configurable per-side in Player > Playback behavior; a proper OSD in both modes/orientations. The combined rounds-130+131 device-test pack: planning/2026-10-31-round-131-device-test.{html,md}.
 - **Round 130 (doc 112, D-803..D-806):** the research round executed: the AniSkip three-way contract (the poisoned negative latch was the bands' root cause — only definitive answers latch now, the key v3 expires every poisoned latch, mixed types + the length-mismatch retry added), the DURABLE Up Next dismissal (dismiss -> kill -> reopen at the resume position keeps it; a fresh replay clears it), the downloads OPEN-START (ensureServiceForPendingWork at app open — the force-stop/reboot gap), and the honest .data.json stamps (scans stamp lastScanAt, never updatedAt). The adversarial verifier found 5 defects (2 in the fix's own class) — all fixed pre-push; 219 tests green. THE RELEASE: v1.1.74/10174 LIVE on testplay-byte (stable latest, Routine A, release run 41197352617 GREEN) — v1.1.73 installs get the offer carrying rounds 126-130. The WatchScreen size: a three-phase PLAN delivered, awaiting the user's order. The downloads device re-test checklist: doc 112.
-- **Latest records:** Round 130 = doc **112**; the next record is **113**; the next decision is **D-807** (latest = D-806). `AGENT-CONTEXT/download-research/` numbering: the round records moved to `DOCUMENTATION/cloudstream-v2/` (the 100-series).
+- **Latest records:** Round 131 = doc **113**; the next record is **114**; the next decision is **D-811** (latest = D-810). `AGENT-CONTEXT/download-research/` numbering: the round records moved to `DOCUMENTATION/cloudstream-v2/` (the 100-series).
 - **The per-round loop (D-738 form):** device feedback → implement on the mainline → CI green (Build APK debug run — ≤2 runs/cycle, disclosed ledger, D-472; docs-only pushes build nothing) → **STOP — hand the user the artifact link + the test checklist** → LIVE-mirror docs → ntfy. No release steps.
 - **CI paths-ignore (D-472):** docs-only / AGENT-CONTEXT / DASHBOARD / USER-UPLOADS / `.github/**` / `**.md` pushes build NOTHING. `DASHBOARD/webpage/**` pushes DO trigger the Pages deploy.
 - **THIS SESSION'S NOTIFICATION:** ntfy topic **THE-TASK-IS-DONE** (the §11 default; the round-119 SESSION override TASK808DONE is historical).
@@ -27,7 +28,7 @@ You are the AI agent for **ANI-KUTA** — an Android multi-content streaming/dow
 1. Clone `https://github.com/testplay-byte/ANI-KUTA.git` (public — read needs no token). **PUSH** uses the credential helper that reads the PAT from `/home/z/.secrets/github-credentials` (repo-external, git-credential FORMAT — for raw API calls extract the `password=` line; NEVER commit it, NEVER paste it). If the sandbox lost the file, ask the user.
 2. Checkout the mainline `main` (the default branch — renamed from `feature/round-57-cloudstream-downloads` in Round 118, D-743).
 3. Read `AGENT-CONTEXT/memory/progress.md` — the TOP **CURRENT STATUS** block first, then the newest `## Round NN` sections at the BOTTOM (the file grows downward; the middle "Historical session" paragraphs are old).
-4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-784** (round 125, the details/display chain; D-780..D-783 beside it — the strict arming, the portrait revert, the wider drawer + left settings, the true drag port).
+4. Read `AGENT-CONTEXT/memory/decisions.md` — the newest entries sit at the TOP; latest = **D-810** (round 131, the v1.1.75 release; D-807..D-809 beside it — the Phase-1 tail move, the controller extraction, the gestures).
 5. Read `AGENT-CONTEXT/HANDOFF-ROUND-116.md` — the round-116 handoff (+ the round-117 addendum; historical context now) + doc 99 §7 (the round-117 re-host record). The latest round record: doc **102** (round 120 — the player overhaul + the downloads reliability set).
 6. Read `AGENT-CONTEXT/knowledge/` files on demand (architecture, module-map, tech-stack, ui-customization, emulator-testing…).
 

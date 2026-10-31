@@ -1,5 +1,9 @@
 # Changelog (High-Level)
 
+## 1.1.75 / 10175 — RELEASE (round 131 — the debug line; carries rounds 126-131)
+- RELEASED: the **v1.1.75** debug release is LIVE on testplay-byte (stable latest, arm64-v8a) — v1.1.74 installs get the in-app update offer.
+- PLAYER: real swipe gestures in both modes and orientations — right-side vertical = volume, left-side = brightness, horizontal = a live seek where the video visibly follows the finger — with a proper OSD (side-hugging % panels; a centered delta+target panel for seek) and full settings (master switch, per-side actions, swipe-to-seek toggle) in Player > Playback behavior.
+- REFACTOR: WatchScreen.kt (4,482 lines) split into three files with a strict zero-behavior-change contract — the stateless UI tail moved verbatim to WatchScreenUi.kt and the Up Next + AniSkip machines moved into a remember-owned WatchPlaybackController; every effect key kept byte-identical (the device must feel exactly the same).
 ## 1.1.74 / 10174 — RELEASE (round 130 — the debug line; carries rounds 126-130)
 - RELEASED: the **v1.1.74** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum-verified) — v1.1.73 installs get the in-app update offer.
 - PLAYER: the intro/outro skip data works again (the poisoned negative latch fixed at its root — a three-way Found/NotFound/Error contract; mixed-op/ed types; the length-mismatch retry), and the Up Next dismissal survives process death (replay-from-zero still resets it; seek-back still re-arms it).

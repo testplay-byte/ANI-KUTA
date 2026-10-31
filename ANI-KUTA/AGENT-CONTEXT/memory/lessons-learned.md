@@ -3,6 +3,9 @@
 > One-line lessons from mistakes, corrections, and insights.
 > Read at task start (grep for tags matching your task type). Append when you learn something.
 
+## THE EXTRACTION LESSON (round 131)
+Refactoring state machines OUT of a Composable is not a pure move: the old inline code carried IMPLICIT environment contracts — the AniSkip fetch ran inside withContext(Dispatchers.IO), the successor lookup ran lazily inside the offer branch, the stale-result guard sat at the write site. The first controller draft dropped all three ("the effect calls it off the main thread" — it didn't; the OLD code did the shifting). The adversarial verifier caught all of them. RULE: when extracting, inventory what the surrounding code did to make the moved body SAFE (dispatchers, guards, laziness, ordering) and re-create each one explicitly; then diff every LaunchedEffect key list against git HEAD.
+
 ## THE ADVERSARIAL VERIFIER PAYS (round 130)
 The round-130 verification sub-agent (instructed to be adversarial, with the requirements as checks) found 5 defects in code that compiled and passed all 219 tests — 2 of them HIGH/MEDIUM in the EXACT class the round was fixing: the AniList->MAL resolution's transient failure still latched (resolveMalId returns null for BOTH definitive and transient; only the cache membership distinguishes them), and the mismatch-retry's own failures were mislabeled definitive. Lesson: a fix for a bug class must be verified AGAINST the class, not just the reported instance — every path that produces the "failure" value needs the same treatment. Also banked: a finally-block disposal pair (channel+writer) needs cancelAndJoin, not cancel, when a stale write landing after the next attempt's fresh write matters.
 ## THE CROSS-BRANCH WEBSITE LESSON (round 128)
