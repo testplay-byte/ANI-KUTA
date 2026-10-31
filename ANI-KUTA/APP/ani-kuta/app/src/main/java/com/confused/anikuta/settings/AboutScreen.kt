@@ -282,7 +282,7 @@ fun AboutScreen(
                                 )
                             } },
                             title = "Website",
-                            subtitle = "confused-creature-180.github.io/ANI-KUTA",
+                            subtitle = "Go to the website",
                             url = "https://confused-creature-180.github.io/ANI-KUTA/",
                         )
                     }

@@ -223,6 +223,7 @@ class AppUpdateManager(
             val currentName = getInstalledVersionName()
             Logger.i(TAG) { "checkForUpdate: current=$currentName/$currentCode, sources=${sources.map { it.id }}" }
 
+            var anySourceFailed = false
             for (source in sources) {
                 try {
                     val update = source.fetchLatestUpdate(currentCode, currentName)
@@ -238,7 +239,17 @@ class AppUpdateManager(
                         Logger.i(TAG) { "checkForUpdate: surfacing update sheet for ${update.versionName}" }
                         return update
                     }
+                } catch (e: UpdateCheckException) {
+                    // ROUND 133 (D-815): a FAILED CHECK must never read as
+                    // "you are on the latest version" — record it so the About
+                    // screen shows the error card instead of the "up to date"
+                    // flash.
+                    anySourceFailed = true
+                    _lastCheckError.value = e.message ?: "Update check failed"
+                    Logger.w(TAG, e) { "checkForUpdate: source ${source.id} failed" }
                 } catch (e: Exception) {
+                    anySourceFailed = true
+                    _lastCheckError.value = "Update check failed: ${e.message ?: e::class.java.simpleName}"
                     Logger.w(TAG, e) { "checkForUpdate: source ${source.id} failed" }
                 }
             }
@@ -247,13 +258,19 @@ class AppUpdateManager(
             _latestUpdate.value = null
             _shouldShowUpdateSheet.value = false
             preferences.setLastCheckTimestamp(System.currentTimeMillis())
-            // D-199: flash "up to date" for 3 seconds.
-            _isUpToDate.value = true
-            scope.launch {
-                delay(3000)
-                _isUpToDate.value = false
+            if (!anySourceFailed) {
+                // D-199: flash "up to date" for 3 seconds — ONLY when the
+                // sources actually ANSWERED (the round-133 honest-failure fix:
+                // a dead network used to flash the same message).
+                _isUpToDate.value = true
+                scope.launch {
+                    delay(3000)
+                    _isUpToDate.value = false
+                }
+                Logger.i(TAG) { "checkForUpdate: no update available" }
+            } else {
+                Logger.i(TAG) { "checkForUpdate: no answer from any source (error recorded)" }
             }
-            Logger.i(TAG) { "checkForUpdate: no update available" }
             return null
         } catch (e: Exception) {
             Logger.e(TAG, e) { "checkForUpdate: failed" }

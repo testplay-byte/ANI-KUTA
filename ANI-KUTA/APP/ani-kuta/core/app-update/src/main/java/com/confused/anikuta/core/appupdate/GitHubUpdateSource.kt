@@ -88,21 +88,27 @@ class GitHubUpdateSource(
         try {
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
+                // ROUND 133 (D-815): an HTTP failure (rate limit included — the
+                // unauthenticated API allows 60/hour per IP) is a FAILED CHECK,
+                // not "no update". Throw so the UI shows the error card instead
+                // of a false "You are on the latest version".
                 Logger.w(TAG) { "fetchLatestUpdate: HTTP ${response.code} ${response.message}" }
+                val message = "GitHub API error HTTP ${response.code}" +
+                    if (response.code == 403) " (rate limit — try again later)" else ""
                 response.close()
-                return@withContext null
+                throw UpdateCheckException(message)
             }
 
             val body = response.body?.string() ?: run {
                 Logger.w(TAG) { "fetchLatestUpdate: empty response body" }
-                return@withContext null
+                throw UpdateCheckException("GitHub API returned an empty response")
             }
 
             val releases = try {
                 json.decodeFromString<List<GitHubRelease>>(body)
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "fetchLatestUpdate: failed to parse JSON" }
-                return@withContext null
+                throw UpdateCheckException("GitHub API response was malformed", e)
             }
 
             // D-251: pick the best release from the list. Drafts are excluded
@@ -190,9 +196,14 @@ class GitHubUpdateSource(
                 apkSizeBytes = apkAsset.size,
                 releaseName = release.name,
             )
+        } catch (e: UpdateCheckException) {
+            throw e
         } catch (e: Exception) {
             Logger.e(TAG, e) { "fetchLatestUpdate: network error" }
-            null
+            throw UpdateCheckException(
+                "Update check failed: ${e::class.java.simpleName}${e.message?.let { " — $it" } ?: ""}",
+                e,
+            )
         }
     }
 
