@@ -1,5 +1,13 @@
 # Changelog (High-Level)
 
+## 1.1.80 / 10180 — RELEASE (round 136 — the debug line; carries rounds 126-136)
+- RELEASED: the **v1.1.80** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum verified) — v1.1.79 installs get the in-app update offer carrying round 136. Routine A on 1e27a115: release/1.1.80 + ONE bump commit (10120/1.1.20 -> 10180/1.1.80) + tag v1.1.80; Release APK run 41347914058->41347914077 GREEN.
+- BACKUP & RESTORE/COVERS: the backup CARRIES the library's cover/banner images + extension icons; a restored library paints its covers with the network OFF (the URL-keyed store + the Coil interceptor).
+- BACKUP & RESTORE/REPOS: the repositories + CloudStream plugins appear IMMEDIATELY after a restore (no restart).
+- BACKUP & RESTORE/UX: the what-to-include checkmark popup; formatted backup/restore responses with the real key stats (entries, categories, history, tracking, downloads; "Not included" where uncarried).
+- PLAYER/OSD: the compact portrait pill with ~2x sensitivity; the direct-drive (stutter-free) bar; the player's slightly-rounded design language on every OSD panel.
+- ONBOARDING: the restore step's CTA reads Continue after a successful restore.
+
 ## Round 136 (on main, 1.1.20/10120 — UNRELEASED until the next release order)
 - BACKUP & RESTORE/COVERS: the backup now CARRIES the library's cover/banner images + the extension icons (offline_images/ payload, bounded), and a restored library paints its covers with the network OFF (a single Coil interceptor serves the local files).
 - BACKUP & RESTORE/REPOS: the extension repositories + CloudStream plugins now appear IMMEDIATELY after a restore (the in-memory stores refresh; no restart required to see them).
