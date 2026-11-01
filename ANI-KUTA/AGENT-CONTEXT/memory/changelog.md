@@ -1,6 +1,7 @@
 # Changelog (High-Level)
 
-## 1.1.20 (round 134 — the player polish + the backup & restore system; version unchanged per the standing rule)
+## 1.1.78 / 10178 — RELEASE (round 134 — the debug line; carries rounds 126-134)
+- RELEASED: the **v1.1.78** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum-verified) — v1.1.77 installs get the in-app update offer.
 - PLAYER: one gesture at a time (the axis locks at touch-slop — no more volume+seek both firing), the gesture OSD redesigned (no panels — shadowed floating icon + %, per-gesture icon sides, [delta][arrows][target] seek readout, animated bar), the fixed ~600dp vertical sensitivity, the instant hide of the center buttons + spinner on seek start, cinema's system status bar hiding + the normal-background option, the smooth portrait<->landscape flip transition, 5x/0.5x zoom with fixed magnet snaps, and the live fullscreen episode pill.
 - BACKUP & RESTORE: the new .anikuta format (a ZIP of the whole database + the full settings layer + optional cover images), Settings > Backup & restore (manual + automatic every 6h/12h/day/week into the storage folder's backup/ folder, newest 3 kept), and a merge-restore that only ever ADDS — existing data is never overwritten or deleted. Covers the library, history, progress, ratings, the AniList link, every setting, the extension/CloudStream setup, and all episode details.
 ## 1.1.77 / 10177 — RELEASE (round 133 — the debug line; carries rounds 126-133)

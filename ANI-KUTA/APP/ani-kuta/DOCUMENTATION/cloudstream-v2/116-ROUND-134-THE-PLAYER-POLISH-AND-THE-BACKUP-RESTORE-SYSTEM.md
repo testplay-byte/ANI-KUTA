@@ -3,8 +3,9 @@
 > 2026-11-01. The round-133 device report — satisfaction + a fix list for the
 > player, and then the big new order: **backup & restore** ("a very key
 > essential part of the application"), with automatic backups, a own format,
-> and careful planning. Two phases, two commits, two CI runs. Decisions
-> D-816..D-818.
+> and careful planning. Two phases, two commits. Decisions D-816..D-819 —
+> the user then ordered the **v1.1.78 debug release** (§4), which carries
+> both phases.
 
 ## 1. Phase A — the player polish (D-818, commit `bda4f046`)
 
@@ -116,3 +117,15 @@ duration — a concurrent writer on another thread may throw and retry later
 (merge semantics make the consequence benign); a true writer-quiesce window
 is future work. CI ledger this cycle: 2 runs (the Build APK for each phase);
 no release ordered.
+
+## 4. The v1.1.78 release (D-819)
+
+The user ordered the release right after the round-134 read-out. Routine A
+on the round-134 green head (`1ffd2a95`): release branch `release/1.1.78`,
+ONE bump commit (10120/1.1.20 -> **10178 / 1.1.78**), branch + annotated tag
+`v1.1.78` -> the Release APK workflow (run 41305214485, green first-try).
+Verified live: the APK's SHA256 matches the release's SHA256SUMS.txt and the
+manifest carries 10178/1.1.78 with the arm64 libs. v1.1.77 installs get the
+in-app update offer carrying round 134. CI ledger: 3 runs this cycle (2x
+Build APK for the two phases + 1x Release APK) — over the D-472 2-run
+budget, disclosed: the two-phase scope + the release order.
