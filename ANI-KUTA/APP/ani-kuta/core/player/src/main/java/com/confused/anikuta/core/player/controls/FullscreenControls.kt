@@ -153,14 +153,25 @@ fun FullscreenControls(
     val gestureSeeking = gestureConfig.enabled && gestureState.isSeekGestureActive
 
     // ROUND 132: the video zoom (preset cycle button + the two-finger pinch).
+    // ROUND 134: the auto-hide runs off a TICK counter — every show bumps the
+    // tick, so the timeout ALWAYS restarts (the boolean key never restarted
+    // while it stayed true and a chip could linger forever).
     val videoZoomState = rememberVideoZoomState()
     var zoomOsdVisible by remember { mutableStateOf(false) }
     var zoomOsdLabel by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(zoomOsdVisible) {
-        if (zoomOsdVisible) {
-            kotlinx.coroutines.delay(1200)
+    var zoomOsdTick by remember { mutableStateOf(0) }
+    LaunchedEffect(zoomOsdTick) {
+        if (zoomOsdTick > 0) {
+            kotlinx.coroutines.delay(1400)
             zoomOsdVisible = false
+            zoomOsdLabel = null
         }
+    }
+
+    fun showZoomOsd(label: String?) {
+        zoomOsdLabel = label
+        zoomOsdVisible = true
+        zoomOsdTick++
     }
 
     Box(modifier = modifier.fillMaxSize().onSizeChanged { videoZoomState.containerSize = it }) {
@@ -252,13 +263,11 @@ fun FullscreenControls(
                             detectTwoFingerZoom(
                                 onZoom = { mult ->
                                     videoZoomState.pinchZoom(mult)
-                                    zoomOsdLabel = null
-                                    zoomOsdVisible = true
+                                    showZoomOsd(null)
                                 },
                                 onEnd = {
                                     videoZoomState.snapOnRelease()
-                                    zoomOsdLabel = null
-                                    zoomOsdVisible = true
+                                    showZoomOsd(null)
                                 },
                             )
                         }
@@ -464,8 +473,7 @@ fun FullscreenControls(
                                             contentDescription = "Video zoom: " + videoZoomState.mode.label,
                                             onClick = {
                                                 videoZoomState.cyclePreset()
-                                                zoomOsdLabel = videoZoomState.mode.label
-                                                zoomOsdVisible = true
+                                                showZoomOsd(videoZoomState.mode.label)
                                             },
                                         )
                                         FSSpeedButton(speed = currentSpeed, onClick = onSpeedClick)

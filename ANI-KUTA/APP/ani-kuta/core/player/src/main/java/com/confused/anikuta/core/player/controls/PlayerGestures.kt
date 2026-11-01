@@ -2,7 +2,6 @@ package com.confused.anikuta.core.player.controls
 
 import android.view.Window
 import android.view.WindowManager
-import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -10,9 +9,7 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -29,7 +26,6 @@ import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -41,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -95,8 +92,9 @@ enum class VideoScaleMode(val label: String) {
 }
 
 /** The preset-magnet steps for the free pinch zoom (multipliers over fit). */
-val ZOOM_SNAP_STEPS = listOf(1f, 1.25f, 1.5f, 2f, 3f)
-private val ZOOM_MAX = 4f
+val ZOOM_SNAP_STEPS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 5f)
+private val ZOOM_MAX = 5f
+private val ZOOM_MIN = 0.5f
 
 /** Gesture wiring, read from preferences by the watch screen. */
 data class PlayerGestureConfig(
@@ -137,7 +135,10 @@ class PlayerGestureState internal constructor() {
 
     // The routing machine — INDEPENDENT of the OSD's [kind] so the OSD can be
     // hidden mid-gesture (the timeout) without killing the drag's effectors.
-    private var activeKind: PlayerGestureKind? = null
+    // A Compose STATE (round 134): [isSeekGestureActive] reads it, and the
+    // controls must recompose the moment a seek STARTS (the plain-var version
+    // never recomposed — the center buttons stayed on screen).
+    private var activeKind by mutableStateOf<PlayerGestureKind?>(null)
 
     /** Density-scaled touch slop (set by [detectPlayerGestures] at attach). */
     internal var slopPx = GESTURE_SLOP_PX
@@ -169,6 +170,10 @@ class PlayerGestureState internal constructor() {
     /** SEEK: the signed delta from the drag-start position, in seconds. */
     var seekDeltaSec by mutableStateOf(0)
         private set
+    /** TRUE at the gesture's own cap (volume-max can exceed 100 — "MAX" must
+     * mean the real cap, not 100). */
+    var atCap by mutableStateOf(false)
+        private set
 
     // The center-swipe actions — plain fields (not constructor state) so the
     // controls can refresh them EVERY recomposition (the lambda identities
@@ -181,6 +186,17 @@ class PlayerGestureState internal constructor() {
     private var axisLocked = false
     private var dead = false
     private var centerActionFired = false
+
+    /**
+     * The locked axis (round 134: ONE gesture per touch). Once a gesture is
+     * live, the other axis is IGNORED entirely — a horizontal drift during a
+     * brightness swipe must never start a seek (and vice versa), even when
+     * the finger wanders to the other half of the screen.
+     */
+    private var lockedVertical = false
+
+    /** Density-scaled travel that covers a FULL vertical range (px). */
+    internal var verticalRangePx = 0f
 
     private var startVolume = 0f
     private var volumeMax = 100f
@@ -216,6 +232,7 @@ class PlayerGestureState internal constructor() {
         axisLocked = false
         dead = false
         centerActionFired = false
+        lockedVertical = false
         activeKind = null
         kind = null
         startedOnRightSide = offset.x >= size.width * 2f / 3f
@@ -224,6 +241,7 @@ class PlayerGestureState internal constructor() {
         this.onSeekTo = onSeekTo
         seekDeltaSec = 0
         level = 0f
+        atCap = false
     }
 
     internal fun drag(
@@ -240,20 +258,61 @@ class PlayerGestureState internal constructor() {
         if (!axisLocked) {
             if (abs(dx) < slopPx && abs(dy) < slopPx) return
             axisLocked = true
+
+            // The axis is decided ONCE, at lock time (round 134: ONE gesture
+            // per touch — later events route by the LOCKED axis, so wandering
+            // across the screen can never start a second gesture).
+            if (abs(dy) > abs(dx)) {
+                lockedVertical = true
+                // The center third is RESERVED (round 132): vertical swipes
+                // there are never volume/brightness — they carry the mode
+                // actions (fired below, past the travel threshold).
+                val inCenterThird = !startedOnRightSide &&
+                    startOffset.x >= size.width / 3f &&
+                    startOffset.x < size.width * 2f / 3f
+                if (!inCenterThird) {
+                    if (!config.enabled) {
+                        dead = true
+                        return
+                    }
+                    val action = if (startedOnRightSide) config.rightSide else config.leftSide
+                    if (action == GestureSideAction.NONE) {
+                        dead = true
+                        return
+                    }
+                    if (action == GestureSideAction.VOLUME) {
+                        startVolume = runCatching { (MPVLib.getPropertyInt("volume") ?: 100).toFloat() }
+                            .getOrDefault(100f)
+                        volumeMax = runCatching { (MPVLib.getPropertyInt("volume-max") ?: 130).toFloat().coerceAtLeast(100f) }
+                            .getOrDefault(130f)
+                        activeKind = PlayerGestureKind.VOLUME
+                        level = startVolume
+                    } else {
+                        this.window = window
+                        val current = window?.attributes?.screenBrightness ?: -1f
+                        startBrightness = if (current < 0f) 0.5f else current.coerceIn(0f, 1f)
+                        activeKind = PlayerGestureKind.BRIGHTNESS
+                        level = startBrightness * 100f
+                    }
+                    kind = activeKind
+                }
+            } else {
+                lockedVertical = false
+                if (!config.enabled || !config.horizontalSeek || durationSec <= 0) {
+                    dead = true
+                    return
+                }
+                activeKind = PlayerGestureKind.SEEK
+                lastLiveSeekAt = 0L
+                kind = activeKind
+            }
+            if (dead) return
         }
 
-        // The center third is RESERVED (round 132): vertical swipes there are
-        // never volume/brightness — they carry the mode actions instead.
-        val inCenterThird = !startedOnRightSide &&
-            startOffset.x >= size.width / 3f &&
-            startOffset.x < size.width * 2f / 3f
-
-        if (abs(dy) > abs(dx)) {
-            // ── Vertical ──
-            if (inCenterThird) {
-                // Fires the configured center action ONCE past the travel
-                // threshold (a short accidental drift past the slop must not
-                // flip modes); nothing configured = an inert dead zone.
+        if (lockedVertical) {
+            if (activeKind == null) {
+                // The center-swipe path: fire the configured mode action ONCE
+                // past the travel threshold; nothing configured = inert.
                 if (!centerActionFired &&
                     abs(dy) >= size.height * config.centerTriggerFraction
                 ) {
@@ -268,44 +327,21 @@ class PlayerGestureState internal constructor() {
                 }
                 return
             }
-            if (activeKind == null) {
-                // The master gate: with gestures OFF only the center actions run.
-                if (!config.enabled) {
-                    dead = true
-                    return
-                }
-                val action = if (startedOnRightSide) config.rightSide else config.leftSide
-                if (action == GestureSideAction.NONE) {
-                    dead = true
-                    return
-                }
-                if (action == GestureSideAction.VOLUME) {
-                    startVolume = runCatching { (MPVLib.getPropertyInt("volume") ?: 100).toFloat() }
-                        .getOrDefault(100f)
-                    volumeMax = runCatching { (MPVLib.getPropertyInt("volume-max") ?: 130).toFloat().coerceAtLeast(100f) }
-                        .getOrDefault(130f)
-                    activeKind = PlayerGestureKind.VOLUME
-                    level = startVolume
-                } else {
-                    this.window = window
-                    val current = window?.attributes?.screenBrightness ?: -1f
-                    startBrightness = if (current < 0f) 0.5f else current.coerceIn(0f, 1f)
-                    activeKind = PlayerGestureKind.BRIGHTNESS
-                    level = startBrightness * 100f
-                }
-                kind = activeKind
-            }
+            // Volume/brightness — the travel is DENSITY-scaled (a fixed
+            // physical distance covers the full range), not the surface's
+            // height: the short portrait 16:9 box made a tiny swipe swing the
+            // level wildly (the round-134 "20 to 70" report).
+            val delta = -dy / verticalRangePx.coerceAtLeast(1f)
             when (activeKind) {
                 PlayerGestureKind.VOLUME -> {
-                    // Full screen height = the whole volume range, up = louder.
-                    val delta = -dy / size.height.toFloat().coerceAtLeast(1f) * volumeMax
-                    level = (startVolume + delta).coerceIn(0f, volumeMax)
+                    level = (startVolume + delta * volumeMax).coerceIn(0f, volumeMax)
+                    atCap = level >= volumeMax - 0.5f
                     runCatching { MPVLib.setPropertyInt("volume", level.roundToInt()) }
                 }
                 PlayerGestureKind.BRIGHTNESS -> {
-                    val delta = -dy / size.height.toFloat().coerceAtLeast(1f)
                     val target = (startBrightness + delta).coerceIn(0f, 1f)
                     level = target * 100f
+                    atCap = target >= 0.995f
                     window?.let { w ->
                         w.attributes = w.attributes.apply { screenBrightness = target }
                     }
@@ -313,17 +349,7 @@ class PlayerGestureState internal constructor() {
                 else -> Unit
             }
         } else {
-            // ── Horizontal: the live seek (works from ANY column — the center
-            // reservation only covers the VERTICAL area). ──
-            if (activeKind == null) {
-                if (!config.enabled || !config.horizontalSeek || durationSec <= 0) {
-                    dead = true
-                    return
-                }
-                activeKind = PlayerGestureKind.SEEK
-                lastLiveSeekAt = 0L
-                kind = activeKind
-            }
+            if (activeKind != PlayerGestureKind.SEEK) return
             // ROUND 132: a FULL-WIDTH drag ≈ SEEK_RANGE_SEC seconds (the
             // device report: the whole episode across one screen width was
             // "way too much"). Clamped to the episode's real bounds.
@@ -336,6 +362,9 @@ class PlayerGestureState internal constructor() {
                 onSeekTo?.invoke(level.roundToInt())
             }
         }
+        // After the 2.5s mid-drag OSD timeout (hideOsdOnly), the next update
+        // brings the OSD back — the gesture is still live.
+        if (kind != activeKind) kind = activeKind
     }
 
     /** Finger lift: land the final exact seek (SEEK) and hide the OSD. */
@@ -404,18 +433,29 @@ suspend fun PointerInputScope.detectPlayerGestures(
     onSeekTo: (Int) -> Unit,
 ) {
     state.slopPx = 8.dp.toPx()
-    detectDragGestures(
-        onDragStart = { offset ->
-            if (!gesturePipelineAlive(config, state)) return@detectDragGestures
-            state.begin(offset, size, config, positionSec(), durationSec(), onSeekTo)
-        },
-        onDrag = { change, _ ->
-            if (!gesturePipelineAlive(config, state)) return@detectDragGestures
-            state.drag(change.position, size, config, window)
-        },
-        onDragEnd = { state.end() },
-        onDragCancel = { state.cancel() },
-    )
+    // ROUND 134: the vertical gestures' full range = a fixed ~600dp of travel
+    // (comfortable on every surface; the surface height no longer scales it).
+    state.verticalRangePx = 600.dp.toPx()
+    try {
+        detectDragGestures(
+            onDragStart = { offset ->
+                if (!gesturePipelineAlive(config, state)) return@detectDragGestures
+                state.begin(offset, size, config, positionSec(), durationSec(), onSeekTo)
+            },
+            onDrag = { change, _ ->
+                if (!gesturePipelineAlive(config, state)) return@detectDragGestures
+                state.drag(change.position, size, config, window)
+            },
+            onDragEnd = { state.end() },
+            onDragCancel = { state.cancel() },
+        )
+    } finally {
+        // The node can be unmounted mid-drag (a second finger tapping Lock
+        // swaps the controls branch) — detectDragGestures' coroutine is then
+        // cancelled WITHOUT firing onDragEnd/Cancel, and the seek suppression
+        // would stick until the next gesture. cancel() is idempotent.
+        state.cancel()
+    }
 }
 
 /**
@@ -489,9 +529,10 @@ class VideoZoomState internal constructor() {
     }
 
     /** The pinch: multiplies the free factor (anchored at the center, OVER
-     * the active preset — pinching from Crop must not snap back to fit). */
+     * the active preset — pinching from Crop must not snap back to fit).
+     * ROUND 134: zooms OUT below 1x too (0.5x floor) and reaches 5x. */
     fun pinchZoom(multiplier: Float) {
-        freeZoom = (freeZoom * multiplier).coerceIn(1f, ZOOM_MAX)
+        freeZoom = (freeZoom * multiplier).coerceIn(ZOOM_MIN, ZOOM_MAX)
         applyToMpv()
     }
 
@@ -531,7 +572,7 @@ class VideoZoomState internal constructor() {
     }
 
     private fun applyToMpv() {
-        val scale = effectiveScale().coerceAtLeast(0.05f)
+        val scale = effectiveScale().coerceIn(0.05f, ZOOM_MAX * 4f)
         val zoom = ln(scale.toDouble()) / ln(2.0)
         runCatching { MPVLib.setPropertyDouble("video-zoom", zoom) }
     }
@@ -548,14 +589,14 @@ fun rememberVideoZoomState(): VideoZoomState {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Gesture OSD — opposite side, fixed width, MAX/mute states, shadows, theme
+//  Gesture OSD — round 134 redesign: NO background panels. The icon and the
+//  percentage float on the video with glyph drop-shadows (legible even on a
+//  white frame); the level bar is animated and shadowed; the seek OSD reads
+//  left-to-right as [delta] [arrows] [target].
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * The gesture overlay. ROUND 132: renders on the side OPPOSITE the finger,
- * the % label lives in a fixed-width slot (MAX at the cap, a muted icon +
- * "Muted" at volume 0), the panel + bar carry shadows, and the fill bar /
- * seek accents use the theme color. Renders nothing when idle.
+ * The gesture overlay. Renders nothing when idle.
  */
 @Composable
 fun GestureOsd(
@@ -575,13 +616,22 @@ fun GestureOsd(
     // The panel shows on the side OPPOSITE the finger.
     val displayOnRight = !state.startedOnRightSide
 
+    // One animated level drives BOTH the bar and the label — the round-134
+    // "the bar jumps from 20 to 70" report: the level used to snap per event.
+    val shownLevel by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = state.level,
+        animationSpec = androidx.compose.animation.core.tween(110),
+        label = "gestureOsdLevel",
+    )
+
     when (kind) {
         PlayerGestureKind.VOLUME -> SideGestureOsd(
             icon = Icons.Default.VolumeUp,
             mutedIcon = Icons.Default.VolumeOff,
             isVolume = true,
             label = "Volume",
-            level = state.level,
+            level = shownLevel,
+            atCap = state.atCap,
             displayOnRight = displayOnRight,
             modifier = modifier,
         )
@@ -590,7 +640,8 @@ fun GestureOsd(
             mutedIcon = null,
             isVolume = false,
             label = "Brightness",
-            level = state.level,
+            level = shownLevel,
+            atCap = state.atCap,
             displayOnRight = displayOnRight,
             modifier = modifier,
         )
@@ -602,6 +653,54 @@ fun GestureOsd(
     }
 }
 
+/**
+ * The text's drop shadow — legible on ANY frame, white included (the
+ * round-134 order: "a shadow to themselves so that if there is a completely
+ * white background, it still shows cleanly").
+ */
+private val GlyphShadow = androidx.compose.ui.text.TextStyle(
+    shadow = androidx.compose.ui.graphics.Shadow(
+        color = Color.Black.copy(alpha = 0.85f),
+        offset = Offset(0f, 2f),
+        blurRadius = 8f,
+    ),
+)
+
+/**
+ * An icon with a glyph drop-shadow: a dark copy stacked behind the white one
+ * (Compose can't blur-draw an ImageVector; the stacked copy reads as the
+ * shadow at OSD sizes).
+ */
+@Composable
+private fun ShadowedIcon(icon: ImageVector, contentDescription: String, size: Int, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.size(size.dp)) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = Color.Black.copy(alpha = 0.6f),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(size.dp)
+                .graphicsLayer {
+                    translationX = 1.dp.toPx()
+                    translationY = 1.33.dp.toPx()
+                },
+        )
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.align(Alignment.Center).size(size.dp),
+        )
+    }
+}
+
+/**
+ * The volume/brightness OSD: no background — the icon and the live
+ * percentage float on the video, the icon sits on the RIGHT for volume and
+ * on the LEFT for brightness (the percentage takes the other side), and the
+ * animated theme-colored level bar hugs the outer edge.
+ */
 @Composable
 private fun SideGestureOsd(
     icon: ImageVector,
@@ -609,75 +708,69 @@ private fun SideGestureOsd(
     isVolume: Boolean,
     label: String,
     level: Float,
+    atCap: Boolean,
     displayOnRight: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val muted = isVolume && level <= 0.5f
+    val activeIcon = if (muted && mutedIcon != null) mutedIcon else icon
+
     Box(modifier = modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .align(if (displayOnRight) Alignment.CenterEnd else Alignment.CenterStart)
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 22.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // The bar hugs the outer edge.
             if (!displayOnRight) {
                 VerticalLevelBar(level = level)
-                Spacer(modifier = Modifier.width(10.dp))
             }
-            Surface(
-                color = Color.Black.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(16.dp),
-                // The panel shadow (the round-132 "give it some shadow").
-                modifier = Modifier.shadow(10.dp, RoundedCornerShape(16.dp)),
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                ) {
-                    // Volume at 0 smoothly crossfades to the muted icon.
-                    Crossfade(
-                        targetState = muted && mutedIcon != null,
-                        label = "gestureOsdIcon",
-                    ) { isMuted ->
-                        Icon(
-                            if (isMuted) Icons.Default.VolumeOff else icon,
-                            contentDescription = if (isMuted) "Muted" else label,
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
-                    // FIXED-WIDTH label slot — 99→100 and "MAX" can't shift the panel.
-                    Box(
-                        modifier = Modifier.width(52.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = when {
-                                muted && isVolume -> "Muted"
-                                level >= 99.5f -> "MAX"
-                                else -> "${level.roundToInt()}%"
-                            },
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                        )
-                    }
-                }
+            // The icon's side follows the GESTURE TYPE (round 134):
+            // volume -> icon on the right; brightness -> icon on the left.
+            val iconSlot: (@Composable () -> Unit) = {
+                ShadowedIcon(activeIcon, if (muted) "Muted" else label, 30)
+            }
+            val percentSlot: (@Composable () -> Unit) = {
+                Text(
+                    text = when {
+                        muted && isVolume -> "Muted"
+                        atCap -> "MAX"
+                        else -> "${level.roundToInt()}%"
+                    },
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    style = GlyphShadow,
+                    maxLines = 1,
+                )
+            }
+            if (isVolume) {
+                percentSlot()
+                iconSlot()
+            } else {
+                iconSlot()
+                percentSlot()
             }
             if (displayOnRight) {
-                Spacer(modifier = Modifier.width(10.dp))
                 VerticalLevelBar(level = level)
             }
         }
     }
 }
 
-/** The vertical fill bar beside the side-gesture panel (shadowed, theme-colored). */
+/**
+ * The vertical fill bar — animated (the level glides instead of snapping),
+ * shadowed, theme-colored.
+ */
 @Composable
 private fun VerticalLevelBar(level: Float, modifier: Modifier = Modifier) {
-    val fill = (level.coerceIn(0f, 100f) / 100f)
+    val fill by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = level.coerceIn(0f, 100f) / 100f,
+        animationSpec = androidx.compose.animation.core.tween(110),
+        label = "gestureOsdBar",
+    )
     Box(
         modifier = modifier
             .width(6.dp)
@@ -695,6 +788,11 @@ private fun VerticalLevelBar(level: Float, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * The seek OSD — no background, three slots left to right (the round-134
+ * order): the delta on the left, the direction arrows in the center, the
+ * target time on the right.
+ */
 @Composable
 private fun SeekGestureOsd(
     targetSec: Int,
@@ -702,41 +800,38 @@ private fun SeekGestureOsd(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Surface(
-            color = Color.Black.copy(alpha = 0.6f),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.shadow(10.dp, RoundedCornerShape(16.dp)),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(horizontal = 24.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            ) {
-                // The seek accents take the THEME color (the round-132 order).
-                Icon(
-                    if (deltaSec >= 0) Icons.Default.FastForward else Icons.Default.FastRewind,
-                    contentDescription = if (deltaSec >= 0) "Seek forward" else "Seek backward",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                )
-                Text(
-                    text = "${if (deltaSec >= 0) "+" else "-"}${formatTime(abs(deltaSec))}",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = formatTime(targetSec),
-                    color = Color.White.copy(alpha = 0.85f),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
+            Text(
+                text = "${if (deltaSec >= 0) "+" else "-"}${formatTime(abs(deltaSec))}",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                style = GlyphShadow,
+            )
+            ShadowedIcon(
+                if (deltaSec >= 0) Icons.Default.FastForward else Icons.Default.FastRewind,
+                if (deltaSec >= 0) "Seek forward" else "Seek backward",
+                34,
+            )
+            Text(
+                text = formatTime(targetSec),
+                color = Color.White,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Medium,
+                style = GlyphShadow,
+            )
         }
     }
 }
 
-/** The pinch-zoom readout ("1.5x") — centered, theme-colored, fades with [visible]. */
+/**
+ * The pinch-zoom readout ("1.5x" / the preset name) — a floating shadowed
+ * chip with NO solid panel, auto-hidden by the controls' tick timer.
+ */
 @Composable
 fun ZoomOsd(
     visible: Boolean,
@@ -750,29 +845,18 @@ fun ZoomOsd(
         exit = androidx.compose.animation.fadeOut(),
         modifier = modifier,
     ) {
-        Surface(
-            color = Color.Black.copy(alpha = 0.6f),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.shadow(10.dp, RoundedCornerShape(16.dp)),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            ) {
-                Icon(
-                    Icons.Default.AspectRatio,
-                    contentDescription = "Zoom",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
-                )
-                Text(
-                    text = label ?: "${((factor * 100).roundToInt()) / 100f}x",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+            ShadowedIcon(Icons.Default.AspectRatio, "Zoom", 22)
+            Text(
+                text = label ?: "${((factor * 100).roundToInt()) / 100f}x",
+                color = Color.White,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                style = GlyphShadow,
+            )
         }
     }
 }

@@ -435,6 +435,44 @@ fun WatchScreen(
         cinemaMode = false
     }
 
+    // ── ROUND 134: the orientation-flip transition ──
+    // A quick black dip + expand masks the SurfaceView cut (a SurfaceView
+    // can't fade or scale its own content, so the relayout cut is covered):
+    // the scrim jumps to ~black on the flip's first frame and fades while
+    // the player box expands from ~0.93 to full.
+    val modeFlip = remember { androidx.compose.animation.core.Animatable(1f) }
+    val firstModeSeen = remember { mutableStateOf(false) }
+    LaunchedEffect(playerMode) {
+        if (!firstModeSeen.value) {
+            firstModeSeen.value = true
+            modeFlip.snapTo(1f)
+            return@LaunchedEffect
+        }
+        modeFlip.snapTo(0f)
+        modeFlip.animateTo(1f, tween(340, easing = FastOutSlowInEasing))
+    }
+    val flipScrimAlpha = ((1f - modeFlip.value) * 0.95f).coerceIn(0f, 0.95f)
+    val flipScale = 0.93f + 0.07f * modeFlip.value
+
+    // ── ROUND 134 (A1): cinema hides the SYSTEM status bar ──
+    // The in-app elements hiding left the notification icons on screen; the
+    // InsetsController hides the status bar for the cinema session and the
+    // dispose restores it (a swipe still transiently reveals it).
+    DisposableEffect(cinemaMode) {
+        val cinemaWindow = (context as? Activity)?.window
+        val controller = cinemaWindow?.let { androidx.core.view.WindowCompat.getInsetsController(it, it.decorView) }
+        if (cinemaMode && controller != null) {
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+        }
+        onDispose {
+            if (controller != null) {
+                controller.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+            }
+        }
+    }
+
     // ── Auto-hide controls ──
     val isVideoFinished = duration > 0 && position >= duration - 2 && !isPlaying
     LaunchedEffect(controlsVisible, playerMode, isVideoFinished) {
@@ -2302,6 +2340,10 @@ fun WatchScreen(
             onOpenEpisodesSheet = { showEpisodesSheet = true },
             onCancelSwitch = onCancelSwitch,
             skipRanges = watchController.skipRanges,
+            // ROUND 134 (A7): the LIVE episode pill — prev/next switches must
+            // update the top-left details (watchKey is frozen at navigation).
+            episodeInfoOverride = "EP ${formatEpisodeNumber(currentEpisodeNumber)}",
+            flipScale = flipScale,
             // ROUND 132: swipe DOWN from the center third = back to portrait;
             // the pinch zoom is a fullscreen-only capability.
             gestureConfig = gestureConfig.copy(
@@ -2353,6 +2395,7 @@ fun WatchScreen(
             skipRanges = watchController.skipRanges,
             cinema = cinemaMode,
             cinemaOled = cinemaOled,
+            flipScale = flipScale,
             // ROUND 132: the center-third vertical swipes — UP exits cinema
             // (or goes fullscreen from the normal state), DOWN enters cinema.
             gestureConfig = gestureConfig.copy(
@@ -2367,6 +2410,15 @@ fun WatchScreen(
                 // The portrait 16:9 box is short — 12% of it is a pocket-trigger.
                 centerTriggerFraction = 0.30f,
             ),
+        )
+    }
+
+    // ROUND 134: the orientation-flip scrim (covers the player-area cut).
+    if (flipScrimAlpha > 0.01f) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = flipScrimAlpha)),
         )
     }
 
@@ -2537,6 +2589,8 @@ private fun MinimizedMode(
     // else fades out. Swipe up from the center (or BACK) glides it back.
     cinema: Boolean = false,
     cinemaOled: Boolean = true,
+    // ROUND 134: the orientation-flip transition's scale (driven by WatchScreen).
+    flipScale: Float = 1f,
 ) {
     val listState = rememberLazyListState()
 
@@ -2547,8 +2601,10 @@ private fun MinimizedMode(
         label = "cinemaProgress",
     )
     val cinemaBackground by androidx.compose.animation.animateColorAsState(
+        // ROUND 134 (A1): the non-OLED choice is the player page's NORMAL
+        // background color (the accent color read as a background was too loud).
         targetValue = if (cinema) {
-            if (cinemaOled) Color.Black else MaterialTheme.colorScheme.primary
+            if (cinemaOled) Color.Black else MaterialTheme.colorScheme.background
         } else {
             MaterialTheme.colorScheme.background
         },
@@ -2844,6 +2900,13 @@ private fun MinimizedMode(
             .onGloballyPositioned { coords ->
                 rootHeightPx = coords.size.height
                 rootTopPx = coords.boundsInRoot().top
+            }
+            .graphicsLayer {
+                if (flipScale != 1f) {
+                    scaleX = flipScale
+                    scaleY = flipScale
+                    alpha = 0.4f + 0.6f * (flipScale - 0.93f) / 0.07f
+                }
             }
             .background(cinemaBackground),
     ) {

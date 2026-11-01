@@ -162,10 +162,23 @@ internal fun FullscreenMode(
     // ROUND 131 (D-809): swipe gestures (volume/brightness sides + live seek).
     gestureConfig: com.confused.anikuta.core.player.controls.PlayerGestureConfig =
         com.confused.anikuta.core.player.controls.PlayerGestureConfig(),
+    // ROUND 134: the episode pill's LIVE text — watchKey's episode is frozen
+    // at navigation, so prev/next switches left the top-left details stale.
+    episodeInfoOverride: String? = null,
+    // ROUND 134: the orientation-flip transition's scale (WatchScreen drives
+    // it — the player box expands from ~0.93 to full as the flip settles).
+    flipScale: Float = 1f,
 ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer {
+                if (flipScale != 1f) {
+                    scaleX = flipScale
+                    scaleY = flipScale
+                    alpha = 0.4f + 0.6f * (flipScale - 0.93f) / 0.07f
+                }
+            }
             .background(Color.Black),
     ) {
         PlayerSurface(
@@ -195,7 +208,8 @@ internal fun FullscreenMode(
             onRetry = onRetry,
             onDismissError = onDismissError,
             animeTitle = watchKey.animeTitle,
-            episodeInfo = if (watchKey.episodeTitle.isNotBlank()) "EP ${formatEpisodeNumber(watchKey.episodeNumber)}" else "",
+            episodeInfo = episodeInfoOverride
+                ?: if (watchKey.episodeTitle.isNotBlank()) "EP ${formatEpisodeNumber(watchKey.episodeNumber)}" else "",
             qualityInfo = watchKey.quality,
             currentSpeed = currentSpeed,
             skipRanges = skipRanges,

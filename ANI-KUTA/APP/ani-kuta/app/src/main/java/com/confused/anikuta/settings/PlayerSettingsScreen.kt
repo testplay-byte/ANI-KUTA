@@ -340,7 +340,7 @@ fun PlayerSettingsScreen(
                                 )
                                 SettingsSwitchRow(
                                     title = "OLED black background",
-                                    subtitle = "Swipe down from the player's center: pure black when on, accent color when off — the screen elements hide either way",
+                                    subtitle = "Swipe down from the player's center: pure black when on, the player page background when off — the screen elements hide either way",
                                     checked = cinemaOled,
                                     onCheckedChange = { preferences.cinemaOledBlack.set(it) },
                                 )
