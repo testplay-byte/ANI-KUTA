@@ -172,6 +172,10 @@ The user ordered the release mid-round ("so that I can easily install it.
 From the application itself"). Routine A on the round-135 main head
 (5e5d4f74): release branch `release/1.1.79`, ONE bump commit (10120/1.1.20 →
 **10179 / 1.1.79**), branch + annotated tag `v1.1.79` → the Release APK
-workflow. Verified live after the run: the APK's SHA256 against the
-release's SHA256SUMS.txt and the manifest version. v1.1.78 installs get the
-in-app update offer carrying round 135.
+workflow (run 41327985958, GREEN). Verified live: the release
+"ANI-KUTA v1.1.79 (round 135)" is stable-latest with
+`ani-kuta-v1.1.79-debug-arm64-v8a.apk` (63.8 MB, 15 arm64 libs) +
+`SHA256SUMS.txt`; the downloaded APK's SHA256
+(`ae0a4879fcc10d099b34a030519ff1cb7139af2cc150c6ea32cca2afa4c336bc`) matches
+the checksum file, and the workflow's tag↔versionName gate passed (10179 /
+1.1.79). v1.1.78 installs get the in-app update offer carrying round 135.
