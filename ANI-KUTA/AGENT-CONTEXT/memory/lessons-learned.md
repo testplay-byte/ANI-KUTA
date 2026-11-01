@@ -3,6 +3,9 @@
 > One-line lessons from mistakes, corrections, and insights.
 > Read at task start (grep for tags matching your task type). Append when you learn something.
 
+## THE REPLACE-CASCADE TRAP (round 134)
+INSERT OR REPLACE in SQLite DELETES the conflicting row first — with foreign_keys ON, every ON DELETE CASCADE child of that row dies with it. A backup-restore built on REPLACE doesn't "update" — it silently ERASES local rows newer than the backup (children the backup doesn't carry, like rows added to a table after the backup was taken). RULE: any restore into a live database is INSERT OR IGNORE (+ per-row column lists so missing keys hit their schema DEFAULTs), merge semantics only, and the UI must say exactly what that means. Also: a dump of related tables needs a read transaction around the WHOLE dump, or a mid-dump write orphans a parent in the archive.
+
 ## THE SILENT NEGATIVE (round 133)
 A UI that reports a NEGATIVE result ("no update found") must distinguish "checked and nothing found" from "could not check" — collapsing both into one null (the old UpdateSource contract: "never throw, return null on failure") makes every failure read as a verified negative, and the user's real bug report becomes undiagnosable from the outside. The updater's code path was provably correct; the CONTRACT was the bug. RULE: error paths surface their cause to the user AND the log, never into the success-shaped result.
 
