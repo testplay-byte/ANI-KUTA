@@ -1,5 +1,12 @@
 # Changelog (High-Level)
 
+## Round 136 (on main, 1.1.20/10120 — UNRELEASED until the next release order)
+- BACKUP & RESTORE/COVERS: the backup now CARRIES the library's cover/banner images + the extension icons (offline_images/ payload, bounded), and a restored library paints its covers with the network OFF (a single Coil interceptor serves the local files).
+- BACKUP & RESTORE/REPOS: the extension repositories + CloudStream plugins now appear IMMEDIATELY after a restore (the in-memory stores refresh; no restart required to see them).
+- BACKUP & RESTORE/UX: the what-to-include selector is a checkmark POPUP (not inline); formatted toasts with BOTH extension counts; the restore page shows real key stats (entries, categories, history, tracking, downloads — "Not included" where a table wasn't carried).
+- PLAYER/OSD: the portrait pill is compact and ~2x more sensitive; the bar tracks the finger directly (no stutter); all OSD containers match the player's slightly-rounded-rectangle design language.
+- ONBOARDING: the restore step's CTA reads Continue after a successful restore.
+
 ## 1.1.79 / 10179 — RELEASE (round 135 — the debug line; carries rounds 126-135)
 - RELEASED: the **v1.1.79** debug release is LIVE on testplay-byte (stable latest, arm64-v8a) — v1.1.78 installs get the in-app update offer carrying round 135. Routine A on 5e5d4f74: release/1.1.79 + ONE bump commit (10120/1.1.20 -> 10179/1.1.79) + tag v1.1.79; Release APK run 41327985958.
 - PLAYER/OSD: volume/brightness render as a vertical PILL (percentage top, thick fill bar middle, icon bottom) on the side opposite the finger; the seek OSD is a horizontal pill with bold compressed WHITE text (the theme-colored +/- gone) aligned TOP CENTER in fullscreen; the zoom chip gained a solid background.
