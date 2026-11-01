@@ -1,5 +1,14 @@
 # Changelog (High-Level)
 
+## 1.1.79 / 10179 — RELEASE (round 135 — the debug line; carries rounds 126-135)
+- RELEASED: the **v1.1.79** debug release is LIVE on testplay-byte (stable latest, arm64-v8a) — v1.1.78 installs get the in-app update offer carrying round 135. Routine A on 5e5d4f74: release/1.1.79 + ONE bump commit (10120/1.1.20 -> 10179/1.1.79) + tag v1.1.79; Release APK run 41327985958.
+- PLAYER/OSD: volume/brightness render as a vertical PILL (percentage top, thick fill bar middle, icon bottom) on the side opposite the finger; the seek OSD is a horizontal pill with bold compressed WHITE text (the theme-colored +/- gone) aligned TOP CENTER in fullscreen; the zoom chip gained a solid background.
+- PLAYER/ZOOM: the pinch is magnetic — the factor sticks at every snap step AND at the fit-height/fit-width scales while zooming, free-follows between detents, snaps to the nearest on release.
+- BACKUP & RESTORE: the granular what-to-include (Library/Images/Settings/Extensions, 13 switches); a BACKUP|RESTORE bento top; results as bottom-up toasts; restore on its OWN page (details preview + confirm + result + Restart now); the onboarding gained a Restore step (3 of 7); extensions ride INSIDE the backup (Aniyomi APKs + CloudStream .cs3 + trust state) and reinstall PROPERLY TRUSTED on restore; cover counts accurate (both naming schemes).
+- EXTENSIONS: update checks run on EVERY Extensions-page entry (Aniyomi + CloudStream); updates-available trusted rows PIN to the very top of the list; index.min.json tried first (min-only repos report updates now); lib 17/16/15/14 all accepted.
+- PROFILE: the first-entry top-section glitch fixed (the collapse threshold is the measured band height, the stale collapse state keyed per tab); the top chrome shaved.
+- SETTINGS: video caching is now OFF by default.
+
 ## 1.1.78 / 10178 — RELEASE (round 134 — the debug line; carries rounds 126-134)
 - RELEASED: the **v1.1.78** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum-verified) — v1.1.77 installs get the in-app update offer.
 - PLAYER: one gesture at a time (the axis locks at touch-slop — no more volume+seek both firing), the gesture OSD redesigned (no panels — shadowed floating icon + %, per-gesture icon sides, [delta][arrows][target] seek readout, animated bar), the fixed ~600dp vertical sensitivity, the instant hide of the center buttons + spinner on seek start, cinema's system status bar hiding + the normal-background option, the smooth portrait<->landscape flip transition, 5x/0.5x zoom with fixed magnet snaps, and the live fullscreen episode pill.
