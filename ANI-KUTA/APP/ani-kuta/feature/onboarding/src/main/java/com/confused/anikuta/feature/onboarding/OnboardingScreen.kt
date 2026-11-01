@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -268,8 +269,15 @@ fun OnboardingScreen(
                     onBack = { stepIndex-- },
                     onContinue = { stepIndex = 3 },
                 )
-                OnboardingStep.NOTIFICATIONS -> OnboardingPermissionStep(
+                // ROUND 135: the restore step — a backup can be brought back
+                // right after the folder is set (the covers land in it).
+                OnboardingStep.RESTORE -> OnboardingRestoreStep(
                     stepNumber = 3,
+                    onBack = { stepIndex-- },
+                    onContinue = { stepIndex = 4 },
+                )
+                OnboardingStep.NOTIFICATIONS -> OnboardingPermissionStep(
+                    stepNumber = 4,
                     icon = Icons.Filled.Notifications,
                     title = "Notifications",
                     actionLabel = "Allow notifications",
@@ -286,10 +294,10 @@ fun OnboardingScreen(
                     changeLabel = "",
                     onChange = {},
                     onBack = { stepIndex-- },
-                    onContinue = { stepIndex = 4 },
+                    onContinue = { stepIndex = 5 },
                 )
                 OnboardingStep.BATTERY -> OnboardingPermissionStep(
-                    stepNumber = 4,
+                    stepNumber = 5,
                     icon = Icons.Filled.BatteryChargingFull,
                     title = "Background usage",
                     actionLabel = "Allow background usage",
@@ -300,7 +308,7 @@ fun OnboardingScreen(
                     changeLabel = "",
                     onChange = {},
                     onBack = { stepIndex-- },
-                    onContinue = { stepIndex = 5 },
+                    onContinue = { stepIndex = 6 },
                 )
                 // D-449 (round 41): the "Draw over other apps" step — the
                 // floating ad-return pill needs this special consent, and the
@@ -309,7 +317,7 @@ fun OnboardingScreen(
                 // ON_RESUME re-verify above marks the step granted the moment
                 // the user flips the toggle and comes back.
                 OnboardingStep.OVERLAY -> OnboardingPermissionStep(
-                    stepNumber = 5,
+                    stepNumber = 6,
                     icon = Icons.Filled.Layers,
                     title = "Draw over other apps",
                     // D-561 (round 73): the description the user dictated, WORD
@@ -325,7 +333,7 @@ fun OnboardingScreen(
                     changeLabel = "",
                     onChange = {},
                     onBack = { stepIndex-- },
-                    onContinue = { stepIndex = 6 },
+                    onContinue = { stepIndex = 7 },
                 )
                 OnboardingStep.FINISH -> OnboardingFinishStep(
                     themeChoices = themeChoices,
@@ -763,7 +771,7 @@ private fun OnboardingThemeStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = 1, totalSteps = 6, onBack = onBack)
+        OnboardingTopBar(stepPosition = 1, totalSteps = 7, onBack = onBack)
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
             Text(
                 text = "Make it yours",
@@ -1047,6 +1055,209 @@ private fun OnboardingPaletteCard(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * ROUND 135: the RESTORE step — after the storage folder is verified, the
+ * user can bring an `.anikuta` backup back (the covers land in the fresh
+ * folder; the extensions re-install with one system prompt each; the trust
+ * state rides along). Everything is restored (BackupOptions.EVERYTHING) —
+ * this is the migration moment. Fully skippable: the Continue CTA doubles as
+ * "Skip for now", and the same flow lives in Settings → Backup & restore.
+ */
+@Composable
+private fun OnboardingRestoreStep(
+    stepNumber: Int,
+    onBack: () -> Unit,
+    onContinue: () -> Unit,
+) {
+    val context = LocalContext.current
+    val backupManager = org.koin.compose.koinInject<com.confused.anikuta.core.backup.BackupManager>()
+    val scope = rememberCoroutineScope()
+
+    var pickedUri by remember { mutableStateOf<Uri?>(null) }
+    var manifest by remember { mutableStateOf<com.confused.anikuta.core.backup.BackupManifest?>(null) }
+    var restoring by remember { mutableStateOf(false) }
+    var restoredSummary by remember { mutableStateOf<com.confused.anikuta.core.backup.RestoreSummary?>(null) }
+    var restoreError by remember { mutableStateOf<String?>(null) }
+    var confirming by remember { mutableStateOf(false) }
+
+    val picker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            pickedUri = uri
+            manifest = null
+            restoredSummary = null
+            restoreError = null
+            scope.launch {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    backupManager.readManifest(uri)
+                }?.let { manifest = it }
+                    ?: run { restoreError = "Not an ANI-KUTA backup file"; pickedUri = null }
+            }
+        }
+    }
+
+    // ONE root column — the CTA INSIDE it, at the bottom (the D-406 rule).
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding(),
+    ) {
+        OnboardingTopBar(stepPosition = stepNumber, totalSteps = 7, onBack = onBack)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.weight(0.55f))
+            Box(
+                modifier = Modifier
+                    .size(92.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Restore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(44.dp),
+                )
+            }
+            Spacer(Modifier.size(20.dp))
+            Text(
+                text = "Restore a backup",
+                fontFamily = RobotoFamily,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.size(8.dp))
+            Text(
+                text = "Have a backup from another device? Bring everything back now.",
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+            Spacer(Modifier.weight(0.45f))
+            when {
+                restoredSummary != null -> {
+                    val s = restoredSummary!!
+                    Text(
+                        text = "Restored " + s.tableRowCount.values.sum() + " rows" +
+                            (if (s.csPluginsRestored > 0) ", ${s.csPluginsRestored} CloudStream plugins" else "") +
+                            (if (s.aniyomiInstalled > 0) ", ${s.aniyomiInstalled} extensions" else ""),
+                        fontFamily = RobotoFamily,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center,
+                    )
+                    if (s.aniyomiInstalled > 0) {
+                        Spacer(Modifier.size(6.dp))
+                        Text(
+                            text = "Restart the app after setup to finish installing.",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+                restoring -> {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 3.dp,
+                    )
+                }
+                else -> {
+                    if (restoreError != null) {
+                        Text(
+                            text = restoreError!!,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                    }
+                    OnboardingSecondaryCta(
+                        label = if (pickedUri == null) "Choose a backup file" else "Choose another file",
+                        onClick = { picker.launch(arrayOf("*/*")) },
+                    )
+                    if (manifest != null) {
+                        val m = manifest!!
+                        Spacer(Modifier.size(10.dp))
+                        Text(
+                            text = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+                                .format(java.util.Date(m.createdAt)) + " · " +
+                                m.rowCount.values.sum() + " rows" +
+                                (if (m.includesExtensions) " · extensions" else ""),
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.size(10.dp))
+                        OnboardingPrimaryCta(
+                            label = "Restore everything",
+                            onClick = { confirming = true },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.weight(0.8f))
+        }
+        Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+            OnboardingPrimaryCta(
+                label = if (restoring) "Restoring…" else "Skip for now",
+                onClick = { if (!restoring) onContinue() },
+                neutral = true,
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    if (confirming) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text("Restore this backup?") },
+            text = { Text("Everything the backup carries comes back: library, history, settings, and extensions. Android will ask to install each extension.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    confirming = false
+                    val uri = pickedUri ?: return@TextButton
+                    restoring = true
+                    scope.launch {
+                        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            backupManager.restoreBackup(uri)
+                        }
+                        restoring = false
+                        result.fold(
+                            onSuccess = { restoredSummary = it },
+                            onFailure = { e -> restoreError = e.message ?: "Restore failed" },
+                        )
+                    }
+                }) { Text("Restore") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { confirming = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+/**
  * D-406 (round 30) → D-407 (round 31): the permission step v4 — the
  * round-30 redesign (ONE root column, CTA at the bottom, no excess text,
  * the icon-morph granted moment, the full Change-folder button, the combined
@@ -1094,7 +1305,7 @@ private fun OnboardingPermissionStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = stepNumber, totalSteps = 6, onBack = onBack)
+        OnboardingTopBar(stepPosition = stepNumber, totalSteps = 7, onBack = onBack)
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -1302,7 +1513,7 @@ private fun OnboardingFinishStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = 6, totalSteps = 6, onBack = onBack)
+        OnboardingTopBar(stepPosition = 7, totalSteps = 7, onBack = onBack)
         Column(
             modifier = Modifier
                 .weight(1f)

@@ -65,6 +65,22 @@ class TrustService(
     }
 
     /**
+     * Re-reads the trusted set from the store. ROUND 135: the backup/restore
+     * writes `trusted_extension_packages` BEHIND this service's back (the
+     * generic prefs pipeline) — without a refresh, the stale in-memory set
+     * would be persisted back over the restored keys by the next trust()
+     * call. The restore bridge calls this before applying its ADD-only
+     * trust state.
+     */
+    fun refresh() {
+        trustedPackages.clear()
+        trustedPackages += store.getString(KEY_TRUSTED_PACKAGES, "")
+            .split(SEPARATOR)
+            .filter { it.isNotEmpty() }
+        Logger.i(TAG) { "Trust set refreshed from prefs: ${trustedPackages.size} package(s)" }
+    }
+
+    /**
      * Get all trusted package names (for display in settings).
      * Returns a snapshot copy — mutations don't affect the internal set.
      */

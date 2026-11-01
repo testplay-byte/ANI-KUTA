@@ -7,19 +7,26 @@ import org.junit.Test
 
 /**
  * D-403 (round 28): the wizard step machine's contract — the step ORDER
- * (the UI's stepIndex arithmetic depends on it), the permission-step
+ * (the UI's stepIndex arithmetic depends on it) and the permission-step
  * classification (the skip affordance + the finish summary's grouping key
- * off it), and the wizardIndex ordinals (the progress segments).
+ * off it).
+ *
+ * ROUND 135: RESTORE joins between STORAGE and NOTIFICATIONS (the backup
+ * can be brought back right after the storage folder is verified) — the
+ * wizard is now 8 steps (welcome + 7). The removed wizardIndex ordinal
+ * (nothing consumed it — the screens pass explicit stepNumbers) stays
+ * removed; the order assertion covers the progress contract.
  */
 class OnboardingStepTest {
 
     @Test
-    fun `the wizard runs welcome, theme, four permission steps, finish — in order`() {
+    fun `the wizard runs welcome, theme, storage, restore, three permission steps, finish — in order`() {
         assertEquals(
             listOf(
                 OnboardingStep.WELCOME,
                 OnboardingStep.THEME,
                 OnboardingStep.STORAGE,
+                OnboardingStep.RESTORE,
                 OnboardingStep.NOTIFICATIONS,
                 OnboardingStep.BATTERY,
                 OnboardingStep.OVERLAY,
@@ -30,7 +37,7 @@ class OnboardingStepTest {
     }
 
     @Test
-    fun `the four middle steps are the skippable permission steps`() {
+    fun `the permission steps are exactly the four skippable ones`() {
         OnboardingStep.ordered.forEach { step ->
             val expected = step == OnboardingStep.STORAGE ||
                 step == OnboardingStep.NOTIFICATIONS ||
@@ -41,10 +48,12 @@ class OnboardingStepTest {
     }
 
     @Test
-    fun `wizardIndex matches the ordinal — the progress math is stable`() {
-        OnboardingStep.ordered.forEachIndexed { index, step ->
-            assertEquals(index, step.wizardIndex)
-        }
+    fun `the restore step sits right after storage and is not a permission step`() {
+        assertEquals(
+            OnboardingStep.ordered.indexOf(OnboardingStep.STORAGE) + 1,
+            OnboardingStep.ordered.indexOf(OnboardingStep.RESTORE),
+        )
+        assertFalse(OnboardingStep.RESTORE.isPermissionStep)
     }
 
     @Test

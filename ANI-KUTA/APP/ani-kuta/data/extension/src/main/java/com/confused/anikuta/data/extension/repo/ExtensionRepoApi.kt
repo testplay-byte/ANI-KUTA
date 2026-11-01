@@ -26,26 +26,43 @@ class ExtensionRepoApi(
     companion object {
         private const val TAG = "Anikuta:Data:Extension:RepoApi"
 
-        /** Extension lib version range (Aniyomi compat — 12.0 to 16.0). */
+        /**
+         * Extension lib version acceptance window (Aniyomi compat).
+         *
+         * ROUND 135: the ceiling moves to 17.0 — the Aniyomi repos now serve
+         * lib-17 entries (the extensions the user's device reports updates
+         * for), and the old 16.0 ceiling silently DROPPED them from every
+         * index parse, so installed extensions could never see their updates.
+         * The window intentionally spans 12..17 — lib 14/15/16/17 are the
+         * generations the user's repos serve and ALL of them must be accepted
+         * smoothly (the loader's [com.confused.anikuta.data.extension.loader.ExtensionLoader]
+         * known-good range matches, and outside-range versions are still
+         * ATTEMPTED there — a failure surfaces as a visible Errored row, never
+         * a silent drop).
+         */
         private const val LIB_MIN = 12.0
-        private const val LIB_MAX = 16.0
+        private const val LIB_MAX = 17.0
     }
 
     /**
      * Fetch the list of available extensions from a repo.
+     *
+     * ROUND 135: tries `index.min.json` FIRST (the Aniyomi-repo standard —
+     * some repos serve ONLY the minified index), then `index.json`. The old
+     * fetch hit `index.json` exclusively, so a min-only repo 404'd on every
+     * update check and no installed extension ever reported an update.
+     *
      * Returns an empty list on any failure (logged).
      */
     suspend fun fetchExtensions(repo: ExtensionRepo): List<AnimeExtension.Available> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val response = client.newCall(
-                    Request.Builder().url(repo.indexUrl).build()
-                ).execute()
-                if (!response.isSuccessful) {
-                    Logger.w(TAG) { "fetchExtensions: HTTP ${response.code} for ${repo.baseUrl}" }
-                    return@runCatching emptyList()
-                }
-                val body = response.body?.string().orEmpty()
+                val body = fetchUrl(repo.indexMinUrl)
+                    ?: fetchUrl(repo.indexUrl)
+                    ?: run {
+                        Logger.w(TAG) { "fetchExtensions: no index at ${repo.baseUrl} (min + pretty both missing)" }
+                        return@runCatching emptyList()
+                    }
                 parseIndex(body, repo.baseUrl)
             }.getOrElse { e ->
                 Logger.e(TAG, e) { "fetchExtensions failed for ${repo.baseUrl}" }

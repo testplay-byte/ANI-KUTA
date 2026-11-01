@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -1155,6 +1156,8 @@ fun TimelineTab(
     listState: LazyListState,
     scrollFraction: () -> Float,
     onNavigateToAnime: (Int) -> Unit,
+    // ROUND 135: the toggle's natural height feeds the collapse threshold.
+    onBandMeasured: (Int) -> Unit = {},
     onTabSelect: (Int) -> Unit,
 ) {
     if (state.timeline.isEmpty()) {
@@ -1193,6 +1196,7 @@ fun TimelineTab(
                     options = listOf("Stats", "Timeline"),
                     selectedIndex = 1,
                     onSelect = onTabSelect,
+                    modifier = Modifier.onSizeChanged { onBandMeasured(it.height) },
                 )
             }
         }

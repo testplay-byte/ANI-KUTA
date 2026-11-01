@@ -71,7 +71,13 @@ class ExtensionLoader(
         /** Source-api library version we KNOW we are compatible with (lib-17 APIs
          *  exist in :core:source-api — server, getVideoThumbnails, getImageTile).
          *  D-297: versions outside the range are still ATTEMPTED — this is the
-         *  documented/known-good range, not a hard gate. */
+         *  documented/known-good range, not a hard gate.
+         *  ROUND 135: 12..17 deliberately spans every generation the Aniyomi
+         *  repos serve today — lib 17, 16, 15, 14 "and all of those" load
+         *  through the SAME parent-first classloader path (the host's
+         *  source-api/stdlib always win), so an old-lib extension installs,
+         *  loads, and runs exactly like a lib-17 one; an instantiation
+         *  failure lands as a visible Errored row, never a silent vanish. */
         const val LIB_VERSION_MIN = 12.0
         const val LIB_VERSION_MAX = 17.0
     }

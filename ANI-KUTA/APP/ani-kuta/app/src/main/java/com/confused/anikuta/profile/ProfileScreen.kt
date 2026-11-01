@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -96,9 +97,16 @@ fun ProfileScreen(
     var showSettings by remember { mutableStateOf(false) }
 
     val density = LocalDensity.current
-    // Threshold = the full-size tab bar height (~56dp). Scrolling past this fully
-    // collapses the tabs. Also used as the magnetic-snap decision boundary.
-    val collapseThresholdPx = with(density) { 56.dp.toPx() }
+    // ROUND 135: the threshold is the tab band's MEASURED height (minus a
+    // small margin), not a hardcoded 56dp. The band is ~42dp — with the old
+    // 56dp threshold the collapsingTabBand fixed point sat at f≈0.43 (<0.5),
+    // so the half-collapsed state NEVER crossed the snap boundary and the top
+    // looked "glitched" with dead space on first entry. The margin keeps the
+    // fixed point just PAST 0.5 so the magnetic snap always wins from it.
+    var bandHeightPx by remember { mutableStateOf(0f) }
+    val collapseThresholdPx = with(density) {
+        ((bandHeightPx - 6.dp.toPx()).coerceAtLeast(24.dp.toPx()))
+    }
 
     val activeListState = if (selectedTab == 0) statsListState else timelineListState
 
@@ -108,10 +116,14 @@ fun ProfileScreen(
         val ls = activeListState
         val raw = if (ls.firstVisibleItemIndex > 0) collapseThresholdPx
                   else ls.firstVisibleItemScrollOffset.toFloat()
-        (raw / collapseThresholdPx).coerceIn(0f, 1f)
+        (raw / collapseThresholdPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
     }
 
-    val collapsed by remember {
+    // ROUND 135: keyed on the ACTIVE list state AND the measured band height —
+    // the un-keyed remember held the FIRST composition's closure (always the
+    // Stats list + the pre-measurement threshold), so after a tab switch (or
+    // before the band measured) the header collapse state read the WRONG list.
+    val collapsed by remember(activeListState, bandHeightPx) {
         derivedStateOf { scrollFraction() > 0.5f }
     }
 
@@ -119,7 +131,9 @@ fun ProfileScreen(
     // Only snaps when the user is near the TOP of the list (firstVisibleItemIndex == 0).
     // This prevents the snap from firing when the user is deep in content (which would
     // jump them back to the top). The snap area is limited to the tab-bar threshold.
-    LaunchedEffect(activeListState) {
+    // ROUND 135: re-armed on the measured band height too (the threshold the
+    // snap reads must be the measured one).
+    LaunchedEffect(activeListState, bandHeightPx) {
         snapshotFlow { activeListState.isScrollInProgress }
             .distinctUntilChanged()
             .filter { !it } // only when scroll ENDS
@@ -222,8 +236,14 @@ fun ProfileScreen(
             // ── Tab content + gradient blur scrim ─────────────────────────────────
             Box(modifier = Modifier.fillMaxSize()) {
                 when (selectedTab) {
-                    0 -> StatsTab(state, statsListState, scrollFraction, viewModel, onNavigateToAnime) { selectedTab = it }
-                    1 -> TimelineTab(state, timelineListState, scrollFraction, onNavigateToAnime) { selectedTab = it }
+                    0 -> StatsTab(
+                        state, statsListState, scrollFraction, viewModel, onNavigateToAnime,
+                        onBandMeasured = { bandHeightPx = it.toFloat() },
+                    ) { selectedTab = it }
+                    1 -> TimelineTab(
+                        state, timelineListState, scrollFraction, onNavigateToAnime,
+                        onBandMeasured = { bandHeightPx = it.toFloat() },
+                    ) { selectedTab = it }
                 }
 
                 // Gradient blur scrim at the top edge — fades in when collapsed so
@@ -319,13 +339,15 @@ private fun StatsTab(
     scrollFraction: () -> Float,
     viewModel: ProfileViewModel,
     onNavigateToAnime: (Int) -> Unit,
+    onBandMeasured: (Int) -> Unit = {},
     onTabSelect: (Int) -> Unit,
 ) {
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 110.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        // ROUND 135: 6dp (was 8) — part of the top-section chrome shave.
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         // Item 0: full-size tab bar — collapses in LAYOUT with the scroll
         // (ROUND 129) + fades/shrinks visually via graphicsLayer.
@@ -344,10 +366,14 @@ private fun StatsTab(
                     .collapsingTabBand(scrollFraction)
                     .padding(horizontal = 12.dp),
             ) {
+                // ROUND 135: the toggle's NATURAL height feeds the collapse
+                // threshold (the band Box itself collapses in layout, so IT
+                // must never be the measured node).
                 SegmentedToggle(
                     options = listOf("Stats", "Timeline"),
                     selectedIndex = 0,
                     onSelect = onTabSelect,
+                    modifier = Modifier.onSizeChanged { onBandMeasured(it.height) },
                 )
             }
         }
@@ -382,7 +408,9 @@ private fun StatsTab(
 @Composable
 private fun ProfileHeader(state: ProfileUiState) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+        // ROUND 135: 10dp vertical (was 16) — the top-section chrome shave
+        // ("way too much empty space" on first entry).
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(

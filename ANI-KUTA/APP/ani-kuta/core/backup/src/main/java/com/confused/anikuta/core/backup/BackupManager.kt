@@ -25,7 +25,7 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 /**
- * The backup & restore engine (round 134, D-816).
+ * The backup & restore engine (round 134, D-816; round 135 granular rework).
  *
  * Creates and restores `.anikuta` ZIP archives (see [BackupFormat]) in the
  * app's selected SAF folder under `backup/`, keeping the newest N files. The
@@ -34,7 +34,10 @@ import java.util.zip.ZipOutputStream
  * without hand-written codecs; the preferences payload carries the full
  * SharedPreferences layer (settings + the AniList token + the extension /
  * CloudStream repo + plugin setup); the optional images payload carries the
- * downloaded series' cover files.
+ * downloaded series' cover files; the optional extension payload (round 135)
+ * carries the installed Aniyomi APKs + CloudStream .cs3 plugins + their trust
+ * state through the app-layer [ExtensionBackupBridge] (restore auto-installs
+ * and re-trusts).
  *
  * SAF contract (D-404): every write into the tree is a single truncating
  * `openOutputStream(uri, "wt")` — the archive itself is assembled in a
@@ -45,6 +48,7 @@ class BackupManager(
     private val driver: SqlDriver,
     private val downloadPreferences: DownloadPreferences,
     private val backupPreferences: BackupPreferences,
+    private val extensionBridge: ExtensionBackupBridge? = null,
 ) {
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
@@ -77,13 +81,43 @@ class BackupManager(
             .sortedByDescending { it.name }
     }
 
+    // ── Inspect ──────────────────────────────────────────────────────────────
+
+    /**
+     * Reads ONLY the manifest of a picked `.anikuta` archive (the restore
+     * page's pre-confirm preview). Null when the file is not a backup.
+     */
+    fun readManifest(sourceUri: Uri): BackupManifest? = runCatching {
+        context.contentResolver.openInputStream(sourceUri)?.use { raw ->
+            ZipInputStream(raw.buffered()).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    if (entry.name == BackupFormat.MANIFEST_ENTRY) {
+                        val manifest = json.decodeFromString(
+                            BackupManifest.serializer(),
+                            zip.readBytes().toString(Charsets.UTF_8),
+                        )
+                        zip.closeEntry()
+                        return@runCatching manifest
+                    }
+                    zip.closeEntry()
+                }
+            }
+        }
+        null
+    }.onFailure { e ->
+        Logger.w(TAG, e) { "readManifest: failed for $sourceUri" }
+    }.getOrNull()
+
     // ── Create ───────────────────────────────────────────────────────────────
 
     /**
-     * Creates a backup in the backup folder. Returns the manifest on success.
+     * Creates a backup in the backup folder, carrying exactly the slices the
+     * [options] turn on. Returns the manifest on success.
      */
     suspend fun createBackup(options: BackupOptions): Result<BackupManifest> = withContext(Dispatchers.IO) {
         runCatching {
+            require(options.anythingEnabled) { "Nothing is selected to back up" }
             val dir = backupFolder()
                 ?: throw BackupException("No storage folder is set (or it is not writable)")
             val appVersion = try {
@@ -97,12 +131,13 @@ class BackupManager(
             try {
                 val manifest = BufferedOutputStream(FileOutputStream(temp)).use { raw ->
                     ZipOutputStream(raw).use { zip ->
-                        dumpDatabase(zip, options, createdAt, appVersion, collectImages = { mainIds ->
-                            if (options.includeImages) collectCoverImages(mainIds, zip) else 0
-                        })
+                        dumpDatabase(zip, options, createdAt, appVersion)
                     }
                 }
-                Logger.i(TAG) { "createBackup: archive ready (${temp.length()} bytes, images=${manifest.includesImages})" }
+                Logger.i(TAG) {
+                    "createBackup: archive ready (${temp.length()} bytes, images=${manifest.includesImages}, " +
+                        "ext=${manifest.includesExtensions} apk=${manifest.aniyomiApkCount} cs=${manifest.csPluginCount})"
+                }
 
                 // ── One-shot copy into the tree (delete-then-create for replace
                 // semantics — the .data.json pattern). ──
@@ -145,38 +180,38 @@ class BackupManager(
         return BackupFormat.FILE_PREFIX + fmt.format(java.util.Date(createdAt)) + BackupFormat.FILE_EXTENSION
     }
 
-    /** Dumps the DB tables + prefs into the zip; the callback returns the image count. */
+    /** Dumps the selected DB tables + prefs + extension payload into the zip. */
     private fun dumpDatabase(
         zip: ZipOutputStream,
         options: BackupOptions,
         createdAt: Long,
         appVersion: String,
-        collectImages: (mainIds: Set<String>) -> Int,
     ): BackupManifest {
         val counts = mutableMapOf<String, Int>()
         val mainIds = mutableSetOf<String>()
+        val tables = options.tables
 
         // A read transaction across the whole dump: without it, a row written
         // between two table dumps would orphan its (already-dumped) parent -
         // the archive would fail FK enforcement on restore.
         driver.execute(null, "BEGIN DEFERRED", 0)
         try {
-        BACKUP_TABLES.forEach { table ->
-            val rows = dumpTable(table)
-            counts[table] = rows.size
-            if (table == "main_entry") {
-                rows.forEach { row ->
-                    val id = row["main_id"]
-                    if (id is JsonPrimitive && id.content.isNotBlank()) mainIds.add(id.content)
+            tables.forEach { table ->
+                val rows = dumpTable(table)
+                counts[table] = rows.size
+                if (table == "main_entry") {
+                    rows.forEach { row ->
+                        val id = row["main_id"]
+                        if (id is JsonPrimitive && id.content.isNotBlank()) mainIds.add(id.content)
+                    }
                 }
+                val entry = ZipEntry("${BackupFormat.DB_DIR}/$table.json")
+                zip.putNextEntry(entry)
+                zip.write(json.encodeToString(JsonArray.serializer(), JsonArray(rows)).toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+                Logger.d(TAG) { "dumpDatabase: $table → ${rows.size} rows" }
             }
-            val entry = ZipEntry("${BackupFormat.DB_DIR}/$table.json")
-            zip.putNextEntry(entry)
-            zip.write(json.encodeToString(JsonArray.serializer(), JsonArray(rows)).toByteArray(Charsets.UTF_8))
-            zip.closeEntry()
-            Logger.d(TAG) { "dumpDatabase: $table → ${rows.size} rows" }
-        }
-        driver.execute(null, "COMMIT", 0)
+            driver.execute(null, "COMMIT", 0)
         } catch (e: Exception) {
             runCatching { driver.execute(null, "ROLLBACK", 0) }
             throw e
@@ -184,33 +219,102 @@ class BackupManager(
 
         val prefFiles = linkedSetOf<String>()
         BACKUP_PREFS_FILES.forEach { file ->
-            val data = dumpPrefsFile(file)
+            if (!options.ownsPrefsFile(file)) return@forEach
+            val data = dumpPrefsFile(file) { key -> options.includePrefsKey(file, key) }
             if (data.isNotEmpty()) {
                 prefFiles.add(file)
                 writePrefsEntry(zip, file, data)
             }
         }
-        // The dynamic per-extension-source files (source_<id>).
-        sharedPrefsDir()?.listFiles { f -> f.name.startsWith("source_") && f.name.endsWith(".xml") }
-            ?.forEach { f ->
-                val name = f.name.removeSuffix(".xml")
-                val data = dumpPrefsFile(name)
-                if (data.isNotEmpty()) {
-                    prefFiles.add(name)
-                    writePrefsEntry(zip, name, data)
+        // The dynamic per-extension-source files (source_<id>) — the source
+        // settings bucket.
+        if (options.settingsSources) {
+            sharedPrefsDir()?.listFiles { f -> f.name.startsWith("source_") && f.name.endsWith(".xml") }
+                ?.forEach { f ->
+                    val name = f.name.removeSuffix(".xml")
+                    val data = dumpPrefsFile(name)
+                    if (data.isNotEmpty()) {
+                        prefFiles.add(name)
+                        writePrefsEntry(zip, name, data)
+                    }
+                }
+        }
+
+        val imageCount = if (options.imageCovers) collectCoverImages(mainIds, zip) else 0
+
+        // ── The extension payload (round 135): APKs + .cs3 files + state.json.
+        // The repo LISTS ride in the prefs files (owned by the repos switches).
+        var aniyomiCount = 0
+        var csCount = 0
+        val extensionsRequested = options.extensionRepos || options.extensionAniyomi ||
+            options.extensionCloudstream
+        val bridge = extensionBridge
+        if (extensionsRequested && bridge != null) {
+            val aniyomi = if (options.extensionAniyomi) {
+                runCatching { bridge.collectAniyomiApks() }
+                    .onFailure { Logger.w(TAG, it) { "collectAniyomiApks failed" } }
+                    .getOrDefault(emptyList())
+            } else emptyList()
+            val cs = if (options.extensionCloudstream) {
+                runCatching { bridge.collectCloudstreamPlugins() }
+                    .onFailure { Logger.w(TAG, it) { "collectCloudstreamPlugins failed" } }
+                    .getOrDefault(emptyList())
+            } else emptyList()
+
+            val writtenAniyomi = mutableListOf<AniyomiApkInfo>()
+            aniyomi.forEach { apk ->
+                try {
+                    zip.putNextEntry(ZipEntry("${BackupFormat.EXT_APK_DIR}/${apk.info.pkgName}.apk"))
+                    zip.write(apk.bytes)
+                    zip.closeEntry()
+                    writtenAniyomi += apk.info
+                } catch (e: Exception) {
+                    Logger.w(TAG, e) { "createBackup: failed to carry APK for ${apk.info.pkgName}" }
+                }
+            }
+            // The .cs3 entries are INDEX-keyed into the state list — the
+            // restore maps them back by position (deterministic, no name
+            // sanitization edge cases). ROUND 135 (the verifier's F3): the
+            // key is the DENSE written index — naming by the collection
+            // index would misalign every later plugin after one failed write.
+            val writtenCs = mutableListOf<CloudstreamPluginInfo>()
+            cs.forEach { plugin ->
+                try {
+                    zip.putNextEntry(ZipEntry("${BackupFormat.EXT_CS_DIR}/${writtenCs.size}.cs3"))
+                    zip.write(plugin.bytes)
+                    zip.closeEntry()
+                    writtenCs += plugin.info
+                } catch (e: Exception) {
+                    Logger.w(TAG, e) { "createBackup: failed to carry plugin ${plugin.info.internalName}" }
                 }
             }
 
-        val imageCount = collectImages(mainIds)
+            val state = ExtensionBackupState(
+                aniyomi = writtenAniyomi,
+                cloudstream = writtenCs,
+            )
+            zip.putNextEntry(ZipEntry(BackupFormat.EXT_STATE_ENTRY))
+            zip.write(json.encodeToString(ExtensionBackupState.serializer(), state).toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+            aniyomiCount = writtenAniyomi.size
+            csCount = writtenCs.size
+            Logger.i(TAG) { "createBackup: extension payload — $aniyomiCount apk(s), $csCount plugin(s)" }
+        } else if (extensionsRequested) {
+            Logger.w(TAG) { "createBackup: extensions selected but no bridge is registered — payload skipped" }
+        }
 
         val manifest = BackupManifest(
             appVersion = appVersion,
             createdAt = createdAt,
-            includesImages = options.includeImages && imageCount > 0,
-            tables = BACKUP_TABLES,
+            includesImages = options.imageCovers && imageCount > 0,
+            tables = tables,
             prefsFiles = prefFiles.toList(),
             rowCount = counts,
             imageCount = imageCount,
+            includesExtensions = extensionsRequested && bridge != null &&
+                (aniyomiCount > 0 || csCount > 0),
+            aniyomiApkCount = aniyomiCount,
+            csPluginCount = csCount,
         )
         zip.putNextEntry(ZipEntry(BackupFormat.MANIFEST_ENTRY))
         zip.write(json.encodeToString(BackupManifest.serializer(), manifest).toByteArray(Charsets.UTF_8))
@@ -341,7 +445,7 @@ class BackupManager(
     private fun sharedPrefsDir(): java.io.File? =
         context.filesDir.parentFile?.let { java.io.File(it, "shared_prefs") }
 
-    private fun dumpPrefsFile(name: String): JsonObject {
+    private fun dumpPrefsFile(name: String, keyFilter: (String) -> Boolean = { true }): JsonObject {
         val prefs: SharedPreferences = try {
             context.getSharedPreferences(name, Context.MODE_PRIVATE)
         } catch (e: Exception) {
@@ -349,6 +453,7 @@ class BackupManager(
         }
         return buildJsonObject {
             prefs.all.forEach { (key, value) ->
+                if (!keyFilter(key)) return@forEach
                 when (value) {
                     is String -> put(key, buildJsonObject { put("t", "s"); put("v", value) })
                     is Int -> put(key, buildJsonObject { put("t", "i"); put("v", value.toLong()) })
@@ -370,7 +475,7 @@ class BackupManager(
         var applied = 0
         val editor = prefs.edit()
         data.forEach { (key, element) ->
-            if (name == "anikuta_prefs" && key in PREFS_RESTORE_EXCLUDED_KEYS) return@forEach
+            if (key in PREFS_RESTORE_EXCLUDED_KEYS) return@forEach
             val obj = element as? JsonObject ?: return@forEach
             val type = (obj["t"] as? JsonPrimitive)?.content ?: return@forEach
             val value = obj["v"] ?: return@forEach
@@ -394,9 +499,14 @@ class BackupManager(
     // ── Images ───────────────────────────────────────────────────────────────
 
     /**
-     * Copies the downloaded series' `.cover.jpg` files into the zip. Only the
+     * Copies the downloaded series' cover files into the zip. Only the
      * folders whose `.data.json` mainId is among the backed-up content are
      * read (a quick .data.json parse per folder — the trees are small).
+     *
+     * ROUND 135: BOTH cover names are accepted — the writer creates
+     * `.cover.jpg` (dot-prefixed) while some paths read `cover.jpg` without
+     * the dot; checking only one name under-counted the payload (the
+     * round-135 "4 covers" report).
      */
     private fun collectCoverImages(mainIds: Set<String>, zip: ZipOutputStream): Int {
         if (mainIds.isEmpty()) return 0
@@ -416,14 +526,26 @@ class BackupManager(
                 null
             } ?: return@forEach
             if (mainId !in mainIds) return@forEach
-            val cover = contentDir.findFile(".cover.jpg") ?: return@forEach
+            val cover = contentDir.findFile(".cover.jpg")
+                ?: contentDir.findFile("cover.jpg")
+                ?: return@forEach
+            // ROUND 135 (the verifier's F5): the bytes are read and VERIFIED
+            // before the entry + the count — an unreadable or empty cover
+            // must not inflate imageCount with a zero-byte zip entry.
+            val bytes = try {
+                context.contentResolver.openInputStream(cover.uri)?.use { it.readBytes() }
+            } catch (e: Exception) {
+                Logger.w(TAG, e) { "collectCoverImages: failed to read cover for $mainId" }
+                null
+            }
+            if (bytes == null || bytes.isEmpty()) return@forEach
             try {
                 zip.putNextEntry(ZipEntry("${BackupFormat.IMAGES_DIR}/$mainId.jpg"))
-                context.contentResolver.openInputStream(cover.uri)?.use { it.copyTo(zip) }
+                zip.write(bytes)
                 zip.closeEntry()
                 count++
             } catch (e: Exception) {
-                Logger.w(TAG, e) { "collectCoverImages: failed to copy cover for $mainId" }
+                Logger.w(TAG, e) { "collectCoverImages: failed to write cover for $mainId" }
             }
         }
         Logger.i(TAG) { "collectCoverImages: $count covers carried" }
@@ -452,7 +574,10 @@ class BackupManager(
         entries.forEach { (mainId, bytes) ->
             val dir = folders[mainId] ?: return@forEach
             try {
+                // Write back as the canonical dot-prefixed name; clear the
+                // dot-less variant so a stale copy never shadows the restored one.
                 dir.findFile(".cover.jpg")?.delete()
+                dir.findFile("cover.jpg")?.delete()
                 val target = dir.createFile("image/jpeg", ".cover.jpg") ?: return@forEach
                 context.contentResolver.openOutputStream(target.uri, "wt")?.use { out ->
                     out.write(bytes)
@@ -482,20 +607,28 @@ class BackupManager(
 
     /**
      * Restores a `.anikuta` archive picked by the user. The DB payload is
-     * applied as an UPSERT inside ONE transaction (INSERT OR REPLACE by PK —
-     * merge semantics: rows newer than the backup are never lost; the prefs
-     * layer is applied after the DB succeeds; covers are copied back into
-     * their existing content folders).
+     * applied as a MERGE inside ONE transaction (INSERT OR IGNORE by PK —
+     * merge semantics: rows newer than the backup are never lost). The prefs
+     * layer is applied after the DB succeeds; the CloudStream .cs3 files +
+     * records are re-registered AFTER the prefs (the bridge's upserts are
+     * the record authority — a carried donor plugins_json can never clobber
+     * the device-local paths); covers are copied back into their existing
+     * content folders; the Aniyomi APKs auto-install last (the user confirms
+     * each system prompt) and the backed-up trust state is re-applied.
      */
     suspend fun restoreBackup(sourceUri: Uri): Result<RestoreSummary> = withContext(Dispatchers.IO) {
         runCatching {
+            val bridge = extensionBridge
             val entries = readArchive(sourceUri)
             val manifest = entries.manifest
                 ?: throw BackupException("The file is not an ANI-KUTA backup (no manifest)")
             if (manifest.format != BackupFormat.FORMAT_ID) {
                 throw BackupException("Unrecognized backup format: ${manifest.format}")
             }
-            Logger.i(TAG) { "restoreBackup: manifest v${manifest.formatVersion} from ${manifest.appVersion} (${manifest.tables.size} tables)" }
+            Logger.i(TAG) {
+                "restoreBackup: manifest v${manifest.formatVersion} from ${manifest.appVersion} " +
+                    "(${manifest.tables.size} tables, apk=${manifest.aniyomiApkCount}, cs=${manifest.csPluginCount})"
+            }
 
             // ── The DB payload: one transaction, parents before children. ──
             val tableCounts = mutableMapOf<String, Int>()
@@ -513,7 +646,16 @@ class BackupManager(
             }
             Logger.i(TAG) { "restoreBackup: DB restored (${tableCounts.values.sum()} rows)" }
 
-            // ── The prefs payload (after the DB succeeded). ──
+            // ── The prefs payload (AFTER the DB, BEFORE the extension
+            // re-registration). ROUND 135 (the verifier's P0): the bridge's
+            // record upserts must land AFTER the prefs application — a
+            // carried donor `plugins_json` (v1-format archives) would
+            // otherwise overwrite the freshly-registered device-local records
+            // with the donor's absolute filePaths, and the plugin loader
+            // would delete every file-less record on the next load. With the
+            // bridge LAST, its upserts are authoritative; nothing triggers a
+            // plugin load mid-restore, so the files are still on disk before
+            // any read. ──
             val prefsApplied = mutableListOf<String>()
             entries.prefs.forEach { (file, data) ->
                 applyPrefsFile(file, data)
@@ -521,14 +663,75 @@ class BackupManager(
             }
             Logger.i(TAG) { "restoreBackup: ${prefsApplied.size} prefs files applied" }
 
+            // ── The CloudStream .cs3 FILES + records (after prefs — see the
+            // ordering note above; the files land BEFORE any loader read). ──
+            var csRestored = 0
+            val extState = entries.extState
+            if (extState != null && bridge != null) {
+                extState.cloudstream.forEachIndexed { index, info ->
+                    val bytes = entries.csPlugins[index]
+                    if (bytes == null) {
+                        Logger.w(TAG) { "restoreBackup: plugin #$index (${info.internalName}) has no file in the archive" }
+                        return@forEachIndexed
+                    }
+                    val ok = runCatching { bridge.restoreCloudstreamPlugin(info, bytes) }
+                        .onFailure { Logger.w(TAG, it) { "restoreBackup: plugin ${info.internalName} failed" } }
+                        .getOrDefault(false)
+                    if (ok) csRestored++
+                }
+                Logger.i(TAG) { "restoreBackup: $csRestored/${extState.cloudstream.size} cs3 plugins written" }
+            }
+
             // ── The images payload (best-effort). ──
             val imagesRestored = restoreImages(entries.images)
+
+            // ── The Aniyomi extension payload (after prefs — the trust keys
+            // may ride in anikuta_prefs; the bridge ADDs on top). One system
+            // prompt per APK, sequential; a cancel moves on. ──
+            var aniyomiInstalled = 0
+            var aniyomiSkipped = 0
+            val aniyomiFailed = mutableListOf<String>()
+            if (extState != null && bridge != null && extState.aniyomi.isNotEmpty()) {
+                extState.aniyomi.forEach { info ->
+                    val bytes = entries.aniyomiApks[info.pkgName]
+                    if (bytes == null) {
+                        Logger.w(TAG) { "restoreBackup: ${info.pkgName} has no APK in the archive" }
+                        aniyomiFailed += info.name
+                        return@forEach
+                    }
+                    if (bridge.isPackageInstalled(info.pkgName)) {
+                        // Already on the device — just align the trust/enable state.
+                        aniyomiSkipped++
+                        runCatching {
+                            bridge.applyAniyomiState(info.pkgName, info.trusted, info.enabled)
+                        }
+                        return@forEach
+                    }
+                    val ok = bridge.installAniyomiApk(info.pkgName, bytes)
+                    if (ok) {
+                        aniyomiInstalled++
+                        runCatching {
+                            bridge.applyAniyomiState(info.pkgName, info.trusted, info.enabled)
+                        }
+                    } else {
+                        aniyomiFailed += info.name
+                    }
+                }
+                Logger.i(TAG) {
+                    "restoreBackup: aniyomi — $aniyomiInstalled installed, $aniyomiSkipped already present, " +
+                        "${aniyomiFailed.size} failed"
+                }
+            }
 
             RestoreSummary(
                 manifest = manifest,
                 tableRowCount = tableCounts,
                 prefsFilesApplied = prefsApplied,
                 imagesRestored = imagesRestored,
+                aniyomiInstalled = aniyomiInstalled,
+                aniyomiFailed = aniyomiFailed,
+                aniyomiAlreadyInstalled = aniyomiSkipped,
+                csPluginsRestored = csRestored,
             )
         }.onFailure { e ->
             Logger.e(TAG, e) { "restoreBackup: failed" }
@@ -540,6 +743,10 @@ class BackupManager(
         val db = mutableMapOf<String, JsonArray>()
         val prefs = mutableMapOf<String, JsonObject>()
         val images = mutableMapOf<String, ByteArray>()
+        var extState: ExtensionBackupState? = null
+        val aniyomiApks = mutableMapOf<String, ByteArray>()
+        /** Index-keyed into [ExtensionBackupState.cloudstream]. */
+        val csPlugins = mutableMapOf<Int, ByteArray>()
     }
 
     private fun readArchive(sourceUri: Uri): ArchiveContents {
@@ -570,6 +777,26 @@ class BackupManager(
                         name.startsWith("${BackupFormat.IMAGES_DIR}/") -> {
                             val mainId = name.removePrefix("${BackupFormat.IMAGES_DIR}/").removeSuffix(".jpg")
                             if (mainId.isNotBlank()) contents.images[mainId] = zip.readBytes()
+                        }
+                        name == BackupFormat.EXT_STATE_ENTRY -> {
+                            contents.extState = try {
+                                json.decodeFromString(
+                                    ExtensionBackupState.serializer(),
+                                    zip.readBytes().toString(Charsets.UTF_8),
+                                )
+                            } catch (e: Exception) {
+                                Logger.w(TAG, e) { "readArchive: unreadable ext/state.json — payload skipped" }
+                                null
+                            }
+                        }
+                        name.startsWith("${BackupFormat.EXT_APK_DIR}/") && name.endsWith(".apk") -> {
+                            val pkg = name.removePrefix("${BackupFormat.EXT_APK_DIR}/").removeSuffix(".apk")
+                            if (pkg.isNotBlank()) contents.aniyomiApks[pkg] = zip.readBytes()
+                        }
+                        name.startsWith("${BackupFormat.EXT_CS_DIR}/") && name.endsWith(".cs3") -> {
+                            val index = name.removePrefix("${BackupFormat.EXT_CS_DIR}/")
+                                .removeSuffix(".cs3").toIntOrNull()
+                            if (index != null) contents.csPlugins[index] = zip.readBytes()
                         }
                     }
                     zip.closeEntry()

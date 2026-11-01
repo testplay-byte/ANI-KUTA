@@ -210,7 +210,14 @@ internal fun CloudstreamExtensionsSection(
                     nsfwMode.passes(it.isNsfw) &&
                     (langFilter == null || it.language == langFilter)
             }
-            .sortedBy { it.name.lowercase() }
+            // ROUND 135: plugins with an available update PIN to the very top,
+            // regardless of the alphabetical order below (the aniyomi tab's
+            // twin — the user's order: updates-available rows move to the top
+            // "so that the user can easily update them").
+            .sortedWith(
+                compareByDescending<CloudstreamExtension.Installed> { it.availableUpdateVersion != null }
+                    .thenBy { it.name.lowercase() },
+            )
     }
 
     val filteredUntrusted = remember(enrichedCsUntrusted, searchQuery, nsfwMode, langFilter) {

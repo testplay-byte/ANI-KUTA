@@ -6,7 +6,9 @@ import kotlinx.serialization.Serializable
  * A remote extension repository.
  *
  * Ported from the old project. The repo URL contract:
- * - `<baseUrl>/index.json` — list of available extensions.
+ * - `<baseUrl>/index.min.json` — the MINIFIED index (the Aniyomi-repo
+ *   standard; most repos serve it FIRST, and some serve ONLY it — round 135).
+ * - `<baseUrl>/index.json` — the pretty-printed index (the legacy fetch).
  * - `<baseUrl>/icon/<pkg>.png` — extension icon.
  * - `<baseUrl>/apk/<apkName>` — APK file.
  * - `<baseUrl>/repo.json` — optional metadata (name, website).
@@ -31,6 +33,10 @@ data class ExtensionRepo(
 ) {
     val indexUrl: String
         get() = "${baseUrl.trimEnd('/')}/index.json"
+
+    /** The minified index — tried FIRST by every fetch (see the contract above). */
+    val indexMinUrl: String
+        get() = "${baseUrl.trimEnd('/')}/index.min.json"
 
     fun apkUrl(apkName: String): String =
         "${baseUrl.trimEnd('/')}/apk/$apkName"

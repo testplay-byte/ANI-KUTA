@@ -1,12 +1,9 @@
 package com.confused.anikuta.settings
 
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CloudUpload
@@ -26,6 +24,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.collectAsState
@@ -38,19 +37,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.backup.BackupFileInfo
 import com.confused.anikuta.core.backup.BackupManager
-import com.confused.anikuta.core.backup.BackupOptions
 import com.confused.anikuta.core.backup.BackupPreferences
-import com.confused.anikuta.core.backup.RestoreSummary
-import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.designsystem.component.toast.AppToast
+import com.confused.anikuta.core.designsystem.component.toast.AppToastTone
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.download.DownloadPreferences
+import com.confused.anikuta.core.preferences.Preference
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -58,23 +58,23 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 /**
- * The Backup & restore settings page (round 134, D-816).
+ * The Backup & restore settings page (round 134, D-816; round 135 rebuild).
  *
- * Everything ANI-KUTA can restore lives here: the library, watch history +
- * progress, ratings, tracking (AniList link included), all user settings,
- * the extension / content-provider setup, episode details, and (optionally)
- * the downloaded series' cover images. The automatic backup runs in the
- * background into the app's selected storage folder under `backup/` — the
- * three newest backups are kept, the oldest dies on overflow.
+ * ROUND 135, per the device report: a BENTO top — exactly two tiles, BACKUP
+ * (left) and RESTORE (right), each with a ONE-LINE description; the granular
+ * what-to-include selector (Library / Images / Settings / Extensions); the
+ * results report through bottom-up toasts instead of inline text; the restore
+ * flow lives on its OWN page ([RestoreBackupScreen]) with the backup's
+ * details + a restart button.
  */
 @Composable
 fun BackupRestoreScreen(
     onBack: () -> Unit,
+    onOpenRestore: () -> Unit,
     backupManager: BackupManager = koinInject(),
     backupPreferences: BackupPreferences = koinInject(),
     downloadPreferences: DownloadPreferences = koinInject(),
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -87,9 +87,6 @@ fun BackupRestoreScreen(
     val intervalHours by backupPreferences.autoBackupIntervalHours.changes.collectAsState(
         initial = backupPreferences.autoBackupIntervalHours.get(),
     )
-    val includeImages by backupPreferences.includeImages.changes.collectAsState(
-        initial = backupPreferences.includeImages.get(),
-    )
 
     var folderReady by remember { mutableStateOf(false) }
     var backups by remember { mutableStateOf<List<BackupFileInfo>>(emptyList()) }
@@ -99,20 +96,23 @@ fun BackupRestoreScreen(
         }?.let { folderReady = true }
     }
     var backingUp by remember { mutableStateOf(false) }
-    var backupResult by remember { mutableStateOf<String?>(null) }
-    var backupError by remember { mutableStateOf<String?>(null) }
-    var restoring by remember { mutableStateOf(false) }
-    var restoreSummary by remember { mutableStateOf<RestoreSummary?>(null) }
-    var restoreError by remember { mutableStateOf<String?>(null) }
-    var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
 
     LaunchedEffect(folderReady) {
-        if (folderReady) backups = backupManager.listBackups()
+        if (folderReady) {
+            // ROUND 135 (the verifier's F4): DocumentFile listFiles is binder
+            // I/O — never on the main thread.
+            backups = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                backupManager.listBackups()
+            }
+        }
     }
 
     // The storage-folder picker (the SAME tree the downloads use — the
     // backup/ subfolder lives inside it).
-    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val folderPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
         if (uri != null) {
             try {
                 context.contentResolver.takePersistableUriPermission(
@@ -128,113 +128,141 @@ fun BackupRestoreScreen(
         }
     }
 
-    // The restore-file picker (any provider; our filter is advisory).
-    val restorePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) pendingRestoreUri = uri
-    }
-
-    fun refreshBackups() {
-        backups = backupManager.listBackups()
-    }
-
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         CollapsingHeader(title = "Backup & restore", collapsed = collapsed, onBack = onBack)
 
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(state = lazyListState, modifier = Modifier.fillMaxSize()) {
-                // ── Back up now ──
+
+                // ── THE BENTO TOP: BACKUP | RESTORE ──
                 item {
-                    SectionCard {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Filled.CloudUpload,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Manual backup",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Text(
-                                    "Everything: the library, history, progress, ratings, tracking, settings, extensions, and episode details",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Button(
-                                onClick = {
-                                    backingUp = true
-                                    backupResult = null
-                                    backupError = null
-                                    scope.launch {
-                                        val result = backupManager.createBackup(
-                                            BackupOptions(includeImages = includeImages),
-                                        )
-                                        backingUp = false
-                                        result.fold(
-                                            onSuccess = { manifest ->
-                                                backupResult = "${manifest.rowCount.values.sum()} rows" +
-                                                    if (manifest.includesImages) ", ${manifest.imageCount} covers" else ""
-                                                refreshBackups()
-                                            },
-                                            onFailure = { e ->
-                                                backupError = e.message ?: "Backup failed"
-                                            },
-                                        )
-                                    }
-                                },
-                                enabled = folderReady && !backingUp,
-                            ) {
-                                if (backingUp) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                Text(if (backingUp) "Backing up…" else "Back up now")
-                            }
-                            Spacer(Modifier.width(12.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        BentoTile(
+                            icon = Icons.Filled.CloudUpload,
+                            title = "Backup",
+                            description = "Save your data now",
+                            enabled = !backingUp,
+                            busy = backingUp,
+                            modifier = Modifier.weight(1f),
+                        ) {
                             if (!folderReady) {
-                                OutlinedButton(onClick = { folderPicker.launch(null) }) {
-                                    Text("Select the storage folder")
+                                folderPicker.launch(null)
+                            } else {
+                                backingUp = true
+                                scope.launch {
+                                    val result = backupManager.createBackup(backupPreferences.options())
+                                    backingUp = false
+                                    result.fold(
+                                        onSuccess = { manifest ->
+                                            AppToast.show(
+                                                "Backup created — ${manifest.rowCount.values.sum()} rows" +
+                                                    (if (manifest.imageCount > 0) ", ${manifest.imageCount} covers" else "") +
+                                                    (if (manifest.aniyomiApkCount > 0) ", ${manifest.aniyomiApkCount} extensions" else ""),
+                                                AppToastTone.SUCCESS,
+                                            )
+                                            backups = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                backupManager.listBackups()
+                                            }
+                                        },
+                                        onFailure = { e ->
+                                            AppToast.show(
+                                                e.message ?: "Backup failed",
+                                                AppToastTone.ERROR,
+                                            )
+                                        },
+                                    )
                                 }
                             }
                         }
-                        backupResult?.let {
-                            Text(
-                                "Backup created ($it)",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 6.dp),
-                            )
-                        }
-                        backupError?.let {
-                            Text(
-                                it,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(top = 6.dp),
-                            )
+                        BentoTile(
+                            icon = Icons.Filled.Restore,
+                            title = "Restore",
+                            description = "Bring a backup back",
+                            enabled = true,
+                            busy = false,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            onOpenRestore()
                         }
                     }
                 }
 
-                // ── What to include ──
+                // ── What to include (the granular selector) ──
                 item {
                     SectionCard {
-                        LocalSwitchRow(
-                            title = "Include cover images",
-                            subtitle = "Carries the downloaded series' cover files. Episode details, thumbnails, and search/browse artwork links are ALWAYS included (they are text).",
-                            checked = includeImages,
-                            onCheckedChange = { backupPreferences.includeImages.set(it) },
+                        Text(
+                            "What to include",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        CategoryHeader("Library")
+                        SwitchRow(
+                            title = "Library entries & categories",
+                            checked = backupPreferences.includeLibraryCore,
+                        )
+                        SwitchRow(
+                            title = "Watch history, progress & ratings",
+                            checked = backupPreferences.includeLibraryHistory,
+                        )
+                        SwitchRow(
+                            title = "Tracking",
+                            checked = backupPreferences.includeLibraryTracking,
+                        )
+                        SwitchRow(
+                            title = "Downloads, schedules & updates",
+                            checked = backupPreferences.includeLibraryDownloads,
+                        )
+                        CategoryHeader("Images")
+                        SwitchRow(
+                            title = "Library cover images",
+                            checked = backupPreferences.includeImageCovers,
+                        )
+                        SwitchRow(
+                            title = "Search & browse page covers",
+                            checked = backupPreferences.includeImageSearchBrowse,
+                        )
+                        SwitchRow(
+                            title = "Episode thumbnail images",
+                            checked = backupPreferences.includeImageEpisodeThumbnails,
+                        )
+                        CategoryHeader("Settings")
+                        SwitchRow(
+                            title = "App settings",
+                            checked = backupPreferences.includeSettingsApp,
+                        )
+                        SwitchRow(
+                            title = "Extension & source settings",
+                            checked = backupPreferences.includeSettingsSources,
+                        )
+                        SwitchRow(
+                            title = "Security & login tokens",
+                            checked = backupPreferences.includeSettingsSecurity,
+                        )
+                        CategoryHeader("Extensions")
+                        SwitchRow(
+                            title = "Extension repos",
+                            checked = backupPreferences.includeExtensionRepos,
+                        )
+                        SwitchRow(
+                            title = "Aniyomi extensions",
+                            checked = backupPreferences.includeExtensionAniyomi,
+                        )
+                        SwitchRow(
+                            title = "CloudStream extensions",
+                            checked = backupPreferences.includeExtensionCloudstream,
+                        )
+                        Text(
+                            "Details-page banners ride with the library entries.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
                         )
                     }
                 }
@@ -242,15 +270,16 @@ fun BackupRestoreScreen(
                 // ── Automatic backups ──
                 item {
                     SectionCard {
-                        LocalSwitchRow(
+                        // The shared settings SwitchRow (Boolean + onChecked).
+                        SwitchRow(
                             title = "Automatic backups",
-                            subtitle = "Runs in the background into the storage folder's backup/ folder — the newest 3 are kept, the oldest is deleted on overflow",
                             checked = autoEnabled,
-                            onCheckedChange = {
+                            onChecked = {
                                 backupPreferences.autoBackupEnabled.set(it)
                                 org.koin.core.context.GlobalContext.get()
                                     .get<com.confused.anikuta.core.backup.BackupScheduler>().reschedule()
                             },
+                            description = "The newest 3 are kept, the oldest is deleted on overflow",
                         )
                         if (autoEnabled) {
                             Text(
@@ -278,62 +307,6 @@ fun BackupRestoreScreen(
                     }
                 }
 
-                // ── Restore ──
-                item {
-                    SectionCard {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Filled.Restore,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Restore",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Text(
-                                    "Adds a backup's contents back in. Existing data is NEVER overwritten or deleted - a restore fills in what is missing. Restart the app afterwards.",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedButton(
-                            onClick = { restorePicker.launch(arrayOf("*/*")) },
-                            enabled = !restoring,
-                        ) {
-                            if (restoring) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                            }
-                            Text(if (restoring) "Restoring…" else "Pick a backup file")
-                        }
-                        restoreSummary?.let { summary ->
-                            Text(
-                                "Restored ${summary.tableRowCount.values.sum()} rows, " +
-                                    "${summary.prefsFilesApplied.size} settings files, " +
-                                    "${summary.imagesRestored} covers — restart the app to apply everything.",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 6.dp),
-                            )
-                        }
-                        restoreError?.let {
-                            Text(
-                                it,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(top = 6.dp),
-                            )
-                        }
-                    }
-                }
-
                 // ── Existing backups ──
                 item {
                     SectionCard {
@@ -345,7 +318,7 @@ fun BackupRestoreScreen(
                         )
                         if (backups.isEmpty()) {
                             Text(
-                                if (folderReady) "No backups yet — create one above."
+                                if (folderReady) "No backups yet."
                                 else "Select the storage folder to see backups.",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -390,35 +363,101 @@ fun BackupRestoreScreen(
             )
         }
     }
+}
 
-    // The restore confirmation dialog.
-    pendingRestoreUri?.let { uri ->
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { pendingRestoreUri = null },
-            title = { Text("Restore this backup?") },
-            text = { Text("Your library, history, ratings, settings, and extension setup gain the backup's contents. Existing data is never overwritten or deleted. Restart the app after restoring.") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        pendingRestoreUri = null
-                        restoring = true
-                        restoreError = null
-                        restoreSummary = null
-                        scope.launch {
-                            val result = backupManager.restoreBackup(uri)
-                            restoring = false
-                            result.fold(
-                                onSuccess = { restoreSummary = it },
-                                onFailure = { e -> restoreError = e.message ?: "Restore failed" },
-                            )
-                        }
-                    },
-                ) { Text("Restore") }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { pendingRestoreUri = null }) { Text("Cancel") }
-            },
-        )
+/** One bento tile — icon, title, ONE-LINE description, single tap action. */
+@Composable
+private fun BentoTile(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    enabled: Boolean,
+    busy: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = modifier
+            .height(112.dp)
+            .clickable(enabled = enabled && !busy, onClick = onClick),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (busy) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    title,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                description,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
+        }
+    }
+}
+
+/** A category label inside the granular selector. */
+@Composable
+private fun CategoryHeader(label: String) {
+    Text(
+        label.uppercase(),
+        fontSize = 11.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+    )
+}
+
+/** A granular switch bound to a persisted [Preference]. */
+@Composable
+private fun SwitchRow(
+    title: String,
+    checked: Preference<Boolean>,
+    subtitle: String? = null,
+) {
+    val state by checked.changes.collectAsState(initial = checked.get())
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Switch(checked = state, onCheckedChange = { checked.set(it) })
     }
 }
 
@@ -433,9 +472,9 @@ private fun LocalSegmentedRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         options.forEachIndexed { index, (label, selected) ->
-            androidx.compose.material3.Surface(
+            Surface(
                 color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.weight(1f),
             ) {
                 Text(
@@ -453,41 +492,12 @@ private fun LocalSegmentedRow(
     }
 }
 
-/** The switch row (PlayerSettingsScreen's row is private to that file). */
-@Composable
-private fun LocalSwitchRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                title,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                subtitle,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
 /** A padded card used by this page's sections (the Player settings' look). */
 @Composable
 private fun SectionCard(content: @Composable () -> Unit) {
-    androidx.compose.material3.Surface(
+    Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp),

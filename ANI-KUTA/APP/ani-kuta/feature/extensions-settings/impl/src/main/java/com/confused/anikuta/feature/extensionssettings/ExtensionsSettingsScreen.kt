@@ -419,8 +419,15 @@ fun ExtensionsSettingsScreen(
     // D-301: auto update-check when the user enters the extensions page — smooth
     // (throttled to once per 30 min inside the manager) + non-blocking.
     LaunchedEffect(Unit) {
-        extensionManager.checkForUpdates()
-        csManager.checkForUpdates()
+        // ROUND 135: the update check runs on EVERY page entry (the user's
+        // order — "whenever the user enters the extensions page, then it
+        // should automatically check for any updates, and it should update
+        // the UI accordingly"). The D-301 30-minute throttle no longer gates
+        // the entry check; the single-flight guards in both managers still
+        // stop overlapping fetches, and the UI updates live from the flows
+        // when the results land.
+        extensionManager.checkForUpdates(force = true)
+        csManager.checkForUpdates(force = true)
     }
 
     // Force a fresh check whenever the repo set changes.
@@ -537,7 +544,17 @@ fun ExtensionsSettingsScreen(
             matchesExtensionSearch(searchQuery, ext.name, ext.lang, ext.versionName) &&
                 nsfwMode.passes(ext.isNsfw) &&
                 (langFilter == null || ext.lang == langFilter)
-        }.sortedBy { it.name.lowercase() }
+        }
+            // ROUND 135: trusted extensions with an available update PIN to the
+            // very top, regardless of the sort below (the user's order: "the
+            // ones which have updates available and they are trusted, those
+            // extensions would automatically be moved to the very top
+            // regardless of the sorting order" — so the user can update them
+            // first). The Installed section IS the trusted set.
+            .sortedWith(
+                compareByDescending<AnimeExtension.Installed> { it.hasUpdate }
+                    .thenBy { it.name.lowercase() },
+            )
     }
 
     val filteredErrored = remember(erroredExtensions, searchQuery, nsfwMode, langFilter) {

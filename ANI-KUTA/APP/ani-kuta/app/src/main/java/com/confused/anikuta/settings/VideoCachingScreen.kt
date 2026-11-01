@@ -56,7 +56,7 @@ import org.koin.compose.viewmodel.koinViewModel
  * Reached from SettingsScreen → "Video caching" (Player section).
  *
  * Sections:
- * 1. **General** — master toggle (default ON) + storage-limit slider (100 MB..2 GB).
+ * 1. **General** — master toggle (default OFF since round 135) + storage-limit slider (100 MB..2 GB).
  * 2. **Storage** — usage summary (used / limit · episode count) + "Clear cache".
  * 3. **Cached episodes** — the reactive list of cached entries: anime, episode,
  *    server·quality, the cached point (contiguous prefix % or segment count), and

@@ -34,8 +34,9 @@ class BackupWorker(
         val manager = koin.get<BackupManager>()
         val preferences = koin.get<BackupPreferences>()
         return try {
-            val options = BackupOptions(includeImages = preferences.includeImages.get())
-            val result = manager.createBackup(options)
+            // ROUND 135: the automatic backup carries exactly the granular
+            // selection the user made (was a hardcoded images-only toggle).
+            val result = manager.createBackup(preferences.options())
             result.fold(
                 onSuccess = { manifest ->
                     Logger.i(TAG) { "BackupWorker: backup created (${manifest.rowCount.values.sum()} rows, ${manifest.imageCount} images)" }

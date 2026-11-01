@@ -23,7 +23,11 @@ class VideoCachingViewModel(
 
     val enabled: StateFlow<Boolean> =
         preferences.cacheEnabledFlow()
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+            // ROUND 135: the initial value is the REAL default (false) — a
+            // hardcoded true made the toggle render ON for the first frames
+            // of every fresh ViewModel and visibly flip off (the verifier's
+            // W6-F1).
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val maxCacheMb: StateFlow<Int> =
         preferences.maxCacheMbFlow()

@@ -422,6 +422,12 @@ object AboutKey : NavKey
 @Serializable
 object BackupRestoreKey : NavKey
 
+// ROUND 135: the RESTORE page — restore lives on its own screen (details +
+// progress + result with the restart button), opened from the backup page's
+// bento RESTORE tile.
+@Serializable
+object RestoreBackupKey : NavKey
+
 /**
  * Root tab keys — these are the 4 tabs that show the bottom nav.
  * Any other key (Details, Settings, Appearance, etc.) is a "sub-screen"
@@ -1631,6 +1637,11 @@ fun AppRoot() {
             // top of AppRoot) rather than koinInject'ing again here, matching
             // the pattern used for orchestrator/contentRepository/downloadManager.
             is BackupRestoreKey -> com.confused.anikuta.settings.BackupRestoreScreen(
+                onBack = pop,
+                onOpenRestore = { backstack.add(RestoreBackupKey) },
+            )
+            // ROUND 135: the restore flow — its own page (details + restart).
+            is RestoreBackupKey -> com.confused.anikuta.settings.RestoreBackupScreen(
                 onBack = pop,
             )
             is AboutKey -> AboutScreen(

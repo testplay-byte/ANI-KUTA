@@ -9,9 +9,11 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -36,8 +38,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -71,6 +71,18 @@ import kotlin.math.roundToInt
  *  - [PlayerGestureState.isSeekGestureActive] lets the controls hide the
  *    buffering spinner + the center play/±10s buttons while a seek gesture
  *    is live.
+ *
+ * ROUND-135 REWORK, driven by the device report:
+ *  - volume/brightness render as a VERTICAL PILL container (the live
+ *    percentage at the TOP, a THICK fill bar in the middle, the icon at the
+ *    BOTTOM) instead of floating glyphs;
+ *  - the seek OSD is a horizontal pill with bold, compressed WHITE text (the
+ *    theme-colored ± "looks bad and ugly with the dark background") and, in
+ *    fullscreen, aligns TOP CENTER instead of the vertical middle;
+ *  - the pinch zoom is MAGNETIC: the factor STICKS at every snap step AND at
+ *    the fit-height / fit-width scales until the pinch travels past the
+ *    detent ("it would automatically snap to that point for some while");
+ *  - the zoom readout chip gained a solid pill background.
  */
 
 /** What a vertical side-swipe does. */
@@ -95,6 +107,14 @@ enum class VideoScaleMode(val label: String) {
 val ZOOM_SNAP_STEPS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 5f)
 private val ZOOM_MAX = 5f
 private val ZOOM_MIN = 0.5f
+
+/** ROUND 135 magnets: how far the raw factor must travel PAST a detent before
+ *  it lets go (deliberately larger than the capture radius, so a just-escaped
+ *  detent cannot immediately re-grab the factor). */
+private const val DETENT_HOLD_RADIUS = 0.06f
+
+/** How close a free-following factor must come to a detent to stick to it. */
+private const val DETENT_CAPTURE_RADIUS = 0.04f
 
 /** Gesture wiring, read from preferences by the watch screen. */
 data class PlayerGestureConfig(
@@ -503,18 +523,28 @@ suspend fun PointerInputScope.detectTwoFingerZoom(
 
 /**
  * The fullscreen video scale state: the preset [VideoScaleMode] cycle AND the
- * free pinch factor (which magnet-snaps to [ZOOM_SNAP_STEPS] on release).
- * Everything stays CENTERED (pan 0 — the zoom anchors at the middle).
+ * free pinch factor. ROUND 135: the pinch is MAGNETIC — the factor STICKS at
+ * every [ZOOM_SNAP_STEPS] step AND at the fit-height / fit-width scales (the
+ * user's "it would automatically snap to that point for some while") until
+ * the pinch travels past the detent's hold band; on release it snaps to the
+ * nearest detent. Everything stays CENTERED (pan 0 — the zoom anchors at the
+ * middle).
  */
 class VideoZoomState internal constructor() {
 
     var mode by mutableStateOf(VideoScaleMode.FIT)
         private set
-    /** The free pinch multiplier over the preset scale (1 = none). */
+    /** The free pinch multiplier over the preset scale (1 = none) — the
+     *  DETENT-LOCKED view of the pinch (what the OSD shows and what applies). */
     var freeZoom by mutableStateOf(1f)
         private set
     /** The player surface size (the controls' root Box sets it via onSizeChanged). */
     var containerSize by mutableStateOf(IntSize.Zero)
+
+    /** The unmagnetized pinch accumulation ([freeZoom] is its locked view). */
+    private var rawZoom = 1f
+    /** The detent the factor is currently sticking to (null = free-following). */
+    private var heldDetent: Float? = null
 
     /** The button: cycles FIT → Fill W → Fill H → Crop → FIT; resets the pinch. */
     fun cyclePreset() {
@@ -525,20 +555,81 @@ class VideoZoomState internal constructor() {
             VideoScaleMode.CROP -> VideoScaleMode.FIT
         }
         freeZoom = 1f
+        rawZoom = 1f
+        heldDetent = null
         applyToMpv()
     }
 
     /** The pinch: multiplies the free factor (anchored at the center, OVER
      * the active preset — pinching from Crop must not snap back to fit).
-     * ROUND 134: zooms OUT below 1x too (0.5x floor) and reaches 5x. */
+     * ROUND 134: zooms OUT below 1x too (0.5x floor) and reaches 5x.
+     * ROUND 135: magnetized to the detents WHILE dragging, not just on
+     * release. */
     fun pinchZoom(multiplier: Float) {
-        freeZoom = (freeZoom * multiplier).coerceIn(ZOOM_MIN, ZOOM_MAX)
+        rawZoom = (rawZoom * multiplier).coerceIn(ZOOM_MIN, ZOOM_MAX)
+        freeZoom = magnetize(rawZoom)
         applyToMpv()
     }
 
-    /** The magnet: snap the released pinch to the nearest preset step. */
+    /**
+     * The detent magnet. A held detent releases only once the raw factor has
+     * traveled beyond its hold band — that is the "stay on the mark for a
+     * while" behavior; between detents the factor free-follows the finger.
+     */
+    private fun magnetize(raw: Float): Float {
+        val held = heldDetent
+        if (held != null) {
+            if (abs(raw - held) <= DETENT_HOLD_RADIUS) return held
+            heldDetent = null
+        }
+        val nearest = detents().minByOrNull { abs(it - raw) }
+        if (nearest != null && abs(nearest - raw) <= DETENT_CAPTURE_RADIUS) {
+            heldDetent = nearest
+            return nearest
+        }
+        return raw
+    }
+
+    /**
+     * Every magnetic stop: the preset-magnet steps plus the free factors at
+     * which the video's HEIGHT exactly fills the container (top/bottom edges
+     * touch) and its WIDTH does (left/right edges touch). Near-duplicates are
+     * collapsed (a fit scale that lands on 1.25 IS the 1.25 step).
+     */
+    private fun detents(): List<Float> {
+        val ds = ZOOM_SNAP_STEPS.toMutableList()
+        val vw = runCatching { MPVLib.getPropertyInt("width") ?: 0 }.getOrDefault(0)
+        val vh = runCatching { MPVLib.getPropertyInt("height") ?: 0 }.getOrDefault(0)
+        val cw = containerSize.width
+        val ch = containerSize.height
+        if (vw > 0 && vh > 0 && cw > 0 && ch > 0) {
+            val s0 = minOf(cw.toFloat() / vw, ch.toFloat() / vh)
+            val fittedW = (vw * s0).coerceAtLeast(1f)
+            val fittedH = (vh * s0).coerceAtLeast(1f)
+            // The ACTIVE preset's fill scale — the fit factors are expressed
+            // as free-zoom multipliers OVER it (effectiveScale = preset × free).
+            val preset = when (mode) {
+                VideoScaleMode.FIT -> 1f
+                VideoScaleMode.FIT_WIDTH -> cw.toFloat() / fittedW
+                VideoScaleMode.FIT_HEIGHT -> ch.toFloat() / fittedH
+                VideoScaleMode.CROP -> maxOf(cw.toFloat() / fittedW, ch.toFloat() / fittedH)
+            }
+            if (preset > 0f) {
+                ds += (ch.toFloat() / fittedH) / preset
+                ds += (cw.toFloat() / fittedW) / preset
+            }
+        }
+        return ds
+            .filter { it in ZOOM_MIN..ZOOM_MAX }
+            .distinctBy { (it * 100).roundToInt() }
+    }
+
+    /** The magnet: snap the released pinch to the nearest detent. */
     fun snapOnRelease() {
-        freeZoom = ZOOM_SNAP_STEPS.minByOrNull { abs(it - freeZoom) } ?: freeZoom
+        val snapped = detents().minByOrNull { abs(it - rawZoom) } ?: rawZoom
+        freeZoom = snapped
+        rawZoom = snapped
+        heldDetent = null
         applyToMpv()
     }
 
@@ -546,6 +637,8 @@ class VideoZoomState internal constructor() {
     fun reset() {
         mode = VideoScaleMode.FIT
         freeZoom = 1f
+        rawZoom = 1f
+        heldDetent = null
         runCatching { MPVLib.setPropertyDouble("video-zoom", 0.0) }
     }
 
@@ -589,19 +682,26 @@ fun rememberVideoZoomState(): VideoZoomState {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Gesture OSD — round 134 redesign: NO background panels. The icon and the
-//  percentage float on the video with glyph drop-shadows (legible even on a
-//  white frame); the level bar is animated and shadowed; the seek OSD reads
-//  left-to-right as [delta] [arrows] [target].
+//  Gesture OSD — round 135 redesign: PILL containers. Volume/brightness sit
+//  in a vertical pill (percentage top, thick fill bar middle, icon bottom);
+//  the seek reads as a horizontal pill ([delta] [arrows] [target], bold
+//  compressed WHITE text) aligned TOP CENTER in fullscreen. The dark pill
+//  keeps every glyph legible on any frame — the round-134 floating-glyph
+//  shadows went away with the backgroundless design.
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
  * The gesture overlay. Renders nothing when idle.
+ *
+ * [alignTop] (fullscreen) aligns the SEEK pill to the TOP CENTER instead of
+ * the vertical middle — the center placement covered the video's subject
+ * (the round-135 report). Portrait keeps the center.
  */
 @Composable
 fun GestureOsd(
     state: PlayerGestureState,
     modifier: Modifier = Modifier,
+    alignTop: Boolean = false,
 ) {
     val kind = state.kind ?: return
 
@@ -648,58 +748,17 @@ fun GestureOsd(
         PlayerGestureKind.SEEK -> SeekGestureOsd(
             targetSec = state.level.roundToInt(),
             deltaSec = state.seekDeltaSec,
+            alignTop = alignTop,
             modifier = modifier,
         )
     }
 }
 
 /**
- * The text's drop shadow — legible on ANY frame, white included (the
- * round-134 order: "a shadow to themselves so that if there is a completely
- * white background, it still shows cleanly").
- */
-private val GlyphShadow = androidx.compose.ui.text.TextStyle(
-    shadow = androidx.compose.ui.graphics.Shadow(
-        color = Color.Black.copy(alpha = 0.85f),
-        offset = Offset(0f, 2f),
-        blurRadius = 8f,
-    ),
-)
-
-/**
- * An icon with a glyph drop-shadow: a dark copy stacked behind the white one
- * (Compose can't blur-draw an ImageVector; the stacked copy reads as the
- * shadow at OSD sizes).
- */
-@Composable
-private fun ShadowedIcon(icon: ImageVector, contentDescription: String, size: Int, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.size(size.dp)) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = Color.Black.copy(alpha = 0.6f),
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(size.dp)
-                .graphicsLayer {
-                    translationX = 1.dp.toPx()
-                    translationY = 1.33.dp.toPx()
-                },
-        )
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            tint = Color.White,
-            modifier = Modifier.align(Alignment.Center).size(size.dp),
-        )
-    }
-}
-
-/**
- * The volume/brightness OSD: no background — the icon and the live
- * percentage float on the video, the icon sits on the RIGHT for volume and
- * on the LEFT for brightness (the percentage takes the other side), and the
- * animated theme-colored level bar hugs the outer edge.
+ * The volume/brightness OSD — the round-135 VERTICAL PILL (the user's spec):
+ * a pill-shaped container on the side OPPOSITE the finger, the live
+ * percentage at the TOP, a THICK fill bar in the MIDDLE ("which would
+ * increase and decrease"), the icon at the very BOTTOM.
  */
 @Composable
 private fun SideGestureOsd(
@@ -715,122 +774,122 @@ private fun SideGestureOsd(
     val muted = isVolume && level <= 0.5f
     val activeIcon = if (muted && mutedIcon != null) mutedIcon else icon
 
-    Box(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .align(if (displayOnRight) Alignment.CenterEnd else Alignment.CenterStart)
-                .padding(horizontal = 22.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            // The bar hugs the outer edge.
-            if (!displayOnRight) {
-                VerticalLevelBar(level = level)
-            }
-            // The icon's side follows the GESTURE TYPE (round 134):
-            // volume -> icon on the right; brightness -> icon on the left.
-            val iconSlot: (@Composable () -> Unit) = {
-                ShadowedIcon(activeIcon, if (muted) "Muted" else label, 30)
-            }
-            val percentSlot: (@Composable () -> Unit) = {
-                Text(
-                    text = when {
-                        muted && isVolume -> "Muted"
-                        atCap -> "MAX"
-                        else -> "${level.roundToInt()}%"
-                    },
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    style = GlyphShadow,
-                    maxLines = 1,
-                )
-            }
-            if (isVolume) {
-                percentSlot()
-                iconSlot()
-            } else {
-                iconSlot()
-                percentSlot()
-            }
-            if (displayOnRight) {
-                VerticalLevelBar(level = level)
-            }
-        }
-    }
-}
-
-/**
- * The vertical fill bar — animated (the level glides instead of snapping),
- * shadowed, theme-colored.
- */
-@Composable
-private fun VerticalLevelBar(level: Float, modifier: Modifier = Modifier) {
+    // The animated fill — the level glides instead of snapping (the round-134
+    // smoothness requirement carries over to the pill bar).
     val fill by androidx.compose.animation.core.animateFloatAsState(
         targetValue = level.coerceIn(0f, 100f) / 100f,
         animationSpec = androidx.compose.animation.core.tween(110),
         label = "gestureOsdBar",
     )
-    Box(
-        modifier = modifier
-            .width(6.dp)
-            .height(120.dp)
-            .shadow(3.dp, RoundedCornerShape(3.dp))
-            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(3.dp)),
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .width(6.dp)
-                .fillMaxHeight(fill)
-                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(3.dp)),
-        )
-    }
-}
 
-/**
- * The seek OSD — no background, three slots left to right (the round-134
- * order): the delta on the left, the direction arrows in the center, the
- * target time on the right.
- */
-@Composable
-private fun SeekGestureOsd(
-    targetSec: Int,
-    deltaSec: Int,
-    modifier: Modifier = Modifier,
-) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.padding(horizontal = 24.dp),
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .align(if (displayOnRight) Alignment.CenterEnd else Alignment.CenterStart)
+                .padding(horizontal = 18.dp)
+                .width(58.dp)
+                .height(190.dp)
+                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(29.dp))
+                .padding(vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "${if (deltaSec >= 0) "+" else "-"}${formatTime(abs(deltaSec))}",
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                style = GlyphShadow,
-            )
-            ShadowedIcon(
-                if (deltaSec >= 0) Icons.Default.FastForward else Icons.Default.FastRewind,
-                if (deltaSec >= 0) "Seek forward" else "Seek backward",
-                34,
-            )
-            Text(
-                text = formatTime(targetSec),
+                text = when {
+                    muted && isVolume -> "Muted"
+                    atCap -> "MAX"
+                    else -> "${level.roundToInt()}%"
+                },
                 color = Color.White,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Medium,
-                style = GlyphShadow,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                // The fixed 58dp pill clips at large font scales otherwise
+                // (the verifier's W1-F2).
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+            // The THICK bar.
+            Box(
+                modifier = Modifier
+                    .width(12.dp)
+                    .weight(1f)
+                    .background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(6.dp)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .fillMaxHeight(fill)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp)),
+                )
+            }
+            Icon(
+                activeIcon,
+                contentDescription = if (muted) "Muted" else label,
+                tint = Color.White,
+                modifier = Modifier.size(24.dp),
             )
         }
     }
 }
 
 /**
- * The pinch-zoom readout ("1.5x" / the preset name) — a floating shadowed
- * chip with NO solid panel, auto-hidden by the controls' tick timer.
+ * The seek OSD — the round-135 horizontal pill, TOP CENTER in fullscreen
+ * ([alignTop]) / center in portrait. Bold, compressed WHITE text (the
+ * round-135 report: the theme-colored ± "looks bad and ugly with the dark
+ * background"), reading left to right as [delta] [arrows] [target].
+ */
+@Composable
+private fun SeekGestureOsd(
+    targetSec: Int,
+    deltaSec: Int,
+    alignTop: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = if (alignTop) Alignment.TopCenter else Alignment.Center,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .padding(top = if (alignTop) 28.dp else 0.dp)
+                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50))
+                .padding(horizontal = 18.dp, vertical = 11.dp),
+        ) {
+            Text(
+                text = "${if (deltaSec >= 0) "+" else "-"}${formatTime(abs(deltaSec))}",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                // The user's "compressed" — a slightly negative tracking
+                // tightens the pill's text without a condensed font asset.
+                letterSpacing = (-0.2).sp,
+                maxLines = 1,
+            )
+            Icon(
+                if (deltaSec >= 0) Icons.Default.FastForward else Icons.Default.FastRewind,
+                contentDescription = if (deltaSec >= 0) "Seek forward" else "Seek backward",
+                tint = Color.White,
+                modifier = Modifier.size(26.dp),
+            )
+            Text(
+                text = formatTime(targetSec),
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.2).sp,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/**
+ * The pinch-zoom readout ("1.5x" / the preset label) — round 135: a SOLID
+ * dark pill chip (the report: the backgroundless chip needed "a background"),
+ * auto-hidden by the controls' tick timer.
  */
 @Composable
 fun ZoomOsd(
@@ -848,14 +907,22 @@ fun ZoomOsd(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
-            ShadowedIcon(Icons.Default.AspectRatio, "Zoom", 22)
+            Icon(
+                Icons.Default.AspectRatio,
+                contentDescription = "Zoom",
+                tint = Color.White,
+                modifier = Modifier.size(20.dp),
+            )
             Text(
                 text = label ?: "${((factor * 100).roundToInt()) / 100f}x",
                 color = Color.White,
-                fontSize = 17.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                style = GlyphShadow,
+                maxLines = 1,
             )
         }
     }

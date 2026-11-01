@@ -13,12 +13,15 @@ import kotlinx.coroutines.flow.Flow
  */
 class PlaybackCachePreferences(private val store: PreferenceStore) {
 
-    /** Master switch — default ON per the feature spec. */
+    /** Master switch — default OFF (round 135: the user wants video caching
+     *  opt-in; previously ON per the feature spec). Existing installs that
+     *  already wrote the key keep their choice; only the never-touched
+     *  default flips. */
     var cacheEnabled: Boolean
-        get() = store.getBoolean(KEY_ENABLED, true)
+        get() = store.getBoolean(KEY_ENABLED, false)
         set(value) = store.putBoolean(KEY_ENABLED, value)
 
-    fun cacheEnabledFlow(): Flow<Boolean> = store.booleanFlow(KEY_ENABLED, true)
+    fun cacheEnabledFlow(): Flow<Boolean> = store.booleanFlow(KEY_ENABLED, false)
 
     /** Storage limit in MB (100..2048). Default 512 MB. */
     var maxCacheMb: Int

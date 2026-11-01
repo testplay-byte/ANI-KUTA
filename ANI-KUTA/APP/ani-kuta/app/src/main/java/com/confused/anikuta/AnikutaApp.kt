@@ -157,6 +157,7 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 activityTrackerModule,
                 appUpdateModule,
                 backupModule,
+                com.confused.anikuta.backup.extensionBackupBridgeModule, // Round 135: the backup↔extension bridge
                 adsModule,  // D-272: smart-link ad system
                 extensionModule,
                 cloudstreamModule,  // Task 41: CloudStream extension system (doc 23)

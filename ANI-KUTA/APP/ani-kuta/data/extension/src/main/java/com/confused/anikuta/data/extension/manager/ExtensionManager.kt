@@ -723,10 +723,19 @@ class ExtensionManager(
     @Volatile
     private var lastUpdateCheckAtMs: Long = 0L
 
+    /** ROUND 135: the single-flight guard (the throttle stamps AFTER the fetch
+     *  now, so the in-flight flag is what stops two concurrent checks). */
+    private val updateCheckInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /**
      * D-301: auto update-check used when the user enters the extensions page.
      * Throttled to once per [UPDATE_CHECK_THROTTLE_MS] — repeated page entries
      * within the window are no-ops ("smoothly", no network hammering).
+     *
+     * ROUND 135: the throttle stamps AFTER the fetch completes, not before —
+     * the pre-fetch stamp meant a failed check (network down, repo hiccup)
+     * still bought 30 minutes of silence and the NEXT page entry wouldn't
+     * retry either.
      */
     fun checkForUpdates(force: Boolean = false) {
         val now = System.currentTimeMillis()
@@ -734,12 +743,23 @@ class ExtensionManager(
             Logger.d(TAG) { "Update check throttled (last ${now - lastUpdateCheckAtMs}ms ago)" }
             return
         }
-        lastUpdateCheckAtMs = now
+        if (!updateCheckInFlight.compareAndSet(false, true)) {
+            Logger.d(TAG) { "Update check already in flight" }
+            return
+        }
         scope.launch(Dispatchers.IO) {
             _updateCheckState.value = UpdateCheckState.Checking
             try {
-                findAvailableExtensions()
+                // ROUND 135: defensive catch — the check now fires on EVERY
+                // extensions-page entry, so an escaping exception would be an
+                // unhandled-coroutine crash (the fetches are runCatching-
+                // guarded internally; this is the belt over the braces, and
+                // the CS twin already wraps the same way).
+                runCatching { findAvailableExtensions() }
+                    .onFailure { Logger.e(TAG, it) { "Update check crashed" } }
+                lastUpdateCheckAtMs = System.currentTimeMillis()
             } finally {
+                updateCheckInFlight.set(false)
                 _updateCheckState.value = UpdateCheckState.Idle
             }
         }
