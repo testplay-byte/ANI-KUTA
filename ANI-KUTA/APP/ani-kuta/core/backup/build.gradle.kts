@@ -18,6 +18,9 @@ dependencies {
     implementation(libs.sqldelight.android.driver)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.work.runtime.ktx)
+    // ROUND 136: the offline-image fetches — the backup carries the library's
+    // cover/banner images by URL into the archive (restore = offline covers).
+    implementation(libs.okhttp)
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
     implementation(libs.koin.android)

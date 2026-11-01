@@ -8,14 +8,16 @@ import app.cash.sqldelight.db.SqlDriver
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.download.DownloadPreferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.BufferedOutputStream
@@ -49,9 +51,26 @@ class BackupManager(
     private val downloadPreferences: DownloadPreferences,
     private val backupPreferences: BackupPreferences,
     private val extensionBridge: ExtensionBackupBridge? = null,
+    private val offlineImageStore: OfflineImageStore? = null,
 ) {
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
+
+    /**
+     * The fetch client for the offline-image payload (round 136) — modest
+     * timeouts; every failure just skips that image (the backup still
+     * carries the rest).
+     */
+    private val fetchClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            // ROUND 136 (the verifier's F4): the WHOLE-call budget — a slow
+            // drip server can never hold a fetch slot past this.
+            .callTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
+    }
 
     // ── The backup folder ────────────────────────────────────────────────────
 
@@ -249,6 +268,10 @@ class BackupManager(
         val extensionsRequested = options.extensionRepos || options.extensionAniyomi ||
             options.extensionCloudstream
         val bridge = extensionBridge
+        // ROUND 136: declared at FUNCTION scope — the offline-image collection
+        // below needs the icon URLs from both written lists.
+        val writtenAniyomi = mutableListOf<AniyomiApkInfo>()
+        val writtenCs = mutableListOf<CloudstreamPluginInfo>()
         if (extensionsRequested && bridge != null) {
             val aniyomi = if (options.extensionAniyomi) {
                 runCatching { bridge.collectAniyomiApks() }
@@ -261,7 +284,6 @@ class BackupManager(
                     .getOrDefault(emptyList())
             } else emptyList()
 
-            val writtenAniyomi = mutableListOf<AniyomiApkInfo>()
             aniyomi.forEach { apk ->
                 try {
                     zip.putNextEntry(ZipEntry("${BackupFormat.EXT_APK_DIR}/${apk.info.pkgName}.apk"))
@@ -271,13 +293,11 @@ class BackupManager(
                 } catch (e: Exception) {
                     Logger.w(TAG, e) { "createBackup: failed to carry APK for ${apk.info.pkgName}" }
                 }
-            }
-            // The .cs3 entries are INDEX-keyed into the state list — the
+            }            // The .cs3 entries are INDEX-keyed into the state list — the
             // restore maps them back by position (deterministic, no name
             // sanitization edge cases). ROUND 135 (the verifier's F3): the
             // key is the DENSE written index — naming by the collection
             // index would misalign every later plugin after one failed write.
-            val writtenCs = mutableListOf<CloudstreamPluginInfo>()
             cs.forEach { plugin ->
                 try {
                     zip.putNextEntry(ZipEntry("${BackupFormat.EXT_CS_DIR}/${writtenCs.size}.cs3"))
@@ -303,6 +323,25 @@ class BackupManager(
             Logger.w(TAG) { "createBackup: extensions selected but no bridge is registered — payload skipped" }
         }
 
+        // ── The OFFLINE-IMAGE payload (round 136, the device report's
+        // headline: a restored library showed NO covers offline). Carried
+        // under the "Library cover images" switch: every library entry's
+        // cover/banner URLs (both URL columns — the rendered pick is
+        // preference-dependent) plus the extension icons, fetched at backup
+        // time and keyed by the URL's SHA-256; the app's Coil interceptor
+        // serves them back offline after a restore. ──
+        val offlineCount = if (options.imageCovers && offlineImageStore != null) {
+            collectOfflineImages(
+                zip = zip,
+                // Both placeholders the UI resolves to 64 (the verifier's F5 — a literal
+                // %exact_size% URL would 404 AND hash differently from what the UI renders).
+                csIcons = writtenCs.mapNotNull {
+                    it.iconUrl?.replace("%size%", "64")?.replace("%exact_size%", "64")
+                },
+                aniyomiIcons = writtenAniyomi.map { it.iconUrl }.filter { it.isNotBlank() },
+            )
+        } else 0
+
         val manifest = BackupManifest(
             appVersion = appVersion,
             createdAt = createdAt,
@@ -311,6 +350,7 @@ class BackupManager(
             prefsFiles = prefFiles.toList(),
             rowCount = counts,
             imageCount = imageCount,
+            offlineImageCount = offlineCount,
             includesExtensions = extensionsRequested && bridge != null &&
                 (aniyomiCount > 0 || csCount > 0),
             aniyomiApkCount = aniyomiCount,
@@ -603,6 +643,150 @@ class BackupManager(
         }
     }
 
+    // ── Offline images (round 136) ───────────────────────────────────────────
+
+    /**
+     * Collects the library's cover/banner URLs + the extension icons, FETCHES
+     * each (capped, 8-wide parallel; a failure skips that image), and writes
+     * them into the zip as `offline_images/<sha256(url)>.img`. On restore the
+     * bytes land in [OfflineImageStore] and the app's Coil interceptor serves
+     * them for their original URLs — the grids paint with the network OFF.
+     */
+    private fun collectOfflineImages(
+        zip: ZipOutputStream,
+        csIcons: List<String>,
+        aniyomiIcons: List<String>,
+    ): Int {
+        val store = offlineImageStore ?: return 0
+        // The URL set: content_details' THREE image columns per row (the
+        // library grid renders ext_thumbnail_url ?: data_cover_url depending
+        // on the display preference — carry BOTH; the details header adds the
+        // banner), plus the extension icons.
+        // ROUND 136 (the verifier's F6): the DB URLs come FIRST (the library
+        // covers are the priority; the extension icons ride last), and the
+        // raw query is guarded — a future schema change must never fail the
+        // whole backup.
+        val urls = LinkedHashSet<String>()
+        runCatching {
+        driver.executeQuery(
+            null,
+            "SELECT data_cover_url, ext_thumbnail_url, data_banner_url FROM content_details",
+            { cursor ->
+                while (cursor.next().value) {
+                    for (col in 0..2) {
+                        val url = cursor.getString(col)
+                        if (!url.isNullOrBlank() && (url.startsWith("http://") || url.startsWith("https://"))) {
+                            urls.add(url)
+                        }
+                    }
+                }
+                app.cash.sqldelight.db.QueryResult.Value(Unit)
+            },
+            0,
+            null,
+        )
+        }.onFailure { Logger.w(TAG, it) { "collectOfflineImages: url query failed" } }
+        urls += csIcons
+        urls += aniyomiIcons
+
+        // ROUND 136 (the verifier's F4): no network = skip the whole payload
+        // instead of burning 400 x 10s connect timeouts (the periodic
+        // BackupWorker runs WITHOUT a network constraint).
+        if (!isNetworkAvailable()) {
+            Logger.i(TAG) { "collectOfflineImages: no network — payload skipped" }
+            return 0
+        }
+        val capped = urls.take(OFFLINE_IMAGE_CAP)
+        Logger.i(TAG) { "collectOfflineImages: ${urls.size} url(s) found — carrying ${capped.size}" }
+
+        // The fetched (hash, bytes) pairs — zip writes are SERIALIZED (a
+        // ZipOutputStream is not thread-safe), so the parallel phase only
+        // fetches into memory and the write phase runs single-threaded.
+        // ROUND 136 (the verifier's F3/F4): a TOTAL payload budget caps the
+        // resident set, and a wall-clock deadline stops the fetch phase so a
+        // flaky network can never stretch the backup by minutes.
+        val fetched = java.util.Collections.synchronizedMap(LinkedHashMap<String, ByteArray>())
+        val totalBytes = java.util.concurrent.atomic.AtomicLong(0)
+        val deadlineAt = System.nanoTime() + OFFLINE_FETCH_DEADLINE_NS
+        kotlinx.coroutines.runBlocking {
+            val permits = Semaphore(OFFLINE_FETCH_CONCURRENCY)
+            capped.map { url ->
+                async(Dispatchers.IO) {
+                    permits.withPermit {
+                        if (System.nanoTime() > deadlineAt ||
+                            totalBytes.get() >= OFFLINE_TOTAL_BUDGET_BYTES
+                        ) return@withPermit
+                        val bytes = fetchImage(url) ?: return@withPermit
+                        if (totalBytes.addAndGet(bytes.size.toLong()) > OFFLINE_TOTAL_BUDGET_BYTES) {
+                            // Over budget — drop THIS image (an honest cap).
+                            totalBytes.addAndGet(-bytes.size.toLong())
+                            return@withPermit
+                        }
+                        fetched[store.urlHash(url)] = bytes
+                    }
+                }
+            }.forEach { it.await() }
+        }
+        var count = 0
+        fetched.forEach { (hash, bytes) ->
+            try {
+                zip.putNextEntry(ZipEntry("${BackupFormat.OFFLINE_IMAGES_DIR}/$hash.img"))
+                zip.write(bytes)
+                zip.closeEntry()
+                count++
+            } catch (e: Exception) {
+                Logger.w(TAG, e) { "collectOfflineImages: zip write failed for $hash" }
+            }
+        }
+        Logger.i(TAG) { "collectOfflineImages: $count image(s) carried" }
+        return count
+    }
+
+    /**
+     * One URL fetch — null on any failure or an oversized body.
+     * ROUND 136 (the verifier's F3): STREAMED with a hard stop at the per-
+     * image cap — a chunked response without Content-Length can no longer
+     * buffer unbounded bytes.
+     */
+    private fun fetchImage(url: String): ByteArray? = try {
+        val request = okhttp3.Request.Builder().url(url).build()
+        fetchClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                Logger.d(TAG) { "fetchImage: HTTP ${response.code} for $url" }
+                return null
+            }
+            val body = response.body ?: return null
+            val input = body.byteStream()
+            val buffer = java.io.ByteArrayOutputStream()
+            val chunk = ByteArray(16 * 1024)
+            while (true) {
+                val read = input.read(chunk)
+                if (read == -1) break
+                if (buffer.size() + read > OFFLINE_IMAGE_MAX_BYTES) {
+                    Logger.d(TAG) { "fetchImage: over the per-image cap for $url" }
+                    return null
+                }
+                buffer.write(chunk, 0, read)
+            }
+            val bytes = buffer.toByteArray()
+            if (bytes.isEmpty()) null else bytes
+        }
+    } catch (e: Exception) {
+        Logger.d(TAG) { "fetchImage: failed for $url (${e.message})" }
+        null
+    }
+
+    /** The fail-fast connectivity probe (the verifier's F4). */
+    private fun isNetworkAvailable(): Boolean = try {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager ?: return false
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    } catch (_: Exception) {
+        false
+    }
+
     // ── Restore ──────────────────────────────────────────────────────────────
 
     /**
@@ -662,6 +846,12 @@ class BackupManager(
                 prefsApplied.add(file)
             }
             Logger.i(TAG) { "restoreBackup: ${prefsApplied.size} prefs files applied" }
+            // ROUND 136 (the device report: "the repositories were not
+            // added"): the prefs pipeline writes BEHIND the extension
+            // systems' backs — refresh the in-memory repo stores + the trust
+            // set so the Extensions page reflects the restore immediately.
+            bridge?.runCatching { onPrefsRestored() }
+                ?.onFailure { Logger.w(TAG, it) { "restoreBackup: onPrefsRestored failed" } }
 
             // ── The CloudStream .cs3 FILES + records (after prefs — see the
             // ordering note above; the files land BEFORE any loader read). ──
@@ -680,10 +870,29 @@ class BackupManager(
                     if (ok) csRestored++
                 }
                 Logger.i(TAG) { "restoreBackup: $csRestored/${extState.cloudstream.size} cs3 plugins written" }
+                // ROUND 136: reload the plugin manager — the restored plugins
+                // appear in the Extensions page LIVE (all records have files).
+                bridge.runCatching { onCloudstreamRestored() }
+                    .onFailure { Logger.w(TAG, it) { "restoreBackup: onCloudstreamRestored failed" } }
             }
 
             // ── The images payload (best-effort). ──
             val imagesRestored = restoreImages(entries.images)
+
+            // ── The OFFLINE-IMAGE payload (round 136): the URL-hash-keyed
+            // covers/banners/icons land in the store, where the app's Coil
+            // interceptor serves them for their original URLs — the restored
+            // library paints with the network OFF (the device report's
+            // headline fix). ──
+            val offlineRestored = offlineImageStore?.let { store ->
+                entries.offlineImages.forEach { (hash, bytes) ->
+                    store.storeHash(hash, bytes)
+                }
+                entries.offlineImages.size
+            } ?: 0
+            if (offlineRestored > 0) {
+                Logger.i(TAG) { "restoreBackup: $offlineRestored offline image(s) written to the store" }
+            }
 
             // ── The Aniyomi extension payload (after prefs — the trust keys
             // may ride in anikuta_prefs; the bridge ADDs on top). One system
@@ -728,6 +937,7 @@ class BackupManager(
                 tableRowCount = tableCounts,
                 prefsFilesApplied = prefsApplied,
                 imagesRestored = imagesRestored,
+                offlineImagesRestored = offlineRestored,
                 aniyomiInstalled = aniyomiInstalled,
                 aniyomiFailed = aniyomiFailed,
                 aniyomiAlreadyInstalled = aniyomiSkipped,
@@ -747,6 +957,8 @@ class BackupManager(
         val aniyomiApks = mutableMapOf<String, ByteArray>()
         /** Index-keyed into [ExtensionBackupState.cloudstream]. */
         val csPlugins = mutableMapOf<Int, ByteArray>()
+        /** ROUND 136: URL-hash-keyed offline images. */
+        val offlineImages = mutableMapOf<String, ByteArray>()
     }
 
     private fun readArchive(sourceUri: Uri): ArchiveContents {
@@ -798,6 +1010,11 @@ class BackupManager(
                                 .removeSuffix(".cs3").toIntOrNull()
                             if (index != null) contents.csPlugins[index] = zip.readBytes()
                         }
+                        name.startsWith("${BackupFormat.OFFLINE_IMAGES_DIR}/") && name.endsWith(".img") -> {
+                            val hash = name.removePrefix("${BackupFormat.OFFLINE_IMAGES_DIR}/")
+                                .removeSuffix(".img")
+                            if (hash.length == 64) contents.offlineImages[hash] = zip.readBytes()
+                        }
                     }
                     zip.closeEntry()
                 }
@@ -808,6 +1025,21 @@ class BackupManager(
 
     companion object {
         private const val TAG = "Anikuta:Core:Backup"
+
+        /** The carried-images cap — the library set is the natural boundary. */
+        private const val OFFLINE_IMAGE_CAP = 400
+
+        /** A single carried image larger than this is skipped (posters, not panos). */
+        private const val OFFLINE_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+
+        /** The parallel fetch width. */
+        private const val OFFLINE_FETCH_CONCURRENCY = 8
+
+        /** The TOTAL resident budget for the payload (the verifier's F3b). */
+        private const val OFFLINE_TOTAL_BUDGET_BYTES = 128L * 1024 * 1024
+
+        /** The wall-clock cap on the whole fetch phase (the verifier's F4). */
+        private val OFFLINE_FETCH_DEADLINE_NS: Long = 60_000_000_000L
     }
 }
 

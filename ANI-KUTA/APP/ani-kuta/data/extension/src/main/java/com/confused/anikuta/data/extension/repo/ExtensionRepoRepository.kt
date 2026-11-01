@@ -58,6 +58,19 @@ class ExtensionRepoRepository(context: Context) {
     }
 
     /**
+     * ROUND 136: re-reads the store into the live StateFlow. The backup
+     * restore writes `anikuta_extension_repos` BEHIND this repository's
+     * back (the generic prefs pipeline) — without a refresh the UI kept
+     * showing the pre-restore (often empty) list until a full process
+     * restart. The restore bridge calls this after the prefs application.
+     */
+    fun refresh() {
+        val reloaded = loadAll()
+        _repos.value = reloaded
+        Logger.i(TAG) { "Repo store refreshed from prefs: ${reloaded.size} repo(s)" }
+    }
+
+    /**
      * ROUND 97 (D-667): flips one repository's visibility flag. Hiding is a
      * DISPLAY filter on the Extensions page's Available section — installed
      * extensions and update checks are untouched.

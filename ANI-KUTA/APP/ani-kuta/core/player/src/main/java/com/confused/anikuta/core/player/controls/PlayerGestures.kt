@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import `is`.xyz.mpv.MPVLib
 import kotlin.math.abs
 import kotlin.math.ln
@@ -451,11 +452,15 @@ suspend fun PointerInputScope.detectPlayerGestures(
     positionSec: () -> Int,
     durationSec: () -> Int,
     onSeekTo: (Int) -> Unit,
+    verticalTravelDp: Float = 600f,
 ) {
     state.slopPx = 8.dp.toPx()
-    // ROUND 134: the vertical gestures' full range = a fixed ~600dp of travel
-    // (comfortable on every surface; the surface height no longer scales it).
-    state.verticalRangePx = 600.dp.toPx()
+    // The vertical gestures' full travel. ROUND 135: 600dp read as "way too
+    // less sensitive" on the portrait box (a fast swipe moved the level a
+    // little) — the portrait call passes ~300dp so a natural swipe covers
+    // the range; fullscreen keeps the slower 600dp the round-135 report
+    // called proper.
+    state.verticalRangePx = verticalTravelDp.dp.toPx()
     try {
         detectDragGestures(
             onDragStart = { offset ->
@@ -696,12 +701,17 @@ fun rememberVideoZoomState(): VideoZoomState {
  * [alignTop] (fullscreen) aligns the SEEK pill to the TOP CENTER instead of
  * the vertical middle — the center placement covered the video's subject
  * (the round-135 report). Portrait keeps the center.
+ *
+ * [compact] (portrait) renders the volume/brightness pill smaller and less
+ * heavy — the round-135 report: the portrait pill was "way too bold and a
+ * little bit way too bigger".
  */
 @Composable
 fun GestureOsd(
     state: PlayerGestureState,
     modifier: Modifier = Modifier,
     alignTop: Boolean = false,
+    compact: Boolean = false,
 ) {
     val kind = state.kind ?: return
 
@@ -716,13 +726,10 @@ fun GestureOsd(
     // The panel shows on the side OPPOSITE the finger.
     val displayOnRight = !state.startedOnRightSide
 
-    // One animated level drives BOTH the bar and the label — the round-134
-    // "the bar jumps from 20 to 70" report: the level used to snap per event.
-    val shownLevel by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = state.level,
-        animationSpec = androidx.compose.animation.core.tween(110),
-        label = "gestureOsdLevel",
-    )
+    // ROUND 135: the bar + the label read state.level DIRECTLY (the round-134
+    // animated intermediate made the bar lag the finger and catch up in
+    // visible steps — "it should adjust the speed dynamically, but it should
+    // not stutter"). The level itself already tracks the drag 1:1.
 
     when (kind) {
         PlayerGestureKind.VOLUME -> SideGestureOsd(
@@ -730,9 +737,10 @@ fun GestureOsd(
             mutedIcon = Icons.Default.VolumeOff,
             isVolume = true,
             label = "Volume",
-            level = shownLevel,
+            level = state.level,
             atCap = state.atCap,
             displayOnRight = displayOnRight,
+            compact = compact,
             modifier = modifier,
         )
         PlayerGestureKind.BRIGHTNESS -> SideGestureOsd(
@@ -740,9 +748,10 @@ fun GestureOsd(
             mutedIcon = null,
             isVolume = false,
             label = "Brightness",
-            level = shownLevel,
+            level = state.level,
             atCap = state.atCap,
             displayOnRight = displayOnRight,
+            compact = compact,
             modifier = modifier,
         )
         PlayerGestureKind.SEEK -> SeekGestureOsd(
@@ -755,10 +764,16 @@ fun GestureOsd(
 }
 
 /**
- * The volume/brightness OSD — the round-135 VERTICAL PILL (the user's spec):
- * a pill-shaped container on the side OPPOSITE the finger, the live
- * percentage at the TOP, a THICK fill bar in the MIDDLE ("which would
- * increase and decrease"), the icon at the very BOTTOM.
+ * The volume/brightness OSD — the round-135 vertical container (the user's
+ * spec): percentage at the TOP, a THICK fill bar in the MIDDLE ("which would
+ * increase and decrease"), the icon at the very BOTTOM, on the side OPPOSITE
+ * the finger.
+ *
+ * ROUND 136 (the device report): the container speaks the app's design
+ * language — a slightly-rounded rectangle (14dp, like the player's other
+ * surfaces), not a full pill — and the portrait mode renders COMPACT
+ * ([compact]): smaller, less heavy. The fill bar is driven DIRECTLY by the
+ * level (no animation retargeting — the stutter fix).
  */
 @Composable
 private fun SideGestureOsd(
@@ -769,30 +784,23 @@ private fun SideGestureOsd(
     level: Float,
     atCap: Boolean,
     displayOnRight: Boolean,
+    compact: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val muted = isVolume && level <= 0.5f
     val activeIcon = if (muted && mutedIcon != null) mutedIcon else icon
-
-    // The animated fill — the level glides instead of snapping (the round-134
-    // smoothness requirement carries over to the pill bar).
-    val fill by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = level.coerceIn(0f, 100f) / 100f,
-        animationSpec = androidx.compose.animation.core.tween(110),
-        label = "gestureOsdBar",
-    )
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .align(if (displayOnRight) Alignment.CenterEnd else Alignment.CenterStart)
                 .padding(horizontal = 18.dp)
-                .width(58.dp)
-                .height(190.dp)
-                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(29.dp))
-                .padding(vertical = 14.dp),
+                .width(if (compact) 46.dp else 54.dp)
+                .height(if (compact) 148.dp else 184.dp)
+                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                .padding(vertical = if (compact) 10.dp else 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
                 text = when {
@@ -801,43 +809,46 @@ private fun SideGestureOsd(
                     else -> "${level.roundToInt()}%"
                 },
                 color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = if (compact) 11.sp else 13.sp,
+                fontWeight = if (compact) FontWeight.SemiBold else FontWeight.Bold,
+                fontFamily = RobotoFamily,
                 maxLines = 1,
-                // The fixed 58dp pill clips at large font scales otherwise
-                // (the verifier's W1-F2).
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
-            // The THICK bar.
+            // The THICK bar — tracks the level 1:1 (no animation retargeting).
             Box(
                 modifier = Modifier
-                    .width(12.dp)
+                    .width(if (compact) 8.dp else 10.dp)
                     .weight(1f)
-                    .background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(6.dp)),
+                    .background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(3.dp)),
             ) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .fillMaxHeight(fill)
-                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp)),
+                        .fillMaxHeight(level.coerceIn(0f, 100f) / 100f)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(3.dp)),
                 )
             }
             Icon(
                 activeIcon,
                 contentDescription = if (muted) "Muted" else label,
                 tint = Color.White,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(if (compact) 18.dp else 22.dp),
             )
         }
     }
 }
 
 /**
- * The seek OSD — the round-135 horizontal pill, TOP CENTER in fullscreen
+ * The seek OSD — the round-135 horizontal container, TOP CENTER in fullscreen
  * ([alignTop]) / center in portrait. Bold, compressed WHITE text (the
  * round-135 report: the theme-colored ± "looks bad and ugly with the dark
  * background"), reading left to right as [delta] [arrows] [target].
+ *
+ * ROUND 136: the container speaks the app's design language — a
+ * slightly-rounded rectangle (14dp, like the player's other surfaces), not a
+ * full pill.
  */
 @Composable
 private fun SeekGestureOsd(
@@ -855,7 +866,7 @@ private fun SeekGestureOsd(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
                 .padding(top = if (alignTop) 28.dp else 0.dp)
-                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50))
+                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
                 .padding(horizontal = 18.dp, vertical = 11.dp),
         ) {
             Text(
@@ -863,6 +874,7 @@ private fun SeekGestureOsd(
                 color = Color.White,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
+                fontFamily = RobotoFamily,
                 // The user's "compressed" — a slightly negative tracking
                 // tightens the pill's text without a condensed font asset.
                 letterSpacing = (-0.2).sp,
@@ -879,6 +891,7 @@ private fun SeekGestureOsd(
                 color = Color.White,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
+                fontFamily = RobotoFamily,
                 letterSpacing = (-0.2).sp,
                 maxLines = 1,
             )
@@ -908,7 +921,7 @@ fun ZoomOsd(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
-                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50))
+                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
             Icon(
@@ -922,6 +935,7 @@ fun ZoomOsd(
                 color = Color.White,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
+                fontFamily = RobotoFamily,
                 maxLines = 1,
             )
         }

@@ -1153,7 +1153,9 @@ private fun OnboardingRestoreStep(
                 restoredSummary != null -> {
                     val s = restoredSummary!!
                     Text(
-                        text = "Restored " + s.tableRowCount.values.sum() + " rows" +
+                        text = "Restored " + com.confused.anikuta.core.common.formatCount(
+                            s.tableRowCount["library_item"] ?: 0,
+                        ) + " entries" +
                             (if (s.csPluginsRestored > 0) ", ${s.csPluginsRestored} CloudStream plugins" else "") +
                             (if (s.aniyomiInstalled > 0) ", ${s.aniyomiInstalled} extensions" else ""),
                         fontFamily = RobotoFamily,
@@ -1200,7 +1202,7 @@ private fun OnboardingRestoreStep(
                         Text(
                             text = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
                                 .format(java.util.Date(m.createdAt)) + " · " +
-                                m.rowCount.values.sum() + " rows" +
+                                com.confused.anikuta.core.common.formatCount(m.rowCount["library_item"] ?: 0) + " entries" +
                                 (if (m.includesExtensions) " · extensions" else ""),
                             fontFamily = RobotoFamily,
                             fontSize = 12.sp,
@@ -1219,10 +1221,16 @@ private fun OnboardingRestoreStep(
             Spacer(Modifier.weight(0.8f))
         }
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+            // ROUND 136: after a successful restore the CTA reads "Continue" —
+            // "Skip for now" made no sense with the backup already back.
             OnboardingPrimaryCta(
-                label = if (restoring) "Restoring…" else "Skip for now",
+                label = when {
+                    restoring -> "Restoring…"
+                    restoredSummary != null -> "Continue"
+                    else -> "Skip for now"
+                },
                 onClick = { if (!restoring) onContinue() },
-                neutral = true,
+                neutral = restoredSummary == null,
             )
             Spacer(Modifier.height(24.dp))
         }

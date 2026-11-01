@@ -4,6 +4,7 @@ import com.confused.anikuta.core.backup.BackupManager
 import com.confused.anikuta.core.backup.BackupPreferences
 import com.confused.anikuta.core.backup.BackupScheduler
 import com.confused.anikuta.core.backup.ExtensionBackupBridge
+import com.confused.anikuta.core.backup.OfflineImageStore
 import com.confused.anikuta.core.download.DownloadPreferences
 import com.confused.anikuta.core.preferences.PreferenceStore
 import org.koin.android.ext.koin.androidContext
@@ -22,6 +23,9 @@ import org.koin.dsl.module
  */
 val backupModule = module {
     single { BackupPreferences(get<PreferenceStore>()) }
+    // ROUND 136: the offline-image store (the restored library's offline
+    // covers live here; the app's Coil interceptor reads it).
+    single { OfflineImageStore(androidContext()) }
     single {
         val bridges = getAll<ExtensionBackupBridge>()
         BackupManager(
@@ -30,6 +34,7 @@ val backupModule = module {
             downloadPreferences = get<DownloadPreferences>(),
             backupPreferences = get(),
             extensionBridge = bridges.firstOrNull(),
+            offlineImageStore = get(),
         )
     }
     single {

@@ -35,6 +35,8 @@ object BackupFormat {
     const val EXT_STATE_ENTRY = "ext/state.json"
     const val EXT_APK_DIR = "ext/apk"
     const val EXT_CS_DIR = "ext/cs"
+    /** ROUND 136: the URL-keyed offline images (SHA-256-named .img files). */
+    const val OFFLINE_IMAGES_DIR = "offline_images"
 }
 
 /**
@@ -168,7 +170,9 @@ data class BackupOptions(
     /** TRUE when at least one slice is on (an all-off backup would be pointless). */
     val anythingEnabled: Boolean
         get() = libraryCore || libraryHistory || libraryTracking || libraryDownloads ||
-            imageSearchBrowse || imageEpisodeThumbnails ||
+            // ROUND 136 (the verifier's F9): imageCovers IS a payload now —
+            // the round-136 headline switch — a covers-only backup is legal.
+            imageCovers || imageSearchBrowse || imageEpisodeThumbnails ||
             settingsApp || settingsSources || settingsSecurity ||
             extensionRepos || extensionAniyomi || extensionCloudstream
 
@@ -265,6 +269,8 @@ data class BackupManifest(
     val rowCount: Map<String, Int> = emptyMap(),
     /** The number of cover images carried. */
     val imageCount: Int = 0,
+    /** ROUND 136: the offline-image payload (URL-keyed library covers/banners + extension icons). */
+    val offlineImageCount: Int = 0,
     /** ROUND 135: the extension payload is carried (state.json present). */
     val includesExtensions: Boolean = false,
     /** ROUND 135: how many Aniyomi extension APKs are carried. */
@@ -290,6 +296,8 @@ data class RestoreSummary(
     val prefsFilesApplied: List<String>,
     /** Cover images copied back into the SAF tree. */
     val imagesRestored: Int,
+    /** ROUND 136: offline images (URL-keyed covers/banners/icons) written back. */
+    val offlineImagesRestored: Int = 0,
     /** ROUND 135: Aniyomi APKs that finished installing (user confirmed each). */
     val aniyomiInstalled: Int = 0,
     /** ROUND 135: Aniyomi APKs that failed or were cancelled (the names). */
@@ -320,6 +328,8 @@ data class AniyomiApkInfo(
     val trusted: Boolean,
     /** Whether its sources were enabled. */
     val enabled: Boolean,
+    /** ROUND 136: the icon URL (the offline-image store carries its bytes). */
+    val iconUrl: String = "",
 )
 
 /**

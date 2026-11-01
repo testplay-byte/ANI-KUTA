@@ -44,7 +44,9 @@ import com.confused.anikuta.core.backup.BackupManifest
 import com.confused.anikuta.core.backup.RestoreSummary
 import com.confused.anikuta.core.designsystem.component.toast.AppToast
 import com.confused.anikuta.core.designsystem.component.toast.AppToastTone
+import com.confused.anikuta.core.common.formatCount
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -52,11 +54,18 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 /**
- * The RESTORE page (round 135) — restore lives on its OWN screen, not an
- * inline section: pick a backup file, see its DETAILS (created when, which
- * app version, what it carries), confirm, watch the restore, and land on a
- * result panel with the counts and a RESTART button (the restored settings,
- * sources, and extensions only fully activate on the next process).
+ * The RESTORE page (round 135; stats reworked for the round-136 report) —
+ * restore lives on its OWN screen: pick a backup file, see its DETAILS (when
+ * it was created, which app version, and the KEY LIBRARY STATS — entries,
+ * categories, history, tracking, downloads — plus covers and extensions),
+ * confirm, watch the restore, and land on a result panel with the same stats
+ * restored and a RESTART button (the restored settings, sources, and
+ * extensions only fully activate on the next process).
+ *
+ * The report was explicit: a raw "1838 rows" line is NOT the detail — the
+ * user wants "the total number of library entries… how many categories were
+ * there in the library… other key stats too, like which other data is
+ * backed up".
  */
 @Composable
 fun RestoreBackupScreen(
@@ -110,12 +119,14 @@ fun RestoreBackupScreen(
                     SectionCard {
                         Text(
                             "Pick a backup file",
-                            fontSize = 16.sp,
+                            fontFamily = RobotoFamily,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
                             "An .anikuta file from your backup folder",
+                            fontFamily = RobotoFamily,
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 2.dp),
@@ -147,18 +158,39 @@ fun RestoreBackupScreen(
                         SectionCard {
                             DetailRow("Created", SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(m.createdAt)))
                             DetailRow("From app version", m.appVersion)
-                            DetailRow("Library rows", "${m.rowCount.values.sum()}")
-                            DetailRow("Cover images", if (m.includesImages) "${m.imageCount}" else "Not included")
+                            Spacer(Modifier.height(8.dp))
+                            SectionLabel("Library")
+                            // The KEY STATS (the round-136 report) — real
+                            // library numbers, not a raw row total.
+                            DetailRow("Entries", statOr(m, "library_item"))
+                            DetailRow("Categories", statOr(m, "library_category"))
+                            DetailRow("History", statOr(m, "watch_progress"))
+                            DetailRow("Tracking", statOr(m, "track_entry"))
+                            DetailRow("Downloads", statOr(m, "downloaded_episode"))
+                            Spacer(Modifier.height(8.dp))
+                            SectionLabel("Other data")
+                            if (m.offlineImageCount > 0) {
+                                DetailRow(
+                                    "Cover images",
+                                    "${formatCount(m.offlineImageCount)} (offline-ready)",
+                                )
+                            } else {
+                                DetailRow(
+                                    "Cover images",
+                                    if (m.includesImages) formatCount(m.imageCount) else "Not included",
+                                )
+                            }
                             if (m.includesExtensions) {
                                 DetailRow(
                                     "Extensions",
-                                    "${m.aniyomiApkCount} Aniyomi · ${m.csPluginCount} CloudStream",
+                                    "${formatCount(m.aniyomiApkCount)} Aniyomi · ${formatCount(m.csPluginCount)} CloudStream",
                                 )
                             }
-                            DetailRow("Settings files", "${m.prefsFiles.size}")
+                            DetailRow("Settings files", formatCount(m.prefsFiles.size))
                             if (m.aniyomiApkCount > 0) {
                                 Text(
                                     "Android will ask to install each extension one by one.",
+                                    fontFamily = RobotoFamily,
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(top = 4.dp),
@@ -171,6 +203,7 @@ fun RestoreBackupScreen(
                                     Spacer(Modifier.width(10.dp))
                                     Text(
                                         "Restoring…",
+                                        fontFamily = RobotoFamily,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary,
@@ -190,6 +223,7 @@ fun RestoreBackupScreen(
                         SectionCard {
                             Text(
                                 error,
+                                fontFamily = RobotoFamily,
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.error,
                             )
@@ -197,35 +231,52 @@ fun RestoreBackupScreen(
                     }
                 }
 
-                // ── The RESULT: counts + the RESTART button ──
+                // ── The RESULT: the same key stats, restored + the RESTART ──
                 restoreSummary?.let { summary ->
                     item {
                         SectionCard {
                             Text(
                                 "Restored",
-                                fontSize = 16.sp,
+                                fontFamily = RobotoFamily,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.primary,
                             )
-                            Spacer(Modifier.height(6.dp))
-                            DetailRow("Library rows added", "${summary.tableRowCount.values.sum()}")
-                            DetailRow("Settings files applied", "${summary.prefsFilesApplied.size}")
-                            DetailRow("Cover images", "${summary.imagesRestored}")
+                            Spacer(Modifier.height(8.dp))
+                            SectionLabel("Library")
+                            DetailRow("Entries", statOr(summary.manifest, "library_item"))
+                            DetailRow("Categories", statOr(summary.manifest, "library_category"))
+                            DetailRow("History", statOr(summary.manifest, "watch_progress"))
+                            DetailRow("Tracking", statOr(summary.manifest, "track_entry"))
+                            DetailRow("Downloads", statOr(summary.manifest, "downloaded_episode"))
+                            Spacer(Modifier.height(8.dp))
+                            SectionLabel("Other data")
+                            if (summary.offlineImagesRestored > 0) {
+                                DetailRow(
+                                    "Cover images",
+                                    "${formatCount(summary.offlineImagesRestored)} (offline-ready)",
+                                )
+                            }
+                            if (summary.imagesRestored > 0) {
+                                DetailRow("Device cover files", formatCount(summary.imagesRestored))
+                            }
                             if (summary.csPluginsRestored > 0) {
-                                DetailRow("CloudStream plugins", "${summary.csPluginsRestored}")
+                                DetailRow("CloudStream plugins", formatCount(summary.csPluginsRestored))
                             }
                             if (summary.aniyomiAlreadyInstalled > 0) {
-                                DetailRow("Aniyomi already installed", "${summary.aniyomiAlreadyInstalled}")
+                                DetailRow("Aniyomi already installed", formatCount(summary.aniyomiAlreadyInstalled))
                             }
                             if (summary.aniyomiInstalled > 0) {
-                                DetailRow("Aniyomi installed", "${summary.aniyomiInstalled}")
+                                DetailRow("Aniyomi installed", formatCount(summary.aniyomiInstalled))
                             }
                             if (summary.aniyomiFailed.isNotEmpty()) {
                                 DetailRow("Aniyomi failed", summary.aniyomiFailed.joinToString(", "))
                             }
+                            DetailRow("Settings files", formatCount(summary.prefsFilesApplied.size))
                             Spacer(Modifier.height(10.dp))
                             Text(
                                 "Restart the app to apply everything.",
+                                fontFamily = RobotoFamily,
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -236,6 +287,8 @@ fun RestoreBackupScreen(
                         }
                     }
                 }
+
+                item { Spacer(Modifier.height(24.dp)) }
             }
         }
     }
@@ -260,7 +313,11 @@ fun RestoreBackupScreen(
                             result.fold(
                                 onSuccess = { summary ->
                                     restoreSummary = summary
-                                    AppToast.show("Restore finished", AppToastTone.SUCCESS)
+                                    AppToast.show(
+                                        formatRestoreToast(summary),
+                                        AppToastTone.SUCCESS,
+                                        durationMillis = 3600L,
+                                    )
                                 },
                                 onFailure = { e ->
                                     restoreError = e.message ?: "Restore failed"
@@ -278,6 +335,36 @@ fun RestoreBackupScreen(
     }
 }
 
+/**
+ * The count for a manifest table, or "Not included" when the backup did not
+ * carry it (a 0 would read as "you had none").
+ */
+private fun statOr(manifest: BackupManifest, table: String): String =
+    if (table in manifest.tables) formatCount(manifest.rowCount[table] ?: 0) else "Not included"
+
+/** The formatted restore toast (mirrors the backup toast — every optional part gated on >0). */
+internal fun formatRestoreToast(summary: RestoreSummary): String {
+    val parts = mutableListOf<String>()
+    parts += "${formatCount(summary.tableRowCount["library_item"] ?: 0)} entries"
+    if (summary.offlineImagesRestored > 0) parts += "${formatCount(summary.offlineImagesRestored)} covers"
+    if (summary.csPluginsRestored > 0) parts += "${formatCount(summary.csPluginsRestored)} CloudStream"
+    if (summary.aniyomiInstalled > 0) parts += "${formatCount(summary.aniyomiInstalled)} Aniyomi installed"
+    return "Restore finished — " + parts.joinToString(" · ")
+}
+
+/** A small uppercase stat-group label inside the details card. */
+@Composable
+private fun SectionLabel(label: String) {
+    Text(
+        label.uppercase(),
+        fontFamily = RobotoFamily,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(bottom = 4.dp),
+    )
+}
+
 /** One label/value line of the details panel. */
 @Composable
 private fun DetailRow(label: String, value: String) {
@@ -287,12 +374,14 @@ private fun DetailRow(label: String, value: String) {
     ) {
         Text(
             label,
+            fontFamily = RobotoFamily,
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
         Text(
             value,
+            fontFamily = RobotoFamily,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
@@ -321,9 +410,9 @@ private fun SectionCard(content: @Composable () -> Unit) {
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(horizontal = 14.dp, vertical = 5.dp),
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
             content()
         }
     }

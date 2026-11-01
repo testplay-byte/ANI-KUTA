@@ -490,6 +490,22 @@ class CloudstreamPluginManager(
         rebuildLists()
     }
 
+    /**
+     * ROUND 136: the restore path's re-entry — the backup/restore bridge has
+     * just written the .cs3 files + records and wants the lists rebuilt, but
+     * [loadAll] is ONLY safe on this manager's single load worker (the
+     * loader's registries are plain HashMaps documented as single-worker —
+     * D-668) and would also hold the restore hostage to a slow/hung plugin
+     * dex-load. This runs the full refresh SERIALIZED on that worker (mutex +
+     * launch) and ASYNC, so the restore completes without waiting on it.
+     */
+    fun reloadAfterRestore() {
+        Logger.i(TAG) { "reloadAfterRestore: scheduling the post-restore plugin refresh" }
+        scope.launch {
+            installMutex.withLock { refreshLocked() }
+        }
+    }
+
     /** The documented update predicate (doc 04 §4.5). */
     fun isUpdate(onlineVersion: Int, savedVersion: Int): Boolean = isCsUpdate(onlineVersion, savedVersion)
 

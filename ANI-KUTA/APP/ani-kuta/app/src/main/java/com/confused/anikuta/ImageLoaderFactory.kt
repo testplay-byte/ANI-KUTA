@@ -52,11 +52,19 @@ object ImageLoaderFactory {
     /** Task 64 (round 24): per-host share of the app-wide image cap. */
     private const val MAX_CONCURRENT_IMAGE_REQUESTS_PER_HOST = 8
 
-    fun create(context: Context, okHttpClient: OkHttpClient): ImageLoader {
+    fun create(
+        context: Context,
+        okHttpClient: OkHttpClient,
+        // ROUND 136: the offline-image store — the interceptor serves a
+        // restored library's covers with the network off (see the
+        // OfflineCoverInterceptor KDoc).
+        offlineImageStore: com.confused.anikuta.core.backup.OfflineImageStore? = null,
+    ): ImageLoader {
         Logger.i(TAG) {
             "Creating ImageLoader with 500MB disk cache " +
                 "($MAX_CONCURRENT_IMAGE_REQUESTS concurrent fetch cap, " +
-                "$MAX_CONCURRENT_IMAGE_REQUESTS_PER_HOST per host)"
+                "$MAX_CONCURRENT_IMAGE_REQUESTS_PER_HOST per host, " +
+                "offline covers ${if (offlineImageStore != null) "ON" else "off"})"
         }
         // Task 61: the image-dedicated client — a clone of the app client
         // (shared connection pool + interceptors via newBuilder) with its OWN
@@ -73,6 +81,12 @@ object ImageLoaderFactory {
             .build()
         return ImageLoader.Builder(context as PlatformContext)
             .components {
+                // ROUND 136: registered FIRST — custom interceptors run before
+                // the engine interceptor, so the offline swap happens before
+                // any network attempt.
+                if (offlineImageStore != null) {
+                    add(OfflineCoverInterceptor(offlineImageStore))
+                }
                 add(OkHttpNetworkFetcherFactory(callFactory = { imageHttpClient }))
             }
             .memoryCache {

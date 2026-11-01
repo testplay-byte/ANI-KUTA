@@ -380,8 +380,16 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             // rides the default client's pool; its own short timeouts inside).
             single { com.confused.anikuta.core.network.AniSkipClient(get()) }
 
-            // D.4: Coil ImageLoader with 500MB disk cache (persistent)
-            single { ImageLoaderFactory.create(get(), get()) }
+            // D.4: Coil ImageLoader with 500MB disk cache (persistent).
+            // ROUND 136: the offline-cover interceptor rides the loader — a
+            // restored library paints its covers with the network off.
+            single {
+                ImageLoaderFactory.create(
+                    get(),
+                    get(),
+                    get<com.confused.anikuta.core.backup.OfflineImageStore>(),
+                )
+            }
 
             // D-223: Cover color extractor (Palette API) for adaptive theming.
             single { com.confused.anikuta.core.designsystem.color.CoverColorExtractor(get(), get()) }

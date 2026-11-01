@@ -75,6 +75,19 @@ class CloudstreamRepoRepository(
 
     fun find(url: String): CloudstreamRepo? = _repos.value.firstOrNull { it.url == url }
 
+    /**
+     * ROUND 136: re-reads the store into the live StateFlow (the aniyomi
+     * twin's contract). The backup restore writes `anikuta_cloudstream_repos`
+     * BEHIND this repository's back — without a refresh the extensions page
+     * kept showing the pre-restore list until a full process restart. The
+     * restore bridge calls this after the prefs application.
+     */
+    fun refresh() {
+        val reloaded = loadRepos()
+        _repos.value = reloaded
+        Logger.i(TAG) { "CS repo store refreshed from prefs: ${reloaded.size} repo(s)" }
+    }
+
     companion object {
         private const val TAG = "Anikuta:Data:Cloudstream:RepoStore"
         private const val PREFS_NAME = "anikuta_cloudstream_repos"

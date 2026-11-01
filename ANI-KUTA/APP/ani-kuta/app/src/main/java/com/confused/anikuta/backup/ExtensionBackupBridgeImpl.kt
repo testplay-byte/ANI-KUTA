@@ -10,9 +10,12 @@ import com.confused.anikuta.core.preferences.AppPreferences
 import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.cloudstream.installer.CloudstreamPluginInstaller
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamPluginStore
+import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository
 import com.confused.anikuta.data.cloudstream.repo.CsPluginRecord
+import com.confused.anikuta.data.cloudstream.CloudstreamPluginManager
 import com.confused.anikuta.data.extension.installer.PackageInstallerBackend
 import com.confused.anikuta.data.extension.manager.ExtensionManager
+import com.confused.anikuta.data.extension.repo.ExtensionRepoRepository
 import com.confused.anikuta.data.extension.trust.TrustService
 import org.koin.android.ext.koin.androidContext
 import java.io.File
@@ -31,6 +34,9 @@ class ExtensionBackupBridgeImpl(
     private val trustService: TrustService,
     private val appPreferences: AppPreferences,
     private val csPluginStore: CloudstreamPluginStore,
+    private val extensionRepoRepository: ExtensionRepoRepository,
+    private val csRepoRepository: CloudstreamRepoRepository,
+    private val csPluginManager: CloudstreamPluginManager,
 ) : ExtensionBackupBridge {
 
     private val installerBackend = PackageInstallerBackend(context)
@@ -41,6 +47,12 @@ class ExtensionBackupBridgeImpl(
         // The manager's live lists cover trusted-AND-loaded (Installed) and
         // installed-but-untrusted (Untrusted) — both are carried, each with
         // its own trust state, so the restore reproduces the exact setup.
+        // ROUND 136: the icon URLs come from the REPO CATALOG (the Installed
+        // model carries no icon URL of its own) — an entry the catalog lists
+        // gets its icon carried into the offline-image store; sideloaded ones
+        // keep the letter-tile fallback.
+        val catalogIconByPkg = extensionManager.availableExtensions.value
+            .associate { it.pkgName to it.iconUrl }
         val entries = mutableListOf<ExtensionBackupBridge.AniyomiApkEntry>()
         val seen = mutableSetOf<String>()
 
@@ -53,6 +65,7 @@ class ExtensionBackupBridgeImpl(
                 versionCode = ext.versionCode,
                 trusted = true,
                 enabled = appPreferences.isExtensionEnabled(ext.pkgName),
+                iconUrl = catalogIconByPkg[ext.pkgName].orEmpty(),
             )
             if (entry != null) entries += entry
         }
@@ -66,6 +79,7 @@ class ExtensionBackupBridgeImpl(
                 versionCode = ext.versionCode,
                 trusted = false,
                 enabled = false,
+                iconUrl = catalogIconByPkg[ext.pkgName].orEmpty(),
             )
             if (entry != null) entries += entry
         }
@@ -80,6 +94,7 @@ class ExtensionBackupBridgeImpl(
         versionCode: Long,
         trusted: Boolean,
         enabled: Boolean,
+        iconUrl: String,
     ): ExtensionBackupBridge.AniyomiApkEntry? {
         val apkFile = try {
             val appInfo = context.packageManager.getApplicationInfo(pkgName, 0)
@@ -107,6 +122,7 @@ class ExtensionBackupBridgeImpl(
                 versionCode = versionCode,
                 trusted = trusted,
                 enabled = enabled,
+                iconUrl = iconUrl,
             ),
             bytes = bytes,
         )
@@ -195,6 +211,32 @@ class ExtensionBackupBridgeImpl(
         }
     }
 
+    /**
+     * ROUND 136 (the device report: "the repositories were not added"): the
+     * prefs application writes SharedPreferences BEHIND the repositories'
+     * backs — refresh every in-memory store so the Extensions page reflects
+     * the restored repos WITHOUT a process restart.
+     */
+    override fun onPrefsRestored() {
+        runCatching { extensionRepoRepository.refresh() }
+            .onFailure { Logger.w(TAG, it) { "onPrefsRestored: aniyomi repo refresh failed" } }
+        runCatching { csRepoRepository.refresh() }
+            .onFailure { Logger.w(TAG, it) { "onPrefsRestored: cs repo refresh failed" } }
+        trustService.refresh()
+    }
+
+    /**
+     * ROUND 136: the .cs3 files + records are on disk — refresh the plugin
+     * manager so the restored plugins appear in the Extensions page LIVE.
+     * [reloadAfterRestore] (NOT a bare loadAll) keeps the manager's
+     * single-worker contract intact and never holds the restore hostage to a
+     * slow plugin load.
+     */
+    override fun onCloudstreamRestored() {
+        runCatching { csPluginManager.reloadAfterRestore() }
+            .onFailure { Logger.w(TAG, it) { "onCloudstreamRestored: cs reload failed" } }
+    }
+
     override fun restoreCloudstreamPlugin(info: CloudstreamPluginInfo, bytes: ByteArray): Boolean {
         // The DEVICE-LOCAL install path — the backed-up record's absolute
         // filePath belongs to the donor device and is never reused.
@@ -265,6 +307,9 @@ val extensionBackupBridgeModule = org.koin.dsl.module {
             trustService = get(),
             appPreferences = get(),
             csPluginStore = get(),
+            extensionRepoRepository = get(),
+            csRepoRepository = get(),
+            csPluginManager = get(),
         )
     }
 }

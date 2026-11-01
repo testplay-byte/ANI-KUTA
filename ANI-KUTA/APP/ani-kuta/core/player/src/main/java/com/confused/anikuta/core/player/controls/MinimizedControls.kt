@@ -134,6 +134,11 @@ fun MinimizedControls(
                     positionSec = { position },
                     durationSec = { duration },
                     onSeekTo = onSeekTo,
+                    // ROUND 136: the portrait box's vertical travel is FASTER
+                    // (~300dp covers the range — the report: "way too less
+                    // sensitive… I had to scroll way too much") and the OSD
+                    // renders compact.
+                    verticalTravelDp = 300f,
                 )
             }
             .pointerInput(Unit) {
@@ -245,8 +250,6 @@ fun MinimizedControls(
         // Double-tap feedback animation — the SEEK pill is the shared,
         // cumulative D-456 indicator; the play/pause circle stays as before.
         DoubleTapSeekIndicator(state = seekFeedback)
-        // ROUND 131 (D-809): the gesture OSD — above the feedback overlays.
-        GestureOsd(state = gestureState)
         doubleTapAnim?.let { feedback ->
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -385,6 +388,14 @@ fun MinimizedControls(
                 }
             }
         }
+
+        // ROUND 131 (D-809): the gesture OSD — drawn LAST so it sits on top
+        // of every control layer while a swipe is in progress (the fullscreen
+        // controls' rule; the round-136 verifier caught portrait drawing it
+        // UNDER the controls, where the top icon row + the bottom seekbar row
+        // overlapped the 148dp compact pill).
+        // ROUND 136: compact in portrait (the report: too big/too bold).
+        GestureOsd(state = gestureState, compact = true)
     }
 }
 

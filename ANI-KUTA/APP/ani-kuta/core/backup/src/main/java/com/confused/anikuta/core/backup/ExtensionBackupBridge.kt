@@ -50,12 +50,32 @@ interface ExtensionBackupBridge {
 
     /**
      * Writes a .cs3 plugin file to its device-local install path and
-     * re-registers its record (with the backed-up trust state). MUST be
-     * callable BEFORE the prefs application — the plugin manager deletes
-     * file-less records on load, so files first, records second.
+     * re-registers its record (with the backed-up trust state). The engine
+     * calls it AFTER the prefs application (the bridge's upserts are the
+     * record authority — a carried donor plugins_json can never clobber the
+     * device-local paths); the files land before any loader read, so the
+     * manager's file-less-record deletion can never touch them.
      * Returns true on success.
      */
     fun restoreCloudstreamPlugin(info: CloudstreamPluginInfo, bytes: ByteArray): Boolean
+
+    /**
+     * Called after the restore's prefs application (round 136): the generic
+     * pipeline wrote SharedPreferences BEHIND the extension systems' backs —
+     * the repo stores + the trust set hold IN-MEMORY StateFlows built at app
+     * start, so without this the Extensions page kept showing the pre-restore
+     * (often empty) lists until a full process restart (the device report:
+     * "the repositories were not added"). Refreshes them all.
+     */
+    fun onPrefsRestored()
+
+    /**
+     * Called after the .cs3 files + records are written (round 136): reloads
+     * the CloudStream plugin manager so the restored plugins appear LIVE
+     * (all records have their files on disk at this point — the loader's
+     * file-less-record deletion cannot touch them).
+     */
+    fun onCloudstreamRestored()
 
     /** One Aniyomi extension + its APK bytes (the backup-side collection). */
     data class AniyomiApkEntry(

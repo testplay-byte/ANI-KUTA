@@ -14,16 +14,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -43,14 +46,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.backup.BackupFileInfo
 import com.confused.anikuta.core.backup.BackupManager
+import com.confused.anikuta.core.backup.BackupManifest
 import com.confused.anikuta.core.backup.BackupPreferences
+import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.toast.AppToast
 import com.confused.anikuta.core.designsystem.component.toast.AppToastTone
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
-import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.common.formatCount
+import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.download.DownloadPreferences
-import com.confused.anikuta.core.preferences.Preference
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -58,14 +63,16 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 /**
- * The Backup & restore settings page (round 134, D-816; round 135 rebuild).
+ * The Backup & restore settings page (round 134, D-816; rebuilt for the
+ * round-136 report).
  *
- * ROUND 135, per the device report: a BENTO top — exactly two tiles, BACKUP
- * (left) and RESTORE (right), each with a ONE-LINE description; the granular
- * what-to-include selector (Library / Images / Settings / Extensions); the
- * results report through bottom-up toasts instead of inline text; the restore
- * flow lives on its OWN page ([RestoreBackupScreen]) with the backup's
- * details + a restart button.
+ * The page stays LEAN: the bento top (BACKUP | RESTORE — the report approved
+ * it), a "What to include" row that opens the CHECKMARK POPUP (the report:
+ * the selector "should have been a completely separate page… a pop-up where
+ * I can check mark all the things" — never rendered inline from the get-go),
+ * the automatic-backup card, and the existing-backups card. Every card
+ * speaks the app's design language: icon chip + ExtraBold title + one muted
+ * line, 16dp corners.
  */
 @Composable
 fun BackupRestoreScreen(
@@ -96,11 +103,14 @@ fun BackupRestoreScreen(
         }?.let { folderReady = true }
     }
     var backingUp by remember { mutableStateOf(false) }
+    var showIncludePopup by remember { mutableStateOf(false) }
+    // ROUND 136 (the verifier's P1): the include-summary is a plain
+    // SharedPreferences read (not a snapshot state) — bump this revision
+    // when the popup closes so the row recomposes with the fresh count.
+    var includeRevision by androidx.compose.runtime.mutableIntStateOf(0)
 
     LaunchedEffect(folderReady) {
         if (folderReady) {
-            // ROUND 135 (the verifier's F4): DocumentFile listFiles is binder
-            // I/O — never on the main thread.
             backups = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 backupManager.listBackups()
             }
@@ -139,8 +149,8 @@ fun BackupRestoreScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         BentoTile(
                             icon = Icons.Filled.CloudUpload,
@@ -155,17 +165,22 @@ fun BackupRestoreScreen(
                             } else {
                                 backingUp = true
                                 scope.launch {
-                                    val result = backupManager.createBackup(backupPreferences.options())
+                                    val result = kotlinx.coroutines.withContext(
+                                        kotlinx.coroutines.Dispatchers.IO,
+                                    ) {
+                                        backupManager.createBackup(backupPreferences.options())
+                                    }
                                     backingUp = false
                                     result.fold(
                                         onSuccess = { manifest ->
                                             AppToast.show(
-                                                "Backup created — ${manifest.rowCount.values.sum()} rows" +
-                                                    (if (manifest.imageCount > 0) ", ${manifest.imageCount} covers" else "") +
-                                                    (if (manifest.aniyomiApkCount > 0) ", ${manifest.aniyomiApkCount} extensions" else ""),
+                                                formatBackupToast(manifest),
                                                 AppToastTone.SUCCESS,
+                                                durationMillis = 3600L,
                                             )
-                                            backups = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                            backups = kotlinx.coroutines.withContext(
+                                                kotlinx.coroutines.Dispatchers.IO,
+                                            ) {
                                                 backupManager.listBackups()
                                             }
                                         },
@@ -192,103 +207,81 @@ fun BackupRestoreScreen(
                     }
                 }
 
-                // ── What to include (the granular selector) ──
+                // ── WHAT TO INCLUDE — opens the checkmark popup ──
                 item {
-                    SectionCard {
-                        Text(
-                            "What to include",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        CategoryHeader("Library")
-                        SwitchRow(
-                            title = "Library entries & categories",
-                            checked = backupPreferences.includeLibraryCore,
-                        )
-                        SwitchRow(
-                            title = "Watch history, progress & ratings",
-                            checked = backupPreferences.includeLibraryHistory,
-                        )
-                        SwitchRow(
-                            title = "Tracking",
-                            checked = backupPreferences.includeLibraryTracking,
-                        )
-                        SwitchRow(
-                            title = "Downloads, schedules & updates",
-                            checked = backupPreferences.includeLibraryDownloads,
-                        )
-                        CategoryHeader("Images")
-                        SwitchRow(
-                            title = "Library cover images",
-                            checked = backupPreferences.includeImageCovers,
-                        )
-                        SwitchRow(
-                            title = "Search & browse page covers",
-                            checked = backupPreferences.includeImageSearchBrowse,
-                        )
-                        SwitchRow(
-                            title = "Episode thumbnail images",
-                            checked = backupPreferences.includeImageEpisodeThumbnails,
-                        )
-                        CategoryHeader("Settings")
-                        SwitchRow(
-                            title = "App settings",
-                            checked = backupPreferences.includeSettingsApp,
-                        )
-                        SwitchRow(
-                            title = "Extension & source settings",
-                            checked = backupPreferences.includeSettingsSources,
-                        )
-                        SwitchRow(
-                            title = "Security & login tokens",
-                            checked = backupPreferences.includeSettingsSecurity,
-                        )
-                        CategoryHeader("Extensions")
-                        SwitchRow(
-                            title = "Extension repos",
-                            checked = backupPreferences.includeExtensionRepos,
-                        )
-                        SwitchRow(
-                            title = "Aniyomi extensions",
-                            checked = backupPreferences.includeExtensionAniyomi,
-                        )
-                        SwitchRow(
-                            title = "CloudStream extensions",
-                            checked = backupPreferences.includeExtensionCloudstream,
-                        )
-                        Text(
-                            "Details-page banners ride with the library entries.",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
+                    SettingsCard {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showIncludePopup = true },
+                        ) {
+                            IconChip(Icons.Filled.Tune)
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "What to include",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    // Reads includeRevision so the count refreshes
+                                    // when the popup's edits land.
+                                    includeRevision.let { includedSummary(backupPreferences) },
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                "Edit",
+                                fontFamily = RobotoFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
                 }
 
                 // ── Automatic backups ──
                 item {
-                    SectionCard {
-                        // The shared settings SwitchRow (Boolean + onChecked).
-                        SwitchRow(
-                            title = "Automatic backups",
-                            checked = autoEnabled,
-                            onChecked = {
-                                backupPreferences.autoBackupEnabled.set(it)
-                                org.koin.core.context.GlobalContext.get()
-                                    .get<com.confused.anikuta.core.backup.BackupScheduler>().reschedule()
-                            },
-                            description = "The newest 3 are kept, the oldest is deleted on overflow",
-                        )
-                        if (autoEnabled) {
-                            Text(
-                                "How often",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 10.dp, bottom = 6.dp),
+                    SettingsCard {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            IconChip(Icons.Filled.Backup)
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Automatic backups",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    "Keeps the newest 3 in your storage folder",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = autoEnabled,
+                                onCheckedChange = {
+                                    backupPreferences.autoBackupEnabled.set(it)
+                                    org.koin.core.context.GlobalContext.get()
+                                        .get<com.confused.anikuta.core.backup.BackupScheduler>()
+                                        .reschedule()
+                                },
                             )
+                        }
+                        if (autoEnabled) {
+                            Spacer(Modifier.height(10.dp))
                             LocalSegmentedRow(
                                 options = listOf(
                                     "6 h" to (intervalHours == 6),
@@ -301,7 +294,8 @@ fun BackupRestoreScreen(
                                     when (idx) { 0 -> 6; 1 -> 12; 2 -> 24; else -> 168 },
                                 )
                                 org.koin.core.context.GlobalContext.get()
-                                    .get<com.confused.anikuta.core.backup.BackupScheduler>().reschedule()
+                                    .get<com.confused.anikuta.core.backup.BackupScheduler>()
+                                    .reschedule()
                             }
                         }
                     }
@@ -309,26 +303,28 @@ fun BackupRestoreScreen(
 
                 // ── Existing backups ──
                 item {
-                    SectionCard {
+                    SettingsCard {
                         Text(
                             "Existing backups",
-                            fontSize = 16.sp,
+                            fontFamily = RobotoFamily,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
+                        Spacer(Modifier.height(6.dp))
                         if (backups.isEmpty()) {
                             Text(
                                 if (folderReady) "No backups yet."
-                                else "Select the storage folder to see backups.",
+                                else "Select the storage folder first — the Backup tile offers it.",
+                                fontFamily = RobotoFamily,
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 6.dp),
                             )
                         } else {
                             val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
                             backups.forEach { file ->
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Icon(
@@ -337,11 +333,17 @@ fun BackupRestoreScreen(
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(16.dp),
                                     )
-                                    Spacer(Modifier.width(8.dp))
+                                    Spacer(Modifier.width(10.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(file.name, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                                        Text(
+                                            file.name,
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
                                         Text(
                                             "${fmt.format(Date(file.createdAt))} · ${file.sizeBytes / (1024 * 1024)} MB",
+                                            fontFamily = RobotoFamily,
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
@@ -351,6 +353,8 @@ fun BackupRestoreScreen(
                         }
                     }
                 }
+
+                item { Spacer(Modifier.height(24.dp)) }
             }
 
             ScrollBlurOverlay(
@@ -362,6 +366,126 @@ fun BackupRestoreScreen(
                 modifier = Modifier.align(Alignment.TopCenter),
             )
         }
+    }
+
+    if (showIncludePopup) {
+        IncludeSelectionPopup(
+            preferences = backupPreferences,
+            onDismiss = {
+                showIncludePopup = false
+                includeRevision++
+            },
+        )
+    }
+}
+
+/** The formatted backup toast (the report: a formatted response, not a blank one). */
+internal fun formatBackupToast(manifest: BackupManifest): String {
+    val parts = mutableListOf<String>()
+    parts += "${formatCount(manifest.rowCount["library_item"] ?: 0)} entries"
+    if (manifest.offlineImageCount > 0) {
+        parts += "${formatCount(manifest.offlineImageCount)} covers"
+    } else if (manifest.imageCount > 0) {
+        parts += "${formatCount(manifest.imageCount)} covers"
+    }
+    if (manifest.aniyomiApkCount > 0) parts += "${formatCount(manifest.aniyomiApkCount)} Aniyomi"
+    if (manifest.csPluginCount > 0) parts += "${formatCount(manifest.csPluginCount)} CloudStream"
+    return "Backup created — " + parts.joinToString(" · ")
+}
+
+/** The one-line "what to include" summary under the row's title. */
+private fun includedSummary(preferences: BackupPreferences): String {
+    val o = preferences.options()
+    val on = listOf(
+        o.libraryCore, o.libraryHistory, o.libraryTracking, o.libraryDownloads,
+        o.imageCovers, o.imageSearchBrowse, o.imageEpisodeThumbnails,
+        o.settingsApp, o.settingsSources, o.settingsSecurity,
+        o.extensionRepos, o.extensionAniyomi, o.extensionCloudstream,
+    ).count { it }
+    return "$on of 13 items included"
+}
+
+/** The checkmark popup — every includable item, grouped by category. */
+@Composable
+private fun IncludeSelectionPopup(
+    preferences: BackupPreferences,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "What to include",
+                fontFamily = RobotoFamily,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                PopupGroup("Library")
+                PopupCheck("Library entries & categories", preferences.includeLibraryCore)
+                PopupCheck("Watch history, progress & ratings", preferences.includeLibraryHistory)
+                PopupCheck("Tracking", preferences.includeLibraryTracking)
+                PopupCheck("Downloads, schedules & updates", preferences.includeLibraryDownloads)
+                PopupGroup("Images")
+                PopupCheck("Library cover images", preferences.includeImageCovers)
+                PopupCheck("Search & browse page covers", preferences.includeImageSearchBrowse)
+                PopupCheck("Episode thumbnail images", preferences.includeImageEpisodeThumbnails)
+                Text(
+                    "Details-page banners ride with the library entries. Covers load OFFLINE after a restore.",
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 40.dp, top = 0.dp, bottom = 2.dp),
+                )
+                PopupGroup("Settings")
+                PopupCheck("App settings", preferences.includeSettingsApp)
+                PopupCheck("Extension & source settings", preferences.includeSettingsSources)
+                PopupCheck("Security & login tokens", preferences.includeSettingsSecurity)
+                PopupGroup("Extensions")
+                PopupCheck("Extension repos", preferences.includeExtensionRepos)
+                PopupCheck("Aniyomi extensions", preferences.includeExtensionAniyomi)
+                PopupCheck("CloudStream extensions", preferences.includeExtensionCloudstream)
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) { Text("Done") }
+        },
+    )
+}
+
+@Composable
+private fun PopupGroup(label: String) {
+    Text(
+        label.uppercase(),
+        fontFamily = RobotoFamily,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp, start = 4.dp),
+    )
+}
+
+@Composable
+private fun PopupCheck(
+    label: String,
+    checked: com.confused.anikuta.core.preferences.Preference<Boolean>,
+) {
+    val state by checked.changes.collectAsState(initial = checked.get())
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { checked.set(!state) },
+    ) {
+        Checkbox(checked = state, onCheckedChange = { checked.set(it) })
+        Text(
+            label,
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -402,6 +526,7 @@ private fun BentoTile(
                 Spacer(Modifier.width(8.dp))
                 Text(
                     title,
+                    fontFamily = RobotoFamily,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -410,6 +535,7 @@ private fun BentoTile(
             Spacer(Modifier.height(6.dp))
             Text(
                 description,
+                fontFamily = RobotoFamily,
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -418,46 +544,19 @@ private fun BentoTile(
     }
 }
 
-/** A category label inside the granular selector. */
+/** The page's icon chip — a quiet accent disc behind the card's glyph. */
 @Composable
-private fun CategoryHeader(label: String) {
-    Text(
-        label.uppercase(),
-        fontSize = 11.sp,
-        fontWeight = FontWeight.ExtraBold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
-    )
-}
-
-/** A granular switch bound to a persisted [Preference]. */
-@Composable
-private fun SwitchRow(
-    title: String,
-    checked: Preference<Boolean>,
-    subtitle: String? = null,
-) {
-    val state by checked.changes.collectAsState(initial = checked.get())
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun IconChip(icon: ImageVector) {
+    Surface(
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(10.dp),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                title,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            if (subtitle != null) {
-                Text(
-                    subtitle,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Switch(checked = state, onCheckedChange = { checked.set(it) })
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(8.dp).size(18.dp),
+        )
     }
 }
 
@@ -494,15 +593,15 @@ private fun LocalSegmentedRow(
 
 /** A padded card used by this page's sections (the Player settings' look). */
 @Composable
-private fun SectionCard(content: @Composable () -> Unit) {
+private fun SettingsCard(content: @Composable () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(horizontal = 14.dp, vertical = 5.dp),
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
             content()
         }
     }

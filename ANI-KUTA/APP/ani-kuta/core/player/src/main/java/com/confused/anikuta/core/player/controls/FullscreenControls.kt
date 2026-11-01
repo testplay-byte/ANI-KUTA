@@ -499,7 +499,9 @@ fun FullscreenControls(
             // ROUND 131 (D-809): the gesture OSD — drawn last so it sits on
             // top of every control layer while a swipe is in progress.
             // ROUND 135: the seek pill aligns TOP CENTER in fullscreen.
-            GestureOsd(state = gestureState, alignTop = true)
+            // ROUND 136: fullscreen keeps the regular OSD size + the 600dp
+            // vertical travel the report called proper.
+            GestureOsd(state = gestureState, alignTop = true, compact = false)
         }
     }
 }
