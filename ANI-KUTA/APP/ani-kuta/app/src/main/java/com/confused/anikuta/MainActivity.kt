@@ -418,6 +418,10 @@ object SponsorDebugKey : NavKey
 @Serializable
 object AboutKey : NavKey
 
+// ROUND 134 (D-816): the Backup & restore settings page.
+@Serializable
+object BackupRestoreKey : NavKey
+
 /**
  * Root tab keys — these are the 4 tabs that show the bottom nav.
  * Any other key (Details, Settings, Appearance, etc.) is a "sub-screen"
@@ -1508,6 +1512,7 @@ fun AppRoot() {
                 onOpenNotifications = { backstack.add(NotificationsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onOpenVideoCaching = { backstack.add(VideoCachingKey) },
+                onOpenBackupRestore = { backstack.add(BackupRestoreKey) },
                 onOpenDebug = { backstack.add(DebugSettingsKey) },
                 // D-561: the hidden long-press gate on the SAME row.
                 onOpenSponsorDebug = { backstack.add(SponsorDebugKey) },
@@ -1625,6 +1630,9 @@ fun AppRoot() {
             // We pass the hoisted appUpdateManager (already koinInject'd at the
             // top of AppRoot) rather than koinInject'ing again here, matching
             // the pattern used for orchestrator/contentRepository/downloadManager.
+            is BackupRestoreKey -> com.confused.anikuta.settings.BackupRestoreScreen(
+                onBack = pop,
+            )
             is AboutKey -> AboutScreen(
                 updateManager = appUpdateManager,
                 onBack = pop,

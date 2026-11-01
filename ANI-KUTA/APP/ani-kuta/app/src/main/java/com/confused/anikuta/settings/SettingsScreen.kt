@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.ChevronRight
@@ -112,6 +113,8 @@ fun SettingsScreen(
     onOpenNotifications: () -> Unit,
     onOpenPlayerSettings: () -> Unit,
     onOpenVideoCaching: () -> Unit,
+    // ROUND 134 (D-816): the Backup & restore page.
+    onOpenBackupRestore: () -> Unit = {},
     onOpenDebug: () -> Unit,
     // D-561 (round 73): LONG-PRESS on the "Debug options" row opens the
     // hidden Always-sponsor page (the toggle that fires the sponsor popup on
@@ -319,6 +322,19 @@ fun SettingsScreen(
                                 title = "Auto-Link",
                                 subtitle = "Link extension anime to AniList",
                                 onClick = onOpenAutoLink,
+                            )
+                        }
+
+                        // ── ROUND 134 (D-816): Backup & restore ──
+                        item {
+                            HubSection(
+                                activeAnchor = highlightAnchor,
+                                label = "Backup & restore",
+                                anchorId = "backup_restore",
+                                icon = Icons.Filled.Backup,
+                                title = "Backup & restore",
+                                subtitle = "Back up and restore everything",
+                                onClick = onOpenBackupRestore,
                             )
                         }
 

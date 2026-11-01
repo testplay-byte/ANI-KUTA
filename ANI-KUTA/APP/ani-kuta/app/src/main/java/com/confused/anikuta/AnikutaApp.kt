@@ -7,6 +7,7 @@ import com.confused.anikuta.core.activitytracker.activityTrackerModule
 import com.confused.anikuta.core.ads.di.adsModule  // D-272: smart-link ad system
 import com.confused.anikuta.core.anilist.di.anilistModule
 import com.confused.anikuta.core.appupdate.di.appUpdateModule
+import com.confused.anikuta.core.backup.di.backupModule
 import com.confused.anikuta.core.common.LogLevel
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.database.AnikutaDatabase
@@ -155,6 +156,7 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 notificationsModule,
                 activityTrackerModule,
                 appUpdateModule,
+                backupModule,
                 adsModule,  // D-272: smart-link ad system
                 extensionModule,
                 cloudstreamModule,  // Task 41: CloudStream extension system (doc 23)
@@ -272,6 +274,14 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             org.koin.core.context.GlobalContext.get().get<com.confused.anikuta.core.updates.UpdateScheduler>().reschedule()
         } catch (e: Exception) {
             Logger.e("AnikutaApp", e) { "Failed to schedule UpdateCheckWorker" }
+        }
+
+        // ROUND 134: the automatic backup worker (6h/12h/24h/weekly per the
+        // Backup & restore settings; a no-op when disabled or folder-less).
+        try {
+            org.koin.core.context.GlobalContext.get().get<com.confused.anikuta.core.backup.BackupScheduler>().reschedule()
+        } catch (e: Exception) {
+            Logger.e("AnikutaApp", e) { "Failed to schedule BackupWorker" }
         }
 
         // D-151-fix: Run the download scanner on app startup. This reconciles the
