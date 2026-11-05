@@ -313,6 +313,9 @@ class SqlDelightWatchProgressStore(
 
     override suspend fun clearByMainId(mainId: String) = withContext(dispatchers) {
         database.watchQueries.clearByMainId(mainId)
+        // ROUND 137 (D-830): the per-day session ledger follows the progress rows —
+        // a removed content must not keep feeding the profile's watch flow.
+        database.watchQueries.deleteWatchSessionsByMainId(mainId)
         Logger.i(TAG) { "clearByMainId: mainId=$mainId (library-remove)" }
     }
 
@@ -323,6 +326,9 @@ class SqlDelightWatchProgressStore(
 
     override suspend fun deleteAll() = withContext(dispatchers) {
         database.watchQueries.deleteAllWatchProgress()
+        // ROUND 137 (D-830): the History "Clear all" wipes the session ledger too —
+        // otherwise the profile would keep showing minutes for cleared rows.
+        database.watchQueries.deleteAllWatchSessions()
         Logger.i(TAG) { "deleteAll: cleared all watch progress" }
     }
 

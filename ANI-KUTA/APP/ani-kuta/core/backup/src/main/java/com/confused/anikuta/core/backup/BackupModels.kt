@@ -37,6 +37,8 @@ object BackupFormat {
     const val EXT_CS_DIR = "ext/cs"
     /** ROUND 136: the URL-keyed offline images (SHA-256-named .img files). */
     const val OFFLINE_IMAGES_DIR = "offline_images"
+    /** ROUND 137: the profile avatar file (restored to a fresh device-local path). */
+    const val PROFILE_AVATAR_ENTRY = "profile/avatar.jpg"
 }
 
 /**
@@ -51,6 +53,11 @@ object BackupFormat {
  *    non-backup-eligible),
  *  - `activity_event` (internal analytics; pruned after a year),
  *  - `playback_cache_entry` (a disposable byte-cache index).
+ *
+ * ROUND 137 additions (the full-capability audit): `watch_session` (the
+ * per-day watch-flow ledger — real minutes per day ride the backup now) and
+ * `episode_update` (the "New episodes" feed + its SUB/DUB evidence — the
+ * audit found it was silently dropped with no documented exclusion).
  */
 val BACKUP_TABLES: List<String> = listOf(
     // Parents first.
@@ -63,6 +70,7 @@ val BACKUP_TABLES: List<String> = listOf(
     "library_category",
     "library_item",
     "watch_progress",
+    "watch_session",
     "user_rating",
     "user_episode_rating",
     "track_entry",
@@ -72,6 +80,7 @@ val BACKUP_TABLES: List<String> = listOf(
     "notification_config",
     "anime_update_state",
     "episode_schedule",
+    "episode_update",
     // Text caches last (episode details/synopses + the browse/search page
     // payloads).
     "data_cache_episode",
@@ -181,10 +190,13 @@ data class BackupOptions(
         "data_source", "system", "genre", "main_entry", "content_details",
         "content_genre", "library_category", "library_item",
         -> libraryCore
-        "watch_progress", "user_rating", "user_episode_rating" -> libraryHistory
+        // ROUND 137: the per-day session ledger rides the history bucket.
+        "watch_progress", "watch_session", "user_rating", "user_episode_rating" -> libraryHistory
         "track_entry", "content_tracking_state" -> libraryTracking
         "downloaded_episode", "notification_config", "anime_update_state",
         "episode_schedule",
+        // ROUND 137: the New-episodes feed is user-visible state, not a cache.
+        "episode_update",
         -> libraryDownloads
         "data_cache_episode" -> imageEpisodeThumbnails
         "browse_cache" -> imageSearchBrowse
@@ -261,6 +273,8 @@ data class BackupManifest(
     val createdAt: Long,
     /** The included optional payload (covers). */
     val includesImages: Boolean = false,
+    /** ROUND 137: the profile avatar file is carried (restored to a local path). */
+    val includesAvatar: Boolean = false,
     /** The DB tables carried (in restore order). */
     val tables: List<String>,
     /** The SharedPreferences files carried. */

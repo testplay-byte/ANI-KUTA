@@ -7,23 +7,41 @@ import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.content.genre.GenreRepository
 import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.preferences.PreferenceStore
+import com.confused.anikuta.core.watchprogress.WatchProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import java.util.Locale
 
 /**
  * ViewModel for the My Profile screen.
  *
- * Computes all stats from the database:
- * - Quick stats: total anime, watch time, mean score, streak
- * - Watch flow: episodes watched by day of week (Mon-Sun)
- * - Time DNA: preferred watch time (morning/afternoon/evening/night)
- * - Genre distribution: from GenreRepository
- * - Activity heatmap: 365-day watch activity
- * - Timeline: user's activity feed
+ * ROUND 137 (D-830/D-831 — the device report's tracking overhaul):
+ *  - TIME IS REAL now: `watch_progress.played_time_ms` (the cumulative
+ *    actually-played counter the players write) is the total-watch-time
+ *    source; the per-day numbers come from the `watch_session` ledger
+ *    (round 137's per-continuous-streak rows), bucketed by the LOCAL
+ *    calendar day. The old model summed episode DURATIONS of completed
+ *    episodes — an approximation that ignored both real playback time and
+ *    partial watches.
+ *  - THE WATCH FLOW IS THE LAST 7 DAYS (today on the far right, six days
+ *    back to the left) — the old chart aggregated EVERY week's history into
+ *    weekday buckets, which never matched what the user actually did this
+ *    week. Each bar is minutes watched; tapping opens a day-detail sheet.
+ *  - STREAK uses local-day boundaries and stays alive through "today not
+ *    watched YET" (yesterday's activity keeps it) — the old UTC-midnight
+ *    math broke both.
+ *  - TIME DNA computes its daypart split in ONE place (here) from the same
+ *    session ledger; the UI renders it (the old duplicated bucketing showed
+ *    the wall-clock period instead of the user's actual peak).
+ *
+ * D-248's statistic filter (organic, meaningfully-watched episodes only)
+ * still governs EPISODE COUNTS — user-marked rows never count there, per
+ * the round-24 directive. TIME metrics use the real play counters, which
+ * manual marks never inflate.
  */
 class ProfileViewModel(
     private val database: AnikutaDatabase,
@@ -38,33 +56,48 @@ class ProfileViewModel(
         /** Task 64 (round 24 — E): the persisted genre-radar filter ("All" or
          *  a category name; remembered across visits). */
         private const val KEY_GENRE_FILTER = "profile_genre_filter"
+
+        private const val ONE_DAY_MS = 24L * 60 * 60 * 1000
     }
 
     private val _state = MutableStateFlow(ProfileUiState())
     val state: StateFlow<ProfileUiState> = _state.asStateFlow()
 
     init {
-        loadStats()
+        refresh()
     }
 
-    fun loadStats() {
+    /**
+     * Loads everything. Called on init AND on every screen entry (the
+     * ProfileScreen's LaunchedEffect) — the stats were one-shot at VM
+     * creation before, so a back-stack return showed stale numbers after a
+     * watching session (the report's "inconsistencies going around").
+     */
+    fun refresh() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 Logger.i(TAG) { "Loading profile stats..." }
+
+                // ── Batch identity maps (the N+1 fix): two queries cover every
+                // title/cover the page renders. ──
+                val titleByMain = HashMap<String, String>()
+                val coverByMain = HashMap<String, String?>()
+                val anilistIdByMain = HashMap<String, Int?>()
+                for (record in contentRepository.getAllMainEntries()) {
+                    titleByMain[record.mainId] = record.title
+                }
+                for (details in database.contentQueries.getAllContentDetails().executeAsList()) {
+                    coverByMain[details.main_id] = details.data_cover_url ?: details.ext_thumbnail_url
+                    if (details.data_source_type == "anilist") {
+                        anilistIdByMain[details.main_id] = details.data_source_ref_id?.toIntOrNull()
+                    }
+                }
 
                 val libraryItems = database.libraryQueries.getAllLibraryItems().executeAsList()
                 val totalAnime = libraryItems.map { it.main_id }.distinct().size
                 val libraryMainIds = libraryItems.map { it.main_id }.toSet()
 
                 // ── Task 64 (round 24 — the genre radar category filter) ──────
-                // Per-category mainId sets (the filter's scope) + the options
-                // list. ONLY categories that actually have entries become
-                // options — the round-24 device report: "If the user does not
-                // have some categories then those Genre categories will not
-                // show there… if the user has nothing in his default category
-                // then the default category will not show." A persisted
-                // selection whose category is gone/empty reverts to "All"
-                // (and the revert is persisted, so it sticks).
                 val itemsByCategory = mutableMapOf<Long, MutableSet<String>>()
                 for (item in libraryItems) {
                     itemsByCategory.getOrPut(item.category_id) { mutableSetOf() }.add(item.main_id)
@@ -80,15 +113,14 @@ class ProfileViewModel(
                 ) {
                     savedGenreFilter
                 } else {
-                    // The persisted category is gone or emptied — revert to All
-                    // (persisted so it survives the next visit too).
                     preferenceStore.putString(KEY_GENRE_FILTER, "All")
                     "All"
                 }
 
-                // Watch progress
+                // ── Watch progress — WITH the real played-time counter this time
+                // (the round-127 column the profile never read). ──
                 val allProgress = database.watchQueries.getAllWatchProgress().executeAsList().map { row ->
-                    com.confused.anikuta.core.watchprogress.WatchProgress(
+                    WatchProgress(
                         episodeKey = row.episode_key,
                         mainId = row.main_id,
                         position = row.position,
@@ -100,43 +132,162 @@ class ProfileViewModel(
                         firstWatchedAt = row.first_watched_at,
                         autoMarkSuppressed = row.auto_mark_suppressed == 1L,
                         userMarkedWatched = row.user_marked_watched == 1L,
+                        playedTimeMs = row.played_time_ms,
                     )
                 }
-                // D-248: only ORGANIC, meaningfully-watched episodes count in profile stats:
-                //  - user_marked_watched rows (manual marks + AniList-sync bulk marks) NEVER count
-                //    (they update tracking lists normally, but are excluded from ALL profile
-                //    statistics per user directive)
-                //  - episodes watched < 10% of their duration never count (duration=0 rows fail
-                //    this automatically — the "2,333 episodes in one day" glitch was bulk manual
-                //    INSERTs stamping last_watched_at with duration=0)
+                // D-248 (unchanged): organic, meaningfully-watched episodes only
+                // for EPISODE COUNTS. Manual bulk marks (the "2,333 episodes" glitch)
+                // never count.
                 val countedProgress = allProgress.filter {
                     !it.userMarkedWatched && it.duration > 0 && it.progressFraction >= 0.10f
                 }
                 val totalEpisodesWatched = countedProgress.count { it.completed }
-                val totalWatchTimeSec = countedProgress.filter { it.completed }.sumOf { it.duration }
-                val watchTimeFormatted = formatWatchTime(totalWatchTimeSec)
 
-                // Average rating
-                val allRatings = database.ratingsQueries.getAllUserRatings().executeAsList()
-                val avgRating = if (allRatings.isNotEmpty()) {
-                    allRatings.mapNotNull { it?.rating?.toInt() }.let { ratings ->
-                        if (ratings.isNotEmpty()) ratings.average() else 0.0
+                // ── The SESSION LEDGER (round 137, D-830): per-continuous-streak
+                // rows the players write — the per-day truth. ──
+                val sessions = runCatching {
+                    database.watchQueries.getAllWatchSessions().executeAsList()
+                }.getOrElse { emptyList() }
+
+                val calendar = Calendar.getInstance()
+
+                // ── TOTAL WATCH TIME (real): the cumulative played counters;
+                // legacy completed rows without a counter fall back to their
+                // episode duration (the best estimate we have for them). ──
+                val totalPlayedMs = allProgress.sumOf { row ->
+                    if (row.playedTimeMs > 0) {
+                        row.playedTimeMs
+                    } else if (row.completed && row.duration > 0) {
+                        row.duration * 1000L
+                    } else {
+                        0L
                     }
-                } else 0.0
-                val avgRatingFormatted = if (avgRating > 0) String.format("%.1f", avgRating / 10.0) else "—"
+                }
 
-                // Genre distribution — backfill from existing anilist_detail.genres first
+                // ── LOCAL day keys: both sides of every join below bucket by the
+                // device's own midnight (the old heatmap mixed UTC row keys with
+                // local grid cells — off by hours; D-831). Day arithmetic goes
+                // through Calendar.add — a fixed 24h stride from local midnight
+                // drifts an hour across a DST transition and the keys miss
+                // (the verifier's P2-4). ──
+                fun localDayStart(ms: Long): Long {
+                    calendar.timeInMillis = ms
+                    calendar.set(Calendar.HOUR_OF_DAY, 0)
+                    calendar.set(Calendar.MINUTE, 0)
+                    calendar.set(Calendar.SECOND, 0)
+                    calendar.set(Calendar.MILLISECOND, 0)
+                    return calendar.timeInMillis
+                }
+
+                /** [baseDay] (a local-midnight key) shifted by [offsetDays] LOCAL days. */
+                fun dayShift(baseDay: Long, offsetDays: Int): Long {
+                    calendar.timeInMillis = baseDay
+                    calendar.add(Calendar.DAY_OF_MONTH, offsetDays)
+                    return calendar.timeInMillis
+                }
+
+                // played-ms per LOCAL day (the watch flow + the fallbacks read it).
+                val playedMsByDay = HashMap<Long, Long>()
+                var sessionMinutesTotal = 0L
+                for (session in sessions) {
+                    val day = localDayStart(session.started_at)
+                    playedMsByDay[day] = (playedMsByDay[day] ?: 0L) + session.played_ms
+                    sessionMinutesTotal += session.played_ms
+                }
+
+                // Organic episode "touch" days (counts + the streak's activity set).
+                val countedByDay = HashMap<Long, MutableList<WatchProgress>>()
+                for (progress in countedProgress) {
+                    if (progress.lastWatchedAt > 0) {
+                        countedByDay.getOrPut(localDayStart(progress.lastWatchedAt)) { mutableListOf() }
+                            .add(progress)
+                    }
+                }
+
+                // ── WATCH FLOW — the LAST 7 DAYS, today rightmost (D-831) ──
+                val today = localDayStart(System.currentTimeMillis())
+                val hasSessionData = sessionMinutesTotal > 0
+                val watchFlowDays = buildList {
+                    for (offset in 6 downTo 0) {
+                        val dayStart = dayShift(today, -offset)
+                        val dayEnd = dayShift(today, -offset + 1)
+                        var playedMs = playedMsByDay[dayStart] ?: 0L
+                        val touched = countedByDay[dayStart].orEmpty()
+                        // Legacy fallback: a day with real episode history but no
+                        // session rows (watching from before round 137) still shows
+                        // its completed-episode durations — clearly the same unit
+                        // the whole chart switches to once sessions start landing.
+                        if (!hasSessionData && playedMs == 0L) {
+                            playedMs = touched.filter { it.completed }.sumOf { it.duration } * 1000L
+                        }
+                        val items = touched
+                            .sortedByDescending { it.lastWatchedAt }
+                            .take(12)
+                            .mapNotNull { progress ->
+                                val mainId = progress.mainId ?: return@mapNotNull null
+                                val epNum = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
+                                // The day detail shows the minutes watched THAT DAY
+                                // (an all-time sum overstated rewatched episodes —
+                                // the verifier's P3-10).
+                                val itemSeconds = sessions
+                                    .filter {
+                                        it.episode_key == progress.episodeKey &&
+                                            it.started_at >= dayStart && it.started_at < dayEnd
+                                    }
+                                    .sumOf { it.played_ms } / 1000L
+                                DayWatchItem(
+                                    anilistId = anilistIdByMain[mainId],
+                                    title = titleByMain[mainId] ?: "Unknown",
+                                    coverUrl = coverByMain[mainId],
+                                    episodeThumbnailUrl = getEpisodeThumbnail(mainId, epNum)
+                                        ?: coverByMain[mainId],
+                                    episodeNumber = epNum,
+                                    secondsWatched = itemSeconds,
+                                    completed = progress.completed,
+                                )
+                            }
+                        add(
+                            WatchFlowDay(
+                                dateMs = dayStart,
+                                secondsWatched = playedMs / 1000L,
+                                episodes = touched.size,
+                                items = items,
+                                isToday = offset == 0,
+                            ),
+                        )
+                    }
+                }
+
+                // ── STREAK (D-831): local-day math; survives "today not watched YET" ──
+                val currentStreak = calculateCurrentStreak(
+                    activeDays = playedMsByDay.filterValues { it > 0 }.keys +
+                        countedByDay.keys,
+                    today = today,
+                )
+
+                // ── TIME DNA (D-831): ONE bucketing, from the session ledger when
+                // it has data (the hours the user actually pressed play), else the
+                // organic episodes' timestamps. The UI renders this — no duplicate. ──
+                val hourlyMinutes = IntArray(24)
+                if (hasSessionData) {
+                    for (session in sessions) {
+                        calendar.timeInMillis = session.started_at
+                        hourlyMinutes[calendar.get(Calendar.HOUR_OF_DAY)] += (session.played_ms / 60_000L).toInt()
+                    }
+                } else {
+                    for (progress in countedProgress) {
+                        if (progress.lastWatchedAt > 0) {
+                            calendar.timeInMillis = progress.lastWatchedAt
+                            hourlyMinutes[calendar.get(Calendar.HOUR_OF_DAY)] += 1
+                        }
+                    }
+                }
+                val timeDna = buildTimeDna(hourlyMinutes.toList())
+
+                // ── Genre distribution — backfill from existing anilist_detail.genres first ──
                 genreRepository.backfillGenresFromExistingData(database)
                 val genreCounts = genreRepository.getLibraryGenreCounts(libraryMainIds)
                 val genreDistribution = genreCounts.associate { it.first to it.second }
-                // Task 64 (round 24): the filter-restricted distribution (what
-                // the RADAR draws). "All" shows the full library; a category
-                // restricts to its mainIds. When the restriction yields nothing
-                // the section STAYS (the chips + heading render from the full
-                // distribution; the radar swaps to an empty-caption) — the
-                // round-24 report: "it disappears the whole general section
-                // because there was nothing to show… The whole general section
-                // disappeared in of itself" — that must never happen.
                 val filteredGenreDistribution = if (selectedGenreFilter == "All") {
                     genreDistribution
                 } else {
@@ -149,95 +300,61 @@ class ProfileViewModel(
                     }
                 }
 
-                // Current streak
-                val currentStreak = calculateCurrentStreak(countedProgress)
-
-                // Watch flow by day of week (Mon=0, Sun=6) + per-day detail for sidebar
-                val watchFlowByDay = List(7) { 0 }.toMutableList()
-                val watchFlowDurationByDay = List(7) { 0L }.toMutableList()
-                // 7 buckets; each holds (progress) entries for that weekday
-                val dayBuckets = List(7) { mutableListOf<com.confused.anikuta.core.watchprogress.WatchProgress>() }
-                val calendar = Calendar.getInstance()
-                countedProgress.forEach { progress ->
-                    if (progress.lastWatchedAt > 0) {
-                        calendar.timeInMillis = progress.lastWatchedAt
-                        val dayOfWeek = (calendar.get(Calendar.DAY_OF_WEEK) - 2 + 7) % 7 // Mon=0, Sun=6
-                        watchFlowByDay[dayOfWeek] = watchFlowByDay[dayOfWeek] + 1
-                        watchFlowDurationByDay[dayOfWeek] = watchFlowDurationByDay[dayOfWeek] + progress.duration
-                        dayBuckets[dayOfWeek].add(progress)
+                // ── ACTIVITY HEATMAP — minutes per LOCAL day (real intensity);
+                // days without session data fall back to their episode counts. ──
+                val activityMinutes = HashMap<Long, Long>()
+                val spanStart = allProgress.mapNotNull { it.firstWatchedAt }.minOrNull()
+                    ?: allProgress.map { it.lastWatchedAt }.minOrNull()
+                    ?: System.currentTimeMillis()
+                for (session in sessions) {
+                    val day = localDayStart(session.started_at)
+                    activityMinutes[day] = (activityMinutes[day] ?: 0L) + session.played_ms / 60_000L
+                }
+                for ((day, rows) in countedByDay) {
+                    if (!activityMinutes.containsKey(day)) {
+                        activityMinutes[day] = rows.count { it.completed }.toLong()
                     }
                 }
-                // Build per-day summary (newest-first within each day, capped at 12 items)
-                val watchFlowDetail = dayBuckets.mapIndexed { dayIdx, bucket ->
-                    val items = bucket
-                        .sortedByDescending { it.lastWatchedAt }
-                        .take(12)
-                        .mapNotNull { progress ->
-                            val mid = progress.mainId ?: return@mapNotNull null
-                            val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
-                            // D-198: getAniListDetail → getContentDetails.
-                            val details = contentRepository.getContentDetails(mid)
-                            val epNum = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
-                            DayWatchItem(
-                                anilistId = details?.anilistId,
-                                title = content.title,
-                                coverUrl = details?.dataCoverUrl,
-                                episodeThumbnailUrl = getEpisodeThumbnail(mid, epNum) ?: details?.dataCoverUrl,
-                                episodeNumber = epNum,
-                            )
-                        }
-                    DayWatchSummary(
-                        count = watchFlowByDay[dayIdx],
-                        totalDurationSec = watchFlowDurationByDay[dayIdx],
-                        items = items,
-                    )
-                }
 
-                // Time DNA (hourly distribution)
-                val hourlyCounts = IntArray(24)
-                countedProgress.forEach { progress ->
-                    if (progress.lastWatchedAt > 0) {
-                        calendar.timeInMillis = progress.lastWatchedAt
-                        val hour = calendar.get(Calendar.HOUR_OF_DAY)
-                        hourlyCounts[hour]++
+                // Avg daily watch time over the WHOLE watching span (the old
+                // divide-by-active-days inflated the number — D-831).
+                val spanDays = run {
+                    var d = localDayStart(spanStart)
+                    var n = 1
+                    while (d < today && n < 365) {
+                        d = dayShift(d, 1)
+                        n++
                     }
+                    n
                 }
-                val timeDna = buildTimeDna(hourlyCounts.toList(), countedProgress.size)
-
-                // Activity heatmap data
-                val activityData = buildActivityData(countedProgress)
-
-                // Avg daily watch time
-                val avgDailyWatchTimeSec = if (activityData.isNotEmpty()) {
-                    val activeDays = activityData.size
-                    totalWatchTimeSec / activeDays.coerceAtLeast(1)
-                } else 0
+                val avgDailyWatchTimeSec = (totalPlayedMs / 1000L) / spanDays
                 val avgDailyWatchTime = formatWatchTime(avgDailyWatchTimeSec)
 
+                // "From where to where" (D-831): the watching span for the header.
+                val lastWatched = allProgress.maxOfOrNull { it.lastWatchedAt } ?: 0L
+                val firstWatched = spanStart.takeIf { it > 0 }
+
                 // Timeline
-                val timeline = buildTimeline(countedProgress, allRatings)
+                val timeline = buildTimeline(countedProgress, titleByMain, coverByMain, anilistIdByMain)
 
                 // AniList username
                 val anilistUsername = preferenceStore.getString("anilist_username", "").takeIf { it.isNotBlank() }
 
-                // Recently watched (for genre sheet + Recently Watched card)
-                // D-248: only episodes genuinely watched >20% (and never manual marks) —
-                // "only the ones which have been watched more than 20% should show".
+                // Recently watched (D-248 organic >20% only — unchanged) with the
+                // batch-resolved identities.
                 val recentlyWatched = allProgress
                     .filter { !it.userMarkedWatched && it.duration > 0 && it.progressFraction > 0.20f }
                     .sortedByDescending { it.lastWatchedAt }
                     .take(10)
                     .mapNotNull { progress ->
-                        val mid = progress.mainId ?: return@mapNotNull null
-                        val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
-                        // D-198: getAniListDetail → getContentDetails.
-                        val details = contentRepository.getContentDetails(mid)
+                        val mainId = progress.mainId ?: return@mapNotNull null
                         val epNum = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
                         RecentlyWatchedItem(
-                            anilistId = details?.anilistId,
-                            title = content.title,
-                            coverUrl = details?.dataCoverUrl,
-                            episodeThumbnailUrl = getEpisodeThumbnail(mid, epNum) ?: details?.dataCoverUrl,
+                            anilistId = anilistIdByMain[mainId],
+                            title = titleByMain[mainId] ?: "Unknown",
+                            coverUrl = coverByMain[mainId],
+                            episodeThumbnailUrl = getEpisodeThumbnail(mainId, epNum)
+                                ?: coverByMain[mainId],
                             episodeNumber = epNum,
                             progressFraction = progress.progressFraction,
                             lastWatchedAt = progress.lastWatchedAt,
@@ -250,26 +367,41 @@ class ProfileViewModel(
                     anilistUsername = anilistUsername,
                     totalAnime = totalAnime,
                     totalEpisodesWatched = totalEpisodesWatched,
-                    watchTimeFormatted = watchTimeFormatted,
-                    avgRatingFormatted = avgRatingFormatted,
+                    watchTimeFormatted = formatWatchTime(totalPlayedMs / 1000L),
+                    totalMinutesWatched = (totalPlayedMs / 60_000L).toInt(),
+                    firstWatchedAt = firstWatched,
+                    lastWatchedAt = lastWatched.takeIf { it > 0 },
+                    avgRatingFormatted = formatAvgRating(database),
                     currentStreak = currentStreak,
                     genreDistribution = genreDistribution,
                     filteredGenreDistribution = filteredGenreDistribution,
                     genreFilterOptions = genreFilterOptions,
                     selectedGenreFilter = selectedGenreFilter,
-                    watchFlowByDay = watchFlowByDay.toList(),
-                    watchFlowDetail = watchFlowDetail,
+                    watchFlowDays = watchFlowDays,
                     timeDna = timeDna,
-                    activityData = activityData,
+                    activityMinutes = activityMinutes,
                     avgDailyWatchTime = avgDailyWatchTime,
                     timeline = timeline,
                     recentlyWatched = recentlyWatched,
                 )
 
-                Logger.i(TAG) { "Profile stats loaded: $totalAnime anime, $totalEpisodesWatched episodes, ${genreCounts.size} genres" }
+                Logger.i(TAG) {
+                    "Profile stats loaded: $totalAnime anime, $totalEpisodesWatched episodes, " +
+                        "${totalPlayedMs / 60000} min played, ${sessions.size} sessions"
+                }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Failed to load profile stats: ${e.message}" }
             }
+        }
+    }
+
+    private fun formatAvgRating(database: AnikutaDatabase): String {
+        val allRatings = database.ratingsQueries.getAllUserRatings().executeAsList()
+        val ratings = allRatings.mapNotNull { it?.rating?.toInt() }
+        return if (ratings.isNotEmpty() && ratings.average() > 0) {
+            String.format(Locale.US, "%.1f", ratings.average() / 10.0)
+        } else {
+            "—"
         }
     }
 
@@ -285,28 +417,46 @@ class ProfileViewModel(
         }
     }
 
-    private fun calculateCurrentStreak(progress: List<com.confused.anikuta.core.watchprogress.WatchProgress>): Int {
-        if (progress.isEmpty()) return 0
-        val oneDayMs = 24 * 60 * 60 * 1000L
-        val todayStart = (System.currentTimeMillis() / oneDayMs) * oneDayMs
-        val activeDays = progress.map { it.lastWatchedAt / oneDayMs }.toSet().sortedDescending()
+    /**
+     * D-831: the streak walks LOCAL days from today; "today not watched yet"
+     * keeps yesterday's run alive (the day isn't over). Returns 0 only when
+     * neither today nor yesterday had activity.
+     */
+    private fun calculateCurrentStreak(activeDays: Set<Long>, today: Long): Int {
+        if (activeDays.isEmpty()) return 0
+        val days = activeDays.toHashSet()
+        // DST-safe: Calendar steps LOCAL days (a fixed 24h stride drifts across
+        // clock changes and ends the walk early — the verifier's P2-4).
+        val cal = Calendar.getInstance()
+        var check = today
+        if (check !in days) {
+            cal.timeInMillis = check
+            cal.add(Calendar.DAY_OF_MONTH, -1)
+            check = cal.timeInMillis // today pending — judge from yesterday
+        }
         var streak = 0
-        var checkDay = todayStart / oneDayMs
-        for (day in activeDays) {
-            if (day == checkDay) { streak++; checkDay-- }
-            else if (day < checkDay) break
+        while (check in days) {
+            streak++
+            cal.timeInMillis = check
+            cal.add(Calendar.DAY_OF_MONTH, -1)
+            check = cal.timeInMillis
         }
         return streak
     }
 
-    private fun buildTimeDna(hourlyCounts: List<Int>, totalSessions: Int): TimeDnaData {
-        // Find the peak time period
-        val morning = (6..11).sumOf { hourlyCounts[it] }
-        val afternoon = (12..17).sumOf { hourlyCounts[it] }
-        val evening = (18..22).sumOf { hourlyCounts[it] }
-        val night = (23..23).sumOf { hourlyCounts[it] } + (0..5).sumOf { hourlyCounts[it] }
+    /**
+     * D-831: the daypart split — minutes-based when sessions exist (the real
+     * "when do I press play"), organic-episode-count based otherwise. The UI
+     * renders these four buckets + the peak; no duplicate logic there.
+     */
+    private fun buildTimeDna(hourlyMinutes: List<Int>): TimeDnaData {
+        val morning = (6..11).sumOf { hourlyMinutes[it] }
+        val afternoon = (12..17).sumOf { hourlyMinutes[it] }
+        val evening = (18..22).sumOf { hourlyMinutes[it] }
+        val night = (23..23).sumOf { hourlyMinutes[it] } + (0..5).sumOf { hourlyMinutes[it] }
 
-        val preferredTimeLabel = when (maxOf(morning, afternoon, evening, night)) {
+        val total = morning + afternoon + evening + night
+        val peakLabel = when (maxOf(morning, afternoon, evening, night)) {
             morning -> "Morning"
             afternoon -> "Afternoon"
             evening -> "Evening"
@@ -314,63 +464,13 @@ class ProfileViewModel(
         }
 
         return TimeDnaData(
-            hourlyCounts = hourlyCounts,
-            preferredTimeLabel = preferredTimeLabel,
-            totalSessions = totalSessions,
+            morning = morning,
+            afternoon = afternoon,
+            evening = evening,
+            night = night,
+            totalMinutes = total,
+            peakPeriodLabel = peakLabel,
         )
-    }
-
-    private fun buildActivityData(progress: List<com.confused.anikuta.core.watchprogress.WatchProgress>): Map<Long, Int> {
-        val oneDayMs = 24 * 60 * 60 * 1000L
-        return progress
-            .filter { it.lastWatchedAt > 0 }
-            .groupBy { (it.lastWatchedAt / oneDayMs) * oneDayMs }
-            .mapValues { it.value.size }
-    }
-
-    private fun buildTimeline(
-        progress: List<com.confused.anikuta.core.watchprogress.WatchProgress>,
-        ratings: List<Any>,
-    ): List<TimelineItem> {
-        val timeline = mutableListOf<TimelineItem>()
-
-        // Watch events
-        progress.filter { it.lastWatchedAt > 0 }.sortedByDescending { it.lastWatchedAt }.take(50).forEach { p ->
-            val mid = p.mainId ?: return@forEach
-            val content = contentRepository.getMainEntryByMainId(mid) ?: return@forEach
-            // D-198: getAniListDetail → getContentDetails.
-            val details = contentRepository.getContentDetails(mid)
-            val epNum = p.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
-            timeline.add(TimelineItem(
-                anilistId = details?.anilistId,
-                title = content.title,
-                coverUrl = details?.dataCoverUrl,
-                description = "Watched EP $epNum" + if (p.completed) " (completed)" else "",
-                timestamp = p.lastWatchedAt,
-                type = "watch",
-                rating = null,
-            ))
-        }
-
-        // Rating events
-        ratings.forEach { rating ->
-            val r = rating as? com.confused.anikuta.core.database.User_rating ?: return@forEach
-            val mid = r.main_id ?: return@forEach
-            val content = contentRepository.getMainEntryByMainId(mid) ?: return@forEach
-            // D-198: getAniListDetail → getContentDetails.
-            val details = contentRepository.getContentDetails(mid)
-            timeline.add(TimelineItem(
-                anilistId = details?.anilistId,
-                title = content.title,
-                coverUrl = details?.dataCoverUrl,
-                description = "Rated ${r.rating?.toInt()?.div(10)}/10",
-                timestamp = r.rated_at ?: 0,
-                type = "rating",
-                rating = r.rating?.toInt(),
-            ))
-        }
-
-        return timeline.sortedByDescending { it.timestamp }
     }
 
     /**
@@ -387,6 +487,50 @@ class ProfileViewModel(
         } catch (e: Exception) {
             null
         }
+    }
+
+    private fun buildTimeline(
+        progress: List<WatchProgress>,
+        titleByMain: Map<String, String>,
+        coverByMain: Map<String, String?>,
+        anilistIdByMain: Map<String, Int?>,
+    ): List<TimelineItem> {
+        val timeline = mutableListOf<TimelineItem>()
+
+        progress.filter { it.lastWatchedAt > 0 }.sortedByDescending { it.lastWatchedAt }.take(50).forEach { p ->
+            val mainId = p.mainId ?: return@forEach
+            val epNum = p.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
+            timeline.add(
+                TimelineItem(
+                    anilistId = anilistIdByMain[mainId],
+                    title = titleByMain[mainId] ?: "Unknown",
+                    coverUrl = coverByMain[mainId],
+                    description = "Watched EP $epNum" + if (p.completed) " (completed)" else "",
+                    timestamp = p.lastWatchedAt,
+                    type = "watch",
+                    rating = null,
+                ),
+            )
+        }
+
+        val ratings = database.ratingsQueries.getAllUserRatings().executeAsList()
+        ratings.forEach { rating ->
+            val r = rating as? com.confused.anikuta.core.database.User_rating ?: return@forEach
+            val mainId = r.main_id ?: return@forEach
+            timeline.add(
+                TimelineItem(
+                    anilistId = anilistIdByMain[mainId],
+                    title = titleByMain[mainId] ?: "Unknown",
+                    coverUrl = coverByMain[mainId],
+                    description = "Rated ${r.rating?.toInt()?.div(10)}/10",
+                    timestamp = r.rated_at ?: 0,
+                    type = "rating",
+                    rating = r.rating?.toInt(),
+                ),
+            )
+        }
+
+        return timeline.sortedByDescending { it.timestamp }
     }
 
     fun onGenreClick(genre: String) {
@@ -409,16 +553,14 @@ class ProfileViewModel(
                     .map { it.main_id }
                     .toSet()
             }
-            val genreAnime = scopeMainIds.mapNotNull { mid ->
-                val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
-                // D-198: getAniListDetail → getContentDetails; only include AniList-linked rows.
-                val details = contentRepository.getContentDetails(mid) ?: return@mapNotNull null
+            val genreAnime = scopeMainIds.mapNotNull { mainId ->
+                val details = contentRepository.getContentDetails(mainId) ?: return@mapNotNull null
                 if (details.anilistId == null) return@mapNotNull null
-                val genres = genreRepository.getGenresForContent(mid)
+                val genres = genreRepository.getGenresForContent(mainId)
                 if (genre in genres) {
                     RecentlyWatchedItem(
                         anilistId = details.anilistId,
-                        title = content.title,
+                        title = contentRepository.getMainEntryByMainId(mainId)?.title ?: "Unknown",
                         coverUrl = details.dataCoverUrl,
                         episodeNumber = 0,
                         progressFraction = 0f,
@@ -432,13 +574,7 @@ class ProfileViewModel(
 
     /**
      * Task 64 (round 24 — E): select the genre-radar category filter.
-     *
-     * Persists the choice (remembered across visits — "profile_genre_filter").
-     * A name that is no longer a non-empty category (shouldn't be reachable —
-     * the chips only offer non-empty categories — but defensive) falls back
-     * to "All". The radar's distribution re-derives from the category's
-     * current mainIds; the chips section + section visibility NEVER change
-     * (they render from the FULL library distribution).
+     * Persists the choice ("profile_genre_filter"); the radar re-derives.
      */
     fun onGenreFilterSelect(filter: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -499,7 +635,13 @@ data class ProfileUiState(
     val anilistUsername: String? = null,
     val totalAnime: Int = 0,
     val totalEpisodesWatched: Int = 0,
+    /** The REAL total (played-time counters; legacy completed rows use durations). */
     val watchTimeFormatted: String = "0m",
+    /** The total in whole minutes — the watch-flow header uses it. */
+    val totalMinutesWatched: Int = 0,
+    /** D-831: the watching span ("from where to where") for the header. */
+    val firstWatchedAt: Long? = null,
+    val lastWatchedAt: Long? = null,
     val avgRatingFormatted: String = "—",
     val currentStreak: Int = 0,
     /** The FULL-library genre distribution — drives the genre chips section
@@ -513,10 +655,15 @@ data class ProfileUiState(
     val genreFilterOptions: List<GenreFilterOption> = emptyList(),
     /** The active genre-radar filter ("All" or a category name; Task 64). */
     val selectedGenreFilter: String = "All",
-    val watchFlowByDay: List<Int> = listOf(0, 0, 0, 0, 0, 0, 0),
-    val watchFlowDetail: List<DayWatchSummary> = emptyList(),
+    /**
+     * D-831: the LAST 7 DAYS, oldest FIRST (today is the LAST element — the
+     * rightmost bar). secondsWatched is real watch time; episodes are the
+     * organic touches.
+     */
+    val watchFlowDays: List<WatchFlowDay> = emptyList(),
     val timeDna: TimeDnaData? = null,
-    val activityData: Map<Long, Int> = emptyMap(),
+    /** D-831: minutes per LOCAL-midnight day — the heatmap's real intensity. */
+    val activityMinutes: Map<Long, Long> = emptyMap(),
     val avgDailyWatchTime: String = "0m",
     val timeline: List<TimelineItem> = emptyList(),
     val recentlyWatched: List<RecentlyWatchedItem> = emptyList(),
@@ -533,10 +680,18 @@ data class GenreFilterOption(
     val count: Int,
 )
 
+/**
+ * D-831: the Time DNA daypart split — computed ONCE here from the session
+ * ledger (minutes) or the organic episodes (counts); the UI renders it and
+ * shows [peakPeriodLabel] in the donut center.
+ */
 data class TimeDnaData(
-    val hourlyCounts: List<Int>,
-    val preferredTimeLabel: String,
-    val totalSessions: Int,
+    val morning: Int,
+    val afternoon: Int,
+    val evening: Int,
+    val night: Int,
+    val totalMinutes: Int,
+    val peakPeriodLabel: String,
 )
 
 data class TimelineItem(
@@ -560,15 +715,17 @@ data class RecentlyWatchedItem(
 )
 
 /**
- * Per-day-of-week watch summary for the Watch Flow sidebar.
- * - [count]: total episodes watched that weekday (across all weeks).
- * - [totalDurationSec]: total watch duration that weekday (sum of completed-episode durations).
- * - [items]: the most-recent anime watched that weekday (newest-first, capped at 12).
+ * D-831: ONE day of the last-7-days watch flow. [minutes] is REAL watch time
+ * (sessions; legacy days fall back to completed-episode durations), [items]
+ * is the day's organic episode touches (newest first, capped at 12).
  */
-data class DayWatchSummary(
-    val count: Int,
-    val totalDurationSec: Long,
+data class WatchFlowDay(
+    val dateMs: Long,
+    /** SECONDS watched that day (sessions; legacy days fall back to durations). */
+    val secondsWatched: Long,
+    val episodes: Int,
     val items: List<DayWatchItem>,
+    val isToday: Boolean,
 )
 
 data class DayWatchItem(
@@ -577,4 +734,7 @@ data class DayWatchItem(
     val coverUrl: String?,
     val episodeThumbnailUrl: String? = null,
     val episodeNumber: Int,
+    /** The SECONDS watched of this episode ON THAT DAY (0 when the ledger has no data for it). */
+    val secondsWatched: Long = 0,
+    val completed: Boolean = false,
 )

@@ -1,0 +1,23 @@
+-- ROUND 137 (D-830): the second VERSIONED schema migration (v2 → v3).
+--
+-- watch_session — the per-day watch-flow ledger (one row per continuous
+-- watching streak; see watch.sq's header comment for the contract). The
+-- Profile page buckets these rows by LOCAL calendar day: real minutes per
+-- day for the watch-flow chart, the day-detail sheet, the time-DNA dayparts
+-- and the activity heatmap. watch_progress.played_time_ms stays the
+-- cumulative per-episode counter; this table adds the TIME dimension.
+-- Existing installs upgrade from version 2 via AndroidSqliteDriver.Callback;
+-- fresh installs get the table from the .sq CREATE TABLE directly.
+
+CREATE TABLE IF NOT EXISTS watch_session (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    main_id TEXT NOT NULL,
+    episode_key TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER NOT NULL,
+    played_ms INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_session_started ON watch_session(started_at);
+CREATE INDEX IF NOT EXISTS idx_watch_session_episode ON watch_session(episode_key, ended_at DESC);

@@ -342,10 +342,30 @@ class BackupManager(
             )
         } else 0
 
+        // ── The PROFILE AVATAR (round 137, the full-capability audit): the
+        // crop editor writes `filesDir/avatar_<timestamp>.jpg` and the pref
+        // carries its absolute path — a restored prefs payload would dangle.
+        // The file rides as `profile/avatar.jpg`; restore writes a fresh
+        // device-local file and re-points the pref at it. ──
+        var avatarIncluded = false
+        runCatching {
+            val avatarPref = backupPreferencesAvatarPath()
+            if (avatarPref != null) {
+                val file = java.io.File(avatarPref)
+                if (file.isFile && file.length() > 0 && file.length() < 8 * 1024 * 1024) {
+                    zip.putNextEntry(ZipEntry(BackupFormat.PROFILE_AVATAR_ENTRY))
+                    file.inputStream().use { it.copyTo(zip) }
+                    zip.closeEntry()
+                    avatarIncluded = true
+                }
+            }
+        }
+
         val manifest = BackupManifest(
             appVersion = appVersion,
             createdAt = createdAt,
             includesImages = options.imageCovers && imageCount > 0,
+            includesAvatar = avatarIncluded,
             tables = tables,
             prefsFiles = prefFiles.toList(),
             rowCount = counts,
@@ -367,6 +387,16 @@ class BackupManager(
         zip.write(json.encodeToString(JsonObject.serializer(), data).toByteArray(Charsets.UTF_8))
         zip.closeEntry()
     }
+
+    /**
+     * The profile avatar's absolute path from `anikuta_prefs` (round 137) —
+     * non-blank + file-shaped only; a remote URL avatar needs no file payload.
+     */
+    private fun backupPreferencesAvatarPath(): String? = runCatching {
+        val raw = context.getSharedPreferences("anikuta_prefs", Context.MODE_PRIVATE)
+            .getString("profile_avatar_url", null) ?: return null
+        raw.takeIf { it.startsWith("/") || it.startsWith("file://") }?.removePrefix("file://")
+    }.getOrNull()
 
     // ── Generic DB dump/restore (raw driver SQL; columns from PRAGMA) ────────
 
@@ -894,6 +924,26 @@ class BackupManager(
                 Logger.i(TAG) { "restoreBackup: $offlineRestored offline image(s) written to the store" }
             }
 
+            // ── The PROFILE AVATAR (round 137): AFTER the prefs payload — the
+            // restored anikuta_prefs carries the DONOR device's absolute path,
+            // which dangles here. A fresh device-local file is written and the
+            // pref re-pointed at it. ──
+            val avatarRestored = entries.avatarBytes?.let { bytes ->
+                runCatching {
+                    val dest = java.io.File(context.filesDir, "avatar_${System.currentTimeMillis()}.jpg")
+                    dest.writeBytes(bytes)
+                    context.getSharedPreferences("anikuta_prefs", Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("profile_avatar_url", dest.absolutePath)
+                        .apply()
+                    Logger.i(TAG) { "restoreBackup: avatar restored → ${dest.name}" }
+                    true
+                }.getOrElse { e ->
+                    Logger.w(TAG, e) { "restoreBackup: avatar write failed" }
+                    false
+                }
+            } ?: false
+
             // ── The Aniyomi extension payload (after prefs — the trust keys
             // may ride in anikuta_prefs; the bridge ADDs on top). One system
             // prompt per APK, sequential; a cancel moves on. ──
@@ -959,6 +1009,8 @@ class BackupManager(
         val csPlugins = mutableMapOf<Int, ByteArray>()
         /** ROUND 136: URL-hash-keyed offline images. */
         val offlineImages = mutableMapOf<String, ByteArray>()
+        /** ROUND 137: the profile avatar file bytes. */
+        var avatarBytes: ByteArray? = null
     }
 
     private fun readArchive(sourceUri: Uri): ArchiveContents {
@@ -1014,6 +1066,9 @@ class BackupManager(
                             val hash = name.removePrefix("${BackupFormat.OFFLINE_IMAGES_DIR}/")
                                 .removeSuffix(".img")
                             if (hash.length == 64) contents.offlineImages[hash] = zip.readBytes()
+                        }
+                        name == BackupFormat.PROFILE_AVATAR_ENTRY -> {
+                            contents.avatarBytes = zip.readBytes()
                         }
                     }
                     zip.closeEntry()

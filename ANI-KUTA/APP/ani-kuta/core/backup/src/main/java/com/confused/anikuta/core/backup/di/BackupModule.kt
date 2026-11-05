@@ -5,6 +5,8 @@ import com.confused.anikuta.core.backup.BackupPreferences
 import com.confused.anikuta.core.backup.BackupScheduler
 import com.confused.anikuta.core.backup.ExtensionBackupBridge
 import com.confused.anikuta.core.backup.OfflineImageStore
+import com.confused.anikuta.core.backup.interop.InteropRestoreBridge
+import com.confused.anikuta.core.backup.interop.InteropManager
 import com.confused.anikuta.core.download.DownloadPreferences
 import com.confused.anikuta.core.preferences.PreferenceStore
 import org.koin.android.ext.koin.androidContext
@@ -42,6 +44,18 @@ val backupModule = module {
             context = androidContext(),
             backupPreferences = get(),
             downloadPreferences = get<DownloadPreferences>(),
+        )
+    }
+    // ROUND 137 (D-828): the interop engine (foreign backup formats). The
+    // restore bridge binding is OPTIONAL like the extension bridge's — a
+    // test Koin without the app-layer impl disables interop RESTORE while
+    // EXPORT still works.
+    single {
+        InteropManager(
+            context = androidContext(),
+            driver = get(),
+            downloadPreferences = get<DownloadPreferences>(),
+            restoreBridge = getAll<InteropRestoreBridge>().firstOrNull(),
         )
     }
 }

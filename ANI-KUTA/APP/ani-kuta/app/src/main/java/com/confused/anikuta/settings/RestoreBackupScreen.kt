@@ -71,6 +71,7 @@ import org.koin.compose.koinInject
 fun RestoreBackupScreen(
     onBack: () -> Unit,
     backupManager: BackupManager = koinInject(),
+    interopManager: com.confused.anikuta.core.backup.interop.InteropManager = koinInject(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -87,6 +88,20 @@ fun RestoreBackupScreen(
     var restoreSummary by remember { mutableStateOf<RestoreSummary?>(null) }
     var confirming by remember { mutableStateOf(false) }
 
+    // ROUND 137 (D-828): restore from OTHER apps — Aniyomi/Anikku protobuf
+    // backups, AniList list exports, CloudStream CS3 backups.
+    var interopBusy by remember { mutableStateOf(false) }
+    var interopSummary by remember {
+        mutableStateOf<com.confused.anikuta.core.backup.interop.InteropRestoreSummary?>(null)
+    }
+    var interopError by remember { mutableStateOf<String?>(null) }
+    var interopPickedUri by remember { mutableStateOf<Uri?>(null) }
+    // P2-7: re-picking the SAME document yields the same URI — a URI-keyed
+    // LaunchedEffect never re-runs and the busy flag sticks forever. The
+    // pickers bump a GENERATION counter instead; the effects key on that.
+    var nativePickGeneration by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var interopPickGeneration by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+
     val restorePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             pickedUri = uri
@@ -94,9 +109,19 @@ fun RestoreBackupScreen(
             restoreSummary = null
             restoreError = null
             readingManifest = true
+            nativePickGeneration++
         }
     }
-    LaunchedEffect(pickedUri) {
+    val interopPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            interopPickedUri = uri
+            interopSummary = null
+            interopError = null
+            interopPickGeneration++
+        }
+    }
+    LaunchedEffect(nativePickGeneration) {
+        if (nativePickGeneration == 0) return@LaunchedEffect
         val uri = pickedUri ?: return@LaunchedEffect
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             backupManager.readManifest(uri)
@@ -107,6 +132,31 @@ fun RestoreBackupScreen(
             pickedUri = null
         }
         readingManifest = false
+    }
+    LaunchedEffect(interopPickGeneration) {
+        if (interopPickGeneration == 0) return@LaunchedEffect
+        val uri = interopPickedUri ?: return@LaunchedEffect
+        interopBusy = true
+        // A file-name hint sharpens the Anikku-vs-Mihon discrimination.
+        val hint = runCatching { uri.lastPathSegment }.getOrNull()
+        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            interopManager.restoreFrom(uri, hint)
+        }
+        interopBusy = false
+        result.fold(
+            onSuccess = { summary ->
+                interopSummary = summary
+                AppToast.show(
+                    formatInteropRestoreToast(summary),
+                    AppToastTone.SUCCESS,
+                    durationMillis = 4200L,
+                )
+            },
+            onFailure = { e ->
+                interopError = e.message ?: "Restore failed"
+                AppToast.show(interopError ?: "Restore failed", AppToastTone.ERROR)
+            },
+        )
     }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -148,6 +198,114 @@ fun RestoreBackupScreen(
                                 Spacer(Modifier.width(8.dp))
                             }
                             Text(if (pickedUri == null) "Choose a file" else "Choose another file")
+                        }
+                    }
+                }
+
+                // ── RESTORE FROM OTHER APPS (round 137, D-828) ──
+                item {
+                    SectionCard {
+                        Text(
+                            "Restore from other apps",
+                            fontFamily = RobotoFamily,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "An Aniyomi (.tachibk), Anikku (.anikku), AniList or CloudStream backup — " +
+                                "the format is detected automatically",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = { interopPicker.launch(arrayOf("*/*")) },
+                            enabled = !interopBusy && !restoring,
+                        ) {
+                            if (interopBusy) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                            } else {
+                                Icon(
+                                    Icons.Filled.FolderOpen,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text("Choose another app's backup")
+                        }
+                        Text(
+                            "Entries, categories, watch progress and AniList tracking are added to your " +
+                                "library — nothing you already have is overwritten. Anime backups only " +
+                                "for now; Mihon manga backups come later.",
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                }
+
+                // ── The interop result ──
+                interopSummary?.let { s ->
+                    item {
+                        SectionCard {
+                            Text(
+                                "Restored from ${s.format.displayName}",
+                                fontFamily = RobotoFamily,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            SectionLabel("Library")
+                            DetailRow("Entries read", formatCount(s.entriesRead))
+                            DetailRow("New", formatCount(s.entriesCreated))
+                            DetailRow("Already present", formatCount(s.entriesMatched))
+                            if (s.libraryAdded > 0) DetailRow("Added to library", formatCount(s.libraryAdded))
+                            if (s.categoriesAdded > 0) DetailRow("Categories created", formatCount(s.categoriesAdded))
+                            SectionLabel("History & tracking")
+                            if (s.progressRows > 0) DetailRow("Watch progress", formatCount(s.progressRows))
+                            if (s.trackingRows > 0) DetailRow("Tracking", formatCount(s.trackingRows))
+                            if (s.pendingSources > 0) {
+                                DetailRow("Without a source", formatCount(s.pendingSources))
+                            }
+                            if (s.skippedManga > 0) {
+                                DetailRow("Manga skipped", formatCount(s.skippedManga))
+                            }
+                            s.warnings.forEach { warning ->
+                                Text(
+                                    warning,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Entries whose extension is not installed yet appear as soon as you add it.",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
+                interopError?.let { error ->
+                    item {
+                        SectionCard {
+                            Text(
+                                error,
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.error,
+                            )
                         }
                     }
                 }
@@ -350,6 +508,23 @@ internal fun formatRestoreToast(summary: RestoreSummary): String {
     if (summary.csPluginsRestored > 0) parts += "${formatCount(summary.csPluginsRestored)} CloudStream"
     if (summary.aniyomiInstalled > 0) parts += "${formatCount(summary.aniyomiInstalled)} Aniyomi installed"
     return "Restore finished — " + parts.joinToString(" · ")
+}
+
+/** The ROUND-137 interop restore toast — every optional part gated on >0. */
+internal fun formatInteropRestoreToast(
+    summary: com.confused.anikuta.core.backup.interop.InteropRestoreSummary,
+): String {
+    val parts = mutableListOf<String>()
+    parts += "${formatCount(summary.entriesCreated)} new · ${formatCount(summary.entriesMatched)} already present"
+    if (summary.libraryAdded > 0) parts += "${formatCount(summary.libraryAdded)} to library"
+    if (summary.progressRows > 0) parts += "${formatCount(summary.progressRows)} progress"
+    if (summary.trackingRows > 0) parts += "${formatCount(summary.trackingRows)} tracking"
+    if (summary.categoriesAdded > 0) parts += "${formatCount(summary.categoriesAdded)} categories"
+    var text = "${summary.format.displayName} restored — " + parts.joinToString(" · ")
+    if (summary.pendingSources > 0) {
+        text += " (${formatCount(summary.pendingSources)} waiting for their extension)"
+    }
+    return text
 }
 
 /** A small uppercase stat-group label inside the details card. */

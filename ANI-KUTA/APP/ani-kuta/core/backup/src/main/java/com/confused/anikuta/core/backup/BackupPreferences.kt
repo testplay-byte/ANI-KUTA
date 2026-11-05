@@ -3,6 +3,7 @@ package com.confused.anikuta.core.backup
 import com.confused.anikuta.core.preferences.BooleanSerializer
 import com.confused.anikuta.core.preferences.preference
 import com.confused.anikuta.core.preferences.IntSerializer
+import com.confused.anikuta.core.preferences.StringSerializer
 import com.confused.anikuta.core.preferences.PreferenceStore
 
 /**
@@ -33,6 +34,15 @@ class BackupPreferences(private val store: PreferenceStore) {
     /** How many backups to keep in the backup folder (the oldest dies on overflow). */
     val keepCount = store.preference(
         "pref_backup_keep_count", 3, IntSerializer,
+    )
+
+    /**
+     * ROUND 137 (D-828): the EXPORT FORMAT — the InteropFormat enum name the
+     * Backup tile writes ("anikuta" = the native full archive; "aniyomi",
+     * "anikku", "anilist", "cloudstream" = the foreign shapes).
+     */
+    val exportFormat = store.preference(
+        "pref_backup_export_format", "anikuta", StringSerializer,
     )
 
     // ── LIBRARY ──

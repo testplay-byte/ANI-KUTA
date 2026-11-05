@@ -312,4 +312,13 @@ val extensionBackupBridgeModule = org.koin.dsl.module {
             csPluginManager = get(),
         )
     }
+    // ROUND 137 (D-828): the interop restore bridge — the foreign-backup
+    // formats apply through the same live content system.
+    single<com.confused.anikuta.core.backup.interop.InteropRestoreBridge> {
+        InteropRestoreBridgeImpl(
+            database = get(),
+            contentRepository = get(),
+            contentResolver = get(),
+        )
+    }
 }

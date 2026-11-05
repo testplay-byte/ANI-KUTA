@@ -107,6 +107,7 @@ import com.confused.anikuta.core.videoresolver.ResolverVideo
 import com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry
 import com.confused.anikuta.core.watchprogress.WatchProgress
 import com.confused.anikuta.core.watchprogress.WatchProgressStore
+import com.confused.anikuta.core.watchprogress.WatchSessionRecorder
 import `is`.xyz.mpv.MPVLib
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -177,6 +178,9 @@ fun WatchScreen(
     val extensionManager = koinInject<com.confused.anikuta.data.extension.manager.ExtensionManager>()
     val videoResolver = koinInject<com.confused.anikuta.core.videoresolver.VideoResolver>()
     val watchProgressStore = koinInject<WatchProgressStore>()
+    // ROUND 137 (D-830): the per-day watch-session ledger — every playback tick
+    // feeds the Profile page's watch flow (real minutes per day).
+    val sessionRecorder = koinInject<WatchSessionRecorder>()
     val subtitleEngine = koinInject<com.confused.anikuta.core.player.subtitles.SubtitleEngine>()
     // D.FIX: DownloadManager — needed to check if an episode is downloaded when
     // switching, so downloaded episodes play offline (fd://) instead of trying
@@ -665,6 +669,28 @@ fun WatchScreen(
                 scope.launch {
                     runCatching { watchProgressStore.save(epKey, progress) }
                         .onFailure { Logger.w(TAG) { "Progress save failed: ${it.message}" } }
+                }
+            }
+            // ROUND 137 (D-830): the session ledger tick — deliberately NOT gated
+            // by persistDecision. A 40-second watch never trips the 1-minute
+            // watch-mark gate, but those 40 seconds ARE watch time and must land
+            // on the profile's watch flow. Gates only what the delta accumulator
+            // needs: real playback reached (a failed load's stale position must
+            // not pollute the ledger) and a resolvable episode key.
+            if (stateHolder.episodeReachedPlayback &&
+                stateHolder.loadingState.value != PlayerLoadingState.ERROR
+            ) {
+                val tickEpKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
+                if (tickEpKey.isNotBlank() && !tickEpKey.startsWith("unknown|")) {
+                    scope.launch {
+                        runCatching {
+                            sessionRecorder.onPlaybackTick(
+                                mainId = watchKey.mainId.takeIf { it.isNotBlank() },
+                                episodeKey = tickEpKey,
+                                sessionPlayedMs = stateHolder.playbackTimeMs,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1447,6 +1473,27 @@ fun WatchScreen(
                     kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                         runCatching { watchProgressStore.save(epKey, progress) }
                             .onFailure { Logger.w(TAG) { "Final progress save failed: ${it.message}" } }
+                    }
+                }
+            }
+            // ROUND 137 (D-830): the dispose-time session flush — the periodic
+            // tick only catches up to 10s staleness; this closes the ledger with
+            // the tail (the delta the recorder derives vs its per-episode baseline).
+            if (stateHolder.episodeReachedPlayback &&
+                stateHolder.loadingState.value != PlayerLoadingState.ERROR
+            ) {
+                val exitEpKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
+                if (exitEpKey.isNotBlank() && !exitEpKey.startsWith("unknown|")) {
+                    exitSaveScope.launch {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                            runCatching {
+                                sessionRecorder.onPlaybackTick(
+                                    mainId = watchKey.mainId.takeIf { it.isNotBlank() },
+                                    episodeKey = exitEpKey,
+                                    sessionPlayedMs = stateHolder.playbackTimeMs,
+                                )
+                            }
+                        }
                     }
                 }
             }

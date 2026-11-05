@@ -208,6 +208,10 @@ media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "andr
 
 # KotlinX
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+# ROUND 137 (D-828): the interop backup formats — Aniyomi/Anikku backups are
+# kotlinx-serialization PROTOBUF (their schema is @Serializable classes with
+# @ProtoNumber annotations, verified against both repos on 2026-11-04).
+kotlinx-serialization-proto = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-protobuf", version.ref = "kotlinxSerializationJson" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }

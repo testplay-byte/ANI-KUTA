@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -112,294 +113,225 @@ private fun complementaryColor(color: Color): Color {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Watch Flow — tall bar chart with grid, y-axis, today complementary color,
-//  and a floating LEFT-side sidebar overlay with anime covers + duration.
-//  No default count labels (count shown in sidebar only).
+//  Watch Flow — ROUND 137 (D-831): the LAST 7 DAYS as REAL minutes (today on
+//  the FAR RIGHT, six days back to the left — the report's exact order), ONE
+//  day-label row BELOW the bars (the duplicate in-bar row is gone), NO axis
+//  numbers (the "0/1/3" markings were meaningless episode counts), and the
+//  day detail is a proper ModalBottomSheet (the floating sidebar overlay was
+//  glitched — it clipped over the bars and closed on chart scrolls).
 // ════════════════════════════════════════════════════════════════════════════
 
 private const val BARS_HEIGHT_DP = 150
-private const val SIDEBAR_HEIGHT_DP = 260
-private const val SIDEBAR_WIDTH_DP = 160
 private const val BAR_WIDTH_DP = 30
 
 @Composable
 fun WatchFlowGraph(
-    watchFlowByDay: List<Int>,
-    watchFlowDetail: List<DayWatchSummary>,
+    watchFlowDays: List<WatchFlowDay>,
     onNavigateToAnime: (Int) -> Unit,
-    listState: LazyListState,
 ) {
-    val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-    val todayIdx = remember {
-        val cal = Calendar.getInstance()
-        ((cal.get(Calendar.DAY_OF_WEEK) - 2 + 7) % 7)
-    }
-    val maxVal = (watchFlowByDay.maxOrNull() ?: 0).coerceAtLeast(1)
     val primaryColor = MaterialTheme.colorScheme.primary
     val todayColor = remember(primaryColor) { complementaryColor(primaryColor) }
     val gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
-    var selectedDay by remember { mutableStateOf(-1) }
+    var selectedDayMs by remember { mutableStateOf<Long?>(null) }
 
-    // Close the sidebar when the parent LazyColumn starts scrolling.
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }
-            .filter { it }
-            .collect { selectedDay = -1 }
+    val maxSeconds = (watchFlowDays.maxOfOrNull { it.secondsWatched } ?: 0).coerceAtLeast(1)
+    // A little headroom above the tallest bar reads better than bars pinned
+    // to the ceiling.
+    val scaleMax = maxSeconds * 1.15f
+
+    val dayFormatter = remember {
+        java.text.SimpleDateFormat("EEEE, MMM d", java.util.Locale.getDefault())
     }
 
-    val yLabels = remember(maxVal) { listOf(maxVal, maxVal / 2, 0) }
-
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(
-            "Watch Flow", fontFamily = RobotoFamily, fontSize = 14.sp,
-            fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                "Watch Flow", fontFamily = RobotoFamily, fontSize = 14.sp,
+                fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            val weekSeconds = watchFlowDays.sumOf { it.secondsWatched }
+            if (weekSeconds > 0) {
+                Text(
+                    formatDurationShort(weekSeconds) + " this week",
+                    fontFamily = RobotoFamily, fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+        }
 
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            // Card-level Box: chart content + transparent scrim (tap-outside close)
-            // + floating sidebar overlay (taller than the bars area).
-            Box(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        // Y-axis labels (max / mid / 0), aligned to the bars area
-                        Column(
-                            modifier = Modifier.width(26.dp).height(BARS_HEIGHT_DP.dp),
-                            verticalArrangement = Arrangement.SpaceBetween,
-                            horizontalAlignment = Alignment.End,
-                        ) {
-                            yLabels.forEach { label ->
-                                Text(
-                                    "$label", fontFamily = RobotoFamily, fontSize = 9.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                // Bars area — grid lines + bars, NO y-axis label column (the
+                // "0/1/3" markings carried no meaning; the report cut them).
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(BARS_HEIGHT_DP.dp),
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val w = size.width
+                        val h = size.height
+                        listOf(0f, 0.5f, 1f).forEach { frac ->
+                            val y = h * (1f - frac)
+                            drawLine(
+                                color = gridColor,
+                                start = Offset(0f, y),
+                                end = Offset(w, y),
+                                strokeWidth = 1f,
+                            )
+                        }
+                    }
+
+                    // Bars — oldest LEFT → today RIGHTMOST (the VM builds the
+                    // list in that order); height ∝ real minutes watched.
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        watchFlowDays.forEach { day ->
+                            val fraction = (day.secondsWatched.toFloat() / scaleMax)
+                                .coerceIn(if (day.secondsWatched > 0) 0.04f else 0.02f, 1f)
+                            val barColor = when {
+                                selectedDayMs == day.dateMs -> primaryColor
+                                day.isToday -> todayColor
+                                day.secondsWatched > 0 -> primaryColor.copy(
+                                    alpha = 0.35f + 0.35f * (day.secondsWatched.toFloat() / maxSeconds),
+                                )
+                                else -> gridColor
+                            }
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .width(BAR_WIDTH_DP.dp)
+                                    .fillMaxHeight()
+                                    .clickable { selectedDayMs = day.dateMs },
+                            ) {
+                                Spacer(modifier = Modifier.weight((1f - fraction).coerceAtLeast(0f)))
+                                Box(
+                                    modifier = Modifier
+                                        .width(BAR_WIDTH_DP.dp)
+                                        .fillMaxHeight(fraction)
+                                        .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                        .background(barColor),
                                 )
                             }
                         }
-                        Spacer(Modifier.width(6.dp))
+                    }
+                }
 
-                        // Bars area: grid lines + bars.
-                        Box(
+                Spacer(Modifier.height(8.dp))
+                // THE one day-label row — BELOW the bars (the duplicate in-bar
+                // row is gone). Today (rightmost) keeps the complementary color.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    watchFlowDays.forEach { day ->
+                        val label = remember(day.dateMs) {
+                            java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault())
+                                .format(java.util.Date(day.dateMs)).uppercase()
+                        }
+                        Text(
+                            label, fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            fontWeight = if (day.isToday) FontWeight.ExtraBold else FontWeight.Bold,
+                            color = when {
+                                day.isToday -> todayColor
+                                selectedDayMs == day.dateMs -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                             modifier = Modifier
-                                .weight(1f)
-                                .height(BARS_HEIGHT_DP.dp),
-                        ) {
-                            // Grid lines (drawn behind bars)
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                val w = size.width
-                                val h = size.height
-                                listOf(0f, 0.5f, 1f).forEach { frac ->
-                                    val y = h * (1f - frac)
-                                    drawLine(
-                                        color = gridColor,
-                                        start = Offset(0f, y),
-                                        end = Offset(w, y),
-                                        strokeWidth = 1f,
-                                    )
-                                }
-                            }
-
-                            // Bars
-                            Row(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                verticalAlignment = Alignment.Bottom,
-                            ) {
-                                watchFlowByDay.forEachIndexed { index, count ->
-                                    val isToday = index == todayIdx
-                                    val isSelected = index == selectedDay
-                                    val barHeightFraction = (count.toFloat() / maxVal).coerceIn(0.03f, 1f)
-                                    val barColor = when {
-                                        isSelected -> primaryColor
-                                        isToday -> todayColor
-                                        else -> primaryColor.copy(alpha = 0.25f + 0.4f * count.toFloat() / maxVal)
-                                    }
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.width(BAR_WIDTH_DP.dp),
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .width(BAR_WIDTH_DP.dp)
-                                                .height((barHeightFraction * (BARS_HEIGHT_DP - 16)).dp)
-                                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                                                .background(barColor)
-                                                .clickable {
-                                                    selectedDay = if (selectedDay == index) -1 else index
-                                                },
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Day labels row at the bottom of the chart area
-                            Row(
-                                modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                            ) {
-                                days.forEachIndexed { index, label ->
-                                    val isToday = index == todayIdx
-                                    Text(
-                                        label, fontFamily = RobotoFamily,
-                                        fontSize = 10.sp,
-                                        fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
-                                        color = if (isToday) todayColor
-                                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.width(BAR_WIDTH_DP.dp),
-                                        textAlign = TextAlign.Center,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    // Day labels row — below the bars, aligned under each bar column
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Spacer(Modifier.width(32.dp))
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                        ) {
-                            days.forEachIndexed { index, label ->
-                                val isToday = index == todayIdx
-                                Text(
-                                    label, fontFamily = RobotoFamily, fontSize = 10.sp,
-                                    fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
-                                    color = if (isToday) todayColor
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.width(BAR_WIDTH_DP.dp),
-                                    textAlign = TextAlign.Center,
-                                )
-                            }
-                        }
+                                .width(BAR_WIDTH_DP.dp)
+                                .clickable { selectedDayMs = day.dateMs },
+                            textAlign = TextAlign.Center,
+                        )
                     }
                 }
-
-                // Transparent scrim — shown when sidebar is visible. Captures all taps
-                // on the card (outside the sidebar) and closes the sidebar.
-                val detail = selectedDay.takeIf { it >= 0 }?.let { watchFlowDetail.getOrNull(it) }
-                if (selectedDay >= 0 && detail != null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clickable { selectedDay = -1 },
-                    )
-                }
-
-                // Floating sidebar overlay (LEFT side) — taller than the chart card.
-                // Drawn ON TOP of the scrim so its own taps are consumed (not closed).
-                WatchFlowSidebarOverlay(
-                    visible = selectedDay >= 0 && detail != null,
-                    dayName = days.getOrNull(selectedDay) ?: "",
-                    summary = detail,
-                    onOpenAnime = { anilistId ->
-                        selectedDay = -1
-                        onNavigateToAnime(anilistId)
-                    },
-                    onDismiss = { selectedDay = -1 },
-                    modifier = Modifier.align(Alignment.TopStart),
-                )
             }
         }
+    }
+
+    // The day detail — a REAL bottom sheet (the old floating sidebar clipped,
+    // jittered and trapped taps; the report called it glitched, correctly).
+    val selectedDay = watchFlowDays.firstOrNull { it.dateMs == selectedDayMs }
+    if (selectedDay != null) {
+        DayDetailSheet(
+            day = selectedDay,
+            formattedDate = dayFormatter.format(java.util.Date(selectedDay.dateMs)),
+            onDismiss = { selectedDayMs = null },
+            onOpenAnime = {
+                selectedDayMs = null
+                onNavigateToAnime(it)
+            },
+        )
     }
 }
 
 /**
- * Wrapper that animates the watch-flow sidebar in/out. Extracted as a top-level
- * composable so [AnimatedVisibility] resolves to the plain (non-RowScope)
- * overload. Slides in from the LEFT.
+ * D-831: the day-detail bottom sheet — minutes, episode count, and every
+ * organic touch of that day (thumbnail, title, episode, minutes, state).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WatchFlowSidebarOverlay(
-    visible: Boolean,
-    dayName: String,
-    summary: DayWatchSummary?,
-    onOpenAnime: (Int) -> Unit,
+private fun DayDetailSheet(
+    day: WatchFlowDay,
+    formattedDate: String,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = slideInHorizontally(animationSpec = tween(250)) { -it } + fadeIn(tween(250)),
-        exit = slideOutHorizontally(animationSpec = tween(200)) { -it } + fadeOut(tween(200)),
-        modifier = modifier,
-    ) {
-        if (summary != null) {
-            WatchFlowSidebar(
-                dayName = dayName,
-                summary = summary,
-                onOpenAnime = onOpenAnime,
-                onDismiss = onDismiss,
-            )
-        }
-    }
-}
-
-@Composable
-private fun WatchFlowSidebar(
-    dayName: String,
-    summary: DayWatchSummary,
     onOpenAnime: (Int) -> Unit,
-    onDismiss: () -> Unit,
 ) {
-    // Solid (non-transparent) background so the sidebar is readable over the bars.
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-        shadowElevation = 12.dp,
-        modifier = Modifier
-            .width(SIDEBAR_WIDTH_DP.dp)
-            .height(SIDEBAR_HEIGHT_DP.dp)
-            .clickable { /* consume — don't close on sidebar tap */ },
-    ) {
-        Column(modifier = Modifier.fillMaxSize().padding(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    dayName, fontFamily = RobotoFamily, fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                Box(
-                    modifier = Modifier.size(20.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), CircleShape)
-                        .clickable { onDismiss() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("×", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.ExtraBold)
-                }
-            }
-            Spacer(Modifier.height(2.dp))
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp),
+        ) {
             Text(
-                "${summary.count} ep • ${formatDurationShort(summary.totalDurationSec)}",
-                fontFamily = RobotoFamily, fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold,
+                formattedDate + if (day.isToday) " · Today" else "",
+                fontFamily = RobotoFamily, fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(Modifier.height(6.dp))
-            if (summary.items.isEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (day.secondsWatched > 0 || day.episodes > 0) {
+                    formatDurationShort(day.secondsWatched) + " watched · " + day.episodes + " episode" +
+                        if (day.episodes == 1) "" else "s"
+                } else {
+                    "Nothing watched this day"
+                },
+                fontFamily = RobotoFamily, fontSize = 13.sp,
+                fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(14.dp))
+            if (day.items.isEmpty()) {
                 Text(
-                    "No anime recorded", fontFamily = RobotoFamily, fontSize = 10.sp,
+                    "No episodes recorded.",
+                    fontFamily = RobotoFamily, fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(summary.items) { item ->
+                    items(day.items) { item ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable {
-                                item.anilistId?.let { onOpenAnime(it) }
-                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { item.anilistId?.let { onOpenAnime(it) } },
                         ) {
                             Box(
-                                modifier = Modifier.size(width = 32.dp, height = 44.dp)
+                                modifier = Modifier.size(width = 48.dp, height = 30.dp)
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                             ) {
@@ -413,15 +345,25 @@ private fun WatchFlowSidebar(
                                     )
                                 }
                             }
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    item.title, fontFamily = RobotoFamily, fontSize = 10.sp,
+                                    item.title, fontFamily = RobotoFamily, fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    "EP ${item.episodeNumber}", fontFamily = RobotoFamily, fontSize = 9.sp,
+                                    buildString {
+                                        append("EP ")
+                                        append(item.episodeNumber)
+                                        if (item.secondsWatched > 0) {
+                                            append(" · ")
+                                            append(formatDurationShort(item.secondsWatched))
+                                            append(" watched")
+                                        }
+                                        if (item.completed) append(" · completed")
+                                    },
+                                    fontFamily = RobotoFamily, fontSize = 10.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -445,7 +387,11 @@ private fun formatDurationShort(seconds: Long): String {
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Time DNA + Recently Watched — side-by-side in one card.
-//  Left: donut chart (own background). Right: recently watched list (own background).
+//  ROUND 137 (D-831): the daypart split comes from the VIEWMODEL (computed
+//  once, from the session ledger in real minutes) — the duplicated in-UI
+//  bucketing is gone, and the donut CENTER shows the user's PEAK period
+//  (the overall average the report asked for), not the wall-clock period.
+//  Right: the recently-watched list.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -456,12 +402,6 @@ fun TimeDnaAndRecentCard(
 ) {
     if (timeDna == null) return
 
-    val morning = (6..11).sumOf { timeDna.hourlyCounts[it] }
-    val afternoon = (12..17).sumOf { timeDna.hourlyCounts[it] }
-    val evening = (18..22).sumOf { timeDna.hourlyCounts[it] }
-    val night = (23..23).sumOf { timeDna.hourlyCounts[it] } + (0..5).sumOf { timeDna.hourlyCounts[it] }
-    val total = (morning + afternoon + evening + night).coerceAtLeast(1)
-
     val primaryColor = MaterialTheme.colorScheme.primary
     // Theme-adjacent base colors, each blended 25% with the primary for a tint.
     val morningColor = lerp(Color(0xFFFFB74D), primaryColor, 0.25f)
@@ -470,21 +410,12 @@ fun TimeDnaAndRecentCard(
     val nightColor = lerp(Color(0xFFECE6F5), primaryColor, 0.25f)
 
     val periods = listOf(
-        Triple("Morning", morning, morningColor),
-        Triple("Afternoon", afternoon, afternoonColor),
-        Triple("Evening", evening, eveningColor),
-        Triple("Night", night, nightColor),
+        Triple("Morning", timeDna.morning, morningColor),
+        Triple("Afternoon", timeDna.afternoon, afternoonColor),
+        Triple("Evening", timeDna.evening, eveningColor),
+        Triple("Night", timeDna.night, nightColor),
     )
-
-    val cal = Calendar.getInstance()
-    val currentHour = cal.get(Calendar.HOUR_OF_DAY)
-    val currentPeriodIdx = when (currentHour) {
-        in 6..11 -> 0
-        in 12..17 -> 1
-        in 18..22 -> 2
-        else -> 3
-    }
-    val currentPeriod = periods[currentPeriodIdx]
+    val total = timeDna.totalMinutes
 
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(
@@ -509,7 +440,6 @@ fun TimeDnaAndRecentCard(
                         modifier = Modifier.fillMaxWidth().padding(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        // Donut — D-248: slightly larger for breathing room
                         Box(modifier = Modifier.size(112.dp)) {
                             Canvas(modifier = Modifier.fillMaxSize()) {
                                 val centerX = size.width / 2f
@@ -518,7 +448,7 @@ fun TimeDnaAndRecentCard(
                                 val strokeWidth = outerRadius * 0.26f
                                 var startAngle = -90f
                                 periods.forEach { (_, count, color) ->
-                                    if (count > 0) {
+                                    if (count > 0 && total > 0) {
                                         val fraction = count.toFloat() / total
                                         val sweepAngle = fraction * 360f
                                         drawArc(
@@ -534,25 +464,33 @@ fun TimeDnaAndRecentCard(
                                     }
                                 }
                             }
-                            // Center: current period color dot + name
+                            // Center: the user's PEAK period (the overall average)
+                            // with its share — not the wall-clock period.
                             Column(
                                 modifier = Modifier.align(Alignment.Center),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
+                                val peakPeriod = periods.firstOrNull { it.first == timeDna.peakPeriodLabel }
+                                    ?: periods[0]
                                 Surface(
-                                    color = currentPeriod.third,
+                                    color = peakPeriod.third,
                                     shape = CircleShape,
                                     modifier = Modifier.size(10.dp),
                                 ) {}
                                 Spacer(Modifier.height(2.dp))
                                 Text(
-                                    currentPeriod.first, fontFamily = RobotoFamily, fontSize = 8.sp,
+                                    timeDna.peakPeriodLabel, fontFamily = RobotoFamily, fontSize = 8.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
+                                val peakPct = if (total > 0) peakPeriod.second * 100 / total else 0
+                                Text(
+                                    "$peakPct%", fontFamily = RobotoFamily, fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
                             }
                         }
-                        // D-248: more spacing between the donut and the legend below
                         Spacer(Modifier.height(16.dp))
                         // Legend below donut — 2 rows of 2
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -646,21 +584,44 @@ fun TimeDnaAndRecentCard(
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Activity Heatmap — scrollable square cells, gray empty, left day markers
-//  (M/T/W/T/F/S/S), bottom month labels (with padding so bottom half isn't cut).
+//  (M/T/W/T/F/S/S), bottom month labels. ROUND 137 (D-831): intensity is REAL
+//  minutes per LOCAL-midnight day (the VM builds the map — the old version
+//  bucketed rows by UTC epoch-day while the grid used local Calendar midnights,
+//  so cells landed hours off), and the avg line divides by the whole watching
+//  span instead of the active days only (the old number was inflated).
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
-fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String) {
+fun ActivityHeatmapCard(activityMinutes: Map<Long, Long>, avgDailyWatchTime: String) {
     val oneDayMs = 24 * 60 * 60 * 1000L
-    val now = System.currentTimeMillis()
-    val todayStart = (now / oneDayMs) * oneDayMs
+    // The grid keys are LOCAL Calendar midnights — the same key shape the VM's
+    // activityMinutes map uses (D-831: no more UTC/local mixing).
+    val cal = Calendar.getInstance()
+    cal.set(Calendar.HOUR_OF_DAY, 0)
+    cal.set(Calendar.MINUTE, 0)
+    cal.set(Calendar.SECOND, 0)
+    cal.set(Calendar.MILLISECOND, 0)
+    val todayStart = cal.timeInMillis
     val primaryColor = MaterialTheme.colorScheme.primary
     val emptyColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
 
-    val cal = Calendar.getInstance()
+    val todayDow = ((cal.get(Calendar.DAY_OF_WEEK) - 2 + 7) % 7)
+    // The grid BASE is Calendar-derived too (a fixed 24h subtraction skews in
+    // midnight-transition zones — the verifier's residual note).
     cal.timeInMillis = todayStart
-    val todayDow = (cal.get(Calendar.DAY_OF_WEEK) - 2 + 7) % 7
-    val thisMonday = todayStart - todayDow * oneDayMs
+    cal.add(Calendar.DAY_OF_MONTH, -todayDow)
+    val thisMonday = cal.timeInMillis
+    // D-831/P2-4: the cell keys must be TRUE local midnights — a fixed 24h
+    // stride drifts an hour across a DST transition and every cell would miss
+    // the VM's map (the whole grid rendering gray). The helper below walks
+    // with Calendar.add; the w*7 oneDayMs arithmetic above only positions the
+    // (unchanged) week/month LABELS, whose own offsets cancel out.
+    fun localCellKey(baseDay: Long, dayOffset: Int): Long {
+        val c = Calendar.getInstance()
+        c.timeInMillis = baseDay
+        c.add(Calendar.DAY_OF_MONTH, dayOffset)
+        return c.timeInMillis
+    }
 
     val dayMarkers = listOf("M", "T", "W", "T", "F", "S", "S")
 
@@ -756,13 +717,13 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
                                 verticalArrangement = Arrangement.spacedBy(cellSpacing),
                             ) {
                                 for (r in 0 until 7) {
-                                    val dayMs = thisMonday - w * 7 * oneDayMs + r * oneDayMs
-                                    val count = activityData[dayMs] ?: 0
+                                    val dayMs = localCellKey(thisMonday, -(w * 7) + r)
+                                    val minutes = activityMinutes[dayMs] ?: 0L
                                     val color = when {
-                                        count == 0 -> emptyColor
-                                        count <= 2 -> primaryColor.copy(alpha = 0.3f)
-                                        count <= 5 -> primaryColor.copy(alpha = 0.5f)
-                                        count <= 10 -> primaryColor.copy(alpha = 0.7f)
+                                        minutes <= 0 -> emptyColor
+                                        minutes <= 15 -> primaryColor.copy(alpha = 0.3f)
+                                        minutes <= 45 -> primaryColor.copy(alpha = 0.5f)
+                                        minutes <= 90 -> primaryColor.copy(alpha = 0.7f)
                                         else -> primaryColor.copy(alpha = 0.95f)
                                     }
                                     Box(

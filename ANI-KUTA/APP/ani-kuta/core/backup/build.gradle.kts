@@ -17,6 +17,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.sqldelight.android.driver)
     implementation(libs.kotlinx.serialization.json)
+    // ROUND 137 (D-828): the interop backup formats — Aniyomi/Anikku backups are
+    // kotlinx-serialization PROTOBUF (see libs.versions.toml).
+    implementation(libs.kotlinx.serialization.proto)
     implementation(libs.androidx.work.runtime.ktx)
     // ROUND 136: the offline-image fetches — the backup carries the library's
     // cover/banner images by URL into the archive (restore = offline covers).

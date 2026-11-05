@@ -50,6 +50,11 @@ class CsWatchViewModel(
      * the user's setting), and the playback speed persists across sessions.
      */
     private val playerPreferences: com.confused.anikuta.core.preferences.PlayerPreferences,
+    /**
+     * ROUND 137 (D-830): the per-day watch-session ledger writer — every
+     * forward playback delta lands on the Profile page's watch flow.
+     */
+    private val sessionRecorder: com.confused.anikuta.core.watchprogress.WatchSessionRecorder,
 ) : ViewModel() {
 
     companion object {
@@ -1076,14 +1081,31 @@ class CsWatchViewModel(
         // same way the MPV holder does — a small FORWARD delta between saves is
         // playback; a seek (big jump) or a rewind is not. The ticker fires every
         // 10s, so real deltas are ~10s; anything above the 60s slack is a seek.
-        if (lastSavePositionMs >= 0) {
-            val deltaMs = positionMs - lastSavePositionMs
-            if (deltaMs in 1..60_000L) playedSessionMs += deltaMs
-        }
-        lastSavePositionMs = positionMs
         // Task 57 (P1): the ordinal-aware key — sub and dub rows of the SAME
         // episode write to one row (watching sub 80% shows 80% on the dub too).
         val epKey = progressEpisodeKey()
+        if (lastSavePositionMs >= 0) {
+            val deltaMs = positionMs - lastSavePositionMs
+            if (deltaMs in 1..60_000L) {
+                playedSessionMs += deltaMs
+                // ROUND 137 (D-830): the same forward delta lands on the per-day
+                // session ledger (the Profile watch flow). The recorder derives
+                // its own per-episode baseline; the FIRST call after an episode
+                // switch only baselines there — this call's delta is still added
+                // to playedSessionMs for the cumulative counter, so the ledger
+                // recovers it via the NEXT tick's delta (both stacks converge).
+                viewModelScope.launch {
+                    runCatching {
+                        sessionRecorder.onPlaybackTick(
+                            mainId = key.mainId.takeIf { it.isNotBlank() },
+                            episodeKey = epKey,
+                            sessionPlayedMs = playedSessionMs,
+                        )
+                    }
+                }
+            }
+        }
+        lastSavePositionMs = positionMs
         viewModelScope.launch {
             val previous = runCatching { watchProgressStore.get(epKey) }.getOrNull()
             val progress = WatchProgress(

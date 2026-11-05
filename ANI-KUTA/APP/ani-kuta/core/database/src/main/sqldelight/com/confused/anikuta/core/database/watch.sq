@@ -185,3 +185,70 @@ DELETE FROM watch_progress;
 -- Phase WP: Get all watch progress (for backup export).
 getAllWatchProgress:
 SELECT * FROM watch_progress;
+
+-- ──────────────────────────────────────────────────────────────────────────────
+-- ROUND 137 (D-830): watch_session — the PER-DAY watch-flow ledger.
+--
+-- watch_progress.played_time_ms is a CUMULATIVE counter per episode — it can
+-- answer "how much total time did I watch?" but never "how much did I watch on
+-- Tuesday?". This table records one row per CONTINUOUS WATCHING STREAK (a
+-- session): every player playback tick passes its current session-played
+-- milliseconds through WatchSessionRecorder, which extends the open session
+-- (same episode, ended within the 5-minute gap) or opens a new one. The
+-- Profile page buckets these rows by the LOCAL calendar day for the watch-flow
+-- chart, the per-day detail sheet, the time-DNA dayparts and the activity
+-- heatmap. played_ms sums NEVER disagree with the cumulative counter for the
+-- window they cover — both derive from the same forward-delta accumulation.
+--
+-- Migration: 2.sqm (schema v2 → v3) creates the same table for existing
+-- installs; fresh installs get it from this CREATE TABLE.
+-- ──────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS watch_session (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    main_id TEXT NOT NULL,
+    episode_key TEXT NOT NULL,
+    started_at INTEGER NOT NULL,                            -- session open time (epoch ms)
+    ended_at INTEGER NOT NULL,                              -- last tick of the session (epoch ms)
+    played_ms INTEGER NOT NULL DEFAULT 0,                   -- cumulative actually-played ms in THIS session
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_session_started ON watch_session(started_at);
+CREATE INDEX IF NOT EXISTS idx_watch_session_episode ON watch_session(episode_key, ended_at DESC);
+
+-- WatchSessionRecorder: the most recent session of an episode (the extend-or-open decision).
+lastWatchSessionForEpisode:
+SELECT * FROM watch_session WHERE episode_key = :episode_key ORDER BY ended_at DESC LIMIT 1;
+
+-- WatchSessionRecorder: open a new session.
+insertWatchSession:
+INSERT INTO watch_session(main_id, episode_key, started_at, ended_at, played_ms)
+VALUES (:main_id, :episode_key, :started_at, :ended_at, :played_ms);
+
+-- WatchSessionRecorder: extend the open session (started_at unchanged — the
+-- session's wall-clock span is what the day buckets and the day-detail sheet show).
+-- The increment is DB-SIDE (played_ms = played_ms + :delta_ms) — two recorder
+-- instances can never lose a delta through a read-modify-write race.
+extendWatchSession:
+UPDATE watch_session SET ended_at = :ended_at, played_ms = played_ms + :delta_ms WHERE id = :id;
+
+-- The Profile page: every session since the window start (the caller buckets by
+-- LOCAL day — an epoch-day division would drift across timezones, D-830).
+selectWatchSessionsSince:
+SELECT * FROM watch_session WHERE started_at >= :since ORDER BY started_at ASC;
+
+-- All sessions (the profile's all-time time-DNA + heatmap when the window covers history).
+getAllWatchSessions:
+SELECT * FROM watch_session;
+
+-- Sessions of one content (the per-day detail sheet's per-episode minutes).
+getWatchSessionsByMainId:
+SELECT * FROM watch_session WHERE main_id = :main_id;
+
+-- The History "Clear all" action clears this ledger with the progress rows.
+deleteAllWatchSessions:
+DELETE FROM watch_session;
+
+-- Library removal (S3) clears one content's sessions with its progress rows.
+deleteWatchSessionsByMainId:
+DELETE FROM watch_session WHERE main_id = :main_id;

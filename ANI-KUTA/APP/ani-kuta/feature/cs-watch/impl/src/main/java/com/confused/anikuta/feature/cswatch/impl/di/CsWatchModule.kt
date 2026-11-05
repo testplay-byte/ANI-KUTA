@@ -23,6 +23,9 @@ val csWatchModule = module {
             // Round 120 (D-750): the auto-play preference finally gates CS
             // auto-advance (it used to force-binge regardless of the setting).
             playerPreferences = get(),
+            // Round 137 (D-830): the per-day watch-session ledger (a factory —
+            // the recorder carries a per-instance delta baseline).
+            sessionRecorder = get(),
         )
     }
 }

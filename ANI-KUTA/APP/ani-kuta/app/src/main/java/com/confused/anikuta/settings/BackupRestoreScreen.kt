@@ -48,6 +48,8 @@ import com.confused.anikuta.core.backup.BackupFileInfo
 import com.confused.anikuta.core.backup.BackupManager
 import com.confused.anikuta.core.backup.BackupManifest
 import com.confused.anikuta.core.backup.BackupPreferences
+import com.confused.anikuta.core.backup.interop.InteropFormat
+import com.confused.anikuta.core.backup.interop.InteropManager
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.toast.AppToast
 import com.confused.anikuta.core.designsystem.component.toast.AppToastTone
@@ -79,6 +81,7 @@ fun BackupRestoreScreen(
     onBack: () -> Unit,
     onOpenRestore: () -> Unit,
     backupManager: BackupManager = koinInject(),
+    interopManager: InteropManager = koinInject(),
     backupPreferences: BackupPreferences = koinInject(),
     downloadPreferences: DownloadPreferences = koinInject(),
 ) {
@@ -94,6 +97,14 @@ fun BackupRestoreScreen(
     val intervalHours by backupPreferences.autoBackupIntervalHours.changes.collectAsState(
         initial = backupPreferences.autoBackupIntervalHours.get(),
     )
+    // ROUND 137 (D-828): the export format — which backup shape the Backup
+    // tile writes. "anikuta" (default) is the native full archive.
+    val exportFormatName by backupPreferences.exportFormat.changes.collectAsState(
+        initial = backupPreferences.exportFormat.get(),
+    )
+    val exportFormat = InteropFormat.entries.firstOrNull { it.name == exportFormatName }
+        ?: InteropFormat.ANIKUTA
+    var showFormatPopup by remember { mutableStateOf(false) }
 
     var folderReady by remember { mutableStateOf(false) }
     var backups by remember { mutableStateOf<List<BackupFileInfo>>(emptyList()) }
@@ -108,6 +119,17 @@ fun BackupRestoreScreen(
     // SharedPreferences read (not a snapshot state) — bump this revision
     // when the popup closes so the row recomposes with the fresh count.
     var includeRevision by androidx.compose.runtime.mutableIntStateOf(0)
+
+    // ROUND 137 (D-828): the interop resolvers — the extension catalogs that
+    // give foreign readers human names for our source ids.
+    val extensionManager = remember {
+        org.koin.core.context.GlobalContext.get()
+            .get<com.confused.anikuta.data.extension.manager.ExtensionManager>()
+    }
+    val csPluginManager = remember {
+        org.koin.core.context.GlobalContext.get()
+            .get<com.confused.anikuta.data.cloudstream.CloudstreamPluginManager>()
+    }
 
     LaunchedEffect(folderReady) {
         if (folderReady) {
@@ -155,7 +177,11 @@ fun BackupRestoreScreen(
                         BentoTile(
                             icon = Icons.Filled.CloudUpload,
                             title = "Backup",
-                            description = "Save your data now",
+                            description = if (exportFormat == InteropFormat.ANIKUTA) {
+                                "Save your data now"
+                            } else {
+                                "Export as ${exportFormat.displayName}"
+                            },
                             enabled = !backingUp,
                             busy = backingUp,
                             modifier = Modifier.weight(1f),
@@ -165,32 +191,66 @@ fun BackupRestoreScreen(
                             } else {
                                 backingUp = true
                                 scope.launch {
-                                    val result = kotlinx.coroutines.withContext(
-                                        kotlinx.coroutines.Dispatchers.IO,
-                                    ) {
-                                        backupManager.createBackup(backupPreferences.options())
+                                    val toast: String = if (exportFormat == InteropFormat.ANIKUTA) {
+                                        val result = kotlinx.coroutines.withContext(
+                                            kotlinx.coroutines.Dispatchers.IO,
+                                        ) {
+                                            backupManager.createBackup(backupPreferences.options())
+                                        }
+                                        result.fold(
+                                            onSuccess = { manifest ->
+                                                backups = kotlinx.coroutines.withContext(
+                                                    kotlinx.coroutines.Dispatchers.IO,
+                                                ) {
+                                                    backupManager.listBackups()
+                                                }
+                                                formatBackupToast(manifest)
+                                            },
+                                            onFailure = { e -> throw e },
+                                        )
+                                    } else {
+                                        val result = kotlinx.coroutines.withContext(
+                                            kotlinx.coroutines.Dispatchers.IO,
+                                        ) {
+                                            interopManager.exportTo(
+                                                format = exportFormat,
+                                                sourceNameResolver = { sourceId ->
+                                                    extensionManager.sources.value[sourceId]?.name ?: ""
+                                                },
+                                                providerResolver = { bridgedId ->
+                                                    csPluginManager.installed.value
+                                                        .flatMap { it.providers }
+                                                        .firstOrNull { provider ->
+                                                            val hashed = 0x4000_0000_0000_0000L or
+                                                                (provider.name.hashCode().toLong() and 0xFFFF_FFFFL)
+                                                            hashed == bridgedId
+                                                        }
+                                                        ?.let { it.name to it.mainUrl }
+                                                },
+                                            )
+                                        }
+                                        backups = kotlinx.coroutines.withContext(
+                                            kotlinx.coroutines.Dispatchers.IO,
+                                        ) {
+                                            backupManager.listBackups()
+                                        }
+                                        result.fold(
+                                            onSuccess = { summary ->
+                                                formatInteropExportToast(summary)
+                                            },
+                                            onFailure = { e -> throw e },
+                                        )
                                     }
                                     backingUp = false
-                                    result.fold(
-                                        onSuccess = { manifest ->
-                                            AppToast.show(
-                                                formatBackupToast(manifest),
-                                                AppToastTone.SUCCESS,
-                                                durationMillis = 3600L,
-                                            )
-                                            backups = kotlinx.coroutines.withContext(
-                                                kotlinx.coroutines.Dispatchers.IO,
-                                            ) {
-                                                backupManager.listBackups()
-                                            }
-                                        },
-                                        onFailure = { e ->
-                                            AppToast.show(
-                                                e.message ?: "Backup failed",
-                                                AppToastTone.ERROR,
-                                            )
-                                        },
-                                    )
+                                    AppToast.show(toast, AppToastTone.SUCCESS, durationMillis = 3600L)
+                                }.invokeOnCompletion { e ->
+                                    if (e != null) {
+                                        backingUp = false
+                                        AppToast.show(
+                                            e.message ?: "Backup failed",
+                                            AppToastTone.ERROR,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -237,6 +297,48 @@ fun BackupRestoreScreen(
                             }
                             Text(
                                 "Edit",
+                                fontFamily = RobotoFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+
+                // ── EXPORT FORMAT (round 137) — which backup shape the Backup tile writes ──
+                item {
+                    SettingsCard {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showFormatPopup = true },
+                        ) {
+                            IconChip(Icons.Filled.Backup)
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Export format",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    exportFormat.displayName +
+                                        if (exportFormat == InteropFormat.ANIKUTA) {
+                                            " — the complete archive"
+                                        } else {
+                                            " — for ${exportFormat.displayName} users"
+                                        },
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                "Change",
                                 fontFamily = RobotoFamily,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -377,6 +479,70 @@ fun BackupRestoreScreen(
             },
         )
     }
+
+    // ROUND 137: the export-format popup — radio-style, one line per format.
+    if (showFormatPopup) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showFormatPopup = false },
+            title = {
+                Text(
+                    "Export format",
+                    fontFamily = RobotoFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    InteropFormat.entries.forEach { format ->
+                        val selected = format == exportFormat
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    backupPreferences.exportFormat.set(format.name)
+                                    showFormatPopup = false
+                                },
+                        ) {
+                            androidx.compose.material3.RadioButton(
+                                selected = selected,
+                                onClick = {
+                                    backupPreferences.exportFormat.set(format.name)
+                                    showFormatPopup = false
+                                },
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    format.displayName,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    format.description + " (." + format.fileExtension.removePrefix(".") + ")",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        "The ANI-KUTA format carries everything. The other formats are for sharing " +
+                            "your library with those apps — they carry what their format can hold.",
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp, start = 4.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showFormatPopup = false }) { Text("Done") }
+            },
+        )
+    }
 }
 
 /** The formatted backup toast (the report: a formatted response, not a blank one). */
@@ -391,6 +557,20 @@ internal fun formatBackupToast(manifest: BackupManifest): String {
     if (manifest.aniyomiApkCount > 0) parts += "${formatCount(manifest.aniyomiApkCount)} Aniyomi"
     if (manifest.csPluginCount > 0) parts += "${formatCount(manifest.csPluginCount)} CloudStream"
     return "Backup created — " + parts.joinToString(" · ")
+}
+
+/** The ROUND-137 interop export toast — per-format, honest about skips. */
+internal fun formatInteropExportToast(summary: com.confused.anikuta.core.backup.interop.InteropExportSummary): String {
+    val parts = mutableListOf<String>()
+    parts += "${formatCount(summary.entriesWritten)} entries"
+    if (summary.categoriesWritten > 0) parts += "${formatCount(summary.categoriesWritten)} categories"
+    if (summary.episodesWritten > 0) parts += "${formatCount(summary.episodesWritten)} progress"
+    if (summary.trackingRows > 0) parts += "${formatCount(summary.trackingRows)} tracked"
+    var text = "${summary.format.displayName} backup created — " + parts.joinToString(" · ")
+    if (summary.entriesSkipped > 0) {
+        text += " (${formatCount(summary.entriesSkipped)} not carried by this format)"
+    }
+    return text
 }
 
 /** The one-line "what to include" summary under the row's title. */

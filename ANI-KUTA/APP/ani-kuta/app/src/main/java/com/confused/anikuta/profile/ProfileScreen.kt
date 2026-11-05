@@ -96,6 +96,11 @@ fun ProfileScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
 
+    // ROUND 137 (D-831): the stats refresh on EVERY screen entry — the old
+    // one-shot init{loadStats()} left stale numbers when the user came back
+    // from a watching session (the report's "inconsistencies going around").
+    LaunchedEffect(Unit) { viewModel.refresh() }
+
     val density = LocalDensity.current
     // ROUND 135: the threshold is the tab band's MEASURED height (minus a
     // small margin), not a hardcoded 56dp. The band is ~42dp — with the old
@@ -379,7 +384,9 @@ private fun StatsTab(
         }
         item { ProfileHeader(state) }
         item { QuickStatsRow(state) }
-        item { WatchFlowGraph(state.watchFlowByDay, state.watchFlowDetail, onNavigateToAnime, listState) }
+        // ROUND 137 (D-831): the last-7-days watch flow (today rightmost) —
+        // the old weekday-bucketed chart is gone.
+        item { WatchFlowGraph(state.watchFlowDays, onNavigateToAnime) }
         item { TimeDnaAndRecentCard(state.timeDna, state.recentlyWatched, onNavigateToAnime) }
         if (state.genreDistribution.isNotEmpty()) {
             item {
@@ -399,7 +406,7 @@ private fun StatsTab(
                 )
             }
         }
-        item { ActivityHeatmapCard(state.activityData, state.avgDailyWatchTime) }
+        item { ActivityHeatmapCard(state.activityMinutes, state.avgDailyWatchTime) }
     }
 }
 
@@ -441,7 +448,37 @@ private fun ProfileHeader(state: ProfileUiState) {
                 fontFamily = RobotoFamily, fontSize = 13.sp,
                 color = if (state.anilistUsername != null) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant)
+            // ROUND 137 (D-831): the watching span — "from where to where" the
+            // user has watched (the report's explicit ask), e.g.
+            // "142h watched · since Mar 3".
+            if (state.totalMinutesWatched > 0) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    buildString {
+                        append(spanLine(state.totalMinutesWatched))
+                        state.firstWatchedAt?.let { first ->
+                            append(" · since ")
+                            append(java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault())
+                                .format(java.util.Date(first)))
+                        }
+                    },
+                    fontFamily = RobotoFamily, fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
+    }
+}
+
+/** "142h watched" / "3d 4h watched" / "48m watched" from whole minutes. */
+private fun spanLine(totalMinutes: Int): String {
+    val days = totalMinutes / (24 * 60)
+    val hours = (totalMinutes % (24 * 60)) / 60
+    val mins = totalMinutes % 60
+    return when {
+        days > 0 -> "${days}d ${hours}h watched"
+        hours > 0 -> "${hours}h ${mins}m watched"
+        else -> "${mins}m watched"
     }
 }
 

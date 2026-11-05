@@ -22,4 +22,10 @@ val watchProgressModule = module {
         )
     }
     single<WatchPreferences> { DefaultWatchPreferences(get<PreferenceStore>()) }
+    // ROUND 137 (D-830): the per-day watch-session ledger writer — both player
+    // stacks tick it at their save points; the Profile page reads its table.
+    // FACTORY (not single): the recorder carries a per-caller delta baseline
+    // (last episode key + last session-played ms) — two players sharing one
+    // instance would rebaseline each other's ticks and drop their deltas.
+    factory { WatchSessionRecorder(database = get()) }
 }
