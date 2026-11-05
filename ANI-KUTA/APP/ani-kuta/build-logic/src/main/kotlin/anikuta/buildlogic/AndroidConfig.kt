@@ -544,8 +544,16 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10181
+    const val versionName = "1.1.81"
+    // ROUND 137 (v1.1.81): release/1.1.81 — cut from the round-137 main head
+    // fa0d182f (the cross-app backup interop — restore FROM Aniyomi/Anikku/
+    // AniList/CloudStream and export TO all four; the backup also carries the
+    // new-episodes feed, the watch-session ledger and the profile avatar; the
+    // profile shows REAL watched minutes with a last-7-days watch flow (today
+    // rightmost), a clean day-detail sheet, an honest local-day streak and the
+    // peak-period time DNA; 2 adversarial verification passes, 16+3 findings
+    // fixed; local build + tests green, CI run 42071878651 GREEN).
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
