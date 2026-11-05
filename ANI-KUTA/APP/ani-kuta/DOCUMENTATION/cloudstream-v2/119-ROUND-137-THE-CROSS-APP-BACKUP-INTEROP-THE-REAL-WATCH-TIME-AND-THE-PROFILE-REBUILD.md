@@ -134,4 +134,10 @@ binding), both player stacks, the backup/restore screens, the profile trio, libs
 
 - **Run 1/2 (this cycle):** Build APK **42071878651 — GREEN** (commit 22fed1e0). Local assembleDebug
   + unit tests were GREEN first; the docs commit rides after it.
-- No release was ordered this round (D-738) — mainline stays 10120/1.1.20.
+- **THE RELEASE (D-832, the user's explicit order):** Routine A on fa0d182f — release/1.1.81, ONE
+  bump commit (10120/1.1.20 → 10181/1.1.81, 928410fc), branch + annotated tag v1.1.81 (the full
+  user-facing bullet body) → **Release APK run 42076573345 — GREEN**. Verified live: stable-latest
+  "ANI-KUTA v1.1.81 (round 137)", ani-kuta-v1.1.81-debug-arm64-v8a.apk (64,000,949 bytes), the
+  downloaded SHA256 (12be0e419bb222d028a83f27cffd4502bc0c0aefdfa478290aab910562b62249) matches
+  SHA256SUMS.txt. v1.1.80 installs get the in-app offer carrying round 137. A detailed testing
+  checklist was delivered with the release notice.

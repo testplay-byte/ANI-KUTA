@@ -1,6 +1,8 @@
 # Changelog (High-Level)
 
-## Round 137 (on main, 1.1.20/10120 — UNRELEASED until the next release order)
+## 1.1.81 / 10181 — RELEASE (round 137 — the debug line; carries rounds 126-137)
+- RELEASED: the **v1.1.81** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum 12be0e41... verified) — v1.1.80 installs get the in-app update offer carrying round 137. Routine A on fa0d182f: release/1.1.81 + ONE bump commit (10120/1.1.20 -> 10181/1.1.81) + tag v1.1.81; Release APK run 42076573345 GREEN.
+## Round 137 (shipped in v1.1.81)
 - BACKUP/INTEROP: restore FROM other apps — Aniyomi, Anikku, AniList and CloudStream backup files (auto-detected; additive-only; entries/categories/watch progress/AniList tracking come in; Mihon manga backups politely deferred) — and EXPORT to each of those formats from an Export-format card (the local data is never restructured; only the file payload is).
 - BACKUP/COMPLETENESS: the New-episodes feed, the per-day watch-session ledger and the profile avatar now ride the backup; the avatar restores to a fresh device-local file.
 - PROFILE/TRACKING: real watch-time tracking — both players record per-session minutes; the profile's Time stat and the watch-flow chart now show ACTUAL minutes watched, not episode-runtime estimates.
