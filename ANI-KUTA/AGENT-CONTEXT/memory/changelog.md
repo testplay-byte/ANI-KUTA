@@ -1,5 +1,13 @@
 # Changelog (High-Level)
 
+## Round 137 (on main, 1.1.20/10120 — UNRELEASED until the next release order)
+- BACKUP/INTEROP: restore FROM other apps — Aniyomi, Anikku, AniList and CloudStream backup files (auto-detected; additive-only; entries/categories/watch progress/AniList tracking come in; Mihon manga backups politely deferred) — and EXPORT to each of those formats from an Export-format card (the local data is never restructured; only the file payload is).
+- BACKUP/COMPLETENESS: the New-episodes feed, the per-day watch-session ledger and the profile avatar now ride the backup; the avatar restores to a fresh device-local file.
+- PROFILE/TRACKING: real watch-time tracking — both players record per-session minutes; the profile's Time stat and the watch-flow chart now show ACTUAL minutes watched, not episode-runtime estimates.
+- PROFILE/WATCH FLOW: the chart shows the LAST 7 DAYS with today on the far right, one day-label row, no axis numbers, and tapping a day opens a clean bottom-sheet detail (minutes, episodes, per-episode time).
+- PROFILE: an honest local-day streak (today pending no longer resets it), time-DNA showing the user's PEAK period with its share, a minutes-based activity heatmap, the watching span in the header, and stats that refresh on every visit.
+- PLAYER: every save point feeds the watch-session ledger — even short (sub-minute) watches land on the profile's day bars.
+
 ## 1.1.80 / 10180 — RELEASE (round 136 — the debug line; carries rounds 126-136)
 - RELEASED: the **v1.1.80** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum verified) — v1.1.79 installs get the in-app update offer carrying round 136. Routine A on 1e27a115: release/1.1.80 + ONE bump commit (10120/1.1.20 -> 10180/1.1.80) + tag v1.1.80; Release APK run 41347914058->41347914077 GREEN.
 - BACKUP & RESTORE/COVERS: the backup CARRIES the library's cover/banner images + extension icons; a restored library paints its covers with the network OFF (the URL-keyed store + the Coil interceptor).
