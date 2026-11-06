@@ -1,5 +1,10 @@
 # Changelog (High-Level)
 
+## Round 138 (on main, 1.1.20/10120 — shipped in v1.1.82)
+- BACKUP: the app backs up in its OWN format only — the export-format selector is gone; foreign formats became a one-time "Export as…" chip on the backup tile's bottom-right, with short descriptions.
+- RESTORE: the page is rebuilt — one theme-tinted section at the top IS the file picker, for your backups and every other app's format alike; the supported formats (.anikuta/.tachibk/.anikku/.json) are listed plainly below; nothing you have is ever overwritten.
+- MY PROFILE: the glitchy at-rest top is fixed — the tab switcher lives permanently in the pinned header; your avatar + stats start right below it at every scroll position; the title sits at its settled size.
+
 ## 1.1.81 / 10181 — RELEASE (round 137 — the debug line; carries rounds 126-137)
 - RELEASED: the **v1.1.81** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum 12be0e41... verified) — v1.1.80 installs get the in-app update offer carrying round 137. Routine A on fa0d182f: release/1.1.81 + ONE bump commit (10120/1.1.20 -> 10181/1.1.81) + tag v1.1.81; Release APK run 42076573345 GREEN.
 ## Round 137 (shipped in v1.1.81)
