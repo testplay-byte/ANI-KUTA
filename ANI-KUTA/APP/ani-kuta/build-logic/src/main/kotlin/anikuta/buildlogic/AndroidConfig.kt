@@ -544,8 +544,15 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10182
+    const val versionName = "1.1.82"
+    // ROUND 138 (v1.1.82): release/1.1.82 — cut from the round-138 main head
+    // 779f672a (the UX rework round: the backup page's persistent export-format
+    // selector removed for a one-shot "Export as…" chip with half-line
+    // descriptions; the restore page rebuilt around ONE theme-tinted hero
+    // picker for every format with the supported-format chips; the profile
+    // top's tab band + collapse/snap machinery removed — the pill lives in the
+    // pinned header and the avatar row leads at EVERY scroll position).
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
