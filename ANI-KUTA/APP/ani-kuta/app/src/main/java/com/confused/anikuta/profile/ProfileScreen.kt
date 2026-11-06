@@ -1,8 +1,5 @@
 package com.confused.anikuta.profile
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,30 +36,20 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
-import com.confused.anikuta.settings.SegmentedToggle
-import kotlin.math.roundToInt
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -101,58 +88,25 @@ fun ProfileScreen(
     // from a watching session (the report's "inconsistencies going around").
     LaunchedEffect(Unit) { viewModel.refresh() }
 
-    val density = LocalDensity.current
-    // ROUND 135: the threshold is the tab band's MEASURED height (minus a
-    // small margin), not a hardcoded 56dp. The band is ~42dp — with the old
-    // 56dp threshold the collapsingTabBand fixed point sat at f≈0.43 (<0.5),
-    // so the half-collapsed state NEVER crossed the snap boundary and the top
-    // looked "glitched" with dead space on first entry. The margin keeps the
-    // fixed point just PAST 0.5 so the magnetic snap always wins from it.
-    var bandHeightPx by remember { mutableStateOf(0f) }
-    val collapseThresholdPx = with(density) {
-        ((bandHeightPx - 6.dp.toPx()).coerceAtLeast(24.dp.toPx()))
-    }
-
+    // ROUND 138 (the device report: the at-rest top was "ugly, glitchy… but as
+    // soon as I scroll slightly, it moves up to the very top where it needs to
+    // be"): the thing that made at-rest DIFFERENT from the settled state was the
+    // in-list TAB BAND and its collapse/snap machinery. It is gone — the tab
+    // pill now lives PERMANENTLY in the pinned header, the avatar row is the
+    // first list item, and the collapse signal is the app's standard one. There
+    // is no half-state left to look glitchy.
     val activeListState = if (selectedTab == 0) statsListState else timelineListState
-
-    // Continuous scroll fraction [0..1] for the active tab. Read inside graphicsLayer
-    // lambdas (deferred — no recomposition on scroll).
+    val collapsed by remember(activeListState) {
+        derivedStateOf {
+            activeListState.firstVisibleItemIndex > 0 ||
+                activeListState.firstVisibleItemScrollOffset > 20
+        }
+    }
+    // A gentle scrim driver for the top fade (deferred reads — no recomposition).
     val scrollFraction: () -> Float = {
         val ls = activeListState
-        val raw = if (ls.firstVisibleItemIndex > 0) collapseThresholdPx
-                  else ls.firstVisibleItemScrollOffset.toFloat()
-        (raw / collapseThresholdPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
-    }
-
-    // ROUND 135: keyed on the ACTIVE list state AND the measured band height —
-    // the un-keyed remember held the FIRST composition's closure (always the
-    // Stats list + the pre-measurement threshold), so after a tab switch (or
-    // before the band measured) the header collapse state read the WRONG list.
-    val collapsed by remember(activeListState, bandHeightPx) {
-        derivedStateOf { scrollFraction() > 0.5f }
-    }
-
-    // ── Magnetic snap ────────────────────────────────────────────────────────
-    // Only snaps when the user is near the TOP of the list (firstVisibleItemIndex == 0).
-    // This prevents the snap from firing when the user is deep in content (which would
-    // jump them back to the top). The snap area is limited to the tab-bar threshold.
-    // ROUND 135: re-armed on the measured band height too (the threshold the
-    // snap reads must be the measured one).
-    LaunchedEffect(activeListState, bandHeightPx) {
-        snapshotFlow { activeListState.isScrollInProgress }
-            .distinctUntilChanged()
-            .filter { !it } // only when scroll ENDS
-            .collect {
-                // Only snap if the user is at item 0 (near the top, in the tab-bar area).
-                if (activeListState.firstVisibleItemIndex == 0) {
-                    val f = scrollFraction()
-                    if (f > 0.5f) {
-                        activeListState.animateScrollToItem(1, 0)
-                    } else {
-                        activeListState.animateScrollToItem(0, 0)
-                    }
-                }
-            }
+        if (ls.firstVisibleItemIndex > 0) 1f
+        else (ls.firstVisibleItemScrollOffset / 140f).coerceIn(0f, 1f)
     }
 
     val bgColor = MaterialTheme.colorScheme.background
@@ -163,38 +117,27 @@ fun ProfileScreen(
             CollapsingHeader(
                 title = "My Profile",
                 collapsed = collapsed,
-                // ROUND 128: the scroll-0 state had too much empty padding above
-                // and below the heading (the device report) — a tighter expanded
-                // header for THIS screen only (the shared defaults are unchanged).
-                expandedTitleSize = 26f,
+                // ROUND 138: the title is PINNED at the settled 24sp — with the
+                // permanent tab pill sharing this row, a larger expanded size
+                // truncated "My Profile" on narrow screens (the D-559 bug
+                // class), and the report called the settled state "where it
+                // needs to be". Expanded == collapsed here: no size animation.
+                expandedTitleSize = 24f,
                 expandedPaddingTop = 2f,
                 expandedPaddingBottom = 0f,
                 // D-558: the heading IS the back button (leading arrow + tappable title).
                 onBack = onBack,
                 actions = {
-                    // Mini tab pill — equal-width segments. D-559: the pill's
-                    // WIDTH now follows the collapse too (the same 300ms
-                    // FastOutSlowIn curve as the header's own animation): at
-                    // the top it occupies ZERO width, so the 32sp "My
-                    // Profile" title gets its full room back. The v1.1.32
-                    // device round caught the alpha-0 pill still eating
-                    // 120dp of layout width and truncating the title to
-                    // "My PR…" until the first scroll collapsed the header
-                    // (24sp fit where 32sp didn't). Alpha stays
-                    // scroll-driven — it fades in exactly as the full tabs
-                    // fade out; the width is the fix. Sits to the LEFT of
-                    // the settings gear.
-                    val pillWidthFraction by animateFloatAsState(
-                        targetValue = if (collapsed) 1f else 0f,
-                        animationSpec = tween(300, easing = FastOutSlowInEasing),
-                        label = "profileMiniPillWidth",
-                    )
+                    // ROUND 138: the tab pill is the PERMANENT tab control —
+                    // always visible, equal-width segments, LEFT of the
+                    // settings gear. (The old pattern — a full-size band INSIDE
+                    // the list that faded/collapsed/snap-scrolled — was the
+                    // glitchy at-rest top the report called out; with the pill
+                    // here the avatar row is the first thing under the header
+                    // at EVERY scroll position.)
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                         shape = RoundedCornerShape(9.dp),
-                        modifier = Modifier
-                            .graphicsLayer { alpha = scrollFraction() }
-                            .width((120 * pillWidthFraction).dp),
                     ) {
                         Row(modifier = Modifier.padding(2.dp)) {
                             listOf("Stats", "Timeline").forEachIndexed { idx, label ->
@@ -214,7 +157,7 @@ fun ProfileScreen(
                                         fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
                                         color = if (isSelected) MaterialTheme.colorScheme.onPrimary
                                                 else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(vertical = 4.dp),
+                                        modifier = Modifier.padding(vertical = 4.dp, horizontal = 10.dp),
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                     )
                                 }
@@ -242,13 +185,11 @@ fun ProfileScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 when (selectedTab) {
                     0 -> StatsTab(
-                        state, statsListState, scrollFraction, viewModel, onNavigateToAnime,
-                        onBandMeasured = { bandHeightPx = it.toFloat() },
-                    ) { selectedTab = it }
+                        state, statsListState, viewModel, onNavigateToAnime,
+                    )
                     1 -> TimelineTab(
-                        state, timelineListState, scrollFraction, onNavigateToAnime,
-                        onBandMeasured = { bandHeightPx = it.toFloat() },
-                    ) { selectedTab = it }
+                        state, timelineListState, onNavigateToAnime,
+                    )
                 }
 
                 // Gradient blur scrim at the top edge — fades in when collapsed so
@@ -311,77 +252,22 @@ fun ProfileScreen(
 
 // ── Stats Tab ─────────────────────────────────────────────────────────────────
 
-/**
- * ROUND 129 (the device report: "the profile screen is still glitched"): the
- * tab band used to fade/scale VISUALLY only (graphicsLayer) while keeping its
- * full layout height — between the top of the list and the magnetic snap
- * there was a see-through ~42dp hole under the header where the band used to
- * be. This modifier collapses the band in LAYOUT, driven by the same scroll
- * fraction: the band's measured viewport shrinks with the scroll, the content
- * below slides up naturally, and a fully-collapsed band reports a 0dp height.
- * The child is measured at its natural (unconstrained) height every pass, so
- * the shrink never feeds back into the measurement; the LazyColumn's offset
- * clamping converges (the fixed point sits at half-collapse, where the
- * magnetic snap takes over on finger-up).
- */
-internal fun Modifier.collapsingTabBand(
-    fraction: () -> Float,
-): Modifier = layout { measurable, constraints ->
-    val placeable = measurable.measure(
-        constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity),
-    )
-    val f = fraction().coerceIn(0f, 1f)
-    val target = (placeable.height * (1f - f)).roundToInt()
-    layout(constraints.maxWidth, target) {
-        placeable.placeRelative(0, 0)
-    }
-}.clipToBounds()
-
 @Composable
 private fun StatsTab(
     state: ProfileUiState,
     listState: LazyListState,
-    scrollFraction: () -> Float,
     viewModel: ProfileViewModel,
     onNavigateToAnime: (Int) -> Unit,
-    onBandMeasured: (Int) -> Unit = {},
-    onTabSelect: (Int) -> Unit,
 ) {
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 110.dp),
-        // ROUND 135: 6dp (was 8) — part of the top-section chrome shave.
+        contentPadding = PaddingValues(top = 6.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // Item 0: full-size tab bar — collapses in LAYOUT with the scroll
-        // (ROUND 129) + fades/shrinks visually via graphicsLayer.
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer {
-                        val f = scrollFraction()
-                        alpha = (1f - f).coerceIn(0f, 1f)
-                        val s = 1f - f * 0.25f
-                        scaleX = s
-                        scaleY = s
-                        transformOrigin = TransformOrigin.Center
-                    }
-                    .collapsingTabBand(scrollFraction)
-                    .padding(horizontal = 12.dp),
-            ) {
-                // ROUND 135: the toggle's NATURAL height feeds the collapse
-                // threshold (the band Box itself collapses in layout, so IT
-                // must never be the measured node).
-                SegmentedToggle(
-                    options = listOf("Stats", "Timeline"),
-                    selectedIndex = 0,
-                    onSelect = onTabSelect,
-                    modifier = Modifier.onSizeChanged { onBandMeasured(it.height) },
-                )
-            }
-        }
+        // ROUND 138: the tab band is GONE — the avatar row is item 0, so the
+        // at-rest top is EXACTLY the settled state the report called "where it
+        // needs to be".
         item { ProfileHeader(state) }
         item { QuickStatsRow(state) }
         // ROUND 137 (D-831): the last-7-days watch flow (today rightmost) —

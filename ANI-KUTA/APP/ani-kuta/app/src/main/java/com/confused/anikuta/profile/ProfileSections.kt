@@ -76,7 +76,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
-import com.confused.anikuta.settings.SegmentedToggle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -1115,11 +1114,7 @@ fun GenreAnimeSheet(
 fun TimelineTab(
     state: ProfileUiState,
     listState: LazyListState,
-    scrollFraction: () -> Float,
     onNavigateToAnime: (Int) -> Unit,
-    // ROUND 135: the toggle's natural height feeds the collapse threshold.
-    onBandMeasured: (Int) -> Unit = {},
-    onTabSelect: (Int) -> Unit,
 ) {
     if (state.timeline.isEmpty()) {
         Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -1136,31 +1131,10 @@ fun TimelineTab(
         state = listState,
         modifier = Modifier.fillMaxWidth(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 12.dp, end = 12.dp, top = 0.dp, bottom = 110.dp),
+            start = 12.dp, end = 12.dp, top = 6.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer {
-                        val f = scrollFraction()
-                        alpha = (1f - f).coerceIn(0f, 1f)
-                        val s = 1f - f * 0.25f
-                        scaleX = s
-                        scaleY = s
-                    }
-                    .collapsingTabBand(scrollFraction)
-                    .padding(horizontal = 12.dp),
-            ) {
-                SegmentedToggle(
-                    options = listOf("Stats", "Timeline"),
-                    selectedIndex = 1,
-                    onSelect = onTabSelect,
-                    modifier = Modifier.onSizeChanged { onBandMeasured(it.height) },
-                )
-            }
-        }
+        // ROUND 138: the band item is gone (the pill lives in the header).
         items(state.timeline.size) { index ->
             val item = state.timeline[index]
             TimelineRow(item, onNavigateToAnime)

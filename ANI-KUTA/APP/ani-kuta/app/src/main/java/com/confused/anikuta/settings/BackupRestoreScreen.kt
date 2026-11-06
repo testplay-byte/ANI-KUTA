@@ -97,13 +97,10 @@ fun BackupRestoreScreen(
     val intervalHours by backupPreferences.autoBackupIntervalHours.changes.collectAsState(
         initial = backupPreferences.autoBackupIntervalHours.get(),
     )
-    // ROUND 137 (D-828): the export format — which backup shape the Backup
-    // tile writes. "anikuta" (default) is the native full archive.
-    val exportFormatName by backupPreferences.exportFormat.changes.collectAsState(
-        initial = backupPreferences.exportFormat.get(),
-    )
-    val exportFormat = InteropFormat.entries.firstOrNull { it.name == exportFormatName }
-        ?: InteropFormat.ANIKUTA
+    // ROUND 138 (the device report): the PERSISTENT export-format selector is
+    // GONE — the Backup tile ALWAYS writes the native .anikuta archive. The
+    // other formats are a ONE-TIME action: a small "Export as…" chip on the
+    // tile's bottom-right opens the picker and runs that single export.
     var showFormatPopup by remember { mutableStateOf(false) }
 
     var folderReady by remember { mutableStateOf(false) }
@@ -131,14 +128,6 @@ fun BackupRestoreScreen(
             .get<com.confused.anikuta.data.cloudstream.CloudstreamPluginManager>()
     }
 
-    LaunchedEffect(folderReady) {
-        if (folderReady) {
-            backups = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                backupManager.listBackups()
-            }
-        }
-    }
-
     // The storage-folder picker (the SAME tree the downloads use — the
     // backup/ subfolder lives inside it).
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -160,6 +149,63 @@ fun BackupRestoreScreen(
         }
     }
 
+    // ROUND 138: the ONE-TIME foreign-format export (the "Export as…" chip).
+    // Runs exactly the picked format once — the native backup default is never
+    // changed.
+    fun runOneTimeExport(format: InteropFormat) {
+        if (backingUp) return
+        if (!folderReady) {
+            folderPicker.launch(null)
+            return
+        }
+        backingUp = true
+        scope.launch {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                interopManager.exportTo(
+                    format = format,
+                    sourceNameResolver = { sourceId ->
+                        extensionManager.sources.value[sourceId]?.name ?: ""
+                    },
+                    providerResolver = { bridgedId ->
+                        csPluginManager.installed.value
+                            .flatMap { it.providers }
+                            .firstOrNull { provider ->
+                                val hashed = 0x4000_0000_0000_0000L or
+                                    (provider.name.hashCode().toLong() and 0xFFFF_FFFFL)
+                                hashed == bridgedId
+                            }
+                            ?.let { it.name to it.mainUrl }
+                    },
+                )
+            }
+            backingUp = false
+            result.fold(
+                onSuccess = { summary ->
+                    AppToast.show(
+                        formatInteropExportToast(summary),
+                        AppToastTone.SUCCESS,
+                        durationMillis = 3600L,
+                    )
+                    backups = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        backupManager.listBackups()
+                    }
+                },
+                onFailure = { e ->
+                    AppToast.show(e.message ?: "Export failed", AppToastTone.ERROR)
+                },
+            )
+        }
+    }
+
+    LaunchedEffect(folderReady) {
+        if (folderReady) {
+            backups = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                backupManager.listBackups()
+            }
+        }
+    }
+
+
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         CollapsingHeader(title = "Backup & restore", collapsed = collapsed, onBack = onBack)
 
@@ -177,80 +223,61 @@ fun BackupRestoreScreen(
                         BentoTile(
                             icon = Icons.Filled.CloudUpload,
                             title = "Backup",
-                            description = if (exportFormat == InteropFormat.ANIKUTA) {
-                                "Save your data now"
-                            } else {
-                                "Export as ${exportFormat.displayName}"
-                            },
+                            description = "Save your data now",
                             enabled = !backingUp,
                             busy = backingUp,
                             modifier = Modifier.weight(1f),
+                            // ROUND 138: the one-time foreign-format export — a
+                            // small chip at the tile's bottom-right, separate
+                            // from the tile's own tap.
+                            trailing = {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.clickable { showFormatPopup = true },
+                                ) {
+                                    Text(
+                                        "Export as…",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    )
+                                }
+                            },
                         ) {
                             if (!folderReady) {
                                 folderPicker.launch(null)
                             } else {
                                 backingUp = true
                                 scope.launch {
-                                    val toast: String = if (exportFormat == InteropFormat.ANIKUTA) {
-                                        val result = kotlinx.coroutines.withContext(
-                                            kotlinx.coroutines.Dispatchers.IO,
-                                        ) {
-                                            backupManager.createBackup(backupPreferences.options())
-                                        }
-                                        result.fold(
-                                            onSuccess = { manifest ->
-                                                backups = kotlinx.coroutines.withContext(
-                                                    kotlinx.coroutines.Dispatchers.IO,
-                                                ) {
-                                                    backupManager.listBackups()
-                                                }
-                                                formatBackupToast(manifest)
-                                            },
-                                            onFailure = { e -> throw e },
-                                        )
-                                    } else {
-                                        val result = kotlinx.coroutines.withContext(
-                                            kotlinx.coroutines.Dispatchers.IO,
-                                        ) {
-                                            interopManager.exportTo(
-                                                format = exportFormat,
-                                                sourceNameResolver = { sourceId ->
-                                                    extensionManager.sources.value[sourceId]?.name ?: ""
-                                                },
-                                                providerResolver = { bridgedId ->
-                                                    csPluginManager.installed.value
-                                                        .flatMap { it.providers }
-                                                        .firstOrNull { provider ->
-                                                            val hashed = 0x4000_0000_0000_0000L or
-                                                                (provider.name.hashCode().toLong() and 0xFFFF_FFFFL)
-                                                            hashed == bridgedId
-                                                        }
-                                                        ?.let { it.name to it.mainUrl }
-                                                },
-                                            )
-                                        }
-                                        backups = kotlinx.coroutines.withContext(
-                                            kotlinx.coroutines.Dispatchers.IO,
-                                        ) {
-                                            backupManager.listBackups()
-                                        }
-                                        result.fold(
-                                            onSuccess = { summary ->
-                                                formatInteropExportToast(summary)
-                                            },
-                                            onFailure = { e -> throw e },
-                                        )
+                                    val result = kotlinx.coroutines.withContext(
+                                        kotlinx.coroutines.Dispatchers.IO,
+                                    ) {
+                                        backupManager.createBackup(backupPreferences.options())
                                     }
                                     backingUp = false
-                                    AppToast.show(toast, AppToastTone.SUCCESS, durationMillis = 3600L)
-                                }.invokeOnCompletion { e ->
-                                    if (e != null) {
-                                        backingUp = false
-                                        AppToast.show(
-                                            e.message ?: "Backup failed",
-                                            AppToastTone.ERROR,
-                                        )
-                                    }
+                                    result.fold(
+                                        onSuccess = { manifest ->
+                                            AppToast.show(
+                                                formatBackupToast(manifest),
+                                                AppToastTone.SUCCESS,
+                                                durationMillis = 3600L,
+                                            )
+                                            backups = kotlinx.coroutines.withContext(
+                                                kotlinx.coroutines.Dispatchers.IO,
+                                            ) {
+                                                backupManager.listBackups()
+                                            }
+                                        },
+                                        onFailure = { e ->
+                                            AppToast.show(
+                                                e.message ?: "Backup failed",
+                                                AppToastTone.ERROR,
+                                            )
+                                        },
+                                    )
                                 }
                             }
                         }
@@ -297,48 +324,6 @@ fun BackupRestoreScreen(
                             }
                             Text(
                                 "Edit",
-                                fontFamily = RobotoFamily,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
-                }
-
-                // ── EXPORT FORMAT (round 137) — which backup shape the Backup tile writes ──
-                item {
-                    SettingsCard {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showFormatPopup = true },
-                        ) {
-                            IconChip(Icons.Filled.Backup)
-                            Spacer(Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Export format",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Text(
-                                    exportFormat.displayName +
-                                        if (exportFormat == InteropFormat.ANIKUTA) {
-                                            " — the complete archive"
-                                        } else {
-                                            " — for ${exportFormat.displayName} users"
-                                        },
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Text(
-                                "Change",
                                 fontFamily = RobotoFamily,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -480,66 +465,50 @@ fun BackupRestoreScreen(
         )
     }
 
-    // ROUND 137: the export-format popup — radio-style, one line per format.
+    // ROUND 138: the ONE-TIME export picker — tap a format, that single
+    // export runs. Nothing is persisted; the next Backup is native again.
     if (showFormatPopup) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showFormatPopup = false },
             title = {
                 Text(
-                    "Export format",
+                    "Export as…",
                     fontFamily = RobotoFamily,
                     fontWeight = FontWeight.ExtraBold,
                 )
             },
             text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    InteropFormat.entries.forEach { format ->
-                        val selected = format == exportFormat
+                Column {
+                    InteropFormat.INTEROP_TARGETS.forEach { format ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    backupPreferences.exportFormat.set(format.name)
                                     showFormatPopup = false
+                                    runOneTimeExport(format)
                                 },
                         ) {
-                            androidx.compose.material3.RadioButton(
-                                selected = selected,
-                                onClick = {
-                                    backupPreferences.exportFormat.set(format.name)
-                                    showFormatPopup = false
-                                },
+                            Text(
+                                format.displayName,
+                                fontFamily = RobotoFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
                             )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    format.displayName,
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Text(
-                                    format.description + " (." + format.fileExtension.removePrefix(".") + ")",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                format.description,
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
-                    Text(
-                        "The ANI-KUTA format carries everything. The other formats are for sharing " +
-                            "your library with those apps — they carry what their format can hold.",
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp, start = 4.dp),
-                    )
                 }
             },
             confirmButton = {
-                Button(onClick = { showFormatPopup = false }) { Text("Done") }
+                Button(onClick = { showFormatPopup = false }) { Text("Cancel") }
             },
         )
     }
@@ -669,7 +638,9 @@ private fun PopupCheck(
     }
 }
 
-/** One bento tile — icon, title, ONE-LINE description, single tap action. */
+/** One bento tile — icon, title, ONE-LINE description, single tap action.
+ *  [trailing] (optional) floats at the tile's BOTTOM-RIGHT as its own tap
+ *  target (the round-138 one-shot "Export as…" chip). */
 @Composable
 private fun BentoTile(
     icon: ImageVector,
@@ -678,6 +649,7 @@ private fun BentoTile(
     enabled: Boolean,
     busy: Boolean,
     modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -687,39 +659,48 @@ private fun BentoTile(
             .height(112.dp)
             .clickable(enabled = enabled && !busy, onClick = onClick),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (busy) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
+        Box {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (busy) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        title,
+                        fontFamily = RobotoFamily,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.height(6.dp))
                 Text(
-                    title,
+                    description,
                     fontFamily = RobotoFamily,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
                 )
             }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                description,
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-            )
+            trailing?.let {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(10.dp),
+                ) { it() }
+            }
         }
     }
 }

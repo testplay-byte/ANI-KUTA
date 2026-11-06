@@ -6,6 +6,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,8 +19,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -29,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,11 +41,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.backup.BackupManager
 import com.confused.anikuta.core.backup.BackupManifest
 import com.confused.anikuta.core.backup.RestoreSummary
+import com.confused.anikuta.core.backup.interop.InteropManager
 import com.confused.anikuta.core.designsystem.component.toast.AppToast
 import com.confused.anikuta.core.designsystem.component.toast.AppToastTone
 import com.confused.anikuta.core.common.formatCount
@@ -54,24 +60,26 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 /**
- * The RESTORE page (round 135; stats reworked for the round-136 report) —
- * restore lives on its OWN screen: pick a backup file, see its DETAILS (when
- * it was created, which app version, and the KEY LIBRARY STATS — entries,
- * categories, history, tracking, downloads — plus covers and extensions),
- * confirm, watch the restore, and land on a result panel with the same stats
- * restored and a RESTART button (the restored settings, sources, and
- * extensions only fully activate on the next process).
+ * The RESTORE page (rebuilt for the round-138 report: the old page was "way
+ * too ugly… not modern, clean").
  *
- * The report was explicit: a raw "1838 rows" line is NOT the detail — the
- * user wants "the total number of library entries… how many categories were
- * there in the library… other key stats too, like which other data is
- * backed up".
+ * The page is now ONE flow:
+ *  - A theme-tinted HERO section at the very top — the whole section is the
+ *    file picker (the report: "at the very top, there should be an option to
+ *    pick a backup file, and the whole top section should be that… a little
+ *    bit of a theme colored").
+ *  - ONE picker for EVERY format: an .anikuta archive shows its details +
+ *    a confirm; ANY other supported file (Aniyomi/Anikku/AniList/CloudStream)
+ *    restores immediately — additive-only, nothing overwritten.
+ *  - Below the hero: the supported-format chips (the report: "a short
+ *    description that you can restore from other apps too… .tachibk… and the
+ *    other stuff like that will be properly mentioned").
  */
 @Composable
 fun RestoreBackupScreen(
     onBack: () -> Unit,
     backupManager: BackupManager = koinInject(),
-    interopManager: com.confused.anikuta.core.backup.interop.InteropManager = koinInject(),
+    interopManager: InteropManager = koinInject(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -80,83 +88,79 @@ fun RestoreBackupScreen(
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 
+    // The unified pick state: ONE uri, ONE busy flag, ONE generation counter
+    // (the round-137 verifier's P2-7 — a URI-keyed effect never re-runs when
+    // the user re-picks the SAME document).
     var pickedUri by remember { mutableStateOf<Uri?>(null) }
+    var pickGeneration by remember { mutableIntStateOf(0) }
+    var detecting by remember { mutableStateOf(false) }
+
+    // The native .anikuta path.
     var manifest by remember { mutableStateOf<BackupManifest?>(null) }
-    var readingManifest by remember { mutableStateOf(false) }
     var restoring by remember { mutableStateOf(false) }
     var restoreError by remember { mutableStateOf<String?>(null) }
     var restoreSummary by remember { mutableStateOf<RestoreSummary?>(null) }
     var confirming by remember { mutableStateOf(false) }
 
-    // ROUND 137 (D-828): restore from OTHER apps — Aniyomi/Anikku protobuf
-    // backups, AniList list exports, CloudStream CS3 backups.
-    var interopBusy by remember { mutableStateOf(false) }
+    // The foreign-format path.
     var interopSummary by remember {
         mutableStateOf<com.confused.anikuta.core.backup.interop.InteropRestoreSummary?>(null)
     }
-    var interopError by remember { mutableStateOf<String?>(null) }
-    var interopPickedUri by remember { mutableStateOf<Uri?>(null) }
-    // P2-7: re-picking the SAME document yields the same URI — a URI-keyed
-    // LaunchedEffect never re-runs and the busy flag sticks forever. The
-    // pickers bump a GENERATION counter instead; the effects key on that.
-    var nativePickGeneration by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    var interopPickGeneration by remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
-    val restorePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             pickedUri = uri
             manifest = null
             restoreSummary = null
             restoreError = null
-            readingManifest = true
-            nativePickGeneration++
-        }
-    }
-    val interopPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            interopPickedUri = uri
             interopSummary = null
-            interopError = null
-            interopPickGeneration++
+            confirming = false
+            detecting = true
+            pickGeneration++
         }
     }
-    LaunchedEffect(nativePickGeneration) {
-        if (nativePickGeneration == 0) return@LaunchedEffect
-        val uri = pickedUri ?: return@LaunchedEffect
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+
+    // The unified detection: .anikuta → the preview+confirm flow; anything else
+    // → the interop restore runs immediately (additive-only — safe to just do).
+    // Declared BEFORE the effect (a local val can't be forward-referenced).
+    val dispatchPickedFile: suspend (Uri) -> Unit = { uri ->
+        val native = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             backupManager.readManifest(uri)
-        }?.let {
-            manifest = it
-        } ?: run {
-            AppToast.show("Not an ANI-KUTA backup file", AppToastTone.ERROR)
-            pickedUri = null
         }
-        readingManifest = false
+        if (native != null) {
+            manifest = native
+        } else {
+            // Not ours — the foreign-format restore.
+            val hint = runCatching { uri.lastPathSegment }.getOrNull()
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                interopManager.restoreFrom(uri, hint)
+            }
+            result.fold(
+                onSuccess = { summary ->
+                    interopSummary = summary
+                    AppToast.show(
+                        formatInteropRestoreToast(summary),
+                        AppToastTone.SUCCESS,
+                        durationMillis = 4200L,
+                    )
+                },
+                onFailure = { e ->
+                    restoreError = e.message ?: "Restore failed"
+                    AppToast.show(restoreError ?: "Restore failed", AppToastTone.ERROR)
+                },
+            )
+        }
     }
-    LaunchedEffect(interopPickGeneration) {
-        if (interopPickGeneration == 0) return@LaunchedEffect
-        val uri = interopPickedUri ?: return@LaunchedEffect
-        interopBusy = true
-        // A file-name hint sharpens the Anikku-vs-Mihon discrimination.
-        val hint = runCatching { uri.lastPathSegment }.getOrNull()
-        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            interopManager.restoreFrom(uri, hint)
+    LaunchedEffect(pickGeneration) {
+        if (pickGeneration == 0) return@LaunchedEffect
+        val uri = pickedUri ?: return@LaunchedEffect
+        try {
+            dispatchPickedFile(uri)
+        } finally {
+            // The busy flag can NEVER stick — even if something unexpected
+            // throws mid-detection.
+            detecting = false
         }
-        interopBusy = false
-        result.fold(
-            onSuccess = { summary ->
-                interopSummary = summary
-                AppToast.show(
-                    formatInteropRestoreToast(summary),
-                    AppToastTone.SUCCESS,
-                    durationMillis = 4200L,
-                )
-            },
-            onFailure = { e ->
-                interopError = e.message ?: "Restore failed"
-                AppToast.show(interopError ?: "Restore failed", AppToastTone.ERROR)
-            },
-        )
     }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -165,161 +169,136 @@ fun RestoreBackupScreen(
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(state = lazyListState, modifier = Modifier.fillMaxSize()) {
 
+                // ── THE HERO: the whole top section IS the file picker ──
                 item {
-                    SectionCard {
-                        Text(
-                            "Pick a backup file",
-                            fontFamily = RobotoFamily,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            "An .anikuta file from your backup folder",
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedButton(
-                            onClick = { restorePicker.launch(arrayOf("*/*")) },
-                            enabled = !restoring,
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(20.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .clickable(enabled = !detecting && !restoring) {
+                                filePicker.launch(arrayOf("*/*"))
+                            },
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 22.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            if (readingManifest) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                            } else {
-                                Icon(
-                                    Icons.Filled.FolderOpen,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(Modifier.width(8.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                shape = RoundedCornerShape(14.dp),
+                            ) {
+                                Box(modifier = Modifier.padding(12.dp)) {
+                                    if (detecting || restoring) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(26.dp),
+                                            strokeWidth = 2.5.dp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Filled.Restore,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(26.dp),
+                                        )
+                                    }
+                                }
                             }
-                            Text(if (pickedUri == null) "Choose a file" else "Choose another file")
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                when {
+                                    detecting -> "Reading the file…"
+                                    restoring -> "Restoring…"
+                                    pickedUri == null -> "Pick a backup file"
+                                    else -> "Pick another file"
+                                },
+                                fontFamily = RobotoFamily,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                "Your own backups and other apps' backups — all in one place",
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
                         }
                     }
                 }
 
-                // ── RESTORE FROM OTHER APPS (round 137, D-828) ──
+                // ── The supported formats (the report: name the apps + extensions) ──
                 item {
                     SectionCard {
                         Text(
-                            "Restore from other apps",
+                            "Supported backups",
                             fontFamily = RobotoFamily,
-                            fontSize = 15.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Text(
-                            "An Aniyomi (.tachibk), Anikku (.anikku), AniList or CloudStream backup — " +
-                                "the format is detected automatically",
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
                         Spacer(Modifier.height(10.dp))
-                        OutlinedButton(
-                            onClick = { interopPicker.launch(arrayOf("*/*")) },
-                            enabled = !interopBusy && !restoring,
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            if (interopBusy) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                            } else {
-                                Icon(
-                                    Icons.Filled.FolderOpen,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(Modifier.width(8.dp))
-                            }
-                            Text("Choose another app's backup")
+                            FormatChip("ANI-KUTA", ".anikuta", Modifier.weight(1f))
+                            FormatChip("Aniyomi", ".tachibk", Modifier.weight(1f))
                         }
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            FormatChip("Anikku", ".anikku", Modifier.weight(1f))
+                            FormatChip("AniList", ".json", Modifier.weight(1f))
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FormatChip("CloudStream", ".json")
+                        }
+                        Spacer(Modifier.height(10.dp))
                         Text(
-                            "Entries, categories, watch progress and AniList tracking are added to your " +
-                                "library — nothing you already have is overwritten. Anime backups only " +
-                                "for now; Mihon manga backups come later.",
+                            "Everything is ADDED to your library — nothing you already have is " +
+                                "overwritten. Anime backups only for now; Mihon manga comes later.",
                             fontFamily = RobotoFamily,
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 6.dp),
                         )
                     }
                 }
 
-                // ── The interop result ──
-                interopSummary?.let { s ->
-                    item {
-                        SectionCard {
-                            Text(
-                                "Restored from ${s.format.displayName}",
-                                fontFamily = RobotoFamily,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            SectionLabel("Library")
-                            DetailRow("Entries read", formatCount(s.entriesRead))
-                            DetailRow("New", formatCount(s.entriesCreated))
-                            DetailRow("Already present", formatCount(s.entriesMatched))
-                            if (s.libraryAdded > 0) DetailRow("Added to library", formatCount(s.libraryAdded))
-                            if (s.categoriesAdded > 0) DetailRow("Categories created", formatCount(s.categoriesAdded))
-                            SectionLabel("History & tracking")
-                            if (s.progressRows > 0) DetailRow("Watch progress", formatCount(s.progressRows))
-                            if (s.trackingRows > 0) DetailRow("Tracking", formatCount(s.trackingRows))
-                            if (s.pendingSources > 0) {
-                                DetailRow("Without a source", formatCount(s.pendingSources))
-                            }
-                            if (s.skippedManga > 0) {
-                                DetailRow("Manga skipped", formatCount(s.skippedManga))
-                            }
-                            s.warnings.forEach { warning ->
-                                Text(
-                                    warning,
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(top = 4.dp),
-                                )
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                "Entries whose extension is not installed yet appear as soon as you add it.",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-
-                interopError?.let { error ->
-                    item {
-                        SectionCard {
-                            Text(
-                                error,
-                                fontFamily = RobotoFamily,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
-                }
-
-                // ── The picked backup's DETAILS ──
+                // ── The native .anikuta preview ──
                 manifest?.let { m ->
                     item {
                         SectionCard {
-                            DetailRow("Created", SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(m.createdAt)))
-                            DetailRow("From app version", m.appVersion)
-                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Backup details",
+                                fontFamily = RobotoFamily,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                "Created " +
+                                    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(m.createdAt)) +
+                                    " · app " + m.appVersion,
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                            Spacer(Modifier.height(10.dp))
                             SectionLabel("Library")
-                            // The KEY STATS (the round-136 report) — real
-                            // library numbers, not a raw row total.
                             DetailRow("Entries", statOr(m, "library_item"))
                             DetailRow("Categories", statOr(m, "library_category"))
                             DetailRow("History", statOr(m, "watch_progress"))
@@ -328,15 +307,9 @@ fun RestoreBackupScreen(
                             Spacer(Modifier.height(8.dp))
                             SectionLabel("Other data")
                             if (m.offlineImageCount > 0) {
-                                DetailRow(
-                                    "Cover images",
-                                    "${formatCount(m.offlineImageCount)} (offline-ready)",
-                                )
-                            } else {
-                                DetailRow(
-                                    "Cover images",
-                                    if (m.includesImages) formatCount(m.imageCount) else "Not included",
-                                )
+                                DetailRow("Cover images", "${formatCount(m.offlineImageCount)} (offline-ready)")
+                            } else if (m.includesImages) {
+                                DetailRow("Cover images", formatCount(m.imageCount))
                             }
                             if (m.includesExtensions) {
                                 DetailRow(
@@ -354,7 +327,7 @@ fun RestoreBackupScreen(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
-                            Spacer(Modifier.height(10.dp))
+                            Spacer(Modifier.height(12.dp))
                             if (restoring) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -376,6 +349,50 @@ fun RestoreBackupScreen(
                     }
                 }
 
+                // ── The foreign-format result ──
+                interopSummary?.let { s ->
+                    item {
+                        SectionCard {
+                            Text(
+                                "Restored from ${s.format.displayName}",
+                                fontFamily = RobotoFamily,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            SectionLabel("Library")
+                            DetailRow("Entries read", formatCount(s.entriesRead))
+                            DetailRow("New", formatCount(s.entriesCreated))
+                            DetailRow("Already present", formatCount(s.entriesMatched))
+                            if (s.libraryAdded > 0) DetailRow("Added to library", formatCount(s.libraryAdded))
+                            if (s.categoriesAdded > 0) DetailRow("Categories created", formatCount(s.categoriesAdded))
+                            SectionLabel("History & tracking")
+                            if (s.progressRows > 0) DetailRow("Watch progress", formatCount(s.progressRows))
+                            if (s.trackingRows > 0) DetailRow("Tracking", formatCount(s.trackingRows))
+                            if (s.pendingSources > 0) DetailRow("Without a source", formatCount(s.pendingSources))
+                            if (s.skippedManga > 0) DetailRow("Manga skipped", formatCount(s.skippedManga))
+                            s.warnings.forEach { warning ->
+                                Text(
+                                    warning,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Entries whose extension is not installed yet appear as soon as you add it.",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
+                // ── The error card ──
                 restoreError?.let { error ->
                     item {
                         SectionCard {
@@ -389,7 +406,7 @@ fun RestoreBackupScreen(
                     }
                 }
 
-                // ── The RESULT: the same key stats, restored + the RESTART ──
+                // ── The native result ──
                 restoreSummary?.let { summary ->
                     item {
                         SectionCard {
@@ -451,7 +468,7 @@ fun RestoreBackupScreen(
         }
     }
 
-    // The confirmation dialog.
+    // The confirmation dialog (native backups only — the big payloads).
     if (confirming) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { confirming = false },
@@ -490,6 +507,38 @@ fun RestoreBackupScreen(
                 OutlinedButton(onClick = { confirming = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/** One supported-format chip — the app name + its file extension. */
+@Composable
+private fun FormatChip(name: String, extension: String, modifier: Modifier = Modifier) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(9.dp),
+        modifier = modifier,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+        ) {
+            Text(
+                name,
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                extension,
+                fontFamily = RobotoFamily,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 
@@ -582,7 +631,7 @@ private fun restartApp(context: Context) {
 private fun SectionCard(content: @Composable () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 5.dp),

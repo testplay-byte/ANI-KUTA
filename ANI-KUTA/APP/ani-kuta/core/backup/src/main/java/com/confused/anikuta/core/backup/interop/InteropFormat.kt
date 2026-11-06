@@ -47,31 +47,33 @@ enum class InteropFormat(
         displayName = "ANI-KUTA",
         fileExtension = ".anikuta",
         mime = "application/zip",
-        description = "The complete archive — library, history, settings, extensions, offline covers",
+        // ROUND 138 (the device report): descriptions are HALF-LINE — the old
+        // full sentences made the export picker a wall of text.
+        description = "Full archive — everything",
     ),
     ANIYOMI(
         displayName = "Aniyomi",
         fileExtension = ".tachibk",
         mime = "application/octet-stream",
-        description = "Library, categories, watch progress & AniList tracking for Aniyomi-format apps",
+        description = ".tachibk — library + progress",
     ),
     ANIKKU(
         displayName = "Anikku",
         fileExtension = ".anikku",
         mime = "application/octet-stream",
-        description = "The Anikku backup shape (anime riding the Mihon wire format)",
+        description = ".anikku — library + progress",
     ),
     ANILIST(
         displayName = "AniList",
         fileExtension = ".json",
         mime = "application/json",
-        description = "AniList's MediaListCollection JSON — list status, scores & progress",
+        description = ".json — your anime list",
     ),
     CLOUDSTREAM(
         displayName = "CloudStream",
         fileExtension = ".json",
         mime = "application/json",
-        description = "The CS3 backup JSON — bookmarks, watched flags & resume positions",
+        description = ".json — bookmarks + progress",
     ),
     ;
 
