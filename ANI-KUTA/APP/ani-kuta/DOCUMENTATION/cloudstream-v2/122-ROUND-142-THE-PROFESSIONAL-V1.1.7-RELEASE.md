@@ -91,5 +91,6 @@ asset pick walks SUPPORTED_ABIS then `-universal.` then first APK):
   Confused-Creature-180 = tag v1.1.7 + release id 437834754 (11 assets) + gh-pages 6aeb034 +
   main 4e6a60f.
 - **ntfy:** the ANIKUTAPROGRESS start notice FAILED (ntfy.sh throttling — WinError 10054 × 5);
-  the completion notices were retried with long cooldowns (status recorded below when known).
+  the completion notices landed after a 3-minute cooldown (both topics HTTP 200 —
+  ANIKUTAPROGRESS + THE-TASK-IS-DONE).
 - Next decision: **D-857**; next record: **123**.
