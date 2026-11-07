@@ -303,3 +303,27 @@ data class PublishResult(
      */
     val audioUris: List<String> = emptyList(),
 )
+
+/**
+ * ROUND 140 (D-849): the download-state key helpers. After a content links to
+ * a different extension, the details page's episode URLs are the NEW source's
+ * while `downloaded_episode.episode_key` holds the download-time source's —
+ * the exact-URL match misses and the download state vanished. Every consumer
+ * now falls back to the NUMBER alias key built here; the manager publishes
+ * alias entries alongside the exact ones.
+ */
+object DownloadKeys {
+
+    /**
+     * The number-alias key: `"$mainId|#<number>"` — whole numbers lose the
+     * trailing `.0` so "12" and "12.0" can never produce two different keys.
+     */
+    fun numberAliasKey(mainId: String, episodeNumber: Float): String {
+        val num = if (episodeNumber == episodeNumber.toLong().toFloat()) {
+            episodeNumber.toLong().toString()
+        } else {
+            episodeNumber.toString()
+        }
+        return "$mainId|#$num"
+    }
+}

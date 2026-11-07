@@ -1704,6 +1704,10 @@ class DetailsViewModel(
                                 val epNumToUrl = episodesForCache.associate { it.episode_number.toInt() to it.url }
                                 val epNumToSourceName = episodesForCache.associate { it.episode_number.toInt() to it.name }
                                 val epNumToScanlator = episodesForCache.associate { it.episode_number.toInt() to (it.scanlator ?: "") }
+                                // D-849 (RC4): preserve the stored episode_url here too.
+                                val existingUrls = dataCacheRepository
+                                    .getEpisodeMetadata(mainIdForCache)
+                                    .associate { it.episodeNumber.toInt() to it.episodeUrl }
                                 val enrichedCache = metadata.entries.map { (epNum, meta) ->
                                     com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
                                         mainId = mainIdForCache,
@@ -3703,12 +3707,17 @@ class DetailsViewModel(
         // clearUserSkipped; keeps both faces of the link cycle coherent).
         autoLinkService.clearUserSkipped(source.id, sAnime.url)
 
-        // D-238: Clear the episode cache so episodes from the OLD source don't
-        // mix with the NEW source's episodes. The fresh fetch will repopulate.
+        // ROUND 140 (D-849): the D-238 WIPE IS REMOVED — the report's metadata-
+        // preservation rule: the OLD source's episode covers/titles/descriptions
+        // must SURVIVE a link, and the new source only overwrites what it
+        // actually provides (the background refresh's per-field merge +
+        // COALESCE axis updates do exactly that). Wiping destroyed the cache on
+        // the exact open-from-Downloads flow, made the list network-only, and
+        // let any URL drift land straight in the UI. The cache-first render now
+        // shows the old metadata until the fresh fetch reconciles it.
         val mainIdForCacheClear = currentMainId
         if (mainIdForCacheClear != null) {
-            dataCacheRepository.deleteEpisodeMetadata(mainIdForCacheClear)
-            Logger.d(TAG) { "D-238: Cleared episode cache for mainId=$mainIdForCacheClear (new source linked)" }
+            Logger.d(TAG) { "D-238 superseded (D-849): episode cache PRESERVED for mainId=$mainIdForCacheClear (metadata survives the link)" }
         }
 
         // D-139: Cache the reverse mapping (sourceId, animeUrl) → anilistId.
@@ -3935,9 +3944,9 @@ class DetailsViewModel(
         if (mainId != null) {
             contentResolver.unlinkExtension(mainId)
             refreshContentId(mainId)
-            // D-238: Clear the episode cache for this mainId.
-            dataCacheRepository.deleteEpisodeMetadata(mainId)
-            Logger.d(TAG) { "D-238: Cleared episode cache for mainId=$mainId (source unlinked)" }
+            // D-238 superseded (D-849): the episode cache is PRESERVED on unlink too —
+            // the same metadata-preservation rule; the next fetch reconciles.
+            Logger.d(TAG) { "D-238 superseded (D-849): episode cache PRESERVED for mainId=$mainId (source unlinked)" }
         }
 
         // D-134: Clear the extension base + re-merge.
@@ -4316,6 +4325,17 @@ class DetailsViewModel(
                                 val epNumToUrl = episodes.associate { it.episode_number.toInt() to it.url }
                                 val epNumToSourceName = episodes.associate { it.episode_number.toInt() to it.name }
                                 val epNumToScanlator = episodes.associate { it.episode_number.toInt() to (it.scanlator ?: "") }
+                                // ROUND 140 (D-849 / RC4): PRESERVE the stored
+                                // episode_url — a provider-metadata write whose URL
+                                // map lacks the number used to NULL the column
+                                // (INSERT OR REPLACE), and the next open's cache
+                                // rebuild then fell back url = ANIME URL — a
+                                // permanent download-key mismatch even on the SAME
+                                // source. The existing row's url wins when the new
+                                // write has none.
+                                val existingUrls = dataCacheRepository
+                                    .getEpisodeMetadata(mainId)
+                                    .associate { it.episodeNumber.toInt() to it.episodeUrl }
                                 // D-306: merge per-field with the extension's own values —
                                 // the extension-provided preview_url/summary WIN over the
                                 // provider's; provider values only fill the gaps.
@@ -4330,7 +4350,7 @@ class DetailsViewModel(
                                         thumbnailUrl = epNumToPreview[epNum]?.takeIf { it.isNotBlank() } ?: meta.thumbnailUrl,
                                         airDate = meta.airDate,
                                         fetchedAt = now,
-                                        episodeUrl = epNumToUrl[epNum],
+                                        episodeUrl = epNumToUrl[epNum] ?: existingUrls[epNum],
                                         sourceName = epNumToSourceName[epNum],
                                         scanlator = epNumToScanlator[epNum]?.takeIf { it.isNotEmpty() },
                                         isFiller = meta.isFiller,
@@ -4543,6 +4563,58 @@ class DetailsViewModel(
     fun episodeDownloadStateKey(episode: eu.kanade.tachiyomi.animesource.model.SEpisode): String? {
         val mainId = currentMainId ?: return null
         return "$mainId|${episode.url}"
+    }
+
+    /**
+     * ROUND 140 (D-849): the download state WITH the number fallback. After
+     * the content is linked to a (possibly different) extension, this list's
+     * `episode.url` values are the NEW source's — the exact-URL key misses and
+     * the download badge vanished. The manager publishes a NUMBER-ALIAS key
+     * ("$mainId|#<number>") for every downloaded row, so the state FOLLOWS the
+     * extension switch: exact key first, alias second. The core's state values
+     * are the Pair typealias — mapped through the SAME when-block as
+     * [downloadStates] (one mapper, no drift).
+     */
+    fun downloadStateFor(episode: eu.kanade.tachiyomi.animesource.model.SEpisode): EpisodeDownloadState? {
+        val mainId = currentMainId ?: return null
+        val states = downloadManager.episodeDownloadStates.value
+        val core = states["$mainId|${episode.url}"]
+            ?: return states[com.confused.anikuta.core.download.DownloadKeys.numberAliasKey(
+                mainId, episode.episode_number,
+            )]?.let { mapCoreState(it) }
+        return mapCoreState(core)
+    }
+
+    /** The ONE core→UI state mapper (shared with the [downloadStates] flow). */
+    private fun mapCoreState(core: com.confused.anikuta.core.download.EpisodeDownloadState): EpisodeDownloadState {
+        val (status, progress) = core
+        return when (status) {
+            com.confused.anikuta.core.download.DownloadStatus.QUEUED -> EpisodeDownloadState.Queued
+            com.confused.anikuta.core.download.DownloadStatus.DOWNLOADING ->
+                EpisodeDownloadState.Downloading(progress)
+            com.confused.anikuta.core.download.DownloadStatus.RETRYING -> EpisodeDownloadState.Retrying
+            com.confused.anikuta.core.download.DownloadStatus.PAUSED -> EpisodeDownloadState.Paused
+            // ROUND 121: waiting-on-network reads as Paused on the details page
+            // (it auto-resumes alone).
+            com.confused.anikuta.core.download.DownloadStatus.WAITING_FOR_NETWORK ->
+                EpisodeDownloadState.Paused
+            com.confused.anikuta.core.download.DownloadStatus.ERROR -> EpisodeDownloadState.Error(null)
+            com.confused.anikuta.core.download.DownloadStatus.COMPLETED -> EpisodeDownloadState.Downloaded
+            com.confused.anikuta.core.download.DownloadStatus.CANCELLED -> EpisodeDownloadState.NotDownloaded
+        }
+    }
+
+    /**
+     * D-849: the LOCAL FILE lookup with the same number fallback — the play
+     * gate (and the player's episode switch) resolve the downloaded content://
+     * URI by exact key first, then by episode number, before any network
+     * resolve. This is what makes a downloaded episode PLAY offline even when
+     * the linked extension's URL namespace differs from the download-time one.
+     */
+    fun downloadedEpisodeUriFor(episode: eu.kanade.tachiyomi.animesource.model.SEpisode): String? {
+        val mainId = currentMainId ?: return null
+        downloadManager.getDownloadedEpisodeUri(mainId, episode.url)?.let { return it }
+        return downloadManager.getDownloadedEpisodeUriByNumber(mainId, episode.episode_number)
     }
 
     /** Pauses the download for [episode] (if a task exists). */

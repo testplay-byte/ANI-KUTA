@@ -104,6 +104,19 @@ class BackupManager(
             .sortedByDescending { it.createdAt }
     }
 
+    /**
+     * ROUND 140 (D-848): deletes one backup file from the folder by name —
+     * the long-press Delete action on the existing-backups list. Returns
+     * false when the file is gone already or the folder refuses.
+     */
+    fun deleteBackup(name: String): Boolean {
+        val dir = backupFolder() ?: return false
+        val doc = dir.findFile(name) ?: return false
+        val ok = doc.delete()
+        if (ok) Logger.i(TAG) { "deleteBackup: $name deleted" }
+        return ok
+    }
+
     // ── Inspect ──────────────────────────────────────────────────────────────
 
     /**

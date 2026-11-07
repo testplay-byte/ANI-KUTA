@@ -98,9 +98,9 @@ class InteropImporter {
                     "Anikku anime backups are supported.",
             )
         }
+        // ROUND 140: extensions only — the report: no application names.
         throw InteropParseException(
-            "Unrecognized backup file — supported: ANI-KUTA (.anikuta), Aniyomi (.tachibk), " +
-                "Anikku (.anikku), AniList (.json), CloudStream (.json)",
+            "Unrecognized backup file — the supported extensions are .anikuta, .tachibk, .json",
         )
     }
 
@@ -148,9 +148,9 @@ class InteropImporter {
         if (collection != null && collection.containsKey("lists")) {
             return parseAnilist(collection)
         }
+        // ROUND 140: extensions only — the report: no application names.
         throw InteropParseException(
-            "Unrecognized JSON backup — supported: AniList (MediaListCollection), AniList GDPR export and " +
-                "CloudStream (CS3 backup)",
+            "Unrecognized backup file — the supported extensions are .anikuta, .tachibk, .json",
         )
     }
 

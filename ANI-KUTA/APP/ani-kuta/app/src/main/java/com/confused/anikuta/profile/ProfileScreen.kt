@@ -167,9 +167,13 @@ fun ProfileScreen(
                 // ROUND 128: the scroll-0 state had too much empty padding above
                 // and below the heading (the device report) — a tighter expanded
                 // header for THIS screen only (the shared defaults are unchanged).
-                expandedTitleSize = 26f,
+                // ROUND 140 (D-847): the title a little BIGGER (26 -> 28sp) and a
+                // clear gap between the heading and the tabs band below it (the
+                // report: 'add some space between the top my profile section and
+                // the stats and the timeline button').
+                expandedTitleSize = 28f,
                 expandedPaddingTop = 2f,
-                expandedPaddingBottom = 0f,
+                expandedPaddingBottom = 6f,
                 // D-558: the heading IS the back button (leading arrow + tappable title).
                 onBack = onBack,
                 actions = {
@@ -376,13 +380,11 @@ private fun StatsTab(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // ROUND 140 (D-847): the band's exit is a PURE fade + the
+                    // layout collapse — the old simultaneous scale read as a
+                    // messy double animation.
                     .graphicsLayer {
-                        val f = scrollFraction()
-                        alpha = (1f - f).coerceIn(0f, 1f)
-                        val s = 1f - f * 0.25f
-                        scaleX = s
-                        scaleY = s
-                        transformOrigin = TransformOrigin.Center
+                        alpha = (1f - scrollFraction()).coerceIn(0f, 1f)
                     }
                     .collapsingTabBand(scrollFraction)
                     .padding(horizontal = 12.dp),

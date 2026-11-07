@@ -1,6 +1,8 @@
 package com.confused.anikuta.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -81,6 +83,7 @@ import org.koin.compose.koinInject
  * speaks the app's design language: icon chip + ExtraBold title + one muted
  * line, 16dp corners.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun BackupRestoreScreen(
     onBack: () -> Unit,
@@ -129,6 +132,8 @@ fun BackupRestoreScreen(
 
     // ROUND 139 (D-841): the tapped existing backup + its detected manifest.
     var inspecting by remember { mutableStateOf<BackupFileInfo?>(null) }
+    // ROUND 140 (D-848): the long-pressed backup awaiting delete confirmation.
+    var deletingBackup by remember { mutableStateOf<BackupFileInfo?>(null) }
     var inspectingManifest by remember { mutableStateOf<BackupManifest?>(null) }
     var inspectingBusy by remember { mutableStateOf(false) }
     var inspectConfirmForeign by remember { mutableStateOf(false) }
@@ -504,7 +509,11 @@ fun BackupRestoreScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(8.dp))
-                                        .clickable { onExistingBackupClicked(file) }
+                                        // ROUND 140 (D-848): tap = details, LONG-PRESS = delete.
+                                        .combinedClickable(
+                                            onClick = { onExistingBackupClicked(file) },
+                                            onLongClick = { deletingBackup = file },
+                                        )
                                         .padding(vertical = 6.dp, horizontal = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -682,6 +691,53 @@ fun BackupRestoreScreen(
                 androidx.compose.material3.TextButton(
                     onClick = { inspecting = null },
                 ) { Text("Cancel") }
+            },
+        )
+    }
+
+    // ── ROUND 140 (D-848): the long-press DELETE confirmation. ──
+    deletingBackup?.let { file ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { deletingBackup = null },
+            title = {
+                Text(
+                    "Delete this backup?",
+                    fontFamily = RobotoFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            },
+            text = {
+                Text(
+                    file.name + "\n\nThe file is deleted from your storage folder. This cannot be undone.",
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val target = file
+                        deletingBackup = null
+                        scope.launch {
+                            val ok = kotlinx.coroutines.withContext(
+                                kotlinx.coroutines.Dispatchers.IO,
+                            ) { backupManager.deleteBackup(target.name) }
+                            AppToast.show(
+                                if (ok) "Backup deleted" else "Could not delete the file",
+                                if (ok) AppToastTone.SUCCESS else AppToastTone.ERROR,
+                            )
+                            if (ok) {
+                                backups = kotlinx.coroutines.withContext(
+                                    kotlinx.coroutines.Dispatchers.IO,
+                                ) { backupManager.listBackups() }
+                            }
+                        }
+                    },
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { deletingBackup = null }) { Text("Cancel") }
             },
         )
     }

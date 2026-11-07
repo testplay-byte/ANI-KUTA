@@ -168,6 +168,14 @@ class DefaultDownloadManager(
                     if (key !in map) {
                         map[key] = DownloadStatus.COMPLETED to 100
                     }
+                    // ROUND 140 (D-849): the NUMBER ALIAS — after the content is
+                    // linked to a different extension, the details page's episode
+                    // URLs are the NEW source's (disjoint namespaces across
+                    // ecosystems), so the exact-URL key misses and the download
+                    // state vanished. The alias "$mainId|#<number>" lets every
+                    // consumer fall back to matching by EPISODE NUMBER.
+                    map[DownloadKeys.numberAliasKey(ep.content.mainId, ep.episode.episodeNumber)] =
+                        DownloadStatus.COMPLETED to 100
                 }
                 _episodeDownloadStates.value = map.mapValues { (_, pair) ->
                     EpisodeDownloadState(pair.first, pair.second)
@@ -203,7 +211,14 @@ class DefaultDownloadManager(
             _downloadedEpisodes.collect { downloaded ->
                 val current = _episodeDownloadStates.value.toMutableMap()
                 val downloadedKeys = downloaded
-                    .map { "${it.content.mainId}|${it.episode.episodeKey}" }
+                    .flatMap {
+                        listOf(
+                            "${it.content.mainId}|${it.episode.episodeKey}",
+                            // The alias is ALSO a live key — without it the
+                            // stale-cleanup below would delete it every pass.
+                            DownloadKeys.numberAliasKey(it.content.mainId, it.episode.episodeNumber),
+                        )
+                    }
                     .toSet()
                 // Remove COMPLETED entries for episodes no longer in the DB (deleted).
                 // Don't touch active states (DOWNLOADING/QUEUED/etc.) — those are queue-owned.
@@ -214,6 +229,10 @@ class DefaultDownloadManager(
                     val key = "${ep.content.mainId}|${ep.episode.episodeKey}"
                     if (key !in current || current[key]?.first != DownloadStatus.DOWNLOADING) {
                         current[key] = EpisodeDownloadState(DownloadStatus.COMPLETED, 100)
+                    }
+                    val alias = DownloadKeys.numberAliasKey(ep.content.mainId, ep.episode.episodeNumber)
+                    if (alias !in current || current[alias]?.first != DownloadStatus.DOWNLOADING) {
+                        current[alias] = EpisodeDownloadState(DownloadStatus.COMPLETED, 100)
                     }
                 }
                 _episodeDownloadStates.value = current
@@ -304,6 +323,9 @@ class DefaultDownloadManager(
 
     override fun getDownloadedEpisodeUri(mainId: String, episodeKey: String): String? =
         store.getDownloadedVideoUri(mainId, episodeKey)
+
+    override fun getDownloadedEpisodeUriByNumber(mainId: String, episodeNumber: Float): String? =
+        store.getDownloadedVideoUriByNumber(mainId, episodeNumber)
 
     /**
      * D-539 (amended D-548): whether the downloaded episode is a DASH offline

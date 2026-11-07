@@ -1885,8 +1885,14 @@ fun WatchScreen(
         val currentMainId = downloadManager.getDownloadedEpisodes().value
             .firstOrNull { it.videoUri == watchKey.videoUrl }
             ?.content?.mainId
+        // ROUND 140 (D-849): the FALLBACK-aware local-file lookup — the switch
+        // target's URL is the LINKED extension's, while the stored episode_key
+        // is the download-time source's; after an extension switch the exact
+        // match misses and the switch fell through to a network resolve. The
+        // number fallback keeps offline switching working across switches.
         val offlineUri = if (currentMainId != null) {
             downloadManager.getDownloadedEpisodeUri(currentMainId, ep.url)
+                ?: downloadManager.getDownloadedEpisodeUriByNumber(currentMainId, ep.episodeNumber)
         } else null
 
         if (currentMainId != null && offlineUri != null) {

@@ -744,12 +744,16 @@ fun DetailsScreen(
     val onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode, Boolean) -> Unit = onEpisodeClick@{ episode, fromAutoPlay ->
         currentEpisode = episode
         resolverDownloadMode = false
-        val stateKey = viewModel.episodeDownloadStateKey(episode)
-        val downloadState = stateKey?.let { downloadStates[it] }
+        // ROUND 140 (D-849): the FALLBACK-aware state (exact URL key first, the
+        // number alias second) — the download badge follows extension switches.
+        val downloadState = viewModel.downloadStateFor(episode)
         if (!fromAutoPlay && downloadState is EpisodeDownloadState.Downloaded) {
             val mainId = viewModel.currentMainId
             if (mainId != null) {
-                val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
+                // The FALLBACK-aware local-file lookup — a downloaded episode
+                // PLAYS offline even when the linked extension's URL namespace
+                // differs from the download-time one.
+                val localUri = viewModel.downloadedEpisodeUriFor(episode)
                 if (localUri != null) {
                     // ── D-539 (payload widened by D-548): the DASH-offline
                     // branch — this episode's media is offline (csdash: marker;

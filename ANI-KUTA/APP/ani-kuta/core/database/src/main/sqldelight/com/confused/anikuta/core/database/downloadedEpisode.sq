@@ -76,6 +76,17 @@ SELECT * FROM downloaded_episode
 WHERE main_id = :main_id
 ORDER BY episode_number ASC;
 
+-- ROUND 140 (D-849): the NUMBER fallback — a linked-to extension's episode
+-- list carries new URLs, so the exact-episode_key lookup misses after a
+-- switch. The REAL epsilon (±0.01) absorbs the float parse drift of
+-- fractional numbers (12.1 vs 12.1 from two different parsers).
+getDownloadedEpisodeByNumber:
+SELECT * FROM downloaded_episode
+WHERE main_id = :main_id
+  AND episode_number BETWEEN :episode_number - 0.01 AND :episode_number + 0.01
+ORDER BY ABS(episode_number - :episode_number) ASC
+LIMIT 1;
+
 -- REVIEW-5 M3: uses MAX(...) for bare columns (not DISTINCT + GROUP BY).
 getDownloadedMainIds:
 SELECT main_id, MAX(content_title) AS content_title, MAX(cover_url) AS cover_url,

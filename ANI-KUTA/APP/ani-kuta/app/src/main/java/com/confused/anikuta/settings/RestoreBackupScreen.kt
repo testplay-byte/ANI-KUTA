@@ -319,11 +319,15 @@ fun RestoreBackupScreen(
                             DetailRow("Entries read", formatCount(s.entriesRead))
                             DetailRow("New", formatCount(s.entriesCreated))
                             DetailRow("Already present", formatCount(s.entriesMatched))
-                            if (s.libraryAdded > 0) DetailRow("Added to library", formatCount(s.libraryAdded))
-                            if (s.categoriesAdded > 0) DetailRow("Categories created", formatCount(s.categoriesAdded))
+                            // ROUND 140: ALWAYS shown (the report: show the full
+                            // picture — categories, library adds, counts) — 0 is an
+                            // honest value, not something to hide.
+                            DetailRow("Added to library", formatCount(s.libraryAdded))
+                            DetailRow("Categories created", formatCount(s.categoriesAdded))
+                            Spacer(Modifier.height(8.dp))
                             SectionLabel("History & tracking")
-                            if (s.progressRows > 0) DetailRow("Watch progress", formatCount(s.progressRows))
-                            if (s.trackingRows > 0) DetailRow("Tracking", formatCount(s.trackingRows))
+                            DetailRow("Watch progress", formatCount(s.progressRows))
+                            DetailRow("Tracking", formatCount(s.trackingRows))
                             if (s.pendingSources > 0) DetailRow("Without a source", formatCount(s.pendingSources))
                             if (s.skippedManga > 0) DetailRow("Manga skipped", formatCount(s.skippedManga))
                             s.warnings.forEach { warning ->

@@ -312,6 +312,16 @@ class DownloadStore(private val database: AnikutaDatabase) {
         episodeQueries.getDownloadedEpisode(mainId, episodeKey).executeAsOneOrNull()?.video_uri
 
     /**
+     * ROUND 140 (D-849): the NUMBER fallback — the episode_key in the DB is the
+     * download-time source's SEpisode.url; after the content links to a
+     * different extension the list's urls change, so the exact lookup misses.
+     * Epsilon-matched on episode_number (±0.01) instead.
+     */
+    fun getDownloadedVideoUriByNumber(mainId: String, episodeNumber: Float): String? =
+        episodeQueries.getDownloadedEpisodeByNumber(mainId, episodeNumber.toDouble())
+            .executeAsOneOrNull()?.video_uri
+
+    /**
      * D-540: syncs BOTH download tables' denormalized `content_id` after a
      * source switch — the two previously-DEAD update queries
      * (`updateDownloadedContentId` / `updateDownloadContentId` had zero

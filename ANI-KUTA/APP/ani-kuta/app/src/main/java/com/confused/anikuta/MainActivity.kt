@@ -1493,8 +1493,21 @@ fun AppRoot() {
                             // Extension-only entry.
                             if (details != null) {
                                 navigateToDetails(AnimeDetailsKey.Extension(
-                                    sourceId = details.sourceId ?: 0L,
-                                    animeUrl = details.animeUrl ?: content.animeUrl ?: "",
+                                    // ROUND 140 (D-849): the IDENTITY HAND-OFF FIX —
+                                    // this mainId came from the DOWNLOADS page, so the
+                                    // row EXISTS: fall back to main_entry's own
+                                    // extension identity before ever passing 0L (a
+                                    // 0 sourceId routed getMainEntryByExtension(0, …)
+                                    // into resolveOrCreateForExtension, which MINTED
+                                    // A NEW MAINID and permanently orphaned the
+                                    // downloads under the old one — the reported
+                                    // 'download state does not show' class).
+                                    sourceId = details.sourceId
+                                        ?: content.extensionId
+                                        ?: 0L,
+                                    animeUrl = details.animeUrl
+                                        ?: content.animeUrl
+                                        ?: "",
                                     title = content.title,
                                     thumbnailUrl = details.extThumbnailUrl,
                                 ))

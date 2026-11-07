@@ -67,6 +67,14 @@ interface DownloadManager {
     fun getDownloadedEpisodeUri(mainId: String, episodeKey: String): String?
 
     /**
+     * ROUND 140 (D-849): the NUMBER fallback for the local-file lookup — the
+     * episode_key stored at download time belongs to the download-time
+     * source; after the content links to a different extension the list's
+     * urls change, so consumers fall back to matching by episode number.
+     */
+    fun getDownloadedEpisodeUriByNumber(mainId: String, episodeNumber: Float): String?
+
+    /**
      * D-539 (amended D-548): whether this downloaded episode is a DASH offline
      * artifact — its `video_uri` carries the `csdash:` marker in either mode
      * (legacy cache episodes: payload = the manifest URL, media in the

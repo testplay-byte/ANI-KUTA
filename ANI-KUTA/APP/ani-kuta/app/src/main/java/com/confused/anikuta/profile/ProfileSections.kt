@@ -1144,11 +1144,7 @@ fun TimelineTab(
                 modifier = Modifier
                     .fillMaxWidth()
                     .graphicsLayer {
-                        val f = scrollFraction()
-                        alpha = (1f - f).coerceIn(0f, 1f)
-                        val s = 1f - f * 0.25f
-                        scaleX = s
-                        scaleY = s
+                        alpha = (1f - scrollFraction()).coerceIn(0f, 1f)
                     }
                     .collapsingTabBand(scrollFraction)
                     .padding(horizontal = 12.dp),
