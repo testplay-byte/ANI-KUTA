@@ -89,8 +89,16 @@ else Plan to watch). Export-only.
 ## Verification + CI
 Local `assembleDebug` GREEN before push; three incremental compile fixes during the round
 (a deprecated `MutableList.sort` → `sortWith`, the private-in-file `DetailRow` shared as
-`internal`, the missing format imports). CI: Build APK 42348945771. **No release was ordered this
-round (D-738)** — mainline stays 10120/1.1.20; the release waits for the user's word.
+`internal`, the missing format imports). CI: Build APK **42348945771 — GREEN**.
+
+## The release (D-846)
+The user's explicit order ("ok do the debug release too"). Routine A on fed4fc4d:
+release/1.1.83, ONE bump commit (10120/1.1.20 → 10183/1.1.83, 4507e760), branch + annotated
+tag v1.1.83 (the full user-facing bullet body) → **Release APK run 42374686371 — GREEN**.
+Verified live: stable-latest "ANI-KUTA v1.1.83 (round 139)",
+ani-kuta-v1.1.83-debug-arm64-v8a.apk (64,017,337 bytes), the downloaded SHA256
+(a26b8ca699417a88afdbbe36069fc5fab5300ae5ec87e9b286134a647eb45e08) matches SHA256SUMS.txt.
+v1.1.82 installs get the in-app offer carrying round 139.
 
 ## Documented observations
 - The GDPR enrichment is one-shot per import; a future "refresh metadata from AniList" action on

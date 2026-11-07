@@ -3,6 +3,9 @@
 > Record of key decisions. Each entry: what, why, when, status.
 
 ## Decisions
+## D-846 (round 139): THE v1.1.83 DEBUG RELEASE
+The user's explicit order ("ok do the debug release too"). Routine A on the round-139 main head (fed4fc4d — the docs commit rides the same tree as the CI-green code commit 215172de; .md-only delta): release branch release/1.1.83, ONE bump commit (10120/1.1.20 -> 10183/1.1.83, 4507e760), branch + annotated tag v1.1.83 (the FULL user-facing bullet body) -> Release APK run 42374686371 GREEN. Verified live: the release "ANI-KUTA v1.1.83 (round 139)" is stable-latest (not draft/prerelease) with ani-kuta-v1.1.83-debug-arm64-v8a.apk (64,017,337 bytes) + SHA256SUMS.txt; the downloaded APK's SHA256 (a26b8ca699417a88afdbbe36069fc5fab5300ae5ec87e9b286134a647eb45e08) matches the checksum file. v1.1.82 installs get the in-app update offer carrying round 139. A progress channel was added this round at the user's request: ntfy.sh/ANIKUTAPROGRESS (the THE-TASK-IS-DONE topic remains the completion signal). CI ledger this cycle: 2 runs (Build APK 42348945771 for the round commit + the Release APK 42374686371) — within D-472.
+
 ## D-845 (round 139): THE EXPORT-AS POPUP — exactly three options + the .txt names list
 The report: the popup was 'way too ugly', the options should be Aniyomi + CloudStream + a NEW .txt (names only, formatted by 'categories, like watched, unwatched'), and NOTHING else shown. Rebuilt: icon-chip cards over EXPORT_AS_OPTIONS = [ANIYOMI, CLOUDSTREAM, TXT] (Anikku/AniList hidden). The .txt format: 'ANI-KUTA Library — <date>' / 'N titles' / '== Watching (n) ==' / '== Completed (n) ==' / '== Plan to watch (n) ==', names alphabetical in each watch-state group (completed episode -> Completed; any playback -> Watching; else Plan to watch). Export-only.
 

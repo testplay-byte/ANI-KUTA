@@ -1,6 +1,8 @@
 # Changelog (High-Level)
 
-## Round 139 (on main, 1.1.20/10120 — UNRELEASED until the next release order)
+## 1.1.83 / 10183 — RELEASE (round 139 — the debug line; carries rounds 126-139)
+- RELEASED: the **v1.1.83** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum a26b8ca6... verified) — v1.1.82 installs get the in-app update offer carrying round 139. Routine A on fed4fc4d: release/1.1.83 + ONE bump commit (10120/1.1.20 -> 10183/1.1.83) + tag v1.1.83; Release APK run 42374686371 GREEN.
+## Round 139 (shipped in v1.1.83)
 - MY PROFILE: the at-rest top glitch ROOT-CAUSED and fixed (an invisible 204dp-tall collapsed text pill inflated the header) — title+gear sit flush at the top, the tabs row right below, no jump on scroll; the stat cards take only the width they need and the time can no longer break across two lines.
 - BACKUP: a live progress dialog shows exactly what is being backed up (per-table stages + a progress bar); the what-to-include popup lost its stray description line.
 - BACKUP/EXISTING: every file in the backup folder lists (native + other formats); tapping one opens its real details with a Restore action — on a fresh install you see all your backups immediately.
