@@ -544,8 +544,14 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10107
+    const val versionName = "1.1.7"
+    // PROFESSIONAL RELEASE (v1.1.7): release/1.1.7 — cut from the round-141 main
+    // head e3bd6181 (the code tree of CI-green 9ae8930f; docs-only delta). The
+    // professional line's head after v1.1.6 — 10107 > 10106 so v1.1.6 devices
+    // update in place. Carries rounds 129-141: the player gesture/zoom/cinema
+    // line, the backup+restore system with cross-app import/export, the
+    // real-minutes profile, the downloads<->extension-switch preservation.
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
