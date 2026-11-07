@@ -1,6 +1,8 @@
 # Changelog (High-Level)
 
-## Round 141 (on main, 1.1.20/10120 — UNRELEASED until the next release order)
+## 1.1.85 / 10185 — RELEASE (round 141 — the debug line; carries rounds 126-141)
+- RELEASED: the **v1.1.85** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum ba605fd3... verified) — v1.1.84 installs get the in-app update offer carrying round 141. Routine A on 9d8d0283: release/1.1.85 + ONE bump commit (10120/1.1.20 -> 10185/1.1.85) + tag v1.1.85; Release APK run 42407363012 GREEN.
+## Round 141 (shipped in v1.1.85)
 - MY PROFILE: the tabs collapse/expand with a real animation in BOTH scroll directions (the fraction is animated now, not raw); the tabs band sits in a themed card.
 - BACKUP & RESTORE: the long-press delete popup shows the backup's name, date and size (the 'cannot be undone' line is gone).
 - DOWNLOADS: the download badges/buttons on the details page FOLLOW extension switches (exact URL match first, episode-number match second) — no more re-downloading an already-downloaded episode after a switch.

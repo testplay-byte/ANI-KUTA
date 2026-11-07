@@ -142,4 +142,7 @@ The v1.1.84 device report: the profile is nearly perfect but the tabs vanish WIT
 
 **D-853/D-854 the switch visuals:** all row consumers resolve the download state through the fallback-aware downloadStateFor (the badges FOLLOW switches; the button stops re-enqueuing); the metadata PRESERVATION MERGE (field-wise fresh-wins/old-survives, keyed by episode number) in the engine-fetch path, the background-refresh merge, and every cache-write site — the old per-episode art survives a switch to a source with no previews.
 
-CI: Build APK 42398295524 GREEN. NO release ordered this round — the release waits for the user's word (D-738).
+CI: Build APK 42398295524 GREEN.
+
+## The release (D-855)
+The user's explicit order ("ok good now do the debug release so i can download and test it"). Routine A on 9d8d0283: release/1.1.85, ONE bump commit (10120/1.1.20 → 10185/1.1.85, 59eda646), branch + annotated tag v1.1.85 (the full user-facing bullet body) → **Release APK run 42407363012 — GREEN**. Verified live: stable-latest "ANI-KUTA v1.1.85 (round 141)", ani-kuta-v1.1.85-debug-arm64-v8a.apk (64,033,717 bytes), the downloaded SHA256 (ba605fd381912b4ed349c5551a2dc065e37250f30183b469bbb68d4e6666ac33) matches SHA256SUMS.txt. v1.1.84 installs get the in-app offer carrying round 141.
