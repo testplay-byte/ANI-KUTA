@@ -544,8 +544,16 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10183
+    const val versionName = "1.1.83"
+    // ROUND 139 (v1.1.83): release/1.1.83 — cut from the round-139 main head
+    // fed4fc4d (the profile-top root cause — a 0-width collapsed-text pill
+    // inflated the header ~204dp; dynamic stat-card widths with no line
+    // breaking; the live backup progress dialog; the existing-backups
+    // details popups with in-place restore; the compact restore-page top;
+    // the AniList GDPR data.json import with automatic title/cover
+    // enrichment; the extension batch-install picker; the Export-as rework
+    // with the .txt names list — CI 42348945771 GREEN).
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
