@@ -544,8 +544,16 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10184
+    const val versionName = "1.1.84"
+    // ROUND 140 (v1.1.84): release/1.1.84 — cut from the round-140 main head
+    // 244ce4e8 (the profile polish — 28sp title, heading/tabs gap, pure-fade
+    // band exit; extensions-only unrecognized-file messages; the full interop
+    // restore breakdown; the long-press backup delete; THE downloads-extension
+    // reconciliation — number-alias download matching so the state follows
+    // extension switches, the identity hand-off fix, the metadata-preservation
+    // rule (no cache wipes on link/unlink), and the episode_url preservation;
+    // CI 42391962062 GREEN).
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
