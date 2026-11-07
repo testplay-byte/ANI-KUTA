@@ -1,5 +1,12 @@
 # Changelog (High-Level)
 
+## 1.1.84 / 10184 — RELEASE (round 140 — the debug line; carries rounds 126-140)
+- RELEASED: the **v1.1.84** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum 18363ea5... verified) — v1.1.83 installs get the in-app update offer carrying round 140. Routine A on 244ce4e8: release/1.1.84 + ONE bump commit (10120/1.1.20 -> 10184/1.1.84) + tag v1.1.84; Release APK run 42392689188 GREEN.
+## Round 140 (shipped in v1.1.84)
+- MY PROFILE: a bigger heading, a clear heading/tabs gap, a clean fade-only band exit.
+- BACKUP & RESTORE: extensions-only unrecognized-file messages; the foreign-restore result shows the full breakdown always; LONG-PRESS an existing backup to delete it.
+- DOWNLOADS: downloaded episodes keep their state and PLAY the local file after the content links to a different extension (number-based matching that follows Aniyomi <-> CloudStream switches); episode covers/titles/descriptions from the old source are preserved on a switch, and a plain refresh never clobbers them.
+
 ## 1.1.83 / 10183 — RELEASE (round 139 — the debug line; carries rounds 126-139)
 - RELEASED: the **v1.1.83** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum a26b8ca6... verified) — v1.1.82 installs get the in-app update offer carrying round 139. Routine A on fed4fc4d: release/1.1.83 + ONE bump commit (10120/1.1.20 -> 10183/1.1.83) + tag v1.1.83; Release APK run 42374686371 GREEN.
 ## Round 139 (shipped in v1.1.83)

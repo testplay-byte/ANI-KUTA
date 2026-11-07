@@ -105,3 +105,25 @@ v1.1.82 installs get the in-app offer carrying round 139.
   placeholder entries would heal offline imports without re-importing.
 - The interop exports share the backup folder with native archives; if the folder grows messy, a
   per-format filter row on the existing-backups card would help.
+
+---
+
+# Round 140 (continuation) — The Profile Polish, The UX Fixes, And The Downloads-Extension Reconciliation
+
+**Date:** 2026-11-07 · **Commit:** 244ce4e8 · **CI:** Build APK 42391962062 GREEN + Release APK 42392689188 GREEN (v1.1.84)
+
+The v1.1.83 device report: the profile is *almost* there (spacing between the heading and the tabs, a bigger title, a cleaner band exit); the unrecognized-file message must name extensions only; the foreign-restore result should show the full breakdown; long-press on an existing backup should offer DELETE; and the big one — downloaded episodes lose their state on the details page after the auto-link and play the network instead of the local file.
+
+**Profile (D-847):** title 28sp + a 6dp heading bottom pad + the band exit as a pure fade + layout collapse.
+
+**Messages + result card:** both unrecognized rejects now say "the supported extensions are .anikuta, .tachibk, .json" (no app names); the foreign-restore card ALWAYS shows "Added to library" and "Categories created" (0 is an honest value).
+
+**Long-press delete (D-848):** combinedClickable on the existing-backups rows → the confirm dialog → BackupManager.deleteBackup → the list refreshes.
+
+**The downloads-extension reconciliation (D-849)** — a full investigation (the Downloads→Details hand-off, the linking paths, the state matching, the play gate, the D-540 identity sync, the episode cache) found FOUR root causes, all fixed:
+1. **RC1 the key-namespace change** — the download state and the local-file lookup are exact-matches on the download-time source's episode URLs; after a link they miss. Fix: NUMBER-ALIAS keys (`$mainId|#<number>`) published by DefaultDownloadManager + number fallbacks in downloadStateFor, downloadedEpisodeUriFor (the play gate) and the player's episode switch (SQL epsilon ±0.01).
+2. **RC2 the identity hand-off** — `sourceId ?: 0L` could mint a NEW mainId and orphan the downloads. Fix: fall back to main_entry's own extension identity.
+3. **RC3 the D-238 cache wipes** — removed on link AND unlink (the metadata-preservation rule; the COALESCE merges were already 'keep old until the new source provides it').
+4. **RC4 the episode_url nulling** — all three provider-metadata write sites preserve the stored URL (an existingUrls map).
+
+Local assembleDebug GREEN before push. CI ledger: 2/2 (Build 42391962062 + Release 42392689188 — v1.1.84 verified live, checksum 18363ea5…).
