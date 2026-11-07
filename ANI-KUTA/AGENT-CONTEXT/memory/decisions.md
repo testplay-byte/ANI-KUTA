@@ -3,6 +3,18 @@
 > Record of key decisions. Each entry: what, why, when, status.
 
 ## Decisions
+## D-854 (round 141): THE METADATA PRESERVATION MERGE — the switch-visuals fix
+The v1.1.84 report: after switching extensions the episode thumbnails ALL became the same default (cover fallback) and the download badges did not carry over. Two fixes: (1) the row badges/buttons now use the FALLBACK-aware downloadStateFor (D-849's helper) — the marker FOLLOWS switches in the UI and the download button stops re-enqueuing an already-downloaded episode. (2) the metadata PRESERVATION MERGE: the engine's fresh result no longer blind-replaces _episodeMetadata — field-wise fresh-wins/old-survives (mergeEpisodeMetadata, keyed by episode number); the background-refresh merge is field-wise too, and ALL cache-write sites preserve stored thumbnails/descriptions (fresh extension value -> provider value -> stored row). The chain: switch -> preserved cache rows -> merged engine fetch -> the UI keeps the old art until the new source actually provides its own.
+
+## D-853 (round 141): THE ROW-BADGE RESOLVER — the UI side of the switch fix
+The v1.1.84 report: the download marker did not carry over after a switch (the badge stayed 'not downloaded', the button re-enqueued). The rows consumed the EXACT-URL key map — the D-849 number-alias entries were only used by the play gate. ALL row consumers now resolve through downloadStateFor (exact key -> number alias) — the UI matches the playback behavior.
+
+## D-852 (round 141): THE DELETE POPUP — stats, no scare line
+The report: the delete popup should show the backup's size and creation date under the name, and the 'cannot be undone' line is unnecessary. The popup now shows name + 'yyyy-MM-dd HH:mm · N MB'; the undo sentence is removed; Delete/Cancel unchanged.
+
+## D-851 (round 141): THE PROFILE ANIMATION — the animated collapse fraction
+The report: scrolling back up, the tabs 'disappear without the animation'. Root: the collapse fraction was RAW scroll-driven — a fast scroll jumps it 0 -> 1 in one frame. Fix: the fraction is wrapped in animateFloatAsState (220ms FastOutSlowIn) — every jump interpolates, both directions; all consumers (the band's alpha + layout collapse, the pill's alpha) read the animated value. Plus the band's UI polish: the toggle sits in a CARD (theme-tinted surface + outlineVariant border + inner padding) matching the page's card language.
+
 ## D-850 (round 140): THE v1.1.84 DEBUG RELEASE
 The user's explicit order ("in the end, I would like you to do a proper debug release"). Routine A on the round-140 main head 244ce4e8 (CI Build APK 42391962062 GREEN first): release/1.1.84, ONE bump commit (10120/1.1.20 -> 10184/1.1.84, 807313b5), branch + annotated tag v1.1.84 (the FULL user-facing bullet body) -> Release APK run 42392689188 GREEN. Verified live: the release "ANI-KUTA v1.1.84 (round 140)" is stable-latest (not draft/prerelease) with ani-kuta-v1.1.84-debug-arm64-v8a.apk (64,033,721 bytes); the downloaded APK's SHA256 (18363ea5190a8b750011c099572c1af8bbbe3cea23d5d27f0fdc1d3e9472af57) matches SHA256SUMS.txt. v1.1.83 installs get the in-app update offer carrying round 140. CI ledger this cycle: 2 runs (Build APK 42391962062 + the Release APK 42392689188) — within D-472.
 

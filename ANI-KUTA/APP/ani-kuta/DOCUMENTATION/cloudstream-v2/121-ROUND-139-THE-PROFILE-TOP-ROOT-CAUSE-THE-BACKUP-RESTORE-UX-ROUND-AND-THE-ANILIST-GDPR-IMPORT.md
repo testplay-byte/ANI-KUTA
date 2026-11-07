@@ -127,3 +127,19 @@ The v1.1.83 device report: the profile is *almost* there (spacing between the he
 4. **RC4 the episode_url nulling** — all three provider-metadata write sites preserve the stored URL (an existingUrls map).
 
 Local assembleDebug GREEN before push. CI ledger: 2/2 (Build 42391962062 + Release 42392689188 — v1.1.84 verified live, checksum 18363ea5…).
+
+---
+
+# Round 141 (continuation) — The Profile Animation, The Delete-Popup Stats, And The Switch-Visuals Fix
+
+**Date:** 2026-11-07 · **Commit:** 9ae8930f · **CI:** Build APK 42398295524 GREEN
+
+The v1.1.84 device report: the profile is nearly perfect but the tabs vanish WITHOUT animation when scrolling back up; the delete popup needs size/date and no scare line; the download badges don't follow extension switches; episode thumbnails all collapse to the default cover after a switch.
+
+**D-851 the profile animation:** the collapse fraction is now ANIMATED (220ms) — the raw scroll-driven fraction jumped 0→1 in one frame on a fast scroll; every consumer reads the animated value. The band got a card treatment (themed surface + border + padding).
+
+**D-852 the delete popup:** name + date + size; the undo line removed.
+
+**D-853/D-854 the switch visuals:** all row consumers resolve the download state through the fallback-aware downloadStateFor (the badges FOLLOW switches; the button stops re-enqueuing); the metadata PRESERVATION MERGE (field-wise fresh-wins/old-survives, keyed by episode number) in the engine-fetch path, the background-refresh merge, and every cache-write site — the old per-episode art survives a switch to a source with no previews.
+
+CI: Build APK 42398295524 GREEN. NO release ordered this round — the release waits for the user's word (D-738).
