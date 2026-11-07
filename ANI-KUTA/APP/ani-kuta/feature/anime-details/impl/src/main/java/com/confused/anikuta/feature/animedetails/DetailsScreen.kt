@@ -1344,9 +1344,6 @@ fun DetailsScreen(
                                 onDeleteDownloadedEpisode = { episode ->
                                     viewModel.deleteDownloadedEpisode(episode)
                                 },
-                                episodeDownloadStateKey = { episode ->
-                                    viewModel.episodeDownloadStateKey(episode)
-                                },
                                 mainId = viewModel.currentMainId,
                                 watchProgress = watchProgress,
                                 onToggleWatched = { epKey -> viewModel.toggleWatched(epKey) },
@@ -1481,8 +1478,8 @@ fun DetailsScreen(
                                     ?: subDubOrdinals[episode.url]?.let {
                                         EpisodeTag(season = null, number = it.toString())
                                     }
-                                val stateKey = viewModel.episodeDownloadStateKey(episode)
-                                val downloadState = stateKey?.let { downloadStates[it] }
+                                // ROUND 141 (D-853): the FALLBACK-aware state here too.
+                                val downloadState = viewModel.downloadStateFor(episode)
                                     ?: EpisodeDownloadState.NotDownloaded
                                 val mainId = viewModel.currentMainId
                                 // Task 57 (round 17 — P1): the watched-progress

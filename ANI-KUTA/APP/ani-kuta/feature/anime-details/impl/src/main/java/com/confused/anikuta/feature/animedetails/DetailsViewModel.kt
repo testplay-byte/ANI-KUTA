@@ -4153,8 +4153,17 @@ class DetailsViewModel(
                                             return@launch
                                         }
                                         // Merge: keep existing metadata, add/update with fresh.
-                                        val merged = _episodeMetadata.value.toMutableMap()
-                                        merged.putAll(metadata)
+                                        // ROUND 141 (D-854): the merge is FIELD-WISE — a blind
+                                        // putAll swapped the old per-episode thumbnails for the
+                                        // fresh result's nulls after a source switch (every row
+                                        // the same cover-fallback image). The fresh value wins
+                                        // where it exists; the old survives where it doesn't.
+                                        val previousMeta = _episodeMetadata.value
+                                        val merged = previousMeta.toMutableMap()
+                                        metadata.forEach { (num, fresh) ->
+                                            val old = previousMeta[num]
+                                            merged[num] = if (old == null) fresh else mergeEpisodeMetadata(fresh, old)
+                                        }
                                         _episodeMetadata.value = merged
                                         Logger.i(TAG) { "Background refresh: merged ${metadata.size} metadata entries (total: ${merged.size})" }
 
@@ -4168,13 +4177,26 @@ class DetailsViewModel(
                                         val epNumToScanlator = freshEpisodes.associate { it.episode_number.toInt() to (it.scanlator ?: "") }
                                         val epNumToPreview = freshEpisodes.associate { it.episode_number.toInt() to it.preview_url }
                                         val epNumToSummary = freshEpisodes.associate { it.episode_number.toInt() to it.summary }
+                                        val existingRows = dataCacheRepository.getEpisodeMetadata(mainId)
+                                            .associate { it.episodeNumber.toInt() to it }
                                         val enrichedCache = metadata.entries.map { (epNum, meta) ->
+                                            val existing = existingRows[epNum]
+                                            val freshThumb = epNumToPreview[epNum]?.takeIf { it.isNotBlank() }
+                                            val freshDesc = epNumToSummary[epNum]?.takeIf { it.isNotBlank() }
                                             com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
                                                 mainId = mainId,
                                                 episodeNumber = epNum.toFloat(),
                                                 title = meta.title,
-                                                description = epNumToSummary[epNum]?.takeIf { it.isNotBlank() } ?: meta.description,
-                                                thumbnailUrl = epNumToPreview[epNum]?.takeIf { it.isNotBlank() } ?: meta.thumbnailUrl,
+                                                // ROUND 141 (D-854): the preservation chain in the
+                                                // CACHE too — fresh extension value → provider
+                                                // value → the stored row's value. The old art
+                                                // survives a switch to a source with no previews.
+                                                thumbnailUrl = freshThumb
+                                                    ?: meta.thumbnailUrl
+                                                    ?: existing?.thumbnailUrl,
+                                                description = freshDesc
+                                                    ?: meta.description
+                                                    ?: existing?.description,
                                                 airDate = meta.airDate,
                                                 fetchedAt = now,
                                                 episodeUrl = epNumToUrl[epNum],
@@ -4308,8 +4330,20 @@ class DetailsViewModel(
                                     Logger.d(TAG) { "Episode metadata replace discarded (stale generation)" }
                                     return@launch
                                 }
-                                _episodeMetadata.value = metadata
-                                Logger.i(TAG) { "Episode metadata loaded: ${metadata.size} entries" }
+                                // ROUND 141 (D-854): the PRESERVATION MERGE — the
+                                // report's rule after the v1.1.84 device test: when the
+                                // engine's fresh result lacks a field for an episode
+                                // (thumbnails especially, after a source switch), the
+                                // OLD value SURVIVES — the new source only overwrites
+                                // what it actually provides. A blind replace here was
+                                // swapping the old per-episode thumbnails for the cover
+                                // fallback (every row the same image).
+                                val previous = _episodeMetadata.value
+                                _episodeMetadata.value = metadata.mapValues { (num, fresh) ->
+                                    val old = previous[num]
+                                    if (old == null) fresh else mergeEpisodeMetadata(fresh, old)
+                                }
+                                Logger.i(TAG) { "Episode metadata loaded: ${metadata.size} entries (merged over ${previous.size})" }
                             } else {
                                 Logger.w(TAG) { "Episode metadata fetch returned empty — keeping cached metadata (${_episodeMetadata.value.size} entries)" }
                             }
@@ -4584,6 +4618,30 @@ class DetailsViewModel(
             )]?.let { mapCoreState(it) }
         return mapCoreState(core)
     }
+
+    /**
+     * ROUND 141 (D-854): the metadata PRESERVATION MERGE — the fresh engine
+     * result wins where it has a value; where it does NOT (a source switch to
+     * a provider with no per-episode art/descriptions), the OLD value
+     * survives. Keyed by episode number (the stable identity across sources).
+     */
+    private fun mergeEpisodeMetadata(
+        fresh: com.confused.anikuta.core.metadata.EpisodeMetadata,
+        old: com.confused.anikuta.core.metadata.EpisodeMetadata,
+    ): com.confused.anikuta.core.metadata.EpisodeMetadata = fresh.copy(
+        title = fresh.title?.takeIf { it.isNotBlank() } ?: old.title,
+        thumbnailUrl = fresh.thumbnailUrl?.takeIf { it.isNotBlank() } ?: old.thumbnailUrl,
+        description = fresh.description?.takeIf { it.isNotBlank() } ?: old.description,
+        airDate = fresh.airDate ?: old.airDate,
+        isFiller = fresh.isFiller ?: old.isFiller,
+        isRecap = fresh.isRecap ?: old.isRecap,
+        titleJapanese = fresh.titleJapanese ?: old.titleJapanese,
+        titleRomaji = fresh.titleRomaji ?: old.titleRomaji,
+        runtime = fresh.runtime ?: old.runtime,
+        seasonNumber = fresh.seasonNumber ?: old.seasonNumber,
+        episodeNumberInSeason = fresh.episodeNumberInSeason ?: old.episodeNumberInSeason,
+        score = fresh.score ?: old.score,
+    )
 
     /** The ONE core→UI state mapper (shared with the [downloadStates] flow). */
     private fun mapCoreState(core: com.confused.anikuta.core.download.EpisodeDownloadState): EpisodeDownloadState {

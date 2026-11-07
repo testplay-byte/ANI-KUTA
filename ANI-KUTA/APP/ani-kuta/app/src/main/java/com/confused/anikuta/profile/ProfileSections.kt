@@ -1149,12 +1149,21 @@ fun TimelineTab(
                     .collapsingTabBand(scrollFraction)
                     .padding(horizontal = 12.dp),
             ) {
-                SegmentedToggle(
-                    options = listOf("Stats", "Timeline"),
-                    selectedIndex = 1,
-                    onSelect = onTabSelect,
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    ),
                     modifier = Modifier.onSizeChanged { onBandMeasured(it.height) },
-                )
+                ) {
+                    SegmentedToggle(
+                        options = listOf("Stats", "Timeline"),
+                        selectedIndex = 1,
+                        onSelect = onTabSelect,
+                        modifier = Modifier.padding(6.dp),
+                    )
+                }
             }
         }
         items(state.timeline.size) { index ->

@@ -707,12 +707,23 @@ fun BackupRestoreScreen(
                 )
             },
             text = {
-                Text(
-                    file.name + "\n\nThe file is deleted from your storage folder. This cannot be undone.",
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column {
+                    Text(
+                        file.name,
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(file.createdAt)) +
+                            " · " + (file.sizeBytes / (1024 * 1024)) + " MB",
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             },
             confirmButton = {
                 Button(

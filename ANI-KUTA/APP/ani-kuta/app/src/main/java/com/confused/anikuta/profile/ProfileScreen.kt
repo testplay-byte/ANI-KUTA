@@ -118,12 +118,23 @@ fun ProfileScreen(
 
     // Continuous scroll fraction [0..1] for the active tab. Read inside graphicsLayer
     // lambdas (deferred — no recomposition on scroll).
-    val scrollFraction: () -> Float = {
+    val rawScrollFraction: () -> Float = {
         val ls = activeListState
         val raw = if (ls.firstVisibleItemIndex > 0) collapseThresholdPx
                   else ls.firstVisibleItemScrollOffset.toFloat()
         (raw / collapseThresholdPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
     }
+    // ROUND 141 (D-851): the ANIMATED fraction — a fast scroll to item 1 jumps
+    // the raw value 0 -> 1 in ONE frame (the report: scrolling back up, the
+    // tabs 'disappear without the animation'). Every consumer (the band's
+    // alpha + layout collapse, the header pill's alpha) now reads THIS — any
+    // jump interpolates over 220ms, both directions.
+    val collapseFraction by animateFloatAsState(
+        targetValue = rawScrollFraction(),
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "profileCollapseFraction",
+    )
+    val scrollFraction: () -> Float = { collapseFraction }
 
     // ROUND 135: keyed on the ACTIVE list state AND the measured band height —
     // the un-keyed remember held the FIRST composition's closure (always the
@@ -389,15 +400,27 @@ private fun StatsTab(
                     .collapsingTabBand(scrollFraction)
                     .padding(horizontal = 12.dp),
             ) {
-                // ROUND 135: the toggle's NATURAL height feeds the collapse
+                // ROUND 140 (D-847): the toggle's NATURAL height feeds the collapse
                 // threshold (the band Box itself collapses in layout, so IT
                 // must never be the measured node).
-                SegmentedToggle(
-                    options = listOf("Stats", "Timeline"),
-                    selectedIndex = 0,
-                    onSelect = onTabSelect,
+                // ROUND 141 (D-851): the CARD treatment — a theme-tinted surface
+                // with a subtle border and inner padding, matching the page's
+                // card language (the bare toggle read as floating buttons).
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    ),
                     modifier = Modifier.onSizeChanged { onBandMeasured(it.height) },
-                )
+                ) {
+                    SegmentedToggle(
+                        options = listOf("Stats", "Timeline"),
+                        selectedIndex = 0,
+                        onSelect = onTabSelect,
+                        modifier = Modifier.padding(6.dp),
+                    )
+                }
             }
         }
         item { ProfileHeader(state) }
