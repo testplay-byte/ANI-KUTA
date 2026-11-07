@@ -1,5 +1,8 @@
 # Changelog (High-Level)
 
+## 1.1.7 / 10107 — RELEASE (round 142 — the professional line; carries rounds 129-141 on the v1.1.6 baseline)
+- RELEASED: the signed all-ABI **v1.1.7** is LIVE on the official repo (Confused-Creature-180/ANI-KUTA, stable latest, release id 437834754) — 5 APKs + 5 ZIPs + SHA256SUMS.txt, every asset verified (sizes, byte-identical sums, re-download checksums). release/1.1.7 cut from e3bd6181, ONE bump commit b71cd07d (10120/1.1.20 -> 10107/1.1.7), release-build-once run 42411778806 GREEN. The website chip + the README's five download links re-pointed (gh-pages 6aeb034, main 4e6a60f) and live-verified; the updater simulation ALL PASS. v1.1.6 devices update in place.
+- CARRIES (rounds 129-141): the player gesture/zoom/cinema line; the .anikuta backup+restore system with cross-app import (Aniyomi/Anikku/AniList GDPR/CloudStream) + export; the real-minutes profile (watch flow, time DNA, streak, heatmap, animated collapse); the downloads<->extension-switch preservation (badges follow switches, episode art survives); extension update checks + trusted-row pinning; the updater's real-error contract; the boot notification re-arm.
 ## 1.1.85 / 10185 — RELEASE (round 141 — the debug line; carries rounds 126-141)
 - RELEASED: the **v1.1.85** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, checksum ba605fd3... verified) — v1.1.84 installs get the in-app update offer carrying round 141. Routine A on 9d8d0283: release/1.1.85 + ONE bump commit (10120/1.1.20 -> 10185/1.1.85) + tag v1.1.85; Release APK run 42407363012 GREEN.
 ## Round 141 (shipped in v1.1.85)
