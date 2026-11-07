@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -194,7 +195,19 @@ fun ProfileScreen(
                         shape = RoundedCornerShape(9.dp),
                         modifier = Modifier
                             .graphicsLayer { alpha = scrollFraction() }
-                            .width((120 * pillWidthFraction).dp),
+                            .width((120 * pillWidthFraction).dp)
+                            // ROUND 139 (D-838 — THE at-rest glitch root cause): at
+                            // width 0 the pill's Texts wrapped ONE GRAPHEME PER LINE
+                            // at the inherited 24sp line height → a ~204dp-tall
+                            // invisible column inflated the whole header row (the
+                            // title+gear were vertically centered inside it — "not
+                            // showing on the very top part… a lot of padding"), and
+                            // the row snapped 204→36dp mid-scroll when the growing
+                            // width first fit "Timeline" (the "moves up when I scroll
+                            // slightly" jump). maxLines=1 + softWrap=false + an
+                            // explicit compact lineHeight pin the pill at ~24dp at
+                            // EVERY width; the heightIn cap is belt-and-braces.
+                            .heightIn(max = 26.dp),
                     ) {
                         Row(modifier = Modifier.padding(2.dp)) {
                             listOf("Stats", "Timeline").forEachIndexed { idx, label ->
@@ -211,6 +224,9 @@ fun ProfileScreen(
                                         text = label,
                                         fontFamily = RobotoFamily,
                                         fontSize = 11.sp,
+                                        lineHeight = 12.sp,
+                                        softWrap = false,
+                                        maxLines = 1,
                                         fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
                                         color = if (isSelected) MaterialTheme.colorScheme.onPrimary
                                                 else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -486,12 +502,18 @@ private fun spanLine(totalMinutes: Int): String {
 
 @Composable
 private fun QuickStatsRow(state: ProfileUiState) {
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        QuickStatCard("Anime", "${state.totalAnime}", Modifier.weight(1f))
-        QuickStatCard("Time", state.watchTimeFormatted, Modifier.weight(1f))
-        QuickStatCard("Score", state.avgRatingFormatted, Modifier.weight(1f))
-        QuickStatCard("Streak", "${state.currentStreak}", Modifier.weight(1f))
+    // ROUND 139 (D-839): DYNAMIC widths — each card takes only the width its
+    // content needs (the old weight(1f) gave "Score" the same space as a wide
+    // "3d 12h" Time value and forced the Time onto two lines). softWrap=false
+    // + maxLines=1 make the line break structurally impossible.
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        QuickStatCard("Anime", "${state.totalAnime}")
+        QuickStatCard("Time", state.watchTimeFormatted)
+        QuickStatCard("Score", state.avgRatingFormatted)
+        QuickStatCard("Streak", "${state.currentStreak}")
     }
 }
 
@@ -499,12 +521,15 @@ private fun QuickStatsRow(state: ProfileUiState) {
 private fun QuickStatCard(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
         shape = RoundedCornerShape(12.dp), modifier = modifier) {
-        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 4.dp),
+        Column(modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, fontFamily = RobotoFamily, fontSize = 16.sp,
-                fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary,
+                maxLines = 1, softWrap = false,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Clip)
             Text(label, fontFamily = RobotoFamily, fontSize = 11.sp,
-                fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, softWrap = false)
         }
     }
 }

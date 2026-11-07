@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,6 +49,8 @@ import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.backup.BackupManager
 import com.confused.anikuta.core.backup.BackupManifest
 import com.confused.anikuta.core.backup.RestoreSummary
+import com.confused.anikuta.core.backup.AniyomiApkInfo
+import kotlinx.coroutines.CompletableDeferred
 import com.confused.anikuta.core.backup.interop.InteropManager
 import com.confused.anikuta.core.designsystem.component.toast.AppToast
 import com.confused.anikuta.core.designsystem.component.toast.AppToastTone
@@ -94,6 +98,14 @@ fun RestoreBackupScreen(
     var pickedUri by remember { mutableStateOf<Uri?>(null) }
     var pickGeneration by remember { mutableIntStateOf(0) }
     var detecting by remember { mutableStateOf(false) }
+
+    // ROUND 139 (D-844): the BATCH-INSTALL picker — restoreBackup suspends on
+    // this deferred with the missing extensions; the dialog completes it with
+    // the user's confirmed subset (empty = declined).
+    var extensionPick by remember {
+        mutableStateOf<Pair<List<AniyomiApkInfo>, CompletableDeferred<List<AniyomiApkInfo>>>?>(null)
+    }
+    val checkedExtensions = remember { mutableStateMapOf<String, Boolean>() }
 
     // The native .anikuta path.
     var manifest by remember { mutableStateOf<BackupManifest?>(null) }
@@ -169,111 +181,53 @@ fun RestoreBackupScreen(
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(state = lazyListState, modifier = Modifier.fillMaxSize()) {
 
-                // ── THE HERO: the whole top section IS the file picker ──
-                item {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(20.dp),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                            .clickable(enabled = !detecting && !restoring) {
-                                filePicker.launch(arrayOf("*/*"))
-                            },
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 22.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                                shape = RoundedCornerShape(14.dp),
-                            ) {
-                                Box(modifier = Modifier.padding(12.dp)) {
-                                    if (detecting || restoring) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(26.dp),
-                                            strokeWidth = 2.5.dp,
-                                            color = MaterialTheme.colorScheme.primary,
-                                        )
-                                    } else {
-                                        Icon(
-                                            Icons.Filled.Restore,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(26.dp),
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(12.dp))
-                            Text(
-                                when {
-                                    detecting -> "Reading the file…"
-                                    restoring -> "Restoring…"
-                                    pickedUri == null -> "Pick a backup file"
-                                    else -> "Pick another file"
-                                },
-                                fontFamily = RobotoFamily,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Spacer(Modifier.height(3.dp))
-                            Text(
-                                "Your own backups and other apps' backups — all in one place",
-                                fontFamily = RobotoFamily,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    }
-                }
-
-                // ── The supported formats (the report: name the apps + extensions) ──
+                // ── ROUND 139 (D-842): the compact top — "Supported backups" with
+                // ONE description line (extensions only, no app names, no
+                // duplications, no manga note), then a proper BUTTON. The big
+                // hero block is gone. ──
                 item {
                     SectionCard {
                         Text(
                             "Supported backups",
                             fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(Modifier.height(10.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            FormatChip("ANI-KUTA", ".anikuta", Modifier.weight(1f))
-                            FormatChip("Aniyomi", ".tachibk", Modifier.weight(1f))
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            FormatChip("Anikku", ".anikku", Modifier.weight(1f))
-                            FormatChip("AniList", ".json", Modifier.weight(1f))
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FormatChip("CloudStream", ".json")
-                        }
-                        Spacer(Modifier.height(10.dp))
                         Text(
-                            "Everything is ADDED to your library — nothing you already have is " +
-                                "overwritten. Anime backups only for now; Mihon manga comes later.",
+                            "Supports a wide variety of backups — " +
+                                ".anikuta, .tachibk, .json",
                             fontFamily = RobotoFamily,
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
                         )
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = { filePicker.launch(arrayOf("*/*")) },
+                            enabled = !detecting && !restoring,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            if (detecting || restoring) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(if (detecting) "Reading the file…" else "Restoring…")
+                            } else {
+                                Icon(
+                                    Icons.Filled.Restore,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    if (pickedUri == null) "Restore from backup file" else "Choose another file",
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -468,6 +422,88 @@ fun RestoreBackupScreen(
         }
     }
 
+    // ── ROUND 139 (D-844): the BATCH-INSTALL extension picker — the restore
+    // suspends here with the backup's missing extensions; the user checks the
+    // ones they want (all checked by default), taps Install, and each chosen
+    // extension then gets its own Android install prompt. ──
+    extensionPick?.let { (missing, deferred) ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {},
+            title = {
+                Text(
+                    "Install extensions?",
+                    fontFamily = RobotoFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        (if (missing.size == 1) "1 extension is" else
+                            "${missing.size} extensions are") +
+                            " not installed. Choose which ones to install:",
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(0.dp),
+                    ) {
+                        missing.forEach { info ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Checkbox(
+                                    checked = checkedExtensions[info.pkgName] ?: true,
+                                    onCheckedChange = { checked ->
+                                        checkedExtensions[info.pkgName] = checked
+                                    },
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        info.name,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        "v" + info.versionName,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val chosen = missing.filter { checkedExtensions[it.pkgName] ?: true }
+                        extensionPick = null
+                        deferred.complete(chosen)
+                    },
+                ) { Text("Install") }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = {
+                        extensionPick = null
+                        deferred.complete(emptyList())
+                    },
+                ) { Text("Skip") }
+            },
+        )
+    }
+
     // The confirmation dialog (native backups only — the big payloads).
     if (confirming) {
         androidx.compose.material3.AlertDialog(
@@ -483,7 +519,16 @@ fun RestoreBackupScreen(
                         restoreError = null
                         restoreSummary = null
                         scope.launch {
-                            val result = backupManager.restoreBackup(uri)
+                            val result = backupManager.restoreBackup(
+                                uri,
+                                extensionInstallPicker = { missing ->
+                                    val deferred = CompletableDeferred<List<AniyomiApkInfo>>()
+                                    checkedExtensions.clear()
+                                    missing.forEach { checkedExtensions[it.pkgName] = true }
+                                    extensionPick = missing to deferred
+                                    deferred.await()
+                                },
+                            )
                             restoring = false
                             result.fold(
                                 onSuccess = { summary ->
@@ -507,38 +552,6 @@ fun RestoreBackupScreen(
                 OutlinedButton(onClick = { confirming = false }) { Text("Cancel") }
             },
         )
-    }
-}
-
-/** One supported-format chip — the app name + its file extension. */
-@Composable
-private fun FormatChip(name: String, extension: String, modifier: Modifier = Modifier) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(9.dp),
-        modifier = modifier,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-        ) {
-            Text(
-                name,
-                fontFamily = RobotoFamily,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.width(4.dp))
-            Text(
-                extension,
-                fontFamily = RobotoFamily,
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-            )
-        }
     }
 }
 
@@ -589,9 +602,9 @@ private fun SectionLabel(label: String) {
     )
 }
 
-/** One label/value line of the details panel. */
+/** One label/value line of the details panel (shared with the backup page). */
 @Composable
-private fun DetailRow(label: String, value: String) {
+internal fun DetailRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,

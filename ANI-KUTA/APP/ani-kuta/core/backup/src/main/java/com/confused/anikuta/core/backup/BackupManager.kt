@@ -94,10 +94,14 @@ class BackupManager(
     /** The existing backups, newest first. */
     fun listBackups(): List<BackupFileInfo> {
         val dir = backupFolder() ?: return emptyList()
+        // ROUND 139 (D-841): EVERYTHING in the backup folder is listed — the
+        // native .anikuta archives AND the interop exports (.tachibk/.json/
+        // .txt) that live beside them. The prune (createBackup) still only
+        // counts NATIVE archives against the keep-count.
         return dir.listFiles()
-            .filter { it.name != null && it.name!!.startsWith(BackupFormat.FILE_PREFIX) && it.name!!.endsWith(BackupFormat.FILE_EXTENSION) }
+            .filter { it.name != null && (it.isFile || it.length() > 0) }
             .map { BackupFileInfo(it.name!!, it.uri.toString(), it.lastModified(), it.length()) }
-            .sortedByDescending { it.name }
+            .sortedByDescending { it.createdAt }
     }
 
     // ── Inspect ──────────────────────────────────────────────────────────────
@@ -134,7 +138,10 @@ class BackupManager(
      * Creates a backup in the backup folder, carrying exactly the slices the
      * [options] turn on. Returns the manifest on success.
      */
-    suspend fun createBackup(options: BackupOptions): Result<BackupManifest> = withContext(Dispatchers.IO) {
+    suspend fun createBackup(
+        options: BackupOptions,
+        onProgress: ((BackupProgress) -> Unit)? = null,
+    ): Result<BackupManifest> = withContext(Dispatchers.IO) {
         runCatching {
             require(options.anythingEnabled) { "Nothing is selected to back up" }
             val dir = backupFolder()
@@ -143,6 +150,7 @@ class BackupManager(
                 context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
             } catch (_: Exception) { "?" }
             val createdAt = System.currentTimeMillis()
+            onProgress?.invoke(BackupProgress("Preparing the archive", 0, 0))
 
             // ── Assemble the archive in a cacheDir temp first (the SAF write
             // is a single truncating copy afterwards). ──
@@ -150,7 +158,7 @@ class BackupManager(
             try {
                 val manifest = BufferedOutputStream(FileOutputStream(temp)).use { raw ->
                     ZipOutputStream(raw).use { zip ->
-                        dumpDatabase(zip, options, createdAt, appVersion)
+                        dumpDatabase(zip, options, createdAt, appVersion, onProgress)
                     }
                 }
                 Logger.i(TAG) {
@@ -175,9 +183,12 @@ class BackupManager(
                     throw e
                 }
 
-                // ── Prune: keep the newest N. ──
+                // ── Prune: keep the newest N NATIVE archives (the interop
+                // exports beside them are never auto-deleted — D-841). ──
                 val keep = backupPreferences.keepCount.get().coerceAtLeast(1)
-                val stale = listBackups().drop(keep)
+                val stale = listBackups()
+                    .filter { it.name.startsWith(BackupFormat.FILE_PREFIX) && it.name.endsWith(BackupFormat.FILE_EXTENSION) }
+                    .drop(keep)
                 stale.forEach { old ->
                     val doc = dir.findFile(old.name)
                     if (doc != null && doc.delete()) {
@@ -199,12 +210,32 @@ class BackupManager(
         return BackupFormat.FILE_PREFIX + fmt.format(java.util.Date(createdAt)) + BackupFormat.FILE_EXTENSION
     }
 
+    /** The D-840 progress feed's friendly per-table label. */
+    private fun tableLabel(table: String): String = when (table) {
+        "main_entry" -> "Library entries"
+        "content_details" -> "Entry details"
+        "library_item", "library_category" -> "Library"
+        "watch_progress" -> "Watch history"
+        "watch_session" -> "Watch sessions"
+        "user_rating", "user_episode_rating" -> "Ratings"
+        "track_entry", "content_tracking_state" -> "Tracking"
+        "app_settings" -> "App settings"
+        "downloaded_episode" -> "Downloads"
+        "notification_config" -> "Notifications"
+        "anime_update_state", "episode_schedule", "episode_update" -> "Schedules"
+        "data_cache_episode" -> "Episode details"
+        "browse_cache" -> "Browse cache"
+        "data_source", "system", "genre", "content_genre" -> "Catalog"
+        else -> table
+    }
+
     /** Dumps the selected DB tables + prefs + extension payload into the zip. */
     private fun dumpDatabase(
         zip: ZipOutputStream,
         options: BackupOptions,
         createdAt: Long,
         appVersion: String,
+        onProgress: ((BackupProgress) -> Unit)? = null,
     ): BackupManifest {
         val counts = mutableMapOf<String, Int>()
         val mainIds = mutableSetOf<String>()
@@ -215,7 +246,11 @@ class BackupManager(
         // the archive would fail FK enforcement on restore.
         driver.execute(null, "BEGIN DEFERRED", 0)
         try {
-            tables.forEach { table ->
+            tables.forEachIndexed { index, table ->
+                // ROUND 139 (D-840): the live "what is being backed up" feed.
+                onProgress?.invoke(
+                    BackupProgress(tableLabel(table), index + 1, tables.size),
+                )
                 val rows = dumpTable(table)
                 counts[table] = rows.size
                 if (table == "main_entry") {
@@ -236,9 +271,10 @@ class BackupManager(
             throw e
         }
 
+        val ownedPrefs = BACKUP_PREFS_FILES.filter { options.ownsPrefsFile(it) }
         val prefFiles = linkedSetOf<String>()
-        BACKUP_PREFS_FILES.forEach { file ->
-            if (!options.ownsPrefsFile(file)) return@forEach
+        ownedPrefs.forEachIndexed { index, file ->
+            onProgress?.invoke(BackupProgress("Settings", index + 1, ownedPrefs.size + 1))
             val data = dumpPrefsFile(file) { key -> options.includePrefsKey(file, key) }
             if (data.isNotEmpty()) {
                 prefFiles.add(file)
@@ -259,7 +295,10 @@ class BackupManager(
                 }
         }
 
-        val imageCount = if (options.imageCovers) collectCoverImages(mainIds, zip) else 0
+        val imageCount = if (options.imageCovers) {
+            onProgress?.invoke(BackupProgress("Cover images", 0, 0))
+            collectCoverImages(mainIds, zip)
+        } else 0
 
         // ── The extension payload (round 135): APKs + .cs3 files + state.json.
         // The repo LISTS ride in the prefs files (owned by the repos switches).
@@ -273,6 +312,7 @@ class BackupManager(
         val writtenAniyomi = mutableListOf<AniyomiApkInfo>()
         val writtenCs = mutableListOf<CloudstreamPluginInfo>()
         if (extensionsRequested && bridge != null) {
+            onProgress?.invoke(BackupProgress("Extensions", 0, 0))
             val aniyomi = if (options.extensionAniyomi) {
                 runCatching { bridge.collectAniyomiApks() }
                     .onFailure { Logger.w(TAG, it) { "collectAniyomiApks failed" } }
@@ -331,6 +371,7 @@ class BackupManager(
         // time and keyed by the URL's SHA-256; the app's Coil interceptor
         // serves them back offline after a restore. ──
         val offlineCount = if (options.imageCovers && offlineImageStore != null) {
+            onProgress?.invoke(BackupProgress("Offline covers", 0, 0))
             collectOfflineImages(
                 zip = zip,
                 // Both placeholders the UI resolves to 64 (the verifier's F5 — a literal
@@ -830,7 +871,16 @@ class BackupManager(
      * content folders; the Aniyomi APKs auto-install last (the user confirms
      * each system prompt) and the backed-up trust state is re-applied.
      */
-    suspend fun restoreBackup(sourceUri: Uri): Result<RestoreSummary> = withContext(Dispatchers.IO) {
+    suspend fun restoreBackup(
+        sourceUri: Uri,
+        /**
+         * ROUND 139 (D-844): the BATCH-INSTALL picker — called once with the
+         * missing extensions (already filtered to NOT-installed + APK-carrying)
+         * BEFORE any install prompt; returns the confirmed subset (empty = the
+         * user declined them all). Null = the legacy install-all flow.
+         */
+        extensionInstallPicker: (suspend (List<AniyomiApkInfo>) -> List<AniyomiApkInfo>)? = null,
+    ): Result<RestoreSummary> = withContext(Dispatchers.IO) {
         runCatching {
             val bridge = extensionBridge
             val entries = readArchive(sourceUri)
@@ -949,14 +999,20 @@ class BackupManager(
             // prompt per APK, sequential; a cancel moves on. ──
             var aniyomiInstalled = 0
             var aniyomiSkipped = 0
+            var aniyomiDeclined = 0
             val aniyomiFailed = mutableListOf<String>()
             if (extState != null && bridge != null && extState.aniyomi.isNotEmpty()) {
-                extState.aniyomi.forEach { info ->
+                // ── ROUND 139 (D-844): the BATCH-INSTALL PICKER — the missing
+                // extensions are collected FIRST and offered to the user as a
+                // checkbox selection (default all); only the confirmed subset
+                // is installed (each still gets its own Android install
+                // prompt). Without a picker the old install-all flow runs.
+                val missing = extState.aniyomi.mapNotNull { info ->
                     val bytes = entries.aniyomiApks[info.pkgName]
                     if (bytes == null) {
                         Logger.w(TAG) { "restoreBackup: ${info.pkgName} has no APK in the archive" }
                         aniyomiFailed += info.name
-                        return@forEach
+                        return@mapNotNull null
                     }
                     if (bridge.isPackageInstalled(info.pkgName)) {
                         // Already on the device — just align the trust/enable state.
@@ -964,8 +1020,20 @@ class BackupManager(
                         runCatching {
                             bridge.applyAniyomiState(info.pkgName, info.trusted, info.enabled)
                         }
-                        return@forEach
+                        return@mapNotNull null
                     }
+                    info to bytes
+                }
+                val toInstall = if (missing.isNotEmpty() && extensionInstallPicker != null) {
+                    val picked = runCatching {
+                        extensionInstallPicker!!.invoke(missing.map { it.first })
+                    }.getOrElse { emptyList() }.toSet()
+                    missing.filter { it.first in picked }
+                } else {
+                    missing
+                }
+                aniyomiDeclined = missing.size - toInstall.size
+                toInstall.forEach { (info, bytes) ->
                     val ok = bridge.installAniyomiApk(info.pkgName, bytes)
                     if (ok) {
                         aniyomiInstalled++
@@ -978,7 +1046,7 @@ class BackupManager(
                 }
                 Logger.i(TAG) {
                     "restoreBackup: aniyomi — $aniyomiInstalled installed, $aniyomiSkipped already present, " +
-                        "${aniyomiFailed.size} failed"
+                        "$aniyomiDeclined declined by the user, ${aniyomiFailed.size} failed"
                 }
             }
 

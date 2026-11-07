@@ -136,7 +136,73 @@ class InteropExporter(private val driver: SqlDriver) {
         InteropFormat.ANIKKU -> exportAnikku(snapshot)
         InteropFormat.ANILIST -> exportAnilist(snapshot)
         InteropFormat.CLOUDSTREAM -> exportCloudstream(snapshot, providerResolver)
+        InteropFormat.TXT -> exportTxt(snapshot)
         InteropFormat.ANIKUTA -> error("ANI-KUTA backups go through BackupManager, not the interop exporter")
+    }
+
+    /**
+     * ROUND 139 (D-845): the plain-text NAMES list — the library's titles
+     * grouped by WATCH STATE (the report's "formatted properly based on the
+     * categories, like watched, unwatched, and other stuff like that"), names
+     * only, nothing more:
+     *
+     * ```
+     * ANI-KUTA Library — Nov 7, 2026
+     * 13 titles
+     *
+     * == Watching (3) ==
+     * Title A
+     * ```
+     *
+     * State derivation: any completed episode → Completed; else any playback
+     * (position or played time) → Watching; else Plan to watch.
+     */
+    private fun exportTxt(snapshot: Snapshot): ExportResult {
+        val fmt = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.US)
+
+        data class Bucket(val label: String) {
+            val names = mutableListOf<String>()
+        }
+        val watching = Bucket("Watching")
+        val completed = Bucket("Completed")
+        val planToWatch = Bucket("Plan to watch")
+
+        for (entry in snapshot.entries) {
+            val rows = snapshot.progressByMain[entry.mainId].orEmpty()
+            val bucket = when {
+                rows.any { it.completed } -> completed
+                rows.any { it.position > 0 || it.playedTimeMs > 0 } -> watching
+                else -> planToWatch
+            }
+            bucket.names += entry.title
+        }
+
+        listOf(watching, completed, planToWatch).forEach {
+            it.names.sortWith(String.CASE_INSENSITIVE_ORDER)
+        }
+        val total = watching.names.size + completed.names.size + planToWatch.names.size
+
+        val sb = StringBuilder()
+        sb.append("ANI-KUTA Library — ").append(fmt.format(java.util.Date())).append('\n')
+        sb.append(total).append(" title").append(if (total == 1) "" else "s").append("\n")
+        listOf(watching, completed, planToWatch).forEach { bucket ->
+            if (bucket.names.isEmpty()) return@forEach
+            sb.append('\n')
+            sb.append("== ").append(bucket.label).append(" (").append(bucket.names.size).append(") ==\n")
+            bucket.names.forEach { name ->
+                sb.append(name).append('\n')
+            }
+        }
+        val bytes = sb.toString().toByteArray(Charsets.UTF_8)
+        return ExportResult(
+            bytes = bytes,
+            suggestedFileName = "anikuta-library-${timestamp()}.txt",
+            entriesWritten = total,
+            categoriesWritten = 0,
+            episodesWritten = 0,
+            trackingRows = 0,
+            entriesSkipped = 0,
+        )
     }
 
     // ── Snapshot collection ───────────────────────────────────────────────────

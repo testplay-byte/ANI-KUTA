@@ -75,9 +75,23 @@ enum class InteropFormat(
         mime = "application/json",
         description = ".json — bookmarks + progress",
     ),
+    /**
+     * ROUND 139 (D-845): the plain-text NAMES list — no metadata, just the
+     * library's titles grouped by watch state ("watched, unwatched, and other
+     * stuff like that"), formatted for humans. Export-only; nothing reads it.
+     */
+    TXT(
+        displayName = "Text list",
+        fileExtension = ".txt",
+        mime = "text/plain",
+        description = ".txt — names by status",
+    ),
     ;
 
     companion object {
         val INTEROP_TARGETS = listOf(ANIYOMI, ANIKKU, ANILIST, CLOUDSTREAM)
+
+        /** The D-845 picker's options — exactly what the user listed, nothing more. */
+        val EXPORT_AS_OPTIONS = listOf(ANIYOMI, CLOUDSTREAM, TXT)
     }
 }

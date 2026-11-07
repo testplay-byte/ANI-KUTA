@@ -125,6 +125,19 @@ class InteropImporter {
         if (root.containsKey("datastore") && root.containsKey("settings")) {
             return parseCloudstream(root)
         }
+        // ── ROUND 139 (D-843): the AniList GDPR export — {"user": {…}, "lists":
+        // [ FLAT entries with series_id/series_type/status-int ]}. The file the
+        // user shared (Downloads/gdpr_data.json) is EXACTLY this: NO media
+        // objects, NO list names — which the MediaListCollection parser silently
+        // skipped to zero entries ("it has not been implemented properly").
+        // Detected BEFORE the collection branches. ──
+        val listsEl = root["lists"]
+        if (root["user"] is JsonObject && listsEl is kotlinx.serialization.json.JsonArray) {
+            val first = listsEl.firstOrNull() as? JsonObject
+            if (first == null || first.containsKey("series_id")) {
+                return parseGdpr(root)
+            }
+        }
         // AniList: either the GraphQL wrapper or the bare MediaListCollection.
         val collection = when {
             root.containsKey("MediaListCollection") -> root
@@ -136,8 +149,115 @@ class InteropImporter {
             return parseAnilist(collection)
         }
         throw InteropParseException(
-            "Unrecognized JSON backup — supported: AniList (MediaListCollection) and CloudStream (CS3 backup)",
+            "Unrecognized JSON backup — supported: AniList (MediaListCollection), AniList GDPR export and " +
+                "CloudStream (CS3 backup)",
         )
+    }
+
+    /**
+     * D-843: the AniList GDPR export's FLAT list entries. Wire facts (from the
+     * user's own file): `series_type` 0 = ANIME (1 = MANGA — skipped); `series_id`
+     * = the AniList media id; `status` ints 1=CURRENT 2=COMPLETED 3=PAUSED
+     * 4=DROPPED 5=PLANNING 6=REPEATING; `score` is the RAW user-scale value
+     * (the shared file's score_type=4 = POINT_100 — NO heuristic scaling); the
+     * file carries NO media metadata at all — titles/covers arrive via the
+     * bridge's AniList enrichment pass ([InteropRestoreBridge.enrichAniListMetadata]).
+     */
+    private fun parseGdpr(root: JsonObject): InteropRestorePlan {
+        val lists = root["lists"] as? kotlinx.serialization.json.JsonArray
+            ?: throw InteropParseException("AniList GDPR export has no lists")
+        val entries = mutableListOf<InteropEntry>()
+        var skippedManga = 0
+        for (el in lists) {
+            val obj = el as? JsonObject ?: continue
+            if ((obj.int("series_type") ?: 0) != 0) {
+                skippedManga++
+                continue
+            }
+            val anilistId = obj.long("series_id") ?: continue
+            val statusGdpr = obj.int("status") ?: 1
+            entries += InteropEntry(
+                title = "", // the enrichment pass fills it (the file has no media data)
+                animeUrl = null,
+                sourceId = null,
+                ecosystem = null,
+                anilistId = anilistId,
+                coverUrl = null,
+                bannerUrl = null,
+                synopsis = null,
+                genres = emptyList(),
+                statusText = null,
+                totalEpisodes = null,
+                seasonYear = null,
+                favorite = true,
+                dateAdded = gdprTimestampToMs(obj.string("created_at")),
+                categoryNames = emptyList(),
+                episodes = emptyList(),
+                history = emptyList(),
+                tracking = listOf(
+                    InteropTracking(
+                        trackerWireId = 2, // AniList
+                        remoteId = anilistId,
+                        title = "",
+                        url = "https://anilist.co/anime/$anilistId",
+                        progress = obj.int("progress") ?: 0,
+                        totalEpisodes = 0,
+                        score = (obj.double("score") ?: 0.0).toFloat(),
+                        statusInt = gdprStatusToWireInt(statusGdpr),
+                        startedMs = yyyymmddToMs(obj.long("started_on")),
+                        finishedMs = yyyymmddToMs(obj.long("finished_on")),
+                    ),
+                ),
+            )
+        }
+        val warnings = buildList {
+            if (skippedManga > 0) {
+                add("$skippedManga manga list entr${if (skippedManga == 1) "y was" else "ies were"} skipped (manga support comes later)")
+            }
+            if (entries.isNotEmpty()) {
+                add("Titles and covers are fetched from AniList — go online for them to appear")
+            }
+        }
+        return InteropRestorePlan(
+            format = InteropFormat.ANILIST,
+            entries = entries,
+            categories = emptyList(),
+            warnings = warnings,
+        )
+    }
+
+    /** GDPR status int → Aniyomi's AniList wire int (the tracker-native form). */
+    private fun gdprStatusToWireInt(status: Int): Int = when (status) {
+        1 -> 11 // CURRENT → WATCHING
+        2 -> 2  // COMPLETED
+        3 -> 3  // PAUSED
+        4 -> 4  // DROPPED
+        5 -> 15 // PLANNING
+        6 -> 16 // REPEATING
+        else -> 11
+    }
+
+    /** GDPR `created_at` ("2023-10-22 14:31:26", UTC) → epoch ms (0 on failure). */
+    private fun gdprTimestampToMs(text: String?): Long = runCatching {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+        fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        fmt.parse(text ?: return 0L)?.time ?: 0L
+    }.getOrDefault(0L)
+
+    /** GDPR `started_on`/`finished_on` (Int YYYYMMDD, 0 = none) → epoch ms. */
+    private fun yyyymmddToMs(value: Long?): Long {
+        if (value == null || value <= 0) return 0L
+        return runCatching {
+            val text = value.toString()
+            if (text.length < 8) return 0L
+            val y = text.substring(0, 4).toInt()
+            val m = text.substring(4, 6).toInt()
+            val d = text.substring(6, 8).toInt()
+            val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+            cal.clear()
+            cal.set(y.coerceIn(1960, 2100), (m - 1).coerceIn(0, 11), d.coerceIn(1, 31), 12, 0, 0)
+            cal.timeInMillis
+        }.getOrDefault(0L)
     }
 
     // ── Aniyomi ───────────────────────────────────────────────────────────────

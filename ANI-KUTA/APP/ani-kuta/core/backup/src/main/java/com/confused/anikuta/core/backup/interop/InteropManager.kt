@@ -124,6 +124,9 @@ class InteropManager(
         var progressRows = 0
         var trackingRows = 0
         var pendingSources = 0
+        // D-843: the GDPR entries carry NO titles — the bridge fills them from
+        // AniList after the whole plan lands.
+        val enrichTargets = linkedMapOf<Long, String>()
         val warnings = plan.warnings.toMutableList()
 
         for (entry in plan.entries) {
@@ -133,6 +136,11 @@ class InteropManager(
                 continue
             }
             if (resolved.created) entriesCreated++ else entriesMatched++
+            if (entry.title.isBlank() && entry.anilistId != null) {
+                // D-843: the GDPR entries — the title placeholder is resolved by
+                // the bridge's AniList enrichment pass after the plan lands.
+                enrichTargets[entry.anilistId] = resolved.mainId
+            }
 
             if (entry.favorite) {
                 val categoryIds = entry.categoryNames.mapNotNull { categoryIdByName[it] }
@@ -164,6 +172,14 @@ class InteropManager(
                 bridge.upsertTracking(resolved.mainId, tracking)
                 trackingRows++
             }
+        }
+
+        if (enrichTargets.isNotEmpty()) {
+            // D-843: the batched AniList metadata fetch (titles + covers). The
+            // restore result lands BEFORE the enrichment finishes — the plan's
+            // own warning already tells the user to go online for the names.
+            warnings += "Fetching ${enrichTargets.size} title(s) from AniList…"
+            bridge.enrichAniListMetadata(enrichTargets)
         }
 
         return InteropRestoreSummary(

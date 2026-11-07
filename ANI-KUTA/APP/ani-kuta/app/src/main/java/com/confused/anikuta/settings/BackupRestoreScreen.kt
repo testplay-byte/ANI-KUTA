@@ -1,6 +1,7 @@
 package com.confused.anikuta.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.SmartDisplay
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
@@ -117,6 +122,17 @@ fun BackupRestoreScreen(
     // when the popup closes so the row recomposes with the fresh count.
     var includeRevision by androidx.compose.runtime.mutableIntStateOf(0)
 
+    // ROUND 139 (D-840): the LIVE backup progress — the report: "it should
+    // have shown me some proper loading animation, like what is currently
+    // being backed up". Non-null → the progress dialog is up.
+    var backupProgress by remember { mutableStateOf<com.confused.anikuta.core.backup.BackupProgress?>(null) }
+
+    // ROUND 139 (D-841): the tapped existing backup + its detected manifest.
+    var inspecting by remember { mutableStateOf<BackupFileInfo?>(null) }
+    var inspectingManifest by remember { mutableStateOf<BackupManifest?>(null) }
+    var inspectingBusy by remember { mutableStateOf(false) }
+    var inspectConfirmForeign by remember { mutableStateOf(false) }
+
     // ROUND 137 (D-828): the interop resolvers — the extension catalogs that
     // give foreign readers human names for our source ids.
     val extensionManager = remember {
@@ -205,6 +221,73 @@ fun BackupRestoreScreen(
         }
     }
 
+    // ROUND 139 (D-841): a tapped existing backup opens a POPUP with its real
+    // details (read from the file, live from the folder) + the Restore action.
+    fun onExistingBackupClicked(file: BackupFileInfo) {
+        if (backingUp || inspectingBusy) return
+        scope.launch {
+            inspectingBusy = true
+            inspecting = file
+            inspectingManifest = null
+            inspectingManifest = if (
+                file.name.endsWith(com.confused.anikuta.core.backup.BackupFormat.FILE_EXTENSION)
+            ) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    backupManager.readManifest(android.net.Uri.parse(file.uri))
+                }
+            } else {
+                null // a foreign-format export — its popup is a confirm, not stats
+            }
+            inspectingBusy = false
+        }
+    }
+
+    fun restoreExistingNative(file: BackupFileInfo) {
+        if (backingUp) return
+        backingUp = true
+        scope.launch {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                backupManager.restoreBackup(android.net.Uri.parse(file.uri))
+            }
+            backingUp = false
+            result.fold(
+                onSuccess = { summary ->
+                    AppToast.show(
+                        formatRestoreToast(summary),
+                        AppToastTone.SUCCESS,
+                        durationMillis = 4200L,
+                    )
+                },
+                onFailure = { e ->
+                    AppToast.show(e.message ?: "Restore failed", AppToastTone.ERROR)
+                },
+            )
+        }
+    }
+
+    fun restoreExistingForeign(file: BackupFileInfo) {
+        if (backingUp) return
+        backingUp = true
+        scope.launch {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                interopManager.restoreFrom(android.net.Uri.parse(file.uri), file.name)
+            }
+            backingUp = false
+            result.fold(
+                onSuccess = { summary ->
+                    AppToast.show(
+                        formatInteropRestoreToast(summary),
+                        AppToastTone.SUCCESS,
+                        durationMillis = 4200L,
+                    )
+                },
+                onFailure = { e ->
+                    AppToast.show(e.message ?: "Restore failed", AppToastTone.ERROR)
+                },
+            )
+        }
+    }
+
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         CollapsingHeader(title = "Backup & restore", collapsed = collapsed, onBack = onBack)
@@ -255,8 +338,13 @@ fun BackupRestoreScreen(
                                     val result = kotlinx.coroutines.withContext(
                                         kotlinx.coroutines.Dispatchers.IO,
                                     ) {
-                                        backupManager.createBackup(backupPreferences.options())
+                                        backupManager.createBackup(
+                                            backupPreferences.options(),
+                                            // ROUND 139 (D-840): the live stage feed.
+                                            onProgress = { backupProgress = it },
+                                        )
                                     }
+                                    backupProgress = null
                                     backingUp = false
                                     result.fold(
                                         onSuccess = { manifest ->
@@ -410,8 +498,14 @@ fun BackupRestoreScreen(
                         } else {
                             val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
                             backups.forEach { file ->
+                                // ROUND 139 (D-841): every row opens the backup's
+                                // details popup (with the Restore action).
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { onExistingBackupClicked(file) }
+                                        .padding(vertical = 6.dp, horizontal = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Icon(
@@ -465,8 +559,136 @@ fun BackupRestoreScreen(
         )
     }
 
-    // ROUND 138: the ONE-TIME export picker — tap a format, that single
-    // export runs. Nothing is persisted; the next Backup is native again.
+    // ── ROUND 139 (D-840): the LIVE backup progress — the stage + counts of
+    // what is being backed up right now. Non-cancellable while it runs. ──
+    backupProgress?.let { progress ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {},
+            title = {
+                Text(
+                    "Backing up…",
+                    fontFamily = RobotoFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        progress.stage,
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    if (progress.total > 0) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = {
+                                progress.current.toFloat() / progress.total.toFloat()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "${progress.current} of ${progress.total}",
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+        )
+    }
+
+    // ── ROUND 139 (D-841): the tapped existing backup's details + Restore ──
+    inspecting?.let { file ->
+        val manifest = inspectingManifest
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!inspectingBusy && !backingUp) inspecting = null },
+            title = {
+                Column {
+                    Text(
+                        "Backup details",
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                    Text(
+                        file.name,
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            text = {
+                if (inspectingBusy) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Reading…", fontFamily = RobotoFamily, fontSize = 12.sp)
+                    }
+                } else if (manifest != null) {
+                    Column {
+                        DetailRow(
+                            "Created",
+                            SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(manifest.createdAt)),
+                        )
+                        DetailRow("From app version", manifest.appVersion)
+                        Spacer(Modifier.height(8.dp))
+                        DetailRow("Entries", manifestStat(manifest, "library_item"))
+                        DetailRow("Categories", manifestStat(manifest, "library_category"))
+                        DetailRow("History", manifestStat(manifest, "watch_progress"))
+                        DetailRow("Tracking", manifestStat(manifest, "track_entry"))
+                        DetailRow("Downloads", manifestStat(manifest, "downloaded_episode"))
+                        if (manifest.offlineImageCount > 0) {
+                            DetailRow("Cover images", "${formatCount(manifest.offlineImageCount)} (offline-ready)")
+                        }
+                        if (manifest.includesExtensions) {
+                            DetailRow(
+                                "Extensions",
+                                "${formatCount(manifest.aniyomiApkCount)} Aniyomi · ${formatCount(manifest.csPluginCount)} CloudStream",
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        "This file is not an ANI-KUTA archive — it will be restored as a foreign " +
+                            "backup (Aniyomi, AniList or CloudStream), added on top of your library.",
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                if (!inspectingBusy) {
+                    Button(
+                        onClick = {
+                            val target = file
+                            inspecting = null
+                            if (manifest != null) restoreExistingNative(target) else restoreExistingForeign(target)
+                        },
+                        enabled = !backingUp,
+                    ) { Text("Restore") }
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { inspecting = null },
+                ) { Text("Cancel") }
+            },
+        )
+    }
+
+    // ── ROUND 139 (D-845): the reworked ONE-TIME export picker — exactly the
+    // three options the report listed (Aniyomi, CloudStream, .txt), each a
+    // proper tappable card. Nothing persists; the next Backup is native. ──
     if (showFormatPopup) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showFormatPopup = false },
@@ -478,10 +700,11 @@ fun BackupRestoreScreen(
                 )
             },
             text = {
-                Column {
-                    InteropFormat.INTEROP_TARGETS.forEach { format ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    InteropFormat.EXPORT_AS_OPTIONS.forEach { format ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
@@ -489,20 +712,48 @@ fun BackupRestoreScreen(
                                     runOneTimeExport(format)
                                 },
                         ) {
-                            Text(
-                                format.displayName,
-                                fontFamily = RobotoFamily,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                format.description,
-                                fontFamily = RobotoFamily,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                            ) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                    shape = RoundedCornerShape(9.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = when (format) {
+                                            InteropFormat.TXT -> Icons.Filled.Description
+                                            InteropFormat.CLOUDSTREAM -> Icons.Filled.Cloud
+                                            else -> Icons.Filled.SmartDisplay
+                                        },
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(7.dp).size(18.dp),
+                                    )
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        format.displayName,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        format.description,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Icon(
+                                    Icons.Filled.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -513,6 +764,10 @@ fun BackupRestoreScreen(
         )
     }
 }
+
+/** The manifest count for the inspection popup ("" when the table wasn't carried). */
+private fun manifestStat(manifest: BackupManifest, table: String): String =
+    if (table in manifest.tables) formatCount(manifest.rowCount[table] ?: 0) else "Not included"
 
 /** The formatted backup toast (the report: a formatted response, not a blank one). */
 internal fun formatBackupToast(manifest: BackupManifest): String {
@@ -580,13 +835,6 @@ private fun IncludeSelectionPopup(
                 PopupCheck("Library cover images", preferences.includeImageCovers)
                 PopupCheck("Search & browse page covers", preferences.includeImageSearchBrowse)
                 PopupCheck("Episode thumbnail images", preferences.includeImageEpisodeThumbnails)
-                Text(
-                    "Details-page banners ride with the library entries. Covers load OFFLINE after a restore.",
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 40.dp, top = 0.dp, bottom = 2.dp),
-                )
                 PopupGroup("Settings")
                 PopupCheck("App settings", preferences.includeSettingsApp)
                 PopupCheck("Extension & source settings", preferences.includeSettingsSources)

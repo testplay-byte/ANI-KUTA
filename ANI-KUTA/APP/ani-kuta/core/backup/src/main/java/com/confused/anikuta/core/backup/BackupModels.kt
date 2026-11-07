@@ -301,6 +301,18 @@ data class BackupFileInfo(
     val sizeBytes: Long,
 )
 
+/**
+ * ROUND 139 (D-840): one step of the backup's LIVE progress feed — [stage] is
+ * the friendly label of what is being backed up right now ("Watch history",
+ * "Offline covers", "Extensions"…); [current]/[total] carry per-item counts
+ * when the stage has them, 0/0 = an indeterminate stage.
+ */
+data class BackupProgress(
+    val stage: String,
+    val current: Int,
+    val total: Int,
+)
+
 /** The restore result summary (the UI's completion report). */
 data class RestoreSummary(
     val manifest: BackupManifest,

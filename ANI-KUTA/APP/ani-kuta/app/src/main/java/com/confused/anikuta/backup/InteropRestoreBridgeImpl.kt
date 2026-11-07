@@ -12,6 +12,9 @@ import com.confused.anikuta.core.content.ContentResolver
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.watchprogress.EpisodeKeys
+import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * ROUND 137 (D-828): the app-layer interop restore bridge — applies the
@@ -65,7 +68,9 @@ class InteropRestoreBridgeImpl(
                 val before = contentRepository.getMainEntryByAniListId(anilistId)
                 val mainId = contentResolver.resolveOrCreateForAniList(
                     anilistId = anilistId,
-                    title = entry.title,
+                    // D-843: the GDPR entries carry NO title — the placeholder is
+                    // replaced by the enrichment pass once AniList answers.
+                    title = entry.title.ifBlank { "AniList $anilistId" },
                     anilistDetail = anilistDetailFor(entry, now),
                 )
                 return@runCatching InteropResolvedEntry(mainId, created = before == null)
@@ -254,4 +259,116 @@ class InteropRestoreBridgeImpl(
     }.getOrElse { e ->
         Logger.w(TAG, e) { "upsertTracking($mainId, wire=${tracking.trackerWireId}) failed: ${e.message}" }
     }
+
+    /**
+     * D-843: the GDPR enrichment pass — the AniList GDPR export carries NO
+     * media metadata, so the placeholder entries ("AniList <id>") get their
+     * real titles + covers from the PUBLIC AniList GraphQL API (no auth needed
+     * for media data), batched 50 ids per page. FIRE-AND-FORGET: the restore
+     * result returns immediately; this lands whenever the network does (and
+     * silently gives up offline — a later import of the same file heals).
+     */
+    override fun enrichAniListMetadata(mainIdsByAnilistId: Map<Long, String>) {
+        if (mainIdsByAnilistId.isEmpty()) return
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            val ids = mainIdsByAnilistId.keys.toList()
+            Logger.i(TAG) { "enrichAniListMetadata: fetching ${ids.size} title(s) from AniList" }
+            var updated = 0
+            for (chunk in ids.chunked(50)) {
+                val media = runCatching { fetchAniListMedia(chunk) }.getOrElse { e ->
+                    Logger.w(TAG, e) { "enrichAniListMetadata: batch failed — giving up this pass" }
+                    return@launch
+                }
+                for (m in media) {
+                    val mainId = mainIdsByAnilistId[m.id] ?: continue
+                    runCatching {
+                        val title = m.romaji ?: m.english
+                        if (!title.isNullOrBlank()) {
+                            contentRepository.updateMainEntryTitle(mainId, title)
+                        }
+                        val cover = m.cover
+                        if (!cover.isNullOrBlank()) {
+                            // The data axis MERGE — only the cover is touched.
+                            contentRepository.updateDataSourceAxis(
+                                ContentDetails(
+                                    mainId = mainId,
+                                    dataSourceType = "anilist",
+                                    dataSourceRefId = m.id.toString(),
+                                    dataCoverUrl = cover,
+                                    dataUpdatedAt = System.currentTimeMillis(),
+                                ),
+                            )
+                        }
+                        updated++
+                    }.onFailure { e ->
+                        Logger.w(TAG, e) { "enrichAniListMetadata: apply failed for ${m.id}" }
+                    }
+                }
+            }
+            Logger.i(TAG) { "enrichAniListMetadata: $updated/${ids.size} entries enriched" }
+        }
+    }
+
+    /** One shared client for the enrichment fetches (a build per batch would churn threads). */
+    private val enrichmentClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
+    /** One AniList media from the enrichment query. */
+    private class AniListMedia(
+        val id: Long,
+        val romaji: String?,
+        val english: String?,
+        val cover: String?,
+    )
+
+    /**
+     * The batched PUBLIC media query (no auth — media data is public).
+     */
+    private fun fetchAniListMedia(ids: List<Long>): List<AniListMedia> {
+        val query = """
+            query (${'$'}ids: [Int]) {
+              Page(perPage: 50) {
+                media(id_in: ${'$'}ids, type: ANIME) {
+                  id
+                  title { romaji english }
+                  coverImage { large }
+                }
+              }
+            }
+        """.trimIndent()
+        val body = org.json.JSONObject().apply {
+            put("query", query)
+            put("variables", org.json.JSONObject().put("ids", org.json.JSONArray(ids)))
+        }
+        val request = okhttp3.Request.Builder()
+            .url("https://graphql.anilist.co")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
+            .build()
+        enrichmentClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw java.io.IOException("AniList responded ${response.code}")
+            }
+            val text = response.body?.string() ?: return emptyList()
+            val root = org.json.JSONObject(text)
+            val media = root.getJSONObject("data").getJSONObject("Page").getJSONArray("media")
+            val out = mutableListOf<AniListMedia>()
+            for (i in 0 until media.length()) {
+                val m = media.getJSONObject(i)
+                val title = m.optJSONObject("title")
+                out += AniListMedia(
+                    id = m.getLong("id"),
+                    romaji = title?.optString("romaji")?.takeIf { it != "null" && it.isNotBlank() },
+                    english = title?.optString("english")?.takeIf { it != "null" && it.isNotBlank() },
+                    cover = m.optJSONObject("coverImage")?.optString("large")
+                        ?.takeIf { it != "null" && it.isNotBlank() },
+                )
+            }
+            return out
+        }
+    }
 }
+

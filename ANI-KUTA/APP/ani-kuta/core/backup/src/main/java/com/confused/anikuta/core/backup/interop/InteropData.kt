@@ -185,4 +185,12 @@ interface InteropRestoreBridge {
 
     /** Upserts the tracker cache row + the tracking intent for [mainId]. */
     fun upsertTracking(mainId: String, tracking: InteropTracking)
+
+    /**
+     * D-843: the best-effort metadata pass for GDPR-imported entries — the
+     * file carries NO titles/covers, so the bridge fetches them from AniList
+     * (batched public GraphQL) and fills the placeholders. Failures are
+     * silent (the entries exist either way; a later import heals them).
+     */
+    fun enrichAniListMetadata(mainIdsByAnilistId: Map<Long, String>)
 }
