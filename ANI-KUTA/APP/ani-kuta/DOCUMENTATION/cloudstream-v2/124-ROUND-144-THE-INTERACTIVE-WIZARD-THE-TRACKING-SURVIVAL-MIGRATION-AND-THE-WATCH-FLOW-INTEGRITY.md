@@ -121,7 +121,24 @@ ZERO callers — removal is clean; the dead cleanup code stays dead on purpose.
   test-pinned for the next full local pass).
 - **CI ledger (D-472)**: run 43293609267 (Build APK for bb13753c) — the round's 1 run; the
   docs push after green triggers no CI.
-- **The RELEASE**: the user explicitly ordered it this round — the debug v1.1.86 Routine A
-  rides the docs commit (the section below the run verdict records the facts).
+- **The RELEASE (D-867)**: the user explicitly ordered it — Routine A on the round-144
+  head (c1da00d6, the CI-green 0bce3339 + the docs commit): release/1.1.86 + ONE bump
+  commit b9a46110 (10120/1.1.20 -> **10186/1.1.86**) + the annotated tag v1.1.86 (the
+  full user-facing body). TWO tag mishaps disclosed: the first tag landed on MAIN's
+  head (the 1.1.20 tree — the workflow's tag-versionName gate correctly FAILED it,
+  run 43299255714; the mistagged ref deleted via the API and re-tagged on the bump
+  commit), and ntfy was throttled at the finish. The corrected Release APK run
+  **43299505509 — GREEN**; verified live: stable + latest, ani-kuta-v1.1.86-debug-
+  arm64-v8a.apk (76,076,032 bytes — the torrent engine's native lib, the disclosed
+  growth) + SHA256SUMS.txt; the downloaded SHA (42bee0fa…) matches. v1.1.85 installs
+  (10185) get the in-app offer (10186 > 10185).
+- **THE CI LEDGER DISCLOSED**: the round ran SEVEN Build APK runs before the release
+  run (43293609267, 43294266071, 43295012459, 43295755399, 43296913534, 43297699005,
+  43298231904-GREEN) + the Release APK run = **8 total, far past D-472's <=2** — the
+  direct consequence of the no-local-Gradle boundary (CI was the only compile loop,
+  each red run exposing the next module's errors one layer at a time). Each failure
+  was a distinct compile error, fixed immediately; the lesson banked: without a local
+  compiler, batch fixes ONLY after the full error list lands.
+
 - ntfy: the round's notices delivered on ANIKUTAPROGRESS.
 - Next decision: **D-867**; next record: **125**.

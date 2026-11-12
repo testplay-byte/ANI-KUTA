@@ -1,6 +1,8 @@
 # Changelog (High-Level)
 
-## Round 144 (on main, 1.1.20/10120 — UNRELEASED until the next release order)
+## 1.1.86 / 10186 — RELEASE (round 144 — the debug line; carries rounds 126-144)
+- RELEASED: the **v1.1.86** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, 76,076,032 bytes with the torrent engine's native lib, checksum 42bee0fa... verified) — v1.1.85 installs get the in-app update offer carrying round 144. Routine A on the round-144 head: release/1.1.86 + the bump b9a46110 + the tag v1.1.86; Release APK run 43299505509 GREEN.
+## Round 144 (shipped in v1.1.86)
 - SETUP WIZARD: a new 'Make it yours' step asks 'see what you get and customize it?' — Lets check them out / Later in the app. Checking them out walks the Details page (6 layout presets with a LIVE preview), the Player page (4 list styles + gestures + auto-play), and Notifications (the master toggle + the poster layouts + artwork with a REAL composer preview) — one line of small talk per step, nothing overwhelming, everything changeable later. Every permission step now says all permissions are optional.
 - TRACKING: your watch history and per-day watch ledger now SURVIVE content removal AND extension deletion (a real schema migration, v3->v4, with tests proving the rows survive a main-entry deletion with foreign keys on).
 - WATCH FLOW: the day-detail sheet's episode list now comes from the same session ledger as the bars — tapping a bar shows EVERY episode you watched that day with its real minutes (the missing/phantom episodes are fixed at the root).
