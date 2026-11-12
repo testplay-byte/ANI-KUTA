@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -40,7 +41,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.Logger
-import com.confused.anikuta.core.designsystem.RobotoFamily
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListEntry
@@ -283,9 +283,9 @@ fun WizardPlayerConfigContent(
     val gesturesOn by playerPrefs.gestureControlsEnabled.changes.collectAsState(
         playerPrefs.gestureControlsEnabled.get(),
     )
-    val autoPlayNext by playerPrefs.autoPlayNext.changes.collectAsState(
-        playerPrefs.autoPlayNext.get(),
-    )
+    // autoPlayNext is a state-backed property on PlayerPreferences (not a
+    // Pref) — read/write it directly.
+    var autoPlayNextOn by remember { mutableStateOf(playerPrefs.autoPlayNext) }
 
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         Text(
@@ -348,8 +348,11 @@ fun WizardPlayerConfigContent(
         WizardToggleRow(
             title = "Auto-play next episode",
             description = "Rolls into the next episode at the end",
-            checked = autoPlayNext,
-            onChecked = { playerPrefs.autoPlayNext.set(it) },
+            checked = autoPlayNextOn,
+            onChecked = { on ->
+                playerPrefs.autoPlayNext = on
+                autoPlayNextOn = on
+            },
             showDivider = false,
         )
     }
