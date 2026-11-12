@@ -1445,28 +1445,32 @@ fun DetailsScreen(
                             // the sub/dub switcher when present, then the row
                             // itself — GRID pairs two per item) and flash the
                             // highlight. Fires once the display list is non-empty.
-                            LaunchedEffect(
-                                subDubDisplayEpisodes, targetEpisode, showNextEpisode,
-                                nextEpisodeInfo, showSubDubSwitcher,
-                            ) {
-                                if (targetEpisode == null || subDubDisplayEpisodes.isEmpty()) {
-                                    return@LaunchedEffect
+                            // NOTE: the effects live in an ITEM — composable calls
+                            // cannot sit directly in the LazyListScope.
+                            item(key = "target-episode-arrival") {
+                                LaunchedEffect(
+                                    subDubDisplayEpisodes, targetEpisode, showNextEpisode,
+                                    nextEpisodeInfo, showSubDubSwitcher,
+                                ) {
+                                    if (targetEpisode == null || subDubDisplayEpisodes.isEmpty()) {
+                                        return@LaunchedEffect
+                                    }
+                                    val idx = subDubDisplayEpisodes.indexOfFirst {
+                                        it.episode_number.toInt() == targetEpisode
+                                    }
+                                    if (idx < 0) return@LaunchedEffect
+                                    var lazyIndex = 3 // EpisodesSection is the 4th fixed item
+                                    if (showNextEpisode && nextEpisodeInfo != null) lazyIndex++
+                                    if (showSubDubSwitcher) lazyIndex++
+                                    lazyIndex += if (rowStyleKey == "GRID") idx / 2 else idx
+                                    detailsLazyListState.animateScrollToItem(lazyIndex)
+                                    highlightEpisode = targetEpisode
                                 }
-                                val idx = subDubDisplayEpisodes.indexOfFirst {
-                                    it.episode_number.toInt() == targetEpisode
-                                }
-                                if (idx < 0) return@LaunchedEffect
-                                var lazyIndex = 3 // EpisodesSection is the 4th fixed item
-                                if (showNextEpisode && nextEpisodeInfo != null) lazyIndex++
-                                if (showSubDubSwitcher) lazyIndex++
-                                lazyIndex += if (rowStyleKey == "GRID") idx / 2 else idx
-                                detailsLazyListState.animateScrollToItem(lazyIndex)
-                                highlightEpisode = targetEpisode
-                            }
-                            LaunchedEffect(highlightEpisode) {
-                                if (highlightEpisode != -1) {
-                                    kotlinx.coroutines.delay(2600)
-                                    highlightEpisode = -1
+                                LaunchedEffect(highlightEpisode) {
+                                    if (highlightEpisode != -1) {
+                                        kotlinx.coroutines.delay(2600)
+                                        highlightEpisode = -1
+                                    }
                                 }
                             }
                             // D-555: ONE shared per-episode rendering path for
