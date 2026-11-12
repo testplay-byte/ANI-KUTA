@@ -1,0 +1,74 @@
+-- ROUND 144 (D-862): the third VERSIONED schema migration (v3 → v4).
+--
+-- TRACKING SURVIVAL — the user's order: "we need to keep track of the content
+-- which the user watched even after he has removed it from the library... and
+-- even if he did delete the extension too, we need to keep it saved."
+--
+-- UNTIL NOW both tracking tables carried
+--   FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
+-- and the driver enables PRAGMA foreign_keys = ON on every open — so ANY
+-- main_entry deletion (extension uninstall cleanups, identity rebuilds)
+-- silently WIPED the user's watch history + the per-day session ledger for
+-- that content. This migration REBUILDS both tables without the FK, making
+-- the tracking identity-INDEPENDENT: watch_progress + watch_session rows
+-- survive main_entry deletion forever (orphan rows render with their stored
+-- episode identity; the enrichment layers tolerate a missing main_entry).
+--
+-- Mechanics: SQLite cannot drop a FK via ALTER TABLE — the tables are
+-- rebuilt (new table → copy → drop old → rename) and their indexes are
+-- recreated (DROP TABLE drops the table's indexes with it).
+
+CREATE TABLE watch_progress_v4 (
+    episode_key TEXT NOT NULL PRIMARY KEY,
+    position INTEGER NOT NULL,
+    duration INTEGER NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0,
+    completed_at INTEGER,
+    last_watched_at INTEGER NOT NULL,
+    main_id TEXT,
+    watch_count INTEGER NOT NULL DEFAULT 0,
+    first_watched_at INTEGER,
+    auto_mark_suppressed INTEGER NOT NULL DEFAULT 0,
+    user_marked_watched INTEGER NOT NULL DEFAULT 0,
+    played_time_ms INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT INTO watch_progress_v4 (
+    episode_key, position, duration, completed, completed_at, last_watched_at,
+    main_id, watch_count, first_watched_at, auto_mark_suppressed,
+    user_marked_watched, played_time_ms
+)
+SELECT
+    episode_key, position, duration, completed, completed_at, last_watched_at,
+    main_id, watch_count, first_watched_at, auto_mark_suppressed,
+    user_marked_watched, played_time_ms
+FROM watch_progress;
+
+DROP TABLE watch_progress;
+ALTER TABLE watch_progress_v4 RENAME TO watch_progress;
+
+-- the .sq-level indexes the DROP removed (byte-identical to watch.sq)
+CREATE INDEX IF NOT EXISTS idx_watch_progress_last_watched ON watch_progress(last_watched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_watch_progress_main_id ON watch_progress(main_id);
+CREATE INDEX IF NOT EXISTS idx_watch_progress_continue
+    ON watch_progress(last_watched_at DESC)
+    WHERE completed = 0 AND auto_mark_suppressed = 0 AND position > 0;
+CREATE INDEX IF NOT EXISTS idx_watch_progress_completed_at ON watch_progress(completed_at DESC);
+
+CREATE TABLE watch_session_v4 (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    main_id TEXT NOT NULL,
+    episode_key TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER NOT NULL,
+    played_ms INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT INTO watch_session_v4 (main_id, episode_key, started_at, ended_at, played_ms)
+SELECT main_id, episode_key, started_at, ended_at, played_ms FROM watch_session;
+
+DROP TABLE watch_session;
+ALTER TABLE watch_session_v4 RENAME TO watch_session;
+
+CREATE INDEX IF NOT EXISTS idx_watch_session_started ON watch_session(started_at);
+CREATE INDEX IF NOT EXISTS idx_watch_session_episode ON watch_session(episode_key, ended_at DESC);

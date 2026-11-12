@@ -25,6 +25,16 @@ import androidx.compose.ui.graphics.Color
 internal enum class OnboardingStep(val isPermissionStep: Boolean) {
     WELCOME(false),
     THEME(false),
+    // ROUND 144 (D-864): the INTERACTIVE personalize block — the user is asked
+    // whether they want to see what they get and customize it NOW ("Lets check
+    // them out") or later in the app ("Later in the app"). The three config
+    // steps are thin hosts: the actual config UIs (live previews + presets)
+    // are composable SLOTS provided by :app (the module rules keep feature
+    // impls from importing the details/player renderers).
+    PERSONALIZE(false),
+    DETAILS_UI(false),
+    PLAYER_UI(false),
+    NOTIF_UI(false),
     STORAGE(true),
     RESTORE(false),
     NOTIFICATIONS(true),

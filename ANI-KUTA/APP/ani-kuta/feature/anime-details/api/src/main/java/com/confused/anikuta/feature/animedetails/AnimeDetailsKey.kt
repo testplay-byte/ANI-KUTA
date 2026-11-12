@@ -48,6 +48,11 @@ sealed interface AnimeDetailsKey : NavKey {
         val autoPlayEpisode: Int? = null,
         val coverUrl: String? = null,
         val title: String? = null,
+        // ROUND 144 (D-863): the episode the user CAME FOR (a history /
+        // recently-watched tap) — the details page scrolls to it and
+        // highlights it once episodes load. Additive default keeps old
+        // persisted backstacks deserializable (the autoPlayEpisode pattern).
+        val targetEpisode: Int? = null,
         override val transitionKey: String? = null,
     ) : AnimeDetailsKey
 
@@ -71,6 +76,8 @@ sealed interface AnimeDetailsKey : NavKey {
         val thumbnailUrl: String? = null,
         val autoPlayEpisode: Int? = null,
         val year: Int? = null,
+        // ROUND 144 (D-863): see the AniList variant — scroll-to + highlight.
+        val targetEpisode: Int? = null,
         override val transitionKey: String? = null,
     ) : AnimeDetailsKey
 }

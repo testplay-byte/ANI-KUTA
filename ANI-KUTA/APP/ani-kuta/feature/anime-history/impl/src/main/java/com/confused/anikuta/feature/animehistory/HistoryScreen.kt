@@ -82,7 +82,9 @@ private const val TAG = "Anikuta:Feature:History"
 @Composable
 fun HistoryScreen(
     onBack: () -> Unit,
-    onNavigateToDetails: (String) -> Unit = {},
+    // ROUND 144 (D-863): the row's tap carries the EPISODE too — the details
+    // page scrolls to it and highlights it (targetEpisode).
+    onNavigateToDetails: (String, Int?) -> Unit = {},
     viewModel: HistoryViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -177,7 +179,9 @@ fun HistoryScreen(
                                     ) { entry ->
                                         HistoryRow(
                                             entry = entry,
-                                            onClick = { onNavigateToDetails(entry.mainId) },
+                                            onClick = {
+                                                onNavigateToDetails(entry.mainId, entry.episodeNumber.takeIf { it > 0 })
+                                            },
                                             onDelete = { viewModel.deleteEntry(entry.episodeKey) },
                                         )
                                     }

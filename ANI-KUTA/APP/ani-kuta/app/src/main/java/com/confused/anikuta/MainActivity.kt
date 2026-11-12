@@ -543,6 +543,8 @@ fun AppRoot() {
     // D.6: download orchestrator + content repository (for the episode download path).
     val orchestrator = koinInject<DownloadOrchestrator>()
     val contentRepository = koinInject<com.confused.anikuta.core.content.ContentRepository>()
+    // ROUND 144 (D-863): the open-by-mainId path's live availability check.
+    val extensionManager = koinInject<com.confused.anikuta.data.extension.manager.ExtensionManager>()
     val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
     val downloadPreferences = koinInject<com.confused.anikuta.core.download.DownloadPreferences>()
     // D.FIX: DataCacheRepository — needed to load the FULL episode list (not just
@@ -708,6 +710,65 @@ fun AppRoot() {
     val adsCoordinator = koinInject<AdsCoordinator>()
     val navigateToDetails: (AnimeDetailsKey) -> Unit = { key ->
         adsCoordinator.requestNavigation { backstack.add(key) }
+    }
+
+    /**
+     * ROUND 144 (D-863): the ONE "open by mainId" path — the Profile's
+     * recently-watched / day-sheet / timeline rows and the History screen all
+     * funnel here. Works for REMOVED-from-library content (removal only
+     * deletes library_item — identity + progress rows survive) and for
+     * extension-only content (the old anilistId-only clicks silently no-opped
+     * on it). The ONLY blocked case: the owning extension is uninstalled /
+     * untrusted / disabled (the live source is absent from the manager) —
+     * that gets the honest "Extension <name> not available" toast. When
+     * [episodeNumber] is non-null the details page scrolls to and highlights
+     * that episode (targetEpisode).
+     */
+    val openDetailsByMainId: (String, Int?) -> Unit = { mainId, episodeNumber ->
+        val content = contentRepository.getMainEntryByMainId(mainId)
+        if (content == null) {
+            com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                "Content not available",
+                com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+            )
+        } else {
+            val details = contentRepository.getContentDetails(mainId)
+            val anilistId = details?.anilistId
+            val targetKey: AnimeDetailsKey? = if (anilistId != null) {
+                AnimeDetailsKey.AniList(anilistId, targetEpisode = episodeNumber)
+            } else {
+                // The D-849 defensive mapping (the Downloads variant): the details
+                // axis first, then the main_entry fallbacks. 0L is POISONOUS (it
+                // mints a new mainId) — an unresolvable identity toasts instead.
+                val sid = details?.sourceId ?: content.extensionId
+                val url = details?.animeUrl ?: content.animeUrl
+                if (sid == null || sid == 0L || url.isNullOrBlank()) {
+                    com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                        "Extension not available",
+                        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                    )
+                    null
+                } else if (extensionManager.getSource(sid) == null) {
+                    // Uninstalled / untrusted / disabled — name it when we can.
+                    val extName = content.systemId?.let { contentRepository.getSystemById(it)?.name }
+                    com.confused.anikuta.core.designsystem.component.toast.AppToast.show(
+                        if (extName.isNullOrBlank()) "Extension not available"
+                        else "Extension " + extName + " not available",
+                        com.confused.anikuta.core.designsystem.component.toast.AppToastTone.ERROR,
+                    )
+                    null
+                } else {
+                    AnimeDetailsKey.Extension(
+                        sourceId = sid,
+                        animeUrl = url,
+                        title = content.title,
+                        thumbnailUrl = details?.extThumbnailUrl,
+                        targetEpisode = episodeNumber,
+                    )
+                }
+            }
+            if (targetKey != null) navigateToDetails(targetKey)
+        }
     }
 
     // D-222: AniList OAuth redirect — auto-navigate to the Trackers page
@@ -1090,6 +1151,12 @@ fun AppRoot() {
                         appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
                     }.getOrNull() ?: "unknown"
                 },
+                // ROUND 144 (D-864): the personalize block's config UIs — live
+                // previews built app-side (the module rules keep the wizard from
+                // importing the renderers directly).
+                detailsConfig = { com.confused.anikuta.onboarding.WizardDetailsConfigContent() },
+                playerConfig = { com.confused.anikuta.onboarding.WizardPlayerConfigContent() },
+                notificationsConfig = { com.confused.anikuta.onboarding.WizardNotificationsConfigContent() },
                 onFinished = {
                     appPreferences.onboardingCompleted = true
                     backstack.clear()
@@ -1910,10 +1977,10 @@ fun AppRoot() {
                 },
             )
             is ProfileKey -> com.confused.anikuta.profile.ProfileScreen(
-                onBack = pop,
-                onNavigateToAnime = { anilistId ->
-                    navigateToDetails(AnimeDetailsKey.AniList(anilistId))
+                onOpenContent = { mainId, episodeNumber ->
+                    openDetailsByMainId(mainId, episodeNumber)
                 },
+                onBack = pop,
             )
             // ROUND 101 (WS-D): BOTH player screens wrap in the adaptive accent
             // carried by their keys — the details page's per-content theme now
@@ -1969,7 +2036,12 @@ fun AppRoot() {
             is com.confused.anikuta.feature.animehistory.HistoryKey -> {
                 com.confused.anikuta.feature.animehistory.HistoryScreen(
                     onBack = pop,
-                    onNavigateToDetails = { mainId ->
+                    onNavigateToDetails = { mainId, episodeNumber ->
+                        // ROUND 144 (D-863): the unified open-by-mainId path
+                        // (removed-from-library + extension-only content open;
+                        // unresolvable extensions toast) + the target-episode
+                        // scroll-to + highlight.
+                        openDetailsByMainId(mainId, episodeNumber)
                         // Navigate to the anime's details page (AniList or Extension based on content).
                         val content = contentRepository.getMainEntryByMainId(mainId)
                         if (content != null) {

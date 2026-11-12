@@ -183,4 +183,147 @@ class SchemaMigrationTest {
         assertTrue("a fresh install has played_time_ms from the .sq", "played_time_ms" in names)
         fresh.close()
     }
+
+    // ── ROUND 144 (D-862): the v3 → v4 TRACKING-SURVIVAL migration ───────────
+    //
+    // The user's order: watch data must SURVIVE content removal AND extension
+    // deletion. Until v4 both tracking tables carried FOREIGN KEY (main_id)
+    // REFERENCES main_entry(main_id) ON DELETE CASCADE — and the app enables
+    // PRAGMA foreign_keys = ON — so any main_entry deletion silently wiped the
+    // user's history + session ledger for that content. The migration rebuilds
+    // both tables WITHOUT the FK.
+
+    /** The faithful v3 shape: both tracking tables WITH the cascade FK. */
+    private fun createV3Shape() {
+        driver.execute(
+            null,
+            """
+            CREATE TABLE main_entry (
+                main_id TEXT NOT NULL PRIMARY KEY,
+                content_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content_type TEXT NOT NULL DEFAULT 'anime',
+                content_format TEXT NOT NULL DEFAULT 'video',
+                data_source_id INTEGER,
+                system_id INTEGER,
+                extension_repo_id INTEGER,
+                extension_id INTEGER,
+                source_id INTEGER,
+                anime_url TEXT,
+                display_source TEXT NOT NULL DEFAULT 'extension',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """.trimMargin(),
+            0,
+        )
+        driver.execute(
+            null,
+            """
+            CREATE TABLE watch_progress (
+                episode_key TEXT NOT NULL PRIMARY KEY,
+                position INTEGER NOT NULL,
+                duration INTEGER NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                completed_at INTEGER,
+                last_watched_at INTEGER NOT NULL,
+                main_id TEXT,
+                watch_count INTEGER NOT NULL DEFAULT 0,
+                first_watched_at INTEGER,
+                auto_mark_suppressed INTEGER NOT NULL DEFAULT 0,
+                user_marked_watched INTEGER NOT NULL DEFAULT 0,
+                played_time_ms INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
+            )
+            """.trimMargin(),
+            0,
+        )
+        driver.execute(
+            null,
+            """
+            CREATE TABLE watch_session (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                main_id TEXT NOT NULL,
+                episode_key TEXT NOT NULL,
+                started_at INTEGER NOT NULL,
+                ended_at INTEGER NOT NULL,
+                played_ms INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
+            )
+            """.trimMargin(),
+            0,
+        )
+        // The user's data: one in-progress episode + one session ledger row.
+        driver.execute(
+            null,
+            "INSERT INTO watch_progress(episode_key, position, duration, completed, completed_at, last_watched_at, main_id, watch_count, first_watched_at, auto_mark_suppressed, user_marked_watched, played_time_ms) " +
+                "VALUES ('main-1|00001', 600, 1440, 0, NULL, 1729800000000, 'main-1', 0, NULL, 0, 0, 2520000)",
+            0,
+        )
+        driver.execute(
+            null,
+            "INSERT INTO watch_session(main_id, episode_key, started_at, ended_at, played_ms) " +
+                "VALUES ('main-1', 'main-1|00001', 1729800000000, 1729802520000, 2520000)",
+            0,
+        )
+        driver.execute(
+            null,
+            "INSERT INTO main_entry(main_id, content_id, title, created_at, updated_at) VALUES ('main-1', 'cid-1', 'Test Anime', 1, 1)",
+            0,
+        )
+    }
+
+    private fun foreignKeysOf(table: String): List<String> {
+        val targets = mutableListOf<String>()
+        driver.executeQuery(null, "PRAGMA foreign_key_list($table)", { cursor ->
+            while (cursor.next().value) {
+                targets.add(cursor.getString(2) ?: "")
+            }
+            app.cash.sqldelight.db.QueryResult.Value(Unit)
+        }, 0)
+        return targets
+    }
+
+    @Test
+    fun "migration 3 to 4 strips the cascade foreign keys"() {
+        createV3Shape()
+        // The app enables FKs on every open — reproduce that first.
+        driver.execute(null, "PRAGMA foreign_keys = ON", 0)
+        assertTrue(
+            "precondition: v3 watch_progress carries the main_entry FK",
+            foreignKeysOf("watch_progress").contains("main_entry"),
+        )
+
+        AnikutaDatabase.Schema.migrate(driver, 3, 4)
+
+        assertTrue(
+            "v4 watch_progress must have NO foreign keys",
+            foreignKeysOf("watch_progress").isEmpty(),
+        )
+        assertTrue(
+            "v4 watch_session must have NO foreign keys",
+            foreignKeysOf("watch_session").isEmpty(),
+        )
+    }
+
+    @Test
+    fun "migration 3 to 4 keeps tracking alive after main_entry deletion"() {
+        createV3Shape()
+        driver.execute(null, "PRAGMA foreign_keys = ON", 0)
+
+        AnikutaDatabase.Schema.migrate(driver, 3, 4)
+
+        // THE user scenario: the content's identity row dies (extension
+        // uninstall / rebuild) — the watch history + session ledger SURVIVE.
+        driver.execute(null, "DELETE FROM main_entry WHERE main_id = 'main-1'", 0)
+
+        val database = AnikutaDatabase(driver)
+        val progress = database.watchQueries.getWatchProgress("main-1|00001").executeAsOneOrNull()
+        assertNotNull("the watch progress must survive main_entry deletion", progress)
+        assertEquals(600L, progress!!.position)
+        assertEquals(2520000L, progress.played_time_ms)
+        val sessions = database.watchQueries.getAllWatchSessions().executeAsList()
+        assertEquals("the session ledger must survive main_entry deletion", 1, sessions.size)
+        assertEquals(2520000L, sessions.first().played_ms)
+    }
 }

@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -146,11 +147,22 @@ fun OnboardingScreen(
     onThemeModeSelected: (String) -> Unit,
     appVersion: String,
     onFinished: () -> Unit,
+    // ROUND 144 (D-864): the interactive personalize block's config UIs —
+    // composable SLOTS built app-side (the live previews reuse the SAME
+    // episode-row / player-row / poster-composer renderers the settings
+    // pages use; the module rules keep this feature from importing them).
+    detailsConfig: @Composable () -> Unit = {},
+    playerConfig: @Composable () -> Unit = {},
+    notificationsConfig: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
     val preferences = koinInject<DownloadPreferences>()
     val steps = remember { OnboardingStep.ordered }
     var stepIndex by remember { mutableIntStateOf(0) }
+    // ROUND 144 (D-864): whether the user walked the personalize block —
+    // the Finish summary reflects it honestly ("Personalized" vs "Defaults").
+    var personalizeEntered by remember { mutableStateOf(false) }
+    fun stepIndexOf(step: OnboardingStep): Int = steps.indexOf(step)
 
     // ── The verified permission states (REAL system checks, never flags) ──
     val folderUri by preferences.downloadFolderUri.changes.collectAsState(
@@ -239,7 +251,7 @@ fun OnboardingScreen(
         ) { index ->
             when (steps[index.coerceIn(steps.indices)]) {
                 OnboardingStep.WELCOME -> OnboardingWelcomeStep(
-                    onGetStarted = { stepIndex = 1 },
+                    onGetStarted = { stepIndex = stepIndexOf(OnboardingStep.THEME) },
                 )
                 OnboardingStep.THEME -> OnboardingThemeStep(
                     choices = themeChoices,
@@ -248,10 +260,46 @@ fun OnboardingScreen(
                     selectedMode = selectedThemeMode,
                     onModeSelected = onThemeModeSelected,
                     onBack = { stepIndex-- },
-                    onContinue = { stepIndex = 2 },
+                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.PERSONALIZE) },
                 )
+                // ROUND 144 (D-864): the personalize GATE — "do you want to see
+                // what you get and customize it?" Two options, one tap each.
+                OnboardingStep.PERSONALIZE -> OnboardingPersonalizeStep(
+                    stepPosition = stepIndexOf(OnboardingStep.PERSONALIZE),
+                    totalSteps = steps.size - 1,
+                    onBack = { stepIndex-- },
+                    onCheckThemOut = {
+                        personalizeEntered = true
+                        stepIndex = stepIndexOf(OnboardingStep.DETAILS_UI)
+                    },
+                    onLaterInApp = { stepIndex = stepIndexOf(OnboardingStep.STORAGE) },
+                )
+                OnboardingStep.DETAILS_UI -> OnboardingConfigStep(
+                    stepPosition = stepIndexOf(OnboardingStep.DETAILS_UI),
+                    totalSteps = steps.size - 1,
+                    title = "Details page",
+                    smallTalk = "Pick the look you like — change it anytime.",
+                    onBack = { stepIndex-- },
+                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.PLAYER_UI) },
+                ) { detailsConfig() }
+                OnboardingStep.PLAYER_UI -> OnboardingConfigStep(
+                    stepPosition = stepIndexOf(OnboardingStep.PLAYER_UI),
+                    totalSteps = steps.size - 1,
+                    title = "Player page",
+                    smallTalk = "Same idea here — presets first, fine-tune later.",
+                    onBack = { stepIndex-- },
+                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.NOTIF_UI) },
+                ) { playerConfig() }
+                OnboardingStep.NOTIF_UI -> OnboardingConfigStep(
+                    stepPosition = stepIndexOf(OnboardingStep.NOTIF_UI),
+                    totalSteps = steps.size - 1,
+                    title = "Notifications",
+                    smallTalk = "New-episode alerts — your style, your artwork.",
+                    onBack = { stepIndex-- },
+                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.STORAGE) },
+                ) { notificationsConfig() }
                 OnboardingStep.STORAGE -> OnboardingPermissionStep(
-                    stepNumber = 2,
+                    stepNumber = stepIndexOf(OnboardingStep.STORAGE),
                     icon = Icons.Filled.Folder,
                     title = "Download folder",
                     actionLabel = "Choose folder",
@@ -272,12 +320,12 @@ fun OnboardingScreen(
                 // ROUND 135: the restore step — a backup can be brought back
                 // right after the folder is set (the covers land in it).
                 OnboardingStep.RESTORE -> OnboardingRestoreStep(
-                    stepNumber = 3,
+                    stepNumber = stepIndexOf(OnboardingStep.RESTORE),
                     onBack = { stepIndex-- },
                     onContinue = { stepIndex = 4 },
                 )
                 OnboardingStep.NOTIFICATIONS -> OnboardingPermissionStep(
-                    stepNumber = 4,
+                    stepNumber = stepIndexOf(OnboardingStep.NOTIFICATIONS),
                     icon = Icons.Filled.Notifications,
                     title = "Notifications",
                     actionLabel = "Allow notifications",
@@ -297,7 +345,7 @@ fun OnboardingScreen(
                     onContinue = { stepIndex = 5 },
                 )
                 OnboardingStep.BATTERY -> OnboardingPermissionStep(
-                    stepNumber = 5,
+                    stepNumber = stepIndexOf(OnboardingStep.BATTERY),
                     icon = Icons.Filled.BatteryChargingFull,
                     title = "Background usage",
                     actionLabel = "Allow background usage",
@@ -317,7 +365,7 @@ fun OnboardingScreen(
                 // ON_RESUME re-verify above marks the step granted the moment
                 // the user flips the toggle and comes back.
                 OnboardingStep.OVERLAY -> OnboardingPermissionStep(
-                    stepNumber = 6,
+                    stepNumber = stepIndexOf(OnboardingStep.OVERLAY),
                     icon = Icons.Filled.Layers,
                     title = "Draw over other apps",
                     // D-561 (round 73): the description the user dictated, WORD
@@ -338,6 +386,7 @@ fun OnboardingScreen(
                 OnboardingStep.FINISH -> OnboardingFinishStep(
                     themeChoices = themeChoices,
                     selectedThemeId = selectedThemeId,
+                    personalizeEntered = personalizeEntered,
                     folderValid = folderValid,
                     notificationsGranted = notificationsGranted,
                     batteryExempted = batteryExempted,
@@ -771,7 +820,7 @@ private fun OnboardingThemeStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = 1, totalSteps = 7, onBack = onBack)
+        OnboardingTopBar(stepPosition = 1, totalSteps = OnboardingStep.ordered.size - 1, onBack = onBack)
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
             Text(
                 text = "Make it yours",
@@ -1102,7 +1151,7 @@ private fun OnboardingRestoreStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = stepNumber, totalSteps = 7, onBack = onBack)
+        OnboardingTopBar(stepPosition = stepNumber, totalSteps = OnboardingStep.ordered.size - 1, onBack = onBack)
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -1313,7 +1362,7 @@ private fun OnboardingPermissionStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = stepNumber, totalSteps = 7, onBack = onBack)
+        OnboardingTopBar(stepPosition = stepNumber, totalSteps = OnboardingStep.ordered.size - 1, onBack = onBack)
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -1383,6 +1432,18 @@ private fun OnboardingPermissionStep(
                     modifier = Modifier.padding(horizontal = 12.dp),
                 )
             }
+            // ROUND 144 (the user's order): the permissions section says it
+            // plainly — everything here is OPTIONAL.
+            Spacer(Modifier.size(6.dp))
+            Text(
+                text = "All permissions are optional — skip any you don't want.",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
             Spacer(Modifier.weight(0.45f))
             // D-407 (round 31): the action↔granted swap — an explicitly
             // CENTERED AnimatedContent over full-width children. The granted
@@ -1507,6 +1568,8 @@ private fun OnboardingPermissionStep(
 private fun OnboardingFinishStep(
     themeChoices: List<OnboardingThemeChoice>,
     selectedThemeId: String,
+    // ROUND 144 (D-864): whether the user walked the personalize block.
+    personalizeEntered: Boolean,
     folderValid: Boolean,
     notificationsGranted: Boolean,
     batteryExempted: Boolean,
@@ -1521,7 +1584,7 @@ private fun OnboardingFinishStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = 7, totalSteps = 7, onBack = onBack)
+        OnboardingTopBar(stepPosition = 7, totalSteps = OnboardingStep.ordered.size - 1, onBack = onBack)
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -1547,12 +1610,19 @@ private fun OnboardingFinishStep(
             Spacer(Modifier.size(18.dp))
             val themeName = themeChoices
                 .firstOrNull { it.id == selectedThemeId }?.title ?: "Custom"
-            // The 2×2 summary grid (D-405).
+            // The summary grid (D-405; ROUND 144 adds the personalize fact).
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 SummaryCard(
                     icon = Icons.Filled.Palette,
                     label = "Theme",
                     value = themeName,
+                    done = true,
+                    modifier = Modifier.weight(1f),
+                )
+                SummaryCard(
+                    icon = Icons.Filled.Tune,
+                    label = "Details page",
+                    value = if (personalizeEntered) "Personalized" else "Defaults",
                     done = true,
                     modifier = Modifier.weight(1f),
                 )
@@ -1616,6 +1686,120 @@ private fun OnboardingFinishStep(
 }
 
 /** One summary card of the finish grid (D-405). */
+@Composable
+/**
+ * ROUND 144 (D-864): the personalize GATE — "do you want to see what you
+ * get and customize it?" The user's spec: the settings are NOT shown by
+ * default; two options, one tap each. One line of small talk, no more.
+ */
+@Composable
+private fun OnboardingPersonalizeStep(
+    stepPosition: Int,
+    totalSteps: Int,
+    onBack: () -> Unit,
+    onCheckThemOut: () -> Unit,
+    onLaterInApp: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding(),
+    ) {
+        OnboardingTopBar(stepPosition = stepPosition, totalSteps = totalSteps, onBack = onBack)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.weight(0.8f))
+            Icon(
+                imageVector = Icons.Filled.Tune,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(56.dp),
+            )
+            Spacer(Modifier.size(18.dp))
+            Text(
+                text = "Make it yours",
+                fontFamily = RobotoFamily,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.size(8.dp))
+            Text(
+                text = "See what you get and set it up now — or later in the app.",
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.weight(0.8f))
+            OnboardingPrimaryCta(label = "Lets check them out", onClick = onCheckThemOut)
+            Spacer(Modifier.size(10.dp))
+            OnboardingSecondaryCta(label = "Later in the app", onClick = onLaterInApp)
+            Spacer(Modifier.weight(0.35f))
+        }
+    }
+}
+
+/**
+ * ROUND 144 (D-864): the generic host for the personalize block's config
+ * steps — title + ONE line of small talk + the app-provided live-preview
+ * config UI + a pinned Continue. The content slot fills and scrolls on its
+ * own; the chrome stays identical to the other steps.
+ */
+@Composable
+private fun OnboardingConfigStep(
+    stepPosition: Int,
+    totalSteps: Int,
+    title: String,
+    smallTalk: String,
+    onBack: () -> Unit,
+    onContinue: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding(),
+    ) {
+        OnboardingTopBar(stepPosition = stepPosition, totalSteps = totalSteps, onBack = onBack)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 24.dp),
+        ) {
+            Spacer(Modifier.size(8.dp))
+            Text(
+                text = title,
+                fontFamily = RobotoFamily,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.size(4.dp))
+            Text(
+                text = smallTalk,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.size(10.dp))
+            Box(modifier = Modifier.weight(1f)) {
+                content()
+            }
+            Spacer(Modifier.size(10.dp))
+            OnboardingPrimaryCta(label = "Continue", onClick = onContinue)
+            Spacer(Modifier.size(8.dp))
+        }
+    }
+}
+
 @Composable
 private fun SummaryCard(
     icon: ImageVector,

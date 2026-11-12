@@ -1,7 +1,12 @@
 package com.confused.anikuta.feature.animedetails
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -301,6 +306,65 @@ internal fun rememberEpisodeDisplayData(
  */
 @Composable
 fun EpisodeListEntry(
+    episode: SEpisode,
+    metadata: com.confused.anikuta.core.metadata.EpisodeMetadata?,
+    onClick: () -> Unit,
+    episodeTag: EpisodeTag? = null,
+    downloadState: EpisodeDownloadState = EpisodeDownloadState.NotDownloaded,
+    fallbackCoverUrl: String? = null,
+    onDownload: () -> Unit = {},
+    onPause: () -> Unit = {},
+    onResume: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    onRetry: () -> Unit = {},
+    onDelete: () -> Unit = {},
+    onPlayDownloaded: () -> Unit = {},
+    isWatched: Boolean = false,
+    progressFraction: Float = 0f,
+    onToggleWatched: () -> Unit = {},
+    style: EpisodeListDisplayStyle = EpisodeListDisplayStyle(),
+    previewTapAll: (() -> Unit)? = null,
+    // ROUND 144 (D-863): the arrival highlight — a primary border flashes on
+    // the row the user CAME FOR (a history / recently-watched tap).
+    isHighlighted: Boolean = false,
+) {
+    if (isHighlighted) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    width = 1.5.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(12.dp),
+                )
+                .background(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    RoundedCornerShape(12.dp),
+                ),
+        ) {
+            EpisodeListEntryBody(
+                episode, metadata, onClick, episodeTag, downloadState,
+                fallbackCoverUrl, onDownload, onPause, onResume, onCancel,
+                onRetry, onDelete, onPlayDownloaded, isWatched,
+                progressFraction, onToggleWatched, style, previewTapAll,
+            )
+        }
+    } else {
+        EpisodeListEntryBody(
+            episode, metadata, onClick, episodeTag, downloadState,
+            fallbackCoverUrl, onDownload, onPause, onResume, onCancel,
+            onRetry, onDelete, onPlayDownloaded, isWatched,
+            progressFraction, onToggleWatched, style, previewTapAll,
+        )
+    }
+}
+
+/**
+ * The style dispatcher — the body of [EpisodeListEntry], extracted so the
+ * arrival-highlight wrapper (ROUND 144, D-863) can reuse it for both paths.
+ */
+@Composable
+private fun EpisodeListEntryBody(
     episode: SEpisode,
     metadata: com.confused.anikuta.core.metadata.EpisodeMetadata?,
     onClick: () -> Unit,

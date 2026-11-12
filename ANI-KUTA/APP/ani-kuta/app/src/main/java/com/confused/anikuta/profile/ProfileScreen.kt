@@ -87,7 +87,7 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun ProfileScreen(
     onBack: () -> Unit,
-    onNavigateToAnime: (Int) -> Unit,
+    onOpenContent: (String, Int?) -> Unit,
     @Suppress("UNUSED_PARAMETER") onOpenTimeDna: () -> Unit = {},
     viewModel: ProfileViewModel = koinViewModel(),
 ) {
@@ -273,11 +273,11 @@ fun ProfileScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 when (selectedTab) {
                     0 -> StatsTab(
-                        state, statsListState, scrollFraction, viewModel, onNavigateToAnime,
+                        state, statsListState, scrollFraction, viewModel, onOpenContent,
                         onBandMeasured = { bandHeightPx = it.toFloat() },
                     ) { selectedTab = it }
                     1 -> TimelineTab(
-                        state, timelineListState, scrollFraction, onNavigateToAnime,
+                        state, timelineListState, scrollFraction, onOpenContent,
                         onBandMeasured = { bandHeightPx = it.toFloat() },
                     ) { selectedTab = it }
                 }
@@ -332,9 +332,9 @@ fun ProfileScreen(
             // category filter ("12 anime in Watching" vs "…in your library").
             scopeLabel = if (state.selectedGenreFilter == "All") "your library" else state.selectedGenreFilter,
             onDismiss = { viewModel.clearGenreSelection() },
-            onOpenAnime = { anilistId ->
+            onOpenAnime = { mainId, episodeNumber ->
                 viewModel.clearGenreSelection()
-                onNavigateToAnime(anilistId)
+                onOpenContent(mainId, episodeNumber)
             },
         )
     }
@@ -374,7 +374,7 @@ private fun StatsTab(
     listState: LazyListState,
     scrollFraction: () -> Float,
     viewModel: ProfileViewModel,
-    onNavigateToAnime: (Int) -> Unit,
+    onOpenContent: (String, Int?) -> Unit,
     onBandMeasured: (Int) -> Unit = {},
     onTabSelect: (Int) -> Unit,
 ) {
@@ -427,8 +427,8 @@ private fun StatsTab(
         item { QuickStatsRow(state) }
         // ROUND 137 (D-831): the last-7-days watch flow (today rightmost) —
         // the old weekday-bucketed chart is gone.
-        item { WatchFlowGraph(state.watchFlowDays, onNavigateToAnime) }
-        item { TimeDnaAndRecentCard(state.timeDna, state.recentlyWatched, onNavigateToAnime) }
+        item { WatchFlowGraph(state.watchFlowDays, onOpenContent) }
+        item { TimeDnaAndRecentCard(state.timeDna, state.recentlyWatched, onOpenContent) }
         if (state.genreDistribution.isNotEmpty()) {
             item {
                 GenreRadarChart(

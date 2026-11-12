@@ -30,8 +30,8 @@ CREATE TABLE IF NOT EXISTS watch_progress (
     first_watched_at INTEGER,                               -- the first time the user watched this episode
     auto_mark_suppressed INTEGER NOT NULL DEFAULT 0,        -- CF1: user manually un-marked → suppress auto-mark until next play
     user_marked_watched INTEGER NOT NULL DEFAULT 0,         -- CF1: user explicitly marked watched (sticky)
-    played_time_ms INTEGER NOT NULL DEFAULT 0,              -- ROUND 127 (D-789): cumulative actually-played ms across all sessions (monotonic)
-    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
+    played_time_ms INTEGER NOT NULL DEFAULT 0              -- ROUND 127 (D-789): cumulative actually-played ms across all sessions (monotonic)
+    -- ROUND 144 (D-862): the FK to main_entry is REMOVED — tracking survives content/extension removal
 );
 
 CREATE INDEX IF NOT EXISTS idx_watch_progress_last_watched ON watch_progress(last_watched_at DESC);
@@ -209,8 +209,8 @@ CREATE TABLE IF NOT EXISTS watch_session (
     episode_key TEXT NOT NULL,
     started_at INTEGER NOT NULL,                            -- session open time (epoch ms)
     ended_at INTEGER NOT NULL,                              -- last tick of the session (epoch ms)
-    played_ms INTEGER NOT NULL DEFAULT 0,                   -- cumulative actually-played ms in THIS session
-    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
+    played_ms INTEGER NOT NULL DEFAULT 0                    -- cumulative actually-played ms in THIS session
+    -- ROUND 144 (D-862): the FK to main_entry is REMOVED — tracking survives content/extension removal
 );
 
 CREATE INDEX IF NOT EXISTS idx_watch_session_started ON watch_session(started_at);

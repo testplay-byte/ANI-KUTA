@@ -73,9 +73,14 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         KEY_SORT_MODE, "EPISODE_NUMBER", StringSerializer,
     )
 
-    /** Sort descending (true) or ascending (false, default). */
+    /**
+     * Sort descending (true, default) or ascending (false). ROUND 144 (the
+     * user's default): the LATEST episode sits at the very top and the oldest
+     * at the bottom — configurable in the setup wizard + the episode-list
+     * settings sheet (re-tap the same mode flips the direction).
+     */
     val sortDescending = store.preference(
-        KEY_SORT_DESCENDING, false, BooleanSerializer,
+        KEY_SORT_DESCENDING, true, BooleanSerializer,
     )
 
     // ════════════════════════════════════════════════════════════════════════

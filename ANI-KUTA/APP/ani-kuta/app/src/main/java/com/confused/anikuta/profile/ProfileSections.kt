@@ -127,7 +127,7 @@ private const val BAR_WIDTH_DP = 30
 @Composable
 fun WatchFlowGraph(
     watchFlowDays: List<WatchFlowDay>,
-    onNavigateToAnime: (Int) -> Unit,
+    onOpenContent: (String, Int?) -> Unit,
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
     val todayColor = remember(primaryColor) { complementaryColor(primaryColor) }
@@ -269,9 +269,9 @@ fun WatchFlowGraph(
             day = selectedDay,
             formattedDate = dayFormatter.format(java.util.Date(selectedDay.dateMs)),
             onDismiss = { selectedDayMs = null },
-            onOpenAnime = {
+            onOpenAnime = { mainId, episodeNumber ->
                 selectedDayMs = null
-                onNavigateToAnime(it)
+                onOpenContent(mainId, episodeNumber)
             },
         )
     }
@@ -287,7 +287,7 @@ private fun DayDetailSheet(
     day: WatchFlowDay,
     formattedDate: String,
     onDismiss: () -> Unit,
-    onOpenAnime: (Int) -> Unit,
+    onOpenContent: (String, Int?) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
@@ -328,7 +328,7 @@ private fun DayDetailSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .clickable { item.anilistId?.let { onOpenAnime(it) } },
+                                .clickable { item.mainId?.let { onOpenContent(it, item.episodeNumber.takeIf { n -> n > 0 }) } },
                         ) {
                             Box(
                                 modifier = Modifier.size(width = 48.dp, height = 30.dp)
@@ -398,7 +398,7 @@ private fun formatDurationShort(seconds: Long): String {
 fun TimeDnaAndRecentCard(
     timeDna: TimeDnaData?,
     recentlyWatched: List<RecentlyWatchedItem>,
-    onNavigateToAnime: (Int) -> Unit,
+    onOpenContent: (String, Int?) -> Unit,
 ) {
     if (timeDna == null) return
 
@@ -540,7 +540,7 @@ fun TimeDnaAndRecentCard(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(6.dp))
-                                        .clickable { item.anilistId?.let { onNavigateToAnime(it) } }
+                                        .clickable { item.mainId?.let { onOpenContent(it, item.episodeNumber.takeIf { n -> n > 0 }) } }
                                         .padding(2.dp),
                                 ) {
                                     // Episode thumbnail (landscape) — fall back to cover
@@ -1064,7 +1064,7 @@ fun GenreAnimeSheet(
     genre: String,
     anime: List<RecentlyWatchedItem>,
     onDismiss: () -> Unit,
-    onOpenAnime: (Int) -> Unit,
+    onOpenContent: (String, Int?) -> Unit,
     // Task 64 (round 24 — E): the scope the list was restricted to —
     // "your library" (All) or the active category's name.
     scopeLabel: String = "your library",
@@ -1086,7 +1086,7 @@ fun GenreAnimeSheet(
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(shuffledAnime.size) { index ->
                     val item = shuffledAnime[index]
-                    Column(modifier = Modifier.width(100.dp).clickable { item.anilistId?.let { onOpenAnime(it) } }) {
+                    Column(modifier = Modifier.width(100.dp).clickable { item.mainId?.let { onOpenContent(it, null) } }) {
                         Box(modifier = Modifier.size(width = 100.dp, height = 140.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
@@ -1116,7 +1116,7 @@ fun TimelineTab(
     state: ProfileUiState,
     listState: LazyListState,
     scrollFraction: () -> Float,
-    onNavigateToAnime: (Int) -> Unit,
+    onOpenContent: (String, Int?) -> Unit,
     // ROUND 135: the toggle's natural height feeds the collapse threshold.
     onBandMeasured: (Int) -> Unit = {},
     onTabSelect: (Int) -> Unit,
@@ -1168,13 +1168,13 @@ fun TimelineTab(
         }
         items(state.timeline.size) { index ->
             val item = state.timeline[index]
-            TimelineRow(item, onNavigateToAnime)
+            TimelineRow(item, onOpenContent)
         }
     }
 }
 
 @Composable
-private fun TimelineRow(item: TimelineItem, onNavigateToAnime: (Int) -> Unit) {
+private fun TimelineRow(item: TimelineItem, onOpenContent: (String, Int?) -> Unit) {
     val accentColor = when (item.type) {
         "watch" -> MaterialTheme.colorScheme.primary
         "rating" -> Color(0xFFFFB74D)
@@ -1183,7 +1183,7 @@ private fun TimelineRow(item: TimelineItem, onNavigateToAnime: (Int) -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().clickable { item.anilistId?.let { onNavigateToAnime(it) } },
+        modifier = Modifier.fillMaxWidth().clickable { item.mainId?.let { onOpenContent(it, item.episodeNumber.takeIf { n -> n > 0 }) } },
     ) {
         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = accentColor, modifier = Modifier.size(width = 4.dp, height = 48.dp)) {}

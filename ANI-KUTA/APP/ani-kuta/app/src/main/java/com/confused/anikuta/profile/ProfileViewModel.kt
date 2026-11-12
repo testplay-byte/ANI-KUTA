@@ -187,13 +187,21 @@ class ProfileViewModel(
                 }
 
                 // played-ms per LOCAL day (the watch flow + the fallbacks read it).
+                // ROUND 144 (D-862): the session ROWS group by the same day key —
+                // the day-detail sheet's episode list is now derived from the
+                // ledger itself (see the watch-flow block below).
                 val playedMsByDay = HashMap<Long, Long>()
+                val sessionRowsByDay = HashMap<Long, MutableList<com.confused.anikuta.core.database.Watch_session>>()
                 var sessionMinutesTotal = 0L
                 for (session in sessions) {
                     val day = localDayStart(session.started_at)
                     playedMsByDay[day] = (playedMsByDay[day] ?: 0L) + session.played_ms
+                    sessionRowsByDay.getOrPut(day) { mutableListOf() }.add(session)
                     sessionMinutesTotal += session.played_ms
                 }
+                // episodeKey -> completed (the day-sheet rows' watched flag).
+                val completedByKey = HashMap<String, Boolean>()
+                for (progress in allProgress) completedByKey[progress.episodeKey] = progress.completed
 
                 // Organic episode "touch" days (counts + the streak's activity set).
                 val countedByDay = HashMap<Long, MutableList<WatchProgress>>()
@@ -220,37 +228,74 @@ class ProfileViewModel(
                         if (!hasSessionData && playedMs == 0L) {
                             playedMs = touched.filter { it.completed }.sumOf { it.duration } * 1000L
                         }
-                        val items = touched
-                            .sortedByDescending { it.lastWatchedAt }
-                            .take(12)
-                            .mapNotNull { progress ->
-                                val mainId = progress.mainId ?: return@mapNotNull null
-                                val epNum = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
-                                // The day detail shows the minutes watched THAT DAY
-                                // (an all-time sum overstated rewatched episodes —
-                                // the verifier's P3-10).
-                                val itemSeconds = sessions
-                                    .filter {
-                                        it.episode_key == progress.episodeKey &&
-                                            it.started_at >= dayStart && it.started_at < dayEnd
-                                    }
-                                    .sumOf { it.played_ms } / 1000L
-                                DayWatchItem(
-                                    anilistId = anilistIdByMain[mainId],
-                                    title = titleByMain[mainId] ?: "Unknown",
-                                    coverUrl = coverByMain[mainId],
-                                    episodeThumbnailUrl = getEpisodeThumbnail(mainId, epNum)
-                                        ?: coverByMain[mainId],
-                                    episodeNumber = epNum,
-                                    secondsWatched = itemSeconds,
-                                    completed = progress.completed,
-                                )
-                            }
+                        // ROUND 144 (D-862): the day's EPISODE LIST derives from the
+                        // SESSION LEDGER ITSELF — the same rows, the same day key,
+                        // the same total as the bar above. The old derivation
+                        // bucketed watch_progress rows by lastWatchedAt, which
+                        // diverged from the sessions' started_at day (stale rows /
+                        // watches that never landed a progress save): the bar showed
+                        // minutes while the sheet listed fewer or NO episodes — the
+                        // user's three device symptoms (47m but 1 episode; 41m with
+                        // "no episodes recorded"; 5m with no records). The session
+                        // rows are self-sufficient: episode_key = "<mainId>|<ep>",
+                        // and the maps above supply title/cover/anilistId per mainId.
+                        val daySessionRows = sessionRowsByDay[dayStart].orEmpty()
+                        val items: List<DayWatchItem> = if (daySessionRows.isNotEmpty()) {
+                            daySessionRows
+                                .groupBy { it.episode_key }
+                                .map { (episodeKey, rows) ->
+                                    val mainId = rows.first().main_id
+                                    val epNum = episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
+                                    DayWatchItem(
+                                        anilistId = anilistIdByMain[mainId],
+                                        mainId = mainId,
+                                        title = titleByMain[mainId] ?: "Unknown",
+                                        coverUrl = coverByMain[mainId],
+                                        episodeThumbnailUrl = getEpisodeThumbnail(mainId, epNum)
+                                            ?: coverByMain[mainId],
+                                        episodeNumber = epNum,
+                                        secondsWatched = rows.sumOf { it.played_ms } / 1000L,
+                                        completed = completedByKey[episodeKey] ?: false,
+                                    )
+                                }
+                                .sortedByDescending { it.secondsWatched }
+                        } else {
+                            // The pre-137 legacy days (no ledger): the organic
+                            // progress touches, capped as before.
+                            touched
+                                .sortedByDescending { it.lastWatchedAt }
+                                .take(12)
+                                .mapNotNull { progress ->
+                                    val mainId = progress.mainId ?: return@mapNotNull null
+                                    val epNum = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
+                                    val itemSeconds = sessions
+                                        .filter {
+                                            it.episode_key == progress.episodeKey &&
+                                                it.started_at >= dayStart && it.started_at < dayEnd
+                                        }
+                                        .sumOf { it.played_ms } / 1000L
+                                    DayWatchItem(
+                                        anilistId = anilistIdByMain[mainId],
+                                        mainId = mainId,
+                                        title = titleByMain[mainId] ?: "Unknown",
+                                        coverUrl = coverByMain[mainId],
+                                        episodeThumbnailUrl = getEpisodeThumbnail(mainId, epNum)
+                                            ?: coverByMain[mainId],
+                                        episodeNumber = epNum,
+                                        secondsWatched = itemSeconds,
+                                        completed = progress.completed,
+                                    )
+                                }
+                        }
                         add(
                             WatchFlowDay(
                                 dateMs = dayStart,
                                 secondsWatched = playedMs / 1000L,
-                                episodes = touched.size,
+                                episodes = if (daySessionRows.isNotEmpty()) {
+                                    daySessionRows.map { it.episode_key }.distinct().size
+                                } else {
+                                    touched.size
+                                },
                                 items = items,
                                 isToday = offset == 0,
                             ),
@@ -351,6 +396,7 @@ class ProfileViewModel(
                         val epNum = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
                         RecentlyWatchedItem(
                             anilistId = anilistIdByMain[mainId],
+                            mainId = mainId,
                             title = titleByMain[mainId] ?: "Unknown",
                             coverUrl = coverByMain[mainId],
                             episodeThumbnailUrl = getEpisodeThumbnail(mainId, epNum)
@@ -503,6 +549,8 @@ class ProfileViewModel(
             timeline.add(
                 TimelineItem(
                     anilistId = anilistIdByMain[mainId],
+                    mainId = mainId,
+                    episodeNumber = epNum,
                     title = titleByMain[mainId] ?: "Unknown",
                     coverUrl = coverByMain[mainId],
                     description = "Watched EP $epNum" + if (p.completed) " (completed)" else "",
@@ -520,6 +568,7 @@ class ProfileViewModel(
             timeline.add(
                 TimelineItem(
                     anilistId = anilistIdByMain[mainId],
+                    mainId = mainId,
                     title = titleByMain[mainId] ?: "Unknown",
                     coverUrl = coverByMain[mainId],
                     description = "Rated ${r.rating?.toInt()?.div(10)}/10",
@@ -553,13 +602,15 @@ class ProfileViewModel(
                     .map { it.main_id }
                     .toSet()
             }
+            // ROUND 144 (D-863): extension-only content is no longer filtered out —
+            // the sheet's rows carry mainId and open through the same path.
             val genreAnime = scopeMainIds.mapNotNull { mainId ->
                 val details = contentRepository.getContentDetails(mainId) ?: return@mapNotNull null
-                if (details.anilistId == null) return@mapNotNull null
                 val genres = genreRepository.getGenresForContent(mainId)
                 if (genre in genres) {
                     RecentlyWatchedItem(
                         anilistId = details.anilistId,
+                        mainId = mainId,
                         title = contentRepository.getMainEntryByMainId(mainId)?.title ?: "Unknown",
                         coverUrl = details.dataCoverUrl,
                         episodeNumber = 0,
@@ -696,6 +747,10 @@ data class TimeDnaData(
 
 data class TimelineItem(
     val anilistId: Int?,
+    // ROUND 144 (D-863): the open-by-mainId identity — the click path no
+    // longer depends on an AniList link (extension-only content opens too).
+    val mainId: String? = null,
+    val episodeNumber: Int = 0,
     val title: String,
     val coverUrl: String?,
     val description: String,
@@ -706,6 +761,8 @@ data class TimelineItem(
 
 data class RecentlyWatchedItem(
     val anilistId: Int?,
+    // ROUND 144 (D-863): the open-by-mainId identity (D-863).
+    val mainId: String? = null,
     val title: String,
     val coverUrl: String?,
     val episodeThumbnailUrl: String? = null,
@@ -717,7 +774,9 @@ data class RecentlyWatchedItem(
 /**
  * D-831: ONE day of the last-7-days watch flow. [minutes] is REAL watch time
  * (sessions; legacy days fall back to completed-episode durations), [items]
- * is the day's organic episode touches (newest first, capped at 12).
+ * is the day's episode list derived FROM THE SESSION LEDGER (D-862) —
+ * bar and list agree by construction; the pre-137 legacy days fall back
+ * to the organic progress touches (capped at 12).
  */
 data class WatchFlowDay(
     val dateMs: Long,
@@ -730,6 +789,8 @@ data class WatchFlowDay(
 
 data class DayWatchItem(
     val anilistId: Int?,
+    // ROUND 144 (D-863): the open-by-mainId identity (D-863).
+    val mainId: String? = null,
     val title: String,
     val coverUrl: String?,
     val episodeThumbnailUrl: String? = null,

@@ -1135,9 +1135,16 @@ class LibraryViewModel(
         _columns.value = preferenceStore.getInt(KEY_COLUMNS, 3).coerceIn(2, 5)
         _titleLines.value = preferenceStore.getInt(KEY_TITLE_LINES, 1).coerceIn(1, 3)
 
+        // ROUND 144 (the user's defaults): the episode badge defaults to the
+        // RELEASED counts with BOTH audio badges side-by-side for ALL shows
+        // ("episode badges will be set to release ... the audio will be set to
+        // both, and show will be set to all"). The other display defaults the
+        // user listed already matched the code defaults (COMPACT_GRID, 3
+        // columns, 1 title line, caught-up tag OFF, score badge OFF, total
+        // entries ON) — unchanged.
         _episodeBadgeMode.value = preferenceStore
-            .getString(KEY_EPISODE_BADGE_MODE, EpisodeBadgeMode.OFF.name)
-            .let { runCatching { EpisodeBadgeMode.valueOf(it) }.getOrDefault(EpisodeBadgeMode.OFF) }
+            .getString(KEY_EPISODE_BADGE_MODE, EpisodeBadgeMode.RELEASED.name)
+            .let { runCatching { EpisodeBadgeMode.valueOf(it) }.getOrDefault(EpisodeBadgeMode.RELEASED) }
         _episodeBadgePosition.value = preferenceStore
             .getString(KEY_EPISODE_BADGE_POS, BadgePosition.TOP_CENTER.name)
             .let { runCatching { BadgePosition.valueOf(it) }.getOrDefault(BadgePosition.TOP_CENTER) }

@@ -522,6 +522,11 @@ fun DetailsScreen(
     var savedScrollPosition by remember { mutableIntStateOf(0) }
     var savedScrollOffset by remember { mutableIntStateOf(0) }
 
+    // ROUND 144 (D-863): the one-shot highlight — the target episode's row
+    // carries a primary border until the timeout clears it.
+    var highlightEpisode by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableIntStateOf(-1)
+    }
     // D-231: Auto-scroll to the episodes section when the settings sheet opens,
     // so the user sees live changes. Restore the original position on dismiss.
     // D-232: Fixed — use animateScrollToItem for BOTH open + restore (smooth both
@@ -555,6 +560,12 @@ fun DetailsScreen(
     val autoPlayEpisode = when (detailsKey) {
         is AnimeDetailsKey.AniList -> detailsKey.autoPlayEpisode
         is AnimeDetailsKey.Extension -> detailsKey.autoPlayEpisode
+    }
+    // ROUND 144 (D-863): the episode the user CAME FOR (a history /
+    // recently-watched tap) — the list scrolls to it and highlights it.
+    val targetEpisode = when (detailsKey) {
+        is AnimeDetailsKey.AniList -> detailsKey.targetEpisode
+        is AnimeDetailsKey.Extension -> detailsKey.targetEpisode
         // D-439: total-when — see navKeyCoverUrl above.
         else -> {
             Logger.w("Anikuta:Feature:Details") { describeDetailsKeyAnomaly(detailsKey) }
@@ -1428,6 +1439,36 @@ fun DetailsScreen(
                                     )
                                 }
                             }
+                            // ROUND 144 (D-863): the target-episode arrival — scroll
+                            // to the row (the lazy index counts EVERY item above:
+                            // EpisodesSection at 3, then the next-episode card and
+                            // the sub/dub switcher when present, then the row
+                            // itself — GRID pairs two per item) and flash the
+                            // highlight. Fires once the display list is non-empty.
+                            LaunchedEffect(
+                                subDubDisplayEpisodes, targetEpisode, showNextEpisode,
+                                nextEpisodeInfo, showSubDubSwitcher,
+                            ) {
+                                if (targetEpisode == null || subDubDisplayEpisodes.isEmpty()) {
+                                    return@LaunchedEffect
+                                }
+                                val idx = subDubDisplayEpisodes.indexOfFirst {
+                                    it.episode_number.toInt() == targetEpisode
+                                }
+                                if (idx < 0) return@LaunchedEffect
+                                var lazyIndex = 3 // EpisodesSection is the 4th fixed item
+                                if (showNextEpisode && nextEpisodeInfo != null) lazyIndex++
+                                if (showSubDubSwitcher) lazyIndex++
+                                lazyIndex += if (rowStyleKey == "GRID") idx / 2 else idx
+                                detailsLazyListState.animateScrollToItem(lazyIndex)
+                                highlightEpisode = targetEpisode
+                            }
+                            LaunchedEffect(highlightEpisode) {
+                                if (highlightEpisode != -1) {
+                                    kotlinx.coroutines.delay(2600)
+                                    highlightEpisode = -1
+                                }
+                            }
                             // D-555: ONE shared per-episode rendering path for
                             // both list shapes below — the EpisodeListEntry
                             // dispatcher picks the layout renderer, and the
@@ -1515,6 +1556,8 @@ fun DetailsScreen(
                                         metadata = metadata,
                                         episodeTag = effectiveEpisodeTag,
                                         onClick = { onEpisodeClick(episode, false) },
+                                        // ROUND 144 (D-863): the arrival highlight.
+                                        isHighlighted = episode.episode_number.toInt() == highlightEpisode,
                                         downloadState = downloadState,
                                         fallbackCoverUrl = anime.coverUrl,
                                         // D-554: the collected appearance knobs —
