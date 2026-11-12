@@ -301,7 +301,12 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             val downloadManager = org.koin.core.context.GlobalContext.get()
                 .get<com.confused.anikuta.core.download.DownloadManager>()
             kotlinx.coroutines.CoroutineScope(
-                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO +
+                    // ROUND 145 (F3): the backstop — an unhandled failure in ANY child
+                    // of this scope is logged, never crashes the process at startup.
+                    kotlinx.coroutines.CoroutineExceptionHandler { _, t ->
+                        Logger.w("AnikutaApp", t) { "Startup scope unhandled failure (suppressed): ${t.message}" }
+                    },
             ).launch {
                 // ROUND 130 (the re-test audit's HIGH finding): nothing used to
                 // start the download service at app open — after a force-stop or
@@ -346,8 +351,16 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 }.onFailure { t ->
                     Logger.w("AnikutaApp") { "Notification sent-log cleanup failed: ${t.message}" }
                 }
-                downloadManager.requestFolderRescan()
-                Logger.i("AnikutaApp") { "Download folder scan completed (data.json reconciliation)" }
+                // ROUND 145 (F3): the scan is the one UNGUARDED launch body in this
+                // scope — a failing folder (a revoked SAF tree, a SQLiteException
+                // from the restore writes) used to escape into the handler-less
+                // coroutine = a process crash AT APP START.
+                runCatching {
+                    downloadManager.requestFolderRescan()
+                    Logger.i("AnikutaApp") { "Download folder scan completed (data.json reconciliation)" }
+                }.onFailure { t ->
+                    Logger.w("AnikutaApp", t) { "Download folder scan failed (best-effort, app continues): ${t.message}" }
+                }
             }
         } catch (e: Exception) {
             Logger.w("AnikutaApp") { "Failed to run download folder scan: ${e.message}" }

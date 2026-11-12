@@ -22,7 +22,7 @@ ANI-KUTA is an Android anime streaming/downloading app, rebuilt from scratch fro
 - **App ID**: `com.confused.anikuta`
 - **APK builds**: GitHub Actions only — `arm64-v8a` ONLY (CORE_RULES §8, D-251). Never local.
 - **Tech**: Kotlin 2.2.0 + Compose (explicit 1.10.4-line pins — BOM removed D-322) + MPV (aniyomi-mpv-lib 1.18.n) + SQLDelight 2.0.2 + Koin 4.2.2 + Injekt (isolated) + Coil 3.0.4 + OkHttp 5.0.0-alpha.14. compileSdk 36, minSdk 24.
-- **Scale**: 57 modules (1 app + 33 core + 2 data + 21 feature — 12 features), 25 SQLDelight tables across 17 .sq files, 634 Kotlin files in APP/ani-kuta/, D-001..D-743 decisions (re-verified round 118).
+- **Scale**: 59 modules (1 app + 34 core + 2 data + 22 feature — 13 features; core/torrent joined round 143, anime-history split api/impl), 30 SQLDelight tables across 17 .sq + 3 migrations (schema v4), 678 Kotlin files in APP/ani-kuta/, D-001..D-867 decisions (re-verified round 145).
 
 ## Scope
 - **Android app** (primary) — `APP/ani-kuta/`.
@@ -31,7 +31,7 @@ ANI-KUTA is an Android anime streaming/downloading app, rebuilt from scratch fro
 - **References** (read-only) — `REFERENCES/` (old-kuta + animiru).
 
 ## Current Status
-- **ALL major phases complete** (0-4, 5a/5b/5c, B/C/D/DL/WP/HI/UP/SC/TR/NOTIF/CW, Debug Bubble, Profile UI v1-v6) + a long device-feedback polish loop (v0.2.x → v1.1.72 debug / v1.1.5 professional — round 117 shipped both lines and corrected the mistaken v1.1.14; it is deleted, and v1.1.5 is the professional line's head). CI green on the mainline.
+- **ALL major phases complete** (0-4, 5a/5b/5c, B/C/D/DL/WP/HI/UP/SC/TR/NOTIF/CW, Debug Bubble, Profile UI v1-v6) + a long device-feedback polish loop (the debug line at **v1.1.86** — round 144; the professional at **v1.1.7** — round 142). CI green on the mainline.
 - **THE ROUND-115 PHASE (D-738) — default resumed after round 117: debug builds only.** Every round ends at CI green (the Build APK debug run's artifact); releases of either kind need the user's explicit order. Schema can be rebuilt freely (CORE_RULES §30).
 - **THE MAINLINE IS `main`** (Round 118, D-743 — renamed from `feature/round-57-cloudstream-downloads`; the 38 historical release branches were deleted by the user, future ones get cut fresh from `main` per D-442).
 - **Next focus**: the user's next device-round feedback on the round-116 artifact (the D-740 extension-testing gate + the D-741 About retirement — checklist doc 98 §6).

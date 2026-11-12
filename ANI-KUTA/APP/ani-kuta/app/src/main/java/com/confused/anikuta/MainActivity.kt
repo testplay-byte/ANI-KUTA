@@ -2042,26 +2042,6 @@ fun AppRoot() {
                         // unresolvable extensions toast) + the target-episode
                         // scroll-to + highlight.
                         openDetailsByMainId(mainId, episodeNumber)
-                        // Navigate to the anime's details page (AniList or Extension based on content).
-                        val content = contentRepository.getMainEntryByMainId(mainId)
-                        if (content != null) {
-                            // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
-                            val details = contentRepository.getContentDetails(mainId)
-                            val anilistId = details?.anilistId
-                            if (anilistId != null) {
-                                navigateToDetails(AnimeDetailsKey.AniList(anilistId))
-                            } else {
-                                // Extension-only content — use the source ID + URL.
-                                if (details != null) {
-                                    navigateToDetails(AnimeDetailsKey.Extension(
-                                        details.sourceId ?: 0L,
-                                        details.animeUrl ?: content.animeUrl ?: "",
-                                        content.title,
-                                        details.extThumbnailUrl,
-                                    ))
-                                }
-                            }
-                        }
                     },
                 )
             }

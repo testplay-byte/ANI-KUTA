@@ -42,6 +42,22 @@ class DatabaseDriverFactory(private val context: Context) {
                     migrateSchemaIfNeeded(db)
                 }
 
+                // ROUND 145 (F1): the migration PRE-FLIGHT — the framework runs onUpgrade
+                // BEFORE onOpen, and the .sqm chain SELECTs columns the legacy onOpen ALTERs
+                // used to add (3.sqm rebuilds watch_progress selecting main_id,
+                // auto_mark_suppressed, ...). A v1-era install whose watch_progress still has
+                // only the 6 legacy columns would fail 3.sqm with "no such column" INSIDE
+                // onUpgrade — a permanent crash loop (the upgrade retries at every launch).
+                // Running migrateSchemaIfNeeded HERE adds those columns idempotently BEFORE
+                // the versioned migrate, so the chain's SELECTs find them. (A device with NO
+                // watch_progress table at all skips the ALTERs safely — hasColumn returns
+                // false on a missing table — and its upgrade path remains the documented
+                // one-time-uninstall cohort, v0.2.16-and-earlier.)
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+                    migrateSchemaIfNeeded(db)
+                    super.onUpgrade(db, oldVersion, newVersion)
+                }
+
                 /**
                  * Checks for missing columns in various tables + adds them via ALTER TABLE.
                  * This is idempotent — only adds columns that don't exist.
@@ -341,16 +357,22 @@ class DatabaseDriverFactory(private val context: Context) {
                 ): Boolean {
                     val cursor = db.query("PRAGMA table_info($tableName)")
                     return cursor.use { c ->
+                        // ROUND 145 (F2): the old moveToFirst + moveToNext loop NEVER
+                        // inspected row 0 — the table's FIRST column was invisible to
+                        // every guard (the anime_update_state.main_id probe could never
+                        // match, so the learned_offset_ms ALTER was dead; five
+                        // table-missing probes were always-true, re-running onCreate on
+                        // every open). The do/while inspects every row including row 0.
                         if (!c.moveToFirst()) return false
                         val nameIndex = c.getColumnIndex("name")
                         if (nameIndex < 0) return false
                         var found = false
-                        while (c.moveToNext()) {
+                        do {
                             if (c.getString(nameIndex) == columnName) {
                                 found = true
                                 break
                             }
-                        }
+                        } while (c.moveToNext())
                         found
                     }
                 }

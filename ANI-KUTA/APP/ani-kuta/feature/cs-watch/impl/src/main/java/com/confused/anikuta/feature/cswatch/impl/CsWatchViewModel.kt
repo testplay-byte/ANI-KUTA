@@ -1241,7 +1241,15 @@ class CsWatchViewModel(
     private fun forgetActiveTorrent() {
         stopTorrentPolling()
         activeTorrentHash?.let { hash ->
-            viewModelScope.launch { runCatching { torrentGateway.forget(hash) } }
+            // ROUND 145 (H-2 fix): the ViewModel scope is ALREADY CANCELLED when
+            // onCleared() runs — a launch there is a silent no-op, so the embedded
+            // torrent server kept the torrent alive (downloading/seeding) after the
+            // watch screen closed. The forget is fire-and-forget cleanup: it runs on
+            // the app-wide scope with NonCancellable semantics instead.
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { torrentGateway.forget(hash) }
+                    .onFailure { Logger.w(TAG, it) { "torrent forget failed: $hash" } }
+            }
         }
         activeTorrentHash = null
     }
