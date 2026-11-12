@@ -125,6 +125,8 @@ import com.confused.anikuta.settings.DetailsPageSettingsScreen
 import com.confused.anikuta.settings.EpisodeListSettingsScreen
 import com.confused.anikuta.settings.PlayerEpisodeListSettingsScreen
 import com.confused.anikuta.settings.AppearanceScreen
+import com.confused.anikuta.settings.PermissionsScreen
+import com.confused.anikuta.settings.TorrentSettingsScreen
 import com.confused.anikuta.settings.search.SettingsSearchNavigator
 import com.confused.anikuta.settings.search.SettingsSearchPage
 import com.confused.anikuta.settings.SettingsScreen
@@ -427,6 +429,14 @@ object BackupRestoreKey : NavKey
 // bento RESTORE tile.
 @Serializable
 object RestoreBackupKey : NavKey
+
+// Round 143 (D-858): the torrent engine's settings page.
+@Serializable
+object TorrentKey : NavKey
+
+// Round 143: the permissions hub — every permission in one place.
+@Serializable
+object PermissionsKey : NavKey
 
 /**
  * Root tab keys — these are the 4 tabs that show the bottom nav.
@@ -833,6 +843,11 @@ fun AppRoot() {
         try {
             if (request.openUpdateHistory && backstack.lastOrNull() !is UpdateCheckLogKey) {
                 backstack.add(UpdateCheckLogKey)
+            }
+            // Round 143: the check-RESULT card opens the UPDATES screen (the
+            // found-episodes list) — the history page stays for the failure card.
+            if (request.openUpdates && backstack.lastOrNull() !is com.confused.anikuta.feature.updates.UpdatesKey) {
+                backstack.add(com.confused.anikuta.feature.updates.UpdatesKey)
             }
             // The deep link wins when both markers are present (a share link
             // IS the user's explicit destination); either way it's the same
@@ -1519,6 +1534,12 @@ fun AppRoot() {
             is DownloadSettingsKey -> DownloadSettingsScreen(
                 onBack = pop,
             )
+            is TorrentKey -> TorrentSettingsScreen(
+                onBack = pop,
+            )
+            is PermissionsKey -> PermissionsScreen(
+                onBack = pop,
+            )
             is SettingsKey -> SettingsScreen(
                 onOpenAppearance = { backstack.add(AppearanceKey) },
                 onOpenExtensions = { backstack.add(ExtensionsSettingsKey()) },
@@ -1532,6 +1553,8 @@ fun AppRoot() {
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onOpenVideoCaching = { backstack.add(VideoCachingKey) },
                 onOpenBackupRestore = { backstack.add(BackupRestoreKey) },
+                onOpenTorrent = { backstack.add(TorrentKey) },
+                onOpenPermissions = { backstack.add(PermissionsKey) },
                 onOpenDebug = { backstack.add(DebugSettingsKey) },
                 // D-561: the hidden long-press gate on the SAME row.
                 onOpenSponsorDebug = { backstack.add(SponsorDebugKey) },
@@ -1603,6 +1626,8 @@ fun AppRoot() {
                         SettingsSearchPage.UPDATES_PAGE ->
                             backstack.add(com.confused.anikuta.feature.updates.UpdatesKey)
                         SettingsSearchPage.PROFILE -> backstack.add(ProfileKey)
+                        SettingsSearchPage.TORRENT -> backstack.add(TorrentKey)
+                        SettingsSearchPage.PERMISSIONS -> backstack.add(PermissionsKey)
                     }
                 },
                 highlightAnchor = remember {

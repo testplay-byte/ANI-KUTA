@@ -24,6 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.ChevronRight
@@ -115,6 +117,10 @@ fun SettingsScreen(
     onOpenVideoCaching: () -> Unit,
     // ROUND 134 (D-816): the Backup & restore page.
     onOpenBackupRestore: () -> Unit = {},
+    // Round 143 (D-858): the torrent engine's settings.
+    onOpenTorrent: () -> Unit = {},
+    // Round 143: the permissions hub.
+    onOpenPermissions: () -> Unit = {},
     onOpenDebug: () -> Unit,
     // D-561 (round 73): LONG-PRESS on the "Debug options" row opens the
     // hidden Always-sponsor page (the toggle that fires the sponsor popup on
@@ -169,7 +175,9 @@ fun SettingsScreen(
             // D-741: the About hub row is RETIRED (the More page already
             // carries the About & Updates door — the round-116 user order);
             // the Debug row moves up to its slot.
-            "debug" to 6,
+            "torrent" to 6,
+            "permissions" to 7,
+            "debug" to 8,
         )
     }
     rememberSettingsAnchorScroll(highlightAnchor, { hubAnchorIndex[it] }, lazyListState)
@@ -385,6 +393,32 @@ fun SettingsScreen(
                         // redundant second door. The page itself is untouched —
                         // More → About & Updates, and the settings search's
                         // about.* entries still route there. ──
+
+                        // ── Torrent (round 143, D-858) — the embedded torrent engine ──
+                        item {
+                            HubSection(
+                                activeAnchor = highlightAnchor,
+                                label = "Torrent",
+                                anchorId = "torrent",
+                                icon = Icons.Filled.CloudSync,
+                                title = "Torrent",
+                                subtitle = "Torrent streaming from extensions",
+                                onClick = onOpenTorrent,
+                            )
+                        }
+
+                        // ── Permissions (round 143) — the one-stop permission hub ──
+                        item {
+                            HubSection(
+                                activeAnchor = highlightAnchor,
+                                label = "Permissions",
+                                anchorId = "permissions",
+                                icon = Icons.Filled.Security,
+                                title = "Permissions",
+                                subtitle = "Allow or review what the app may access",
+                                onClick = onOpenPermissions,
+                            )
+                        }
 
                         // ── Debug (Task 57 / round 17) — dedicated page: bubble (debug builds),
                         // resolve-list source details + copy button (release too). ──
@@ -643,6 +677,8 @@ private fun searchIconFor(page: SettingsSearchPage): ImageVector = when (page) {
     SettingsSearchPage.HISTORY -> Icons.Filled.History
     SettingsSearchPage.UPDATES_PAGE -> Icons.Filled.Update
     SettingsSearchPage.PROFILE -> Icons.Filled.Person
+    SettingsSearchPage.TORRENT -> Icons.Filled.CloudSync
+    SettingsSearchPage.PERMISSIONS -> Icons.Filled.Security
 }
 
 @Composable

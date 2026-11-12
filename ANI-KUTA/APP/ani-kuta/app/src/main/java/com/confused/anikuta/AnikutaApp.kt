@@ -118,6 +118,12 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             Logger.setConsoleCaptureEnabled(true)
         }
 
+        // Round 143 (D-858): the torrent module's stale-cache wipe — the last
+        // session's torrent_tmp leftovers never survive into this one (the
+        // embedded server has no clean stop; see core/torrent/TORRENT-DESIGN.md).
+        // REMOVAL SEAM: delete this call + the torrentModule line below (core/torrent/TORRENT-REMOVAL.md).
+        com.confused.anikuta.core.torrent.TorrServerLoader(this).cleanupStaleCache()
+
         // ── Extension compat setup (BEFORE Koin, BEFORE any extension loads) ──
         // Extensions use Injekt (a service locator) to resolve NetworkHelper,
         // Application, Context, and Json. Without these registrations, extensions
@@ -159,6 +165,7 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 backupModule,
                 com.confused.anikuta.backup.extensionBackupBridgeModule, // Round 135: the backup↔extension bridge
                 adsModule,  // D-272: smart-link ad system
+                com.confused.anikuta.core.torrent.di.torrentModule,  // Round 143 (D-858): the torrent engine
                 extensionModule,
                 cloudstreamModule,  // Task 41: CloudStream extension system (doc 23)
                 csWatchModule,  // Task 52 (round 12): the CS watch screen (playback port)

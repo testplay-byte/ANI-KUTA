@@ -144,12 +144,22 @@ class CloudstreamLinkResolver(
      * Resolves the playable streams for [data] (the CS episode data handle —
      * SEpisode.url for bridged content). Cold flow; a cache hit completes
      * immediately with the saturated snapshots.
+     *
+     * [allowTorrentLinks] (round 143, D-858): when true, TORRENT/MAGNET links
+     * pass through as [CsLinkType.TORRENT] for the watch VM's play-time
+     * transform; when false (default — torrent support OFF in Settings) they
+     * stay hidden + counted, the pre-torrent behavior. The flag rides the
+     * cache key so an enabled/disabled flip re-resolves.
      */
-    fun resolve(providerName: String, data: String): Flow<CsResolveEvent> = channelFlow {
+    fun resolve(
+        providerName: String,
+        data: String,
+        allowTorrentLinks: Boolean = false,
+    ): Flow<CsResolveEvent> = channelFlow {
         val startedAt = System.currentTimeMillis()
 
         // ── Cache fast-path (upstream: "Resumed previous loading from Ns ago") ──
-        val cacheKey = "$providerName\u0000$data"
+        val cacheKey = "$providerName\u0000$data\u0000$allowTorrentLinks"
         cache[cacheKey]?.let { cached ->
             if (System.currentTimeMillis() - cached.atMillis < CACHE_TTL_MS) {
                 Logger.i(TAG) {
@@ -210,9 +220,15 @@ class CloudstreamLinkResolver(
                     return
                 }
                 link.type == ExtractorLinkType.TORRENT || link.type == ExtractorLinkType.MAGNET -> {
-                    hiddenTorrent.incrementAndGet()
-                    Logger.i(TAG) { "torrent/magnet link hidden: ${link.name} (${link.type})" }
-                    return
+                    if (!allowTorrentLinks) {
+                        hiddenTorrent.incrementAndGet()
+                        Logger.i(TAG) { "torrent/magnet link hidden (torrent support off): ${link.name} (${link.type})" }
+                        return
+                    }
+                    // Round 143 (D-858): torrent passthrough — the RAW magnet/.torrent
+                    // URL rides as CsLinkType.TORRENT; the watch VM transforms it through
+                    // the core:torrent gateway at PLAY time (the player never sees it raw).
+                    Logger.i(TAG) { "torrent/magnet link PASSED THROUGH: ${link.name} (${link.type})" }
                 }
                 else -> Unit
             }
@@ -220,6 +236,7 @@ class CloudstreamLinkResolver(
                 ExtractorLinkType.VIDEO -> CsLinkType.VIDEO
                 ExtractorLinkType.M3U8 -> CsLinkType.M3U8
                 ExtractorLinkType.DASH -> CsLinkType.DASH
+                ExtractorLinkType.TORRENT, ExtractorLinkType.MAGNET -> CsLinkType.TORRENT
                 else -> return // unreachable after the guard above; keeps the when exhaustive
             }
             // The provider's optional per-link OkHttp interceptor (plugin code —

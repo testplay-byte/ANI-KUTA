@@ -16,7 +16,7 @@ import okhttp3.Interceptor
  * `getVideoInterceptor` hook onto the stream requests, exactly like upstream.
  */
 
-/** The playable subset of the ABI's link types (torrent/magnet are filtered upstream of this module). */
+/** The playable subset of the ABI's link types (torrent/magnet passthrough is opt-in — round 143, D-858). */
 enum class CsLinkType {
     /** A single progressive file (mp4/webm/mkv/…). */
     VIDEO,
@@ -26,6 +26,15 @@ enum class CsLinkType {
 
     /** A DASH manifest (.mpd) — ExoPlayer plays it natively. NEVER hidden (the round-10 lesson). */
     DASH,
+
+    /**
+     * A raw torrent/magnet link (round 143, D-858). NEVER reaches the player
+     * as-is: the watch VM transforms it through the core:torrent gateway
+     * (embedded TorrServer-lineage engine) into a plain localhost stream URL
+     * played as VIDEO. When torrent support is disabled in Settings, the
+     * resolver keeps these hidden + counted (the pre-torrent behavior).
+     */
+    TORRENT,
 }
 
 /** One resolved video stream, ready for the engine. */
@@ -88,7 +97,12 @@ data class CsVideoLink(
 
     /** Human label ("1080p" / "Auto" / "4K" / "Unknown") — the ABI `Qualities.getStringByInt` semantics, app-side. */
     val qualityLabel: String
-        get() = CsQuality.label(quality)
+        get() = if (type == CsLinkType.TORRENT) {
+            // D-858: the row's built-in chip reads "Torrent" — no sheet-row edits needed.
+            "Torrent"
+        } else {
+            CsQuality.label(quality)
+        }
 
     /** Sheet row label: "Mirror 1080p" — the upstream sources-dialog format. */
     val displayLabel: String

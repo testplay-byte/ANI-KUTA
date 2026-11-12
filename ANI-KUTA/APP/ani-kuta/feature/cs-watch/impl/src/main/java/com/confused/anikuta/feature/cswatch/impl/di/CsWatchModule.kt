@@ -26,6 +26,8 @@ val csWatchModule = module {
             // Round 137 (D-830): the per-day watch-session ledger (a factory —
             // the recorder carries a per-instance delta baseline).
             sessionRecorder = get(),
+            // Round 143 (D-858): the torrent gateway (play-time transform).
+            torrentGateway = get(),
         )
     }
 }

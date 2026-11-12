@@ -265,7 +265,7 @@ fun CsResolveSheet(
         resolveJob = launch {
             handles.forEachIndexed { index, handle ->
                 launch {
-                    resolver.resolve(key.providerName, handle.data).collect { event ->
+                    resolver.resolve(key.providerName, handle.data, allowTorrentLinks = viewModel.torrentEnabled).collect { event ->
                         when (event) {
                             is CsResolveEvent.LinksSnapshot -> {
                                 perHandle[index] = event.links.map { link ->

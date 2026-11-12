@@ -1107,6 +1107,52 @@ private fun CsCurrentlyPlayingSection(
                     }
                 }
             }
+            // Round 143 (D-858): the torrent line — the prep feedback while the
+            // engine resolves, then the LIVE status chip (seeders/peers/speed/%).
+            if (uiState.torrentPreparing || uiState.torrentStatus != null) {
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (uiState.torrentPreparing) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        ) {
+                            Text(
+                                text = "Preparing torrent...",
+                                fontFamily = RobotoFamily,
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
+                    uiState.torrentStatus?.let { status ->
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        ) {
+                            Text(
+                                text = status.chipLine(),
+                                fontFamily = RobotoFamily,
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
+                }
+            }
             // Synopsis with show more / show less
             if (!currentDescription.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))

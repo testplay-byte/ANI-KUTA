@@ -59,6 +59,9 @@ enum class SettingsSearchPage(
     UPDATES_PAGE("Updates", "More → Updates"),
     DOWNLOADS_PAGE("Downloads", "More → Downloads"),
     PROFILE("Profile", "More → Profile"),
+    // Round 143: the torrent engine's page + the permissions hub.
+    TORRENT("Torrent", "Settings → Torrent"),
+    PERMISSIONS("Permissions", "Settings → Permissions"),
 }
 
 /**

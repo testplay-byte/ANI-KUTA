@@ -26,6 +26,7 @@ dependencies {
     implementation(project(":core:ratings"))         // Task 54: the watch page's per-episode star rating (same store, same keys)
     implementation(project(":core:download"))        // D-539: the offline DASH entry + downloaded-episode switching
     implementation(project(":data:cloudstream"))     // CloudstreamLinkResolver (Phase C)
+    implementation(project(":core:torrent"))         // Round 143 (D-858): the torrent gateway (play-time transform + status chip)
 
     // Media3 — the engine types flow through :core:cs-player's public surface
     // (Player access for PlayerView + track enumeration in the sheets).

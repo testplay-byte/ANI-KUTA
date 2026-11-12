@@ -4,7 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.csplayer.CsSubtitle
+import com.confused.anikuta.core.csplayer.CsLinkType
 import com.confused.anikuta.core.csplayer.CsVideoLink
+import com.confused.anikuta.core.torrent.TorrentGateway
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import com.confused.anikuta.core.watchprogress.WatchProgress
 import com.confused.anikuta.core.watchprogress.WatchProgressStore
 import com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver
@@ -55,6 +59,12 @@ class CsWatchViewModel(
      * forward playback delta lands on the Profile page's watch flow.
      */
     private val sessionRecorder: com.confused.anikuta.core.watchprogress.WatchSessionRecorder,
+    /**
+     * Round 143 (D-858): the torrent gateway — CS torrent/magnet links are
+     * transformed here at PLAY time (embedded TorrServer-lineage engine in
+     * core:torrent). REMOVAL SEAM: core/torrent/TORRENT-REMOVAL.md.
+     */
+    private val torrentGateway: TorrentGateway,
 ) : ViewModel() {
 
     companion object {
@@ -88,6 +98,9 @@ class CsWatchViewModel(
         val subtitles: List<CsSubtitle> = emptyList(),
         val hiddenTorrentCount: Int = 0,
         val unsupportedDrmCount: Int = 0,
+        /** Round 143 (D-858): live torrent state — the prep overlay + the player chip. */
+        val torrentPreparing: Boolean = false,
+        val torrentStatus: com.confused.anikuta.core.torrent.TorrentStatus? = null,
         /** URLs of links that errored in the engine (auto-skip + sheet badges). */
         val failedLinkUrls: Set<String> = emptySet(),
         /** Task 53 / RC-8: per-URL failure reason ("HTTP 428", "Parsing"…) for the exhausted message. */
@@ -360,6 +373,7 @@ class CsWatchViewModel(
         flavorOrdinals = com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings
             .flavorOrdinals(key.parseEpisodeList())
         observeProgress(key.mainId)
+        forgetActiveTorrent() // D-858: a new target releases the previous torrent
         val generation = _uiState.value.resolveGeneration + 1
         Logger.i(TAG) {
             "open: SEEDED '${key.animeTitle}' EP ${key.episodeNumber} provider=${key.providerName} " +
@@ -404,7 +418,7 @@ class CsWatchViewModel(
         // saturated — append-only, same-generation-guarded, never touches
         // playback. (The resolver caches on completion, so re-taps stay fast.)
         resolveJob = viewModelScope.launch {
-            resolver.resolve(key.providerName, key.episodeData).collect { event ->
+            resolver.resolve(key.providerName, key.episodeData, allowTorrentLinks = torrentEnabled).collect { event ->
                 val state = _uiState.value
                 if (state.resolveGeneration != generation) return@collect
                 when (event) {
@@ -476,6 +490,7 @@ class CsWatchViewModel(
             .flavorOrdinals(key.parseEpisodeList())
         observeProgress(key.mainId)
         val mediaUri = key.offlineMediaUri ?: return
+        forgetActiveTorrent() // D-858: a new target releases the previous torrent
         val generation = _uiState.value.resolveGeneration + 1
         Logger.i(TAG) {
             "open OFFLINE: '${key.animeTitle}' EP ${key.episodeNumber} " +
@@ -617,7 +632,7 @@ class CsWatchViewModel(
             val finishedHandles = mutableSetOf<Int>()
             handles.forEachIndexed { index, handle ->
                 launch {
-                    resolver.resolve(key.providerName, handle.data).collect { event ->
+                    resolver.resolve(key.providerName, handle.data, allowTorrentLinks = torrentEnabled).collect { event ->
                         when (event) {
                             is CsResolveEvent.LinksSnapshot -> {
                                 perHandle[index] = event.links.map { link ->
@@ -698,9 +713,23 @@ class CsWatchViewModel(
         }
     }
 
+    // ── Round 143 (D-858): torrent playback state ────────────────────────────
+
+    /** Torrent support enabled (Settings) — drives the resolver passthrough + the sheet. */
+    val torrentEnabled: Boolean get() = torrentGateway.isEnabled()
+
+    /** The active torrent's hash (status polling + server-side forget). */
+    private var activeTorrentHash: String? = null
+    private var torrentPollJob: Job? = null
+
     /** Picks the best link (remembered server first, then quality desc, skipping failed) and requests playback. */
     private fun autoStart(links: List<CsVideoLink>, resumeMs: Long) {
-        val candidates = links.filterNot { it.url in _uiState.value.failedLinkUrls }
+        // D-858: torrent links are NEVER auto-picked — the engine starts only on
+        // an explicit user pick (a remembered server that happens to be torrent
+        // falls through to the best non-torrent candidate).
+        val candidates = links.filterNot {
+            it.url in _uiState.value.failedLinkUrls || it.type == CsLinkType.TORRENT
+        }
         // Task 56: keep the user's FLAVOR across episode switches — auto-start
         // prefers the target row's flavor pool (a dub watcher auto-advancing
         // stays on dub streams) and falls back to the full pool when the
@@ -720,7 +749,7 @@ class CsWatchViewModel(
         val rememberedMatch = remembered?.let { r -> flavorPool.filter { it.name == r }.maxByOrNull { it.quality } }
         val best = rememberedMatch
             ?: flavorPool.maxByOrNull { it.quality }
-            ?: links.firstOrNull()
+            ?: links.filterNot { it.type == CsLinkType.TORRENT }.firstOrNull()
             ?: return
         val rememberedHeight = if (rememberedMatch != null) {
             currentKey?.let { sourceMemory.recallHeight(it.mainId) }
@@ -768,6 +797,60 @@ class CsWatchViewModel(
     }
 
     private fun requestPlay(
+        link: CsVideoLink,
+        startPositionMs: Long,
+        isResume: Boolean,
+        keepPosition: Boolean = false,
+        initialHeight: Int? = null,
+    ) {
+        // Round 143 (D-858): a TORRENT pick is transformed FIRST (magnet -> the
+        // embedded engine -> a localhost stream URL); the player only ever sees a
+        // plain VIDEO link. REMOVAL SEAM (core/torrent/TORRENT-REMOVAL.md).
+        if (link.type == CsLinkType.TORRENT) {
+            prepareTorrentAndPlay(link, startPositionMs, isResume, keepPosition, initialHeight)
+            return
+        }
+        deliverPlay(link, startPositionMs, isResume, keepPosition, initialHeight)
+    }
+
+    /** The torrent prep: engine start + metadata resolve + stream-URL build. */
+    private fun prepareTorrentAndPlay(
+        link: CsVideoLink,
+        startPositionMs: Long,
+        isResume: Boolean,
+        keepPosition: Boolean,
+        initialHeight: Int?,
+    ) {
+        Logger.i(TAG) { "torrent pick: preparing ${link.displayLabel}" }
+        _uiState.value = _uiState.value.copy(torrentPreparing = true, resolveError = null)
+        viewModelScope.launch {
+            try {
+                val prepared = torrentGateway.prepare(
+                    link.url,
+                    title = currentKey?.animeTitle?.ifBlank { null } ?: link.name,
+                )
+                // A new torrent supersedes the previous one (poll + server-side forget).
+                stopTorrentPolling()
+                activeTorrentHash?.let { old ->
+                    viewModelScope.launch { runCatching { torrentGateway.forget(old) } }
+                }
+                activeTorrentHash = prepared.hash
+                val transformed = link.copy(url = prepared.streamUrl, type = CsLinkType.VIDEO)
+                deliverPlay(transformed, startPositionMs, isResume, keepPosition, initialHeight)
+                startTorrentPolling(prepared.hash)
+            } catch (e: Exception) {
+                Logger.w(TAG, e) { "torrent prepare failed" }
+                _uiState.value = _uiState.value.copy(
+                    torrentPreparing = false,
+                    resolveError = "Torrent failed — ${e.message ?: "the engine could not handle this link"}",
+                )
+            } finally {
+                _uiState.value = _uiState.value.copy(torrentPreparing = false)
+            }
+        }
+    }
+
+    private fun deliverPlay(
         link: CsVideoLink,
         startPositionMs: Long,
         isResume: Boolean,
@@ -1032,6 +1115,7 @@ class CsWatchViewModel(
             // class the resolution flow uses), never A's cache under B's UI.
             val generation = _uiState.value.resolveGeneration + 1
             _uiState.value = _uiState.value.copy(resolveGeneration = generation)
+            forgetActiveTorrent() // D-858: a new target releases the previous torrent
             val switchKey = currentKey!!
             viewModelScope.launch {
                 val subs = resolveOfflineSubtitles(switchKey)
@@ -1134,8 +1218,37 @@ class CsWatchViewModel(
         lastSavePositionMs = -1
     }
 
+    /** The player chip's live feed: one status snapshot per second. */
+    private fun startTorrentPolling(hash: String) {
+        torrentPollJob?.cancel()
+        torrentPollJob = viewModelScope.launch {
+            while (isActive) {
+                torrentGateway.status(hash)?.let { status ->
+                    _uiState.value = _uiState.value.copy(torrentStatus = status)
+                }
+                delay(1_000L)
+            }
+        }
+    }
+
+    private fun stopTorrentPolling() {
+        torrentPollJob?.cancel()
+        torrentPollJob = null
+        _uiState.value = _uiState.value.copy(torrentStatus = null)
+    }
+
+    /** Forgets the active torrent server-side (episode switch / VM teardown). */
+    private fun forgetActiveTorrent() {
+        stopTorrentPolling()
+        activeTorrentHash?.let { hash ->
+            viewModelScope.launch { runCatching { torrentGateway.forget(hash) } }
+        }
+        activeTorrentHash = null
+    }
+
     override fun onCleared() {
         Logger.i(TAG) { "ViewModel cleared" }
+        forgetActiveTorrent()
         super.onCleared()
     }
 }

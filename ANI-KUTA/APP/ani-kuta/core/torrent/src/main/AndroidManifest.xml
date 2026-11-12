@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      The torrent module adds NO permissions and NO components: the Go server
+      (TorrServer lineage, gomobile bind) runs IN-PROCESS behind an HTTP API on
+      127.0.0.1. The app manifest already carries INTERNET; the DATA_SYNC
+      foreground-service permission (needed later for torrent DOWNLOADS, T4)
+      is already declared by the download module.
+    -->
+</manifest>

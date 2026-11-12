@@ -56,6 +56,7 @@ include(":core:playback-cache")  // Video caching (test-feature/video-cache-new-
 include(":core:debug-api")
 include(":core:cloudstream-api")  // CloudStream V2: clean-room CS3 plugin binary-compat surface
 include(":core:cs-player")  // CloudStream V2 (task 52): Media3 ExoPlayer playback engine host — CS links NEVER touch MPV
+include(":core:torrent")  // Round 143 (D-858): the embedded torrent engine (TorrServer lineage) — see core/torrent/TORRENT-DESIGN.md
 
 // ── :data ──
 include(":data:extension")

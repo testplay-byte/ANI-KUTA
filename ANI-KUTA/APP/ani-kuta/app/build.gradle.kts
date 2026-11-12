@@ -175,6 +175,7 @@ dependencies {
     implementation(project(":core:activity-tracker"))
     implementation(project(":core:provider-api"))
     implementation(project(":core:source-api"))
+    implementation(project(":core:torrent"))  // Round 143 (D-858): torrent engine + settings screens
     implementation(project(":core:player-mpv-lib"))
     implementation(project(":core:player"))
     implementation(project(":core:video-resolver"))

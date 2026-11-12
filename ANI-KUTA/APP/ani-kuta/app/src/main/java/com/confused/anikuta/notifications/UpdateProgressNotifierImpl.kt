@@ -17,7 +17,6 @@ import coil3.toBitmap
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.notifications.R
 import com.confused.anikuta.core.preferences.NotificationPreferences
-import com.confused.anikuta.core.updates.MAX_NOTIFICATION_ITEM_LINES
 import com.confused.anikuta.core.updates.UpdateCheckSummary
 import com.confused.anikuta.core.updates.UpdateProgressNotifier
 import kotlinx.coroutines.CoroutineScope
@@ -118,8 +117,10 @@ class UpdateProgressNotifierImpl(
         /** Task 80-b: sensible cap for the failure text on the failure card. */
         private const val MAX_FAILURE_TEXT_CHARS = 120
 
-        /** The history deep-link extra MainActivity consumes. */
+        /** The history deep-link extra MainActivity consumes (the failure card keeps it). */
         private const val EXTRA_OPEN_HISTORY = "open_update_history"
+        /** Round 143: the RESULT card taps into the UPDATES screen (the found list). */
+        private const val EXTRA_OPEN_UPDATES = "open_updates"
     }
 
     /** For the async cover load (the large icon) — never blocks the engine. */
@@ -228,7 +229,12 @@ class UpdateProgressNotifierImpl(
      * Posts that must never re-alert (the async cover re-post, the quiet
      * caught-up card) set onlyAlertOnce(true) themselves.
      */
-    private fun postResult(block: NotificationCompat.Builder.() -> Unit) {
+    private fun postResult(
+        // Round 143: the RESULT card opens the UPDATES screen (the user's tap
+        // destination); the failure card keeps the check-history deep link.
+        openUpdatesOnTap: Boolean = false,
+        block: NotificationCompat.Builder.() -> Unit,
+    ) {
         if (!canPost()) return
         runCatching {
             NotificationManagerCompat.from(context).notify(
@@ -237,7 +243,7 @@ class UpdateProgressNotifierImpl(
                     .setSmallIcon(R.drawable.ic_notification)
                     .setOnlyAlertOnce(false) // the result SHOULD alert (once — see the re-post)
                     .setAutoCancel(true)
-                    .setContentIntent(historyPendingIntent())
+                    .setContentIntent(if (openUpdatesOnTap) updatesPendingIntent() else historyPendingIntent())
                     .apply(block)
                     .build(),
             )
@@ -252,6 +258,22 @@ class UpdateProgressNotifierImpl(
         runCatching {
             NotificationManagerCompat.from(context).cancel(PROGRESS_NOTIFICATION_ID)
         }
+    }
+
+    /** Round 143: the result card opens the UPDATES screen (the found-episodes list). */
+    private fun updatesPendingIntent(): PendingIntent? {
+        return runCatching {
+            val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                ?: return null
+            intent.putExtra(EXTRA_OPEN_UPDATES, true)
+            intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            PendingIntent.getActivity(
+                context,
+                3003,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }.getOrNull()
     }
 
     /** D-388: tapping a results notification opens the check history. */
@@ -347,14 +369,11 @@ class UpdateProgressNotifierImpl(
         // silent; now it gets the explicit caught-up card.
         if (summary.totalChecked == 0) {
             if (summary.trigger == "manual") {
-                postResult {
+                // Round 143 (the user's spec): a HEADLINE, not a report — one line, done.
+                postResult(openUpdatesOnTap = true) {
                     setContentTitle("No new episodes")
                     setContentText("You're all caught up.")
-                    setStyle(NotificationCompat.BigTextStyle().bigText(caughtUpBody(summary)))
-                    // Quiet: no fanfare body, and it must never re-alert if a
-                    // previous results card is still on screen. The channel's
-                    // single first-alert is the one sound the design budgets
-                    // for a manual run (start + answer).
+                    setStyle(NotificationCompat.BigTextStyle().bigText("You're all caught up."))
                     setOnlyAlertOnce(true)
                     setWhen(summary.finishedAt)
                 }
@@ -363,11 +382,12 @@ class UpdateProgressNotifierImpl(
             return
         }
         // The cover load is async (Coil execute suspends) — post the body now,
-        // then re-post with the large icon when/if it resolves.
-        postResult { applySummaryBody(summary) }
+        // then re-post with the large icon when/if it resolves. Round 143 (N1):
+        // the anime COVER STAYS on the result card (the user's explicit keep).
+        postResult(openUpdatesOnTap = true) { applySummaryBody(summary) }
         loadCoverAsync(summary) { bitmap ->
             if (bitmap != null) {
-                postResult {
+                postResult(openUpdatesOnTap = true) {
                     applySummaryBody(summary)
                     // Task 80-b: the re-post MUST NOT re-alert — today the
                     // cover re-post sounded a second time (double sound).
@@ -379,24 +399,12 @@ class UpdateProgressNotifierImpl(
     }
 
     /**
-     * Task 80-b: the caught-up card body — the honest line plus the
-     * next-check projection ONLY when the summary actually carries one
-     * (AUTO mode projects it; manual/off legitimately have none).
-     */
-    private fun caughtUpBody(summary: UpdateCheckSummary): String {
-        return buildString {
-            append("You're all caught up.")
-            if (summary.nextCheckAt != null) {
-                append('\n')
-                append(nextCheckLine(summary))
-            }
-        }
-    }
-
-    /**
-     * Renders the summary: title, summary line, BigTextStyle with one line
-     * per anime (up to [MAX_NOTIFICATION_ITEM_LINES] + "+N more") and the
-     * next-check line ("what it will do next").
+     * Round 143 (the user's verdict: the raw per-anime format is NOT proper) —
+     * the result notification is a HEADLINE: "N new episodes found!" or
+     * "Episode check complete" + ONE line ("Checked N anime"). The per-anime
+     * outcomes, failure details and the next-check projection live in the
+     * in-app Update-check history page (the failure card's deep link), never
+     * in the notification.
      */
     private fun NotificationCompat.Builder.applySummaryBody(summary: UpdateCheckSummary) {
         val found = summary.totalNewEpisodes
@@ -406,90 +414,10 @@ class UpdateProgressNotifierImpl(
                 else -> "Episode check complete"
             },
         )
-        setContentText(summaryLine(summary))
-        setStyle(
-            NotificationCompat.BigTextStyle()
-                .bigText(bigBody(summary))
-        )
+        val body = "Checked ${summary.totalChecked} anime"
+        setContentText(body)
+        setStyle(NotificationCompat.BigTextStyle().bigText(body))
         setWhen(summary.finishedAt)
-    }
-
-    /** The collapsed one-liner: "Checked 3 anime — 2 new episodes found". */
-    private fun summaryLine(summary: UpdateCheckSummary): String {
-        return if (summary.totalNewEpisodes > 0) {
-            "Checked ${summary.totalChecked} anime — ${summary.totalNewEpisodes} new episode(s) found"
-        } else {
-            "Checked ${summary.totalChecked} anime — no new episodes"
-        }
-    }
-
-    /** The expanded body: per-anime lines + the next-check line. */
-    private fun bigBody(summary: UpdateCheckSummary): String {
-        return buildString {
-            if (summary.items.isEmpty()) {
-                append("Nothing was due for a check this run.")
-            } else {
-                val shown = summary.items.take(MAX_NOTIFICATION_ITEM_LINES)
-                shown.forEach { item ->
-                    append(item.title)
-                    append(" — ")
-                    append(perItemLine(item))
-                    append('\n')
-                }
-                if (summary.items.size > shown.size) {
-                    append("+${summary.items.size - shown.size} more…\n")
-                }
-            }
-            nextCheckLine(summary)?.let {
-                append('\n')
-                append(it)
-            }
-        }
-    }
-
-    private fun perItemLine(item: com.confused.anikuta.core.updates.UpdateCheckItemLog): String {
-        return when (item.outcome) {
-            "new-episodes" -> "+${item.newEpisodes} new (next: ${item.nextAction})"
-            "failed", "source-unavailable" -> "${item.outcome} (${item.detail})"
-            "skipped" -> "skipped"
-            else -> "no new episodes (next: ${item.nextAction})"
-        }
-    }
-
-    /**
-     * The "what it will do next" line — e.g. "Next check: in ~18h · Fri 3:30 PM"
-     * (the device's own 12/24-hour clock) or "Next check: manual — up to you".
-     *
-     * D-391 (round 26): [UpdateCheckSummary.nextCheckAt] is now release-aware
-     * — the EARLIEST of the next smart-release check (fires exactly at the
-     * next expected episode release + confirms watchability) and the periodic
-     * interval. The line labels the SMART case so the "why 18h not 24h" is
-     * self-explanatory on the notification itself.
-     */
-    private fun nextCheckLine(summary: UpdateCheckSummary): String? {
-        val next = summary.nextCheckAt ?: return "Next check: manual — whenever you check"
-        val now = System.currentTimeMillis()
-        val delta = next - now
-        val inText = when {
-            delta <= 0 -> "now"
-            delta < 3_600_000L -> "in ~${delta / 60_000L}m"
-            delta < 86_400_000L -> "in ~${delta / 3_600_000L}h"
-            else -> "in ~${delta / 86_400_000L}d"
-        }
-        // android.text.format.DateFormat honors the DEVICE's 12/24-hour setting.
-        val timeText = android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date(next))
-        val dayText = java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(java.util.Date(next))
-        val intervalText = summary.intervalHours?.let { " · every ${it}h" } ?: ""
-        // D-391: when the next check is EARLIER than a plain interval pass
-        // would be, it's a smart release check — say so (it fires at the next
-        // actual expected release + confirms the episode is watchable).
-        val smart = summary.intervalHours != null &&
-            next < now + (summary.intervalHours ?: 24L) * 3_600_000L - 60_000L
-        return if (smart) {
-            "Next check: $inText · $dayText $timeText (at the next episode's expected release)"
-        } else {
-            "Next check: $inText · $dayText $timeText$intervalText"
-        }
     }
 
     /** Loads a small cover bitmap for the large icon (best-effort, async). */

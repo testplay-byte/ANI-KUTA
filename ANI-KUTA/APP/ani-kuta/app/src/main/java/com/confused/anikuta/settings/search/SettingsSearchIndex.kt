@@ -137,6 +137,26 @@ object SettingsSearchIndex {
                     "storage", "buffer", "stream"),
             ),
         )
+        add(
+            SettingsSearchEntry(
+                id = "hub.torrent",
+                title = "Torrent",
+                page = SettingsSearchPage.TORRENT,
+                anchor = "",
+                keywords = listOf("torrent", "magnet", "magnets", "peer", "p2p",
+                    "seed", "stream torrent", "nyaa"),
+            ),
+        )
+        add(
+            SettingsSearchEntry(
+                id = "hub.permissions",
+                title = "Permissions",
+                page = SettingsSearchPage.PERMISSIONS,
+                anchor = "",
+                keywords = listOf("permission", "permissions", "allow", "notifications",
+                    "battery", "overlay", "storage access", "deny"),
+            ),
+        )
         // D-741 (round 116): the hub.about entry RETIRED with the Settings
         // hub's About row (the More page owns the door now). The about.*
         // page entries below stay — the search keeps routing to the live

@@ -43,6 +43,8 @@ object PendingNavigation {
         val notificationMainId: String? = null,
         /** The update-check notification's "open the history page" flag. */
         val openUpdateHistory: Boolean = false,
+        /** Round 143: the check-RESULT notification taps into the UPDATES screen. */
+        val openUpdates: Boolean = false,
     )
 
     private val _pending = MutableStateFlow<Request?>(null)
@@ -80,6 +82,11 @@ object PendingNavigation {
             request = (request ?: Request()).copy(openUpdateHistory = true)
         }
 
+        // 2c — round 143: the check-RESULT notification taps into the Updates screen.
+        if (intent.getBooleanExtra("open_updates", false)) {
+            request = (request ?: Request()).copy(openUpdates = true)
+        }
+
         // Strip the parsed delivery markers off the intent (the parse has
         // already captured everything; a recreated activity re-reads a clean
         // intent). FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY delivers the ORIGINAL
@@ -95,6 +102,7 @@ object PendingNavigation {
         }
         intent.removeExtra("notification_main_id")
         intent.removeExtra("open_update_history")
+        intent.removeExtra("open_updates")
 
         if (request != null) {
             _pending.value = request

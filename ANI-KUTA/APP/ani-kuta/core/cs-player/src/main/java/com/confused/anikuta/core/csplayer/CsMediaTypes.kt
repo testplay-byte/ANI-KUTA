@@ -19,6 +19,9 @@ object CsMediaTypes {
         CsLinkType.M3U8 -> MimeTypes.APPLICATION_M3U8
         CsLinkType.DASH -> MimeTypes.APPLICATION_MPD
         CsLinkType.VIDEO -> MimeTypes.VIDEO_MP4
+        // D-858: a TORRENT link never reaches the engine (the watch VM transforms
+        // it into a plain stream URL first) — the arm exists for exhaustiveness.
+        CsLinkType.TORRENT -> MimeTypes.VIDEO_MP4
     }
 
     /** Subtitle mime by URL extension (upstream: vtt / srt / xml+ttml / default srt). */

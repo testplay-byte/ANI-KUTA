@@ -40,13 +40,12 @@ interface AdsRepository {
     fun recordAdShown(timestampMs: Long = System.currentTimeMillis())
 
     /**
-     * D-407 (round 31): consumes the ONE-PER-INSTALL first-open grace if it
-     * is still available. Returns `true` when the grace was available (and is
-     * NOW consumed — the caller proceeds without an ad, and records NO
-     * cooldown); `false` when it was already consumed (the normal system
-     * applies). Persisted — survives cold starts + process death.
+     * Round 143 — the 3-DAY LAUNCH GRACE: `true` while the install is within
+     * its first 3 days from FIRST LAUNCH (the user's spec — supersedes the
+     * D-407 one-shot grace). True = the caller proceeds without an ad and
+     * records NO cooldown; false = the normal system applies.
      */
-    fun consumeFirstOpenGrace(): Boolean
+    fun isWithinLaunchGrace(): Boolean
 
     /**
      * D-562 (round 74): the DEBUG "Always sponsor" toggle (Settings →
@@ -103,14 +102,12 @@ class AdsRepositoryImpl(
         }
     }
 
-    override fun consumeFirstOpenGrace(): Boolean {
-        if (preferences.firstOpenGraceConsumed) {
-            Logger.d(TAG) { "first-open grace already consumed — normal ad system applies" }
-            return false
+    override fun isWithinLaunchGrace(): Boolean {
+        val within = System.currentTimeMillis() - preferences.firstOpenTimestamp < preferences.launchGraceMs
+        if (within) {
+            Logger.i(TAG) { "launch grace ACTIVE — no sponsor ads for the first 3 days" }
         }
-        preferences.firstOpenGraceConsumed = true
-        Logger.i(TAG) { "first-open grace CONSUMED — the first gated navigation is ad-free" }
-        return true
+        return within
     }
 
     override fun preferencesAlwaysSponsor(): Boolean = preferences.alwaysSponsor

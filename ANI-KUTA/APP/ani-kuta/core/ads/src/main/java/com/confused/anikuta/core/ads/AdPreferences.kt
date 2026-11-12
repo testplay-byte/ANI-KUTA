@@ -75,10 +75,36 @@ class AdPreferences(
     /** Reactive read for the toggle row (the DebugPreferences pattern). */
     fun alwaysSponsorFlow(): Flow<Boolean> = preferenceStore.booleanFlow(KEY_ALWAYS_SPONSOR, false)
 
+    /** The launch-grace window (round 143): no sponsor ads for the first 3 DAYS of use. */
+    val launchGraceMs: Long = 3L * 24L * 60L * 60L * 1000L
+
+    /**
+     * Round 143 — the 3-DAY LAUNCH GRACE anchor: the first-launch wall clock
+     * (the user's spec: "the first 3 days will be without it showing, and
+     * afterwards it would go into normally"). Persisted once, on first read;
+     * an install that ALREADY consumed the old D-407 one-shot grace migrates
+     * with its anchor set 3 days in the PAST (the grace is over — the normal
+     * system applies immediately, no free period granted retroactively).
+     */
+    val firstOpenTimestamp: Long
+        get() {
+            val stored = preferenceStore.getLong(KEY_FIRST_OPEN, 0L)
+            if (stored != 0L) return stored
+            val migrated = if (firstOpenGraceConsumed) {
+                System.currentTimeMillis() - launchGraceMs
+            } else {
+                System.currentTimeMillis()
+            }
+            preferenceStore.putLong(KEY_FIRST_OPEN, migrated)
+            Logger.i(TAG) { "firstOpenTimestamp initialized = $migrated (migrated=$firstOpenGraceConsumed)" }
+            return migrated
+        }
+
     private companion object {
         private const val TAG = "Anikuta:Core:Ads:Prefs"
         private const val KEY_LAST_AD_SHOWN = "ads_last_shown_timestamp"
         private const val KEY_FIRST_OPEN_GRACE = "ads_first_open_grace_consumed"
+        private const val KEY_FIRST_OPEN = "ads_first_open_timestamp"
         private const val KEY_ALWAYS_SPONSOR = "ads_always_sponsor"
     }
 }

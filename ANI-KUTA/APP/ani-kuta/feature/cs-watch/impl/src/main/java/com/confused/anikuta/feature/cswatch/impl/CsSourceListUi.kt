@@ -933,4 +933,6 @@ private fun CsLinkType.badgeLabel(): String = when (this) {
     CsLinkType.VIDEO -> "VIDEO"
     CsLinkType.M3U8 -> "HLS"
     CsLinkType.DASH -> "DASH"
+    // D-858: the resolve sheet's per-row badge for a raw torrent/magnet link.
+    CsLinkType.TORRENT -> "TORRENT"
 }
