@@ -275,9 +275,9 @@ fun WizardPlayerConfigContent(
 ) {
     val context = LocalContext.current
     var styleKey by remember {
+        // the style enum lives in the designsystem (the pref stores the key string)
         mutableStateOf(
-            com.confused.anikuta.core.preferences.PlayerEpisodeListStyle
-                .fromKey(episodePrefs.rowStyle.get()).name,
+            PlayerEpisodeListStyle.fromKey(episodePrefs.rowStyle.get()).name,
         )
     }
     val gesturesOn by playerPrefs.gestureControlsEnabled.changes.collectAsState(
