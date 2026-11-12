@@ -1686,7 +1686,6 @@ private fun OnboardingFinishStep(
 }
 
 /** One summary card of the finish grid (D-405). */
-@Composable
 /**
  * ROUND 144 (D-864): the personalize GATE — "do you want to see what you
  * get and customize it?" The user's spec: the settings are NOT shown by
