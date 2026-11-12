@@ -315,14 +315,14 @@ fun OnboardingScreen(
                     changeLabel = "Change folder",
                     onChange = { folderPicker.launch(null) },
                     onBack = { stepIndex-- },
-                    onContinue = { stepIndex = 3 },
+                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.RESTORE) },
                 )
                 // ROUND 135: the restore step — a backup can be brought back
                 // right after the folder is set (the covers land in it).
                 OnboardingStep.RESTORE -> OnboardingRestoreStep(
                     stepNumber = stepIndexOf(OnboardingStep.RESTORE),
                     onBack = { stepIndex-- },
-                    onContinue = { stepIndex = 4 },
+                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.NOTIFICATIONS) },
                 )
                 OnboardingStep.NOTIFICATIONS -> OnboardingPermissionStep(
                     stepNumber = stepIndexOf(OnboardingStep.NOTIFICATIONS),
@@ -342,7 +342,7 @@ fun OnboardingScreen(
                     changeLabel = "",
                     onChange = {},
                     onBack = { stepIndex-- },
-                    onContinue = { stepIndex = 5 },
+                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.BATTERY) },
                 )
                 OnboardingStep.BATTERY -> OnboardingPermissionStep(
                     stepNumber = stepIndexOf(OnboardingStep.BATTERY),
@@ -356,7 +356,7 @@ fun OnboardingScreen(
                     changeLabel = "",
                     onChange = {},
                     onBack = { stepIndex-- },
-                    onContinue = { stepIndex = 6 },
+                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.OVERLAY) },
                 )
                 // D-449 (round 41): the "Draw over other apps" step — the
                 // floating ad-return pill needs this special consent, and the
@@ -381,7 +381,7 @@ fun OnboardingScreen(
                     changeLabel = "",
                     onChange = {},
                     onBack = { stepIndex-- },
-                    onContinue = { stepIndex = 7 },
+                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.FINISH) },
                 )
                 OnboardingStep.FINISH -> OnboardingFinishStep(
                     themeChoices = themeChoices,
@@ -1584,7 +1584,7 @@ private fun OnboardingFinishStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = 7, totalSteps = OnboardingStep.ordered.size - 1, onBack = onBack)
+        OnboardingTopBar(stepPosition = OnboardingStep.ordered.indexOf(OnboardingStep.FINISH), totalSteps = OnboardingStep.ordered.size - 1, onBack = onBack)
         Column(
             modifier = Modifier
                 .weight(1f)
