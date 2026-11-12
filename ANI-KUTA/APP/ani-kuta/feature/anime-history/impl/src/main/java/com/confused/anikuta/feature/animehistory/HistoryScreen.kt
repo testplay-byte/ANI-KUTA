@@ -84,7 +84,7 @@ fun HistoryScreen(
     onBack: () -> Unit,
     // ROUND 144 (D-863): the row's tap carries the EPISODE too — the details
     // page scrolls to it and highlights it (targetEpisode).
-    onNavigateToDetails: (String, Int?) -> Unit = {},
+    onNavigateToDetails: (String, Int?) -> Unit = { _, _ -> },
     viewModel: HistoryViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
