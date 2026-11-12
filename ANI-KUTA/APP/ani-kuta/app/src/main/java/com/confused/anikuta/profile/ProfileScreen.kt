@@ -332,7 +332,7 @@ fun ProfileScreen(
             // category filter ("12 anime in Watching" vs "…in your library").
             scopeLabel = if (state.selectedGenreFilter == "All") "your library" else state.selectedGenreFilter,
             onDismiss = { viewModel.clearGenreSelection() },
-            onOpenAnime = { mainId, episodeNumber ->
+            onOpenContent = { mainId, episodeNumber ->
                 viewModel.clearGenreSelection()
                 onOpenContent(mainId, episodeNumber)
             },

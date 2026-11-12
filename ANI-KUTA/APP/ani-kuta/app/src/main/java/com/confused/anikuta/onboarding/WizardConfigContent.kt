@@ -1,5 +1,6 @@
 package com.confused.anikuta.onboarding
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.RobotoFamily
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay
+import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListEntry
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeRowData
@@ -80,7 +82,7 @@ private fun demoThumb(context: Context, index: Int): String =
 
 /** The details preview's SEpisode demo rows (the settings page's vocabulary). */
 private fun wizardDemoEpisodes(context: Context) = (1..2).map { n ->
-    com.lagradost.cloudstream3.SEpisode.create().apply {
+    eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
         url = "wizard://demo-$n"
         name = if (n == 1) "The Journey Begins" else "Into the Fire"
         episode_number = n.toFloat()
@@ -216,7 +218,7 @@ fun WizardDetailsConfigContent(
 @Composable
 private fun WizardDetailsPreview(
     prefs: EpisodeListPreferences,
-    demoEpisodes: List<com.lagradost.cloudstream3.SEpisode>,
+    demoEpisodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
     context: Context,
 ) {
     // Reactive reads — the preview re-renders the moment a preset applies.
@@ -250,7 +252,7 @@ private fun WizardDetailsPreview(
 
 @Composable
 private fun WizardDemoDetailsRow(
-    episode: com.lagradost.cloudstream3.SEpisode,
+    episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
     style: EpisodeListDisplayStyle,
     context: Context,
 ) {

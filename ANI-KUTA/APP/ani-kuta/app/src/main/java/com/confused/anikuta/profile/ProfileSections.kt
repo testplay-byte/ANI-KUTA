@@ -269,7 +269,7 @@ fun WatchFlowGraph(
             day = selectedDay,
             formattedDate = dayFormatter.format(java.util.Date(selectedDay.dateMs)),
             onDismiss = { selectedDayMs = null },
-            onOpenAnime = { mainId, episodeNumber ->
+            onOpenContent = { mainId, episodeNumber ->
                 selectedDayMs = null
                 onOpenContent(mainId, episodeNumber)
             },
