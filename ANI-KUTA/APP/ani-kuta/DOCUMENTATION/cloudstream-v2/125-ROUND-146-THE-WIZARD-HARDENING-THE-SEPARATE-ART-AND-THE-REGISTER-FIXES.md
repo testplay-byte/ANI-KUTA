@@ -61,6 +61,17 @@
 - The brace/paren/NUL sanity across the 14 touched files: clean (the EpisodeBannerComposer's
   -2 paren delta is PRE-EXISTING string/comment content — verified against HEAD~1).
 - CI: run 43461906085 (Build APK for 7b827f1b).
-- **The release**: the user ordered the debug release again — **v1.1.87 / 10187** rides the
-  round per Routine A (the section below the run verdict records the facts).
+- **The release (D-871)**: the user explicitly ordered it — Routine A on the round-146
+  head (f41112eb, the CI-green d604a353 + the docs commit): release/1.1.87 + ONE bump
+  commit fd39939f (10120/1.1.20 -> **10187/1.1.87**) + the annotated tag v1.1.87 ON THE
+  BUMP COMMIT (the round-144 tag lesson held — first try) -> Release APK run
+  **43464417108 GREEN**; verified live: stable + latest, ani-kuta-v1.1.87-debug-
+  arm64-v8a.apk (76,076,032 bytes) + SHA256SUMS.txt; the downloaded SHA (eca1f418…)
+  matches. v1.1.86 installs get the in-app offer (10187 > 10186) — INCLUDING the C-1
+  wizard-loop fix fresh installs need.
+- **The CI ledger**: run 43461906085 (red — the Float/Double LUB), 43462452320 (red —
+  the model Double), 43463220500 (GREEN) + the Release APK run 43464417108 = **4
+  total, past D-472's <=2** — the no-local-Gradle boundary again (disclosed; the
+  batch-lessons from D-866 were applied — the errors were distinct per run, not the
+  same module surfacing repeatedly).
 - Next decision: D-871; next record: 126.
