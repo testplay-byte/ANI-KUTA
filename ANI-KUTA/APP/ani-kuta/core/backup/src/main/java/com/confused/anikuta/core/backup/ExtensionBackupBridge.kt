@@ -49,6 +49,16 @@ interface ExtensionBackupBridge {
     fun applyAniyomiState(pkgName: String, trusted: Boolean, enabled: Boolean)
 
     /**
+     * ROUND 148 (the DeadSystem crash): ONE extension-manager reload after
+     * the WHOLE install loop — the old per-install reloads stacked up to 2N
+     * overlapping PackageManager scans while system_server was mid-install
+     * (one transient DeadSystemException killed the process). The install
+     * receiver still refreshes per-install for liveness; this call lands
+     * AFTER the last install, so the final scan reads the fresh trust set.
+     */
+    fun reloadAniyomiExtensions()
+
+    /**
      * Writes a .cs3 plugin file to its device-local install path and
      * re-registers its record (with the backed-up trust state). The engine
      * calls it AFTER the prefs application (the bridge's upserts are the

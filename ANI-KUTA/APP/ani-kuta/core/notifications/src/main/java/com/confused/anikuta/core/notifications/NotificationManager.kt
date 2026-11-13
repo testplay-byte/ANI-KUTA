@@ -108,7 +108,13 @@ class NotificationManager(
      * @param episodeNumber The episode number.
      * @param audioVariant "sub" | "dub" | "unknown".
      * @param triggerType "schedule" | "watchable" | "immediate".
-     * @return true if the notification was posted, false if suppressed.
+     * ROUND 148 semantics (the "notifications never arrive" device report):
+     * TRUE = CONSUMED — the episode will never produce a send under the
+     * current choices (master off, per-anime off, trigger off, variant off,
+     * dedup hit) or it was posted. FALSE = RETRY NEXT CHECK — the send is
+     * temporarily impossible (the POST_NOTIFICATIONS grant is absent on
+     * Android 13+); the caller must NOT consume the episode (UpdateEngine
+     * holds the count, so the next check re-attempts).
      */
     suspend fun postNotification(
         mainId: String,
@@ -116,10 +122,12 @@ class NotificationManager(
         audioVariant: String,
         triggerType: String,
     ): Boolean {
-        // 0. Global master toggle — the kill switch. When off, suppress everything.
+        // 0. Global master toggle — the kill switch. ROUND 148: a PERMANENT
+        // suppression returns TRUE (consumed) — holding would flood the user
+        // with a backlog the day they re-enable; their choice is final.
         if (!preferences.notificationsEnabled) {
-            Logger.d(TAG) { "postNotification — suppressed (global master off)" }
-            return false
+            Logger.d(TAG) { "postNotification — consumed (global master off)" }
+            return true
         }
 
         // 1. Check config. D-193 v2: if no per-anime config exists, use the default
@@ -136,8 +144,8 @@ class NotificationManager(
             audioPref = preferences.defaultAudioPref,
         )
         if (!config.enabled) {
-            Logger.d(TAG) { "postNotification — suppressed (not enabled): mainId=$mainId" }
-            return false
+            Logger.d(TAG) { "postNotification — consumed (not enabled): mainId=$mainId" }
+            return true
         }
 
         // 2. Check trigger type — tri-state (ON / SILENT / OFF). OFF suppresses;
@@ -149,8 +157,8 @@ class NotificationManager(
             else -> TriggerState.OFF
         }
         if (triggerState == TriggerState.OFF) {
-            Logger.d(TAG) { "postNotification — suppressed (trigger $triggerType off): mainId=$mainId" }
-            return false
+            Logger.d(TAG) { "postNotification — consumed (trigger $triggerType off): mainId=$mainId" }
+            return true
         }
         val silent = triggerState == TriggerState.SILENT
 
@@ -162,8 +170,8 @@ class NotificationManager(
             else -> true // unknown — notify (best-effort)
         }
         if (!audioOk) {
-            Logger.d(TAG) { "postNotification — suppressed ($audioVariant not enabled per-anime): mainId=$mainId" }
-            return false
+            Logger.d(TAG) { "postNotification — consumed ($audioVariant not enabled per-anime): mainId=$mainId" }
+            return true
         }
 
         // 3b. D-193 v2 fix: also honor the GLOBAL episode-type toggle (Sub/Dub/Both).
@@ -177,14 +185,14 @@ class NotificationManager(
             else -> true
         }
         if (!globalAudioOk) {
-            Logger.d(TAG) { "postNotification — suppressed ($audioVariant not in global episode type): mainId=$mainId" }
-            return false
+            Logger.d(TAG) { "postNotification — consumed ($audioVariant not in global episode type): mainId=$mainId" }
+            return true
         }
 
-        // 4. Check dedup.
+        // 4. Check dedup — already posted once: consumed (ROUND 148).
         if (configStore.wasNotified(mainId, episodeNumber, audioVariant, triggerType)) {
-            Logger.d(TAG) { "postNotification — suppressed (already sent): mainId=$mainId ep=$episodeNumber $triggerType" }
-            return false
+            Logger.d(TAG) { "postNotification — consumed (already sent): mainId=$mainId ep=$episodeNumber $triggerType" }
+            return true
         }
 
         // 5. Get anime title.
@@ -278,9 +286,34 @@ class NotificationManager(
             .build()
 
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        // ROUND 148 (THE DEVICE REPORT — "updates happen, notifications never
+        // arrive"): the runtime-grant gate. On Android 13+ a POST with the
+        // permission absent is a SILENT OS DROP — no exception, nothing shown
+        // — and the recordSent below then consumed the episode into the dedup
+        // log FOREVER (the count had already advanced, so the send was never
+        // re-attempted). Every sibling path (the tester, the progress card,
+        // the app-update flow) already guarded this; the real episode path
+        // alone posted blind. On a missing grant: return FALSE WITHOUT
+        // recording sent — UpdateEngine keeps the episode's last-known count
+        // un-advanced, so the NEXT check re-attempts the send.
+        val granted = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+        if (!granted) {
+            Logger.i(TAG) {
+                "postNotification — SKIPPED (POST_NOTIFICATIONS not granted): mainId=$mainId " +
+                    "ep=$episodeNumber audio=$audioVariant — left re-notifiable"
+            }
+            return false
+        }
+
         nm.notify(notifId, notification)
 
-        // 7. Record in dedup log.
+        // 7. Record in dedup log (ONLY after a real post).
         configStore.recordSent(mainId, episodeNumber, audioVariant, triggerType)
 
         Logger.i(TAG) { "postNotification — POSTED: mainId=$mainId title=$title ep=$episodeNumber audio=$audioVariant trigger=$triggerType" }

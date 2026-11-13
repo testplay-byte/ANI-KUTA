@@ -1072,6 +1072,14 @@ class BackupManager(
                     "restoreBackup: aniyomi — $aniyomiInstalled installed, $aniyomiSkipped already present, " +
                         "$aniyomiDeclined declined by the user, ${aniyomiFailed.size} failed"
                 }
+                // ROUND 148 (the DeadSystem crash): ONE reload AFTER the whole
+                // install loop — the fresh scan reads the persisted trust set
+                // (the trust fix's intent) without stacking 2N overlapping
+                // PackageManager scans against a mid-install system_server.
+                runCatching { bridge.reloadAniyomiExtensions() }
+                    .onFailure {
+                        Logger.w(TAG, it) { "restoreBackup: post-restore extension reload failed" }
+                    }
             }
 
             RestoreSummary(

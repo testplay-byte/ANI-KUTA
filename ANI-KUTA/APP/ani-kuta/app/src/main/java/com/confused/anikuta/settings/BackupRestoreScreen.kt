@@ -96,11 +96,6 @@ fun BackupRestoreScreen(
     val scope = rememberCoroutineScope()
 
     val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
-    // ROUND 147 (the device report): every screen ENTRY starts at the
-    // TOP — the host's SaveableStateProvider resurrects the old scroll
-    // position, and screens landing "wherever they were left" was the
-    // complaint.
-    LaunchedEffect(Unit) { lazyListState.scrollToItem(0) }
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 
@@ -920,9 +915,10 @@ private fun IncludeSelectionPopup(
                 // ROUND 148: the linked-only filter — a modifier of the three
                 // switches above, not a payload slice of its own.
                 PopupCheck(
+                    // ROUND 148 (the device report): the description went —
+                    // the row title carries the meaning on its own.
                     "Only extensions my library uses",
                     preferences.includeExtensionsLinkedOnly,
-                    subtitle = "Skips the extensions no current library item still needs",
                 )
             }
         },

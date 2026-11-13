@@ -20,8 +20,10 @@ fun interface NotificationSender {
      * @param episodeNumber The episode number.
      * @param audioVariant "sub" | "dub" | "unknown".
      * @param triggerType "watchable" | "schedule" | "immediate".
-     * @return true if the notification was posted, false if suppressed (master toggle off,
-     *   per-anime config off, dedup, or permission denied).
+     * ROUND 148 semantics: TRUE = consumed (posted, or suppressed by a
+     * PERMANENT choice — master/per-anime/trigger/variant off, dedup);
+     * FALSE = retry next check (the POST_NOTIFICATIONS grant is absent — the
+     * caller must NOT consume the episode's count, so the send re-attempts).
      */
     suspend fun postNotification(
         mainId: String,

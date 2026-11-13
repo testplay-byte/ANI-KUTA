@@ -26,8 +26,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -164,10 +165,6 @@ fun PermissionsScreen(
     }
 
     val lazyListState = rememberLazyListState()
-    // ROUND 147 (the device report): every screen ENTRY starts at the TOP —
-    // the host's SaveableStateProvider resurrects the old scroll position,
-    // and the user found screens landing "wherever they were left".
-    LaunchedEffect(Unit) { lazyListState.scrollToItem(0) }
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 
@@ -308,12 +305,16 @@ private fun PermissionRow(
             }
             Spacer(Modifier.size(12.dp))
             Column(modifier = Modifier.weight(1f)) {
+                // ROUND 148 (the device report): titles stay ONE line — no
+                // wrapping — and the descriptions cap at TWO.
                 Text(
                     text = title,
                     fontFamily = RobotoFamily,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = description,
@@ -321,37 +322,22 @@ private fun PermissionRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     lineHeight = 16.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Spacer(Modifier.size(10.dp))
-            // The status chip — compact, accent when granted / error when not.
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = if (granted) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                } else {
-                    MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
-                },
-            ) {
-                Text(
-                    text = if (granted) grantedLabel else "Not granted",
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (granted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-            }
-            Spacer(Modifier.size(8.dp))
+            // ROUND 148 (the device report): no "Allowed/Set/Exempt" tags —
+            // just a big check mark (granted) or an X (not granted).
             Icon(
-                imageVector = if (granted) Icons.Filled.CheckCircle else Icons.Filled.ChevronRight,
-                contentDescription = if (granted) grantedLabel else "Open",
+                imageVector = if (granted) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
+                contentDescription = if (granted) grantedLabel else "Not granted",
                 tint = if (granted) {
                     MaterialTheme.colorScheme.primary
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                    MaterialTheme.colorScheme.error
                 },
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(26.dp),
             )
         }
     }

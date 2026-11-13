@@ -11,6 +11,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Reorder
 import androidx.compose.material.icons.filled.Star
@@ -66,11 +68,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 import com.confused.anikuta.core.common.GridNumberPosition
 import com.confused.anikuta.core.common.GridTitleMode
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.SettingsIconTile
+import com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerNumberPosition
+import com.confused.anikuta.core.designsystem.component.playerlist.PlayerBannerNumberStyle
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListDisplay
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListEntry
 import com.confused.anikuta.core.designsystem.component.playerlist.PlayerEpisodeListStyle
@@ -271,6 +274,63 @@ private fun WizardPresetRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+    }
+}
+
+/**
+ * ROUND 148 (the device report): ONE ROW of icon tiles for the per-style
+ * presets — no names, no list; the selected tile carries the primary wash +
+ * the accent border, everything else stays quiet. Equal weights, so N tiles
+ * always fill the width evenly (the taste rule: equal edges).
+ */
+@Composable
+private fun WizardPresetIconRow(
+    icons: List<ImageVector>,
+    contentDescriptions: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        icons.forEachIndexed { index, icon ->
+            val selected = selectedIndex == index
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                },
+                border = if (selected) {
+                    BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f))
+                } else {
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { onSelect(index) },
+            ) {
+                Box(
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = contentDescriptions.getOrElse(index) { null },
+                        tint = if (selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -574,6 +634,253 @@ val WIZARD_DETAILS_LAYOUTS = listOf(
 )
 
 /**
+ * One player style family (ROUND 148 — the device report asked for per-style
+ * presets under the style toggle, mirroring the details page): the
+ * [PlayerEpisodeListPreferences.rowStyle] key it pins plus its four named
+ * presets.
+ */
+class WizardPlayerStyle(
+    val id: String,
+    val title: String,
+    val styleKey: String,
+    val presets: List<WizardPlayerPreset>,
+)
+
+/** One player preset — a named bundle of [PlayerEpisodeListPreferences] levers. */
+class WizardPlayerPreset(
+    val id: String,
+    val title: String,
+    val description: String,
+    val icon: ImageVector,
+    val apply: (PlayerEpisodeListPreferences) -> Unit,
+)
+
+/** The player's COMMON row levers every preset writes (deterministic switching). */
+private fun PlayerEpisodeListPreferences.applyPlayerBaseLevers(
+    synopsis: Boolean,
+    date: Boolean,
+    audio: Boolean,
+    download: Boolean,
+) {
+    showSynopsis.set(synopsis)
+    showDatePill.set(date)
+    showAudioPills.set(audio)
+    showDownloadButton.set(download)
+}
+
+/** The player catalog: FOUR styles × FOUR sub-presets. */
+val WIZARD_PLAYER_STYLES = listOf(
+    WizardPlayerStyle(
+        id = "classic",
+        title = "Classic",
+        styleKey = "CLASSIC",
+        presets = listOf(
+            WizardPlayerPreset(
+                id = "classic_full",
+                title = "Full",
+                description = "Everything on — synopsis, dates, audio, downloads",
+                icon = Icons.Filled.Weekend,
+                apply = { prefs ->
+                    prefs.applyPlayerBaseLevers(synopsis = true, date = true, audio = true, download = true)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "classic_balanced",
+                title = "Balanced",
+                description = "The synopsis steps aside, the meta stays",
+                icon = Icons.Filled.Equalizer,
+                apply = { prefs ->
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = true, audio = true, download = true)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "classic_streamlined",
+                title = "Streamlined",
+                description = "The progress bar and the titles carry the row",
+                icon = Icons.Filled.Reorder,
+                apply = { prefs ->
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = false, download = false)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "classic_bare",
+                title = "Bare",
+                description = "Numbers and titles only — nothing else",
+                icon = Icons.Filled.Remove,
+                apply = { prefs ->
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = false, download = false)
+                },
+            ),
+        ),
+    ),
+    WizardPlayerStyle(
+        id = "tracklist",
+        title = "Tracklist",
+        styleKey = "TRACKLIST",
+        presets = listOf(
+            WizardPlayerPreset(
+                id = "tracklist_detailed",
+                title = "Detailed",
+                description = "The full meta plate on every row",
+                icon = Icons.Filled.ViewAgenda,
+                apply = { prefs ->
+                    prefs.applyPlayerBaseLevers(synopsis = true, date = true, audio = true, download = true)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "tracklist_standard",
+                title = "Standard",
+                description = "Dates and audio stay, the synopsis goes",
+                icon = Icons.Filled.ViewHeadline,
+                apply = { prefs ->
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = true, audio = true, download = false)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "tracklist_tight",
+                title = "Tight",
+                description = "Audio pills only — the densest read",
+                icon = Icons.Filled.UnfoldLess,
+                apply = { prefs ->
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = true, download = false)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "tracklist_bare",
+                title = "Bare",
+                description = "The numbers carry it — no meta at all",
+                icon = Icons.Filled.Remove,
+                apply = { prefs ->
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = false, download = false)
+                },
+            ),
+        ),
+    ),
+    WizardPlayerStyle(
+        id = "grid",
+        title = "Grid",
+        styleKey = "GRID",
+        presets = listOf(
+            WizardPlayerPreset(
+                id = "grid_roomy",
+                title = "Roomy",
+                description = "Two-line titles under the thumbs",
+                icon = Icons.Filled.CropFree,
+                apply = { prefs ->
+                    prefs.gridTitleMode.set("TWO")
+                    prefs.gridNumberPosition.set("UNDER_THUMB")
+                    prefs.gridWatchedCheckmark.set(true)
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = false, download = false)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "grid_standard",
+                title = "Standard",
+                description = "One-line titles, the number below",
+                icon = Icons.Filled.GridOn,
+                apply = { prefs ->
+                    prefs.gridTitleMode.set("ONE")
+                    prefs.gridNumberPosition.set("UNDER_THUMB")
+                    prefs.gridWatchedCheckmark.set(true)
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = false, download = false)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "grid_tight",
+                title = "Tight",
+                description = "One-line titles beside the details",
+                icon = Icons.Filled.Apps,
+                apply = { prefs ->
+                    prefs.gridTitleMode.set("ONE")
+                    prefs.gridNumberPosition.set("BESIDE_DETAILS")
+                    prefs.gridWatchedCheckmark.set(true)
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = false, download = false)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "grid_poster",
+                title = "Poster",
+                description = "Clean imagery — the text steps back",
+                icon = Icons.Filled.CenterFocusStrong,
+                apply = { prefs ->
+                    prefs.gridTitleMode.set("OFF")
+                    prefs.gridNumberPosition.set("BESIDE_DETAILS")
+                    prefs.gridWatchedCheckmark.set(false)
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = false, download = false)
+                },
+            ),
+        ),
+    ),
+    WizardPlayerStyle(
+        id = "banner",
+        title = "Banner",
+        styleKey = "BANNER",
+        presets = listOf(
+            WizardPlayerPreset(
+                id = "banner_immersive",
+                title = "Immersive",
+                description = "Full-bleed art, no number, the progress bar on",
+                icon = Icons.Filled.AllInclusive,
+                apply = { prefs ->
+                    prefs.showEpisodeNumber.set(false)
+                    prefs.bannerNumberStyle.set("FROSTED")
+                    prefs.bannerNumberPosition.set("TOP_END")
+                    prefs.bannerSize.set(1f)
+                    prefs.showProgressBar.set(true)
+                    prefs.bannerWatchedCheck.set(false)
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = false, download = false)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "banner_numbered",
+                title = "Numbered",
+                description = "The solid episode number over full-bleed art",
+                icon = Icons.Filled.Star,
+                apply = { prefs ->
+                    prefs.showEpisodeNumber.set(true)
+                    prefs.bannerNumberStyle.set("SOLID")
+                    prefs.bannerNumberPosition.set("TOP_END")
+                    prefs.bannerSize.set(1f)
+                    prefs.showProgressBar.set(true)
+                    prefs.bannerWatchedCheck.set(true)
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = false, download = false)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "banner_frosted",
+                title = "Frosted",
+                description = "The frosted-glass number, the quieter card",
+                icon = Icons.Filled.Theaters,
+                apply = { prefs ->
+                    prefs.showEpisodeNumber.set(true)
+                    prefs.bannerNumberStyle.set("FROSTED")
+                    prefs.bannerNumberPosition.set("TOP_END")
+                    prefs.bannerSize.set(1f)
+                    prefs.showProgressBar.set(true)
+                    prefs.bannerWatchedCheck.set(false)
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = false, download = false)
+                },
+            ),
+            WizardPlayerPreset(
+                id = "banner_breathing",
+                title = "Breathing",
+                description = "Smaller centered cards with room between",
+                icon = Icons.Filled.Weekend,
+                apply = { prefs ->
+                    prefs.showEpisodeNumber.set(false)
+                    prefs.bannerNumberStyle.set("FROSTED")
+                    prefs.bannerNumberPosition.set("TOP_END")
+                    prefs.bannerSize.set(0.72f)
+                    prefs.showProgressBar.set(false)
+                    prefs.bannerWatchedCheck.set(false)
+                    prefs.applyPlayerBaseLevers(synopsis = false, date = false, audio = false, download = false)
+                },
+            ),
+        ),
+    ),
+)
+
+/**
  * The DETAILS page config step.
  *
  * @param prefs the REAL episode-list preferences (injected; every sub-preset
@@ -603,6 +910,11 @@ fun WizardDetailsConfigContent(
 
     fun applyPreset(layoutIndex: Int, presetIndex: Int) {
         val layout = WIZARD_DETAILS_LAYOUTS[layoutIndex]
+        // ROUND 148 (the device report — THE LIVE-PREVIEW BUG): the layout
+        // toggle only ever wrote the ROW LEVERS; the style key itself was
+        // decorative, so the preview (and the details page) never left
+        // CLASSIC. Pin the style FIRST, then the preset's levers.
+        prefs.rowStyle.set(layout.styleKey)
         val preset = layout.presets[presetIndex]
         preset.apply(prefs)
         onDetailsLayoutPresetSelected(layoutIndex, presetIndex)
@@ -622,22 +934,31 @@ fun WizardDetailsConfigContent(
             },
         )
         Spacer(Modifier.height(14.dp))
+        // ROUND 148 (the device report): the presets are ONE ROW of icon
+        // tiles — no names, no list — the selection re-renders the preview
+        // instantly; the SELECTED preset's one-line description sits below
+        // the row so the choice stays explainable without cluttering it.
         WizardSectionLabel("Presets")
         Spacer(Modifier.height(8.dp))
-        WizardConfigCard {
-            WIZARD_DETAILS_LAYOUTS[selectedLayoutIndex].presets.forEachIndexed { index, preset ->
-                WizardPresetRow(
-                    title = preset.title,
-                    description = preset.description,
-                    icon = preset.icon,
-                    selected = selectedPresetIndex == index,
-                    onClick = {
-                        selectedPresetIndex = index
-                        applyPreset(selectedLayoutIndex, index)
-                    },
-                )
-            }
-        }
+        val activePresets = WIZARD_DETAILS_LAYOUTS[selectedLayoutIndex].presets
+        WizardPresetIconRow(
+            icons = activePresets.map { it.icon },
+            contentDescriptions = activePresets.map { it.title },
+            selectedIndex = selectedPresetIndex,
+            onSelect = { index ->
+                selectedPresetIndex = index
+                applyPreset(selectedLayoutIndex, index)
+            },
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = activePresets[selectedPresetIndex.coerceIn(activePresets.indices)].description,
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+        )
         Spacer(Modifier.height(16.dp))
         WizardSectionLabel("Sort")
         Spacer(Modifier.height(8.dp))
@@ -763,17 +1084,57 @@ fun WizardPlayerConfigContent(
     val sortDescending by episodePrefs.sortDescending.changes.collectAsState(
         episodePrefs.sortDescending.get(),
     )
+    // ROUND 148 (the device report): per-style presets — the selected style's
+    // icon row + the pinned selection, mirroring the details step.
+    var selectedStyleIndex by remember {
+        val current = PlayerEpisodeListStyle.fromKey(episodePrefs.rowStyle.get()).name
+        val idx = WIZARD_PLAYER_STYLES.indexOfFirst { it.styleKey == current }
+        mutableStateOf(if (idx >= 0) idx else 0)
+    }
+    var selectedPresetIndex by remember { mutableStateOf(0) }
+
+    fun applyPlayerPreset(styleIndex: Int, presetIndex: Int) {
+        val style = WIZARD_PLAYER_STYLES[styleIndex]
+        episodePrefs.rowStyle.set(style.styleKey)
+        styleKey = style.styleKey
+        val preset = style.presets[presetIndex]
+        preset.apply(episodePrefs)
+        Logger.i("Anikuta:Onboarding:Config") { "player preset applied: ${style.id}/${preset.id}" }
+    }
 
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         WizardSectionLabel("Episode list style")
         Spacer(Modifier.height(8.dp))
         SegmentedToggle(
-            options = listOf("Classic", "Tracklist", "Grid", "Banner"),
-            selectedIndex = styleKeys.indexOf(styleKey).coerceAtLeast(0),
+            options = WIZARD_PLAYER_STYLES.map { it.title },
+            selectedIndex = selectedStyleIndex,
             onSelect = { idx ->
-                episodePrefs.rowStyle.set(styleKeys[idx])
-                styleKey = styleKeys[idx]
+                selectedStyleIndex = idx
+                selectedPresetIndex = 0
+                applyPlayerPreset(idx, 0)
             },
+        )
+        Spacer(Modifier.height(14.dp))
+        WizardSectionLabel("Presets")
+        Spacer(Modifier.height(8.dp))
+        val activeStyle = WIZARD_PLAYER_STYLES[selectedStyleIndex]
+        WizardPresetIconRow(
+            icons = activeStyle.presets.map { it.icon },
+            contentDescriptions = activeStyle.presets.map { it.title },
+            selectedIndex = selectedPresetIndex,
+            onSelect = { index ->
+                selectedPresetIndex = index
+                applyPlayerPreset(selectedStyleIndex, index)
+            },
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = activeStyle.presets[selectedPresetIndex.coerceIn(activeStyle.presets.indices)].description,
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(16.dp))
         WizardSectionLabel("Sort")
@@ -789,18 +1150,46 @@ fun WizardPlayerConfigContent(
         Spacer(Modifier.height(16.dp))
         WizardSectionLabel("Live preview")
         Spacer(Modifier.height(8.dp))
-        WizardPlayerPreview(styleKey, sortDescending, context)
+        WizardPlayerPreview(episodePrefs, sortDescending, context)
     }
 }
 
+/**
+ * The player preview — REACTIVE (ROUND 148: the old version built the
+ * display from DEFAULT levers, so no preset was ever visible in it; now it
+ * collects the same levers the presets write).
+ */
 @Composable
 private fun WizardPlayerPreview(
-    styleKey: String,
+    episodePrefs: PlayerEpisodeListPreferences,
     sortDescending: Boolean,
     context: Context,
 ) {
+    val styleKey by episodePrefs.rowStyle.changes.collectAsState(episodePrefs.rowStyle.get())
+    val showSynopsis by episodePrefs.showSynopsis.changes.collectAsState(episodePrefs.showSynopsis.get())
+    val showDatePill by episodePrefs.showDatePill.changes.collectAsState(episodePrefs.showDatePill.get())
+    val showAudioPills by episodePrefs.showAudioPills.changes.collectAsState(episodePrefs.showAudioPills.get())
+    val showDownloadButton by episodePrefs.showDownloadButton.changes.collectAsState(episodePrefs.showDownloadButton.get())
+    val showProgressBar by episodePrefs.showProgressBar.changes.collectAsState(episodePrefs.showProgressBar.get())
+    val showEpisodeNumber by episodePrefs.showEpisodeNumber.changes.collectAsState(episodePrefs.showEpisodeNumber.get())
+    val bannerNumberStyleKey by episodePrefs.bannerNumberStyle.changes.collectAsState(episodePrefs.bannerNumberStyle.get())
+    val bannerNumberPositionKey by episodePrefs.bannerNumberPosition.changes.collectAsState(episodePrefs.bannerNumberPosition.get())
+    val bannerSize by episodePrefs.bannerSize.changes.collectAsState(episodePrefs.bannerSize.get())
+    val bannerWatchedCheck by episodePrefs.bannerWatchedCheck.changes.collectAsState(episodePrefs.bannerWatchedCheck.get())
+    val dimWatched by episodePrefs.dimWatched.changes.collectAsState(episodePrefs.dimWatched.get())
     val display = PlayerEpisodeListDisplay(
         style = PlayerEpisodeListStyle.fromKey(styleKey),
+        showSynopsis = showSynopsis,
+        showDatePill = showDatePill,
+        showAudioPills = showAudioPills,
+        dimWatched = dimWatched,
+        showEpisodeNumber = showEpisodeNumber,
+        showProgressBar = showProgressBar,
+        showDownloadButton = showDownloadButton,
+        bannerSize = bannerSize,
+        bannerNumberPosition = PlayerBannerNumberPosition.fromKey(bannerNumberPositionKey),
+        bannerNumberStyle = PlayerBannerNumberStyle.fromKey(bannerNumberStyleKey),
+        bannerWatchedCheck = bannerWatchedCheck,
     )
     val numbers = if (sortDescending) listOf(2, 1) else listOf(1, 2)
     val rows = numbers.map { n ->
@@ -808,10 +1197,14 @@ private fun WizardPlayerPreview(
             episodeNumberText = n.toString(),
             displayTitle = if (n == 1) "The Journey Begins" else "Into the Fire",
             thumbnailUrl = wizardThumbUrl(context, n),
-            dateText = null,
+            dateText = if (showDatePill) "Sat · Apr 6" else null,
             dateTextShort = null,
-            audioLabels = listOf("SUB", "DUB"),
-            synopsis = null,
+            audioLabels = if (showAudioPills) listOf("SUB", "DUB") else emptyList(),
+            synopsis = if (showSynopsis) {
+                "A quiet morning is interrupted when the first gate opens over the harbor."
+            } else {
+                null
+            },
             isCurrent = n == 1,
             isWatched = false,
             progressFraction = if (n == 1) 0.4f else 0f,
@@ -987,7 +1380,8 @@ fun WizardNotificationsConfigContent(
             )
         }
         Spacer(Modifier.height(16.dp))
-        // ── The live preview (dimmed + inert while OFF) ──
+        // ── The live preview (dimmed + inert while OFF; TEXT renders the
+        // honest text-notification mock, BANNER the composed artwork) ──
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1003,7 +1397,72 @@ fun WizardNotificationsConfigContent(
                 },
                 label = "wizard_poster_transition",
             ) { spec ->
-                WizardPosterPreview(composer, spec, context)
+                when (spec.mode) {
+                    WizardNotificationMode.TEXT -> WizardTextNotificationPreview()
+                    else -> WizardPosterPreview(composer, spec, context)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * ROUND 148 (the device report): the TEXT mode's preview — a plain
+ * text-notification mock (what actually posts in TEXT mode), so the preview
+ * reads as ALIVE the moment Text is picked instead of showing a faded
+ * banner.
+ */
+@Composable
+private fun WizardTextNotificationPreview() {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The app chip — a small accent circle with the bell glyph.
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Notifications,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .size(18.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "ANI-KUTA · now",
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(1.dp))
+                Text(
+                    text = "$WIZARD_DEMO_TITLE — Episode 6",
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(1.dp))
+                Text(
+                    text = "Sub released · tap to watch",
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -1017,9 +1476,10 @@ private fun WizardPosterPreview(
 ) {
     // The REAL composer (the same one the notification path uses) over the
     // bundled stills — a fresh install has no library art, so the demo art
-    // rides the request itself. still_2 = the EPISODE THUMBNAIL art, still_1
-    // = the BANNER art (the ROUND 146 role doctrine — the old wizard passed
-    // the banner still as the episode thumb; fixed here).
+    // rides the request itself. ROUND 148: the three art SOURCES now feed
+    // THREE DIFFERENT images — the banner art (still_1) for the "banner"
+    // stage, the portrait cover crop for the "cover" stage, and the episode
+    // still (still_2) for the thumbnail card and the "episode" stage.
     val banner by produceState<android.graphics.Bitmap?>(initialValue = null, spec) {
         value = runCatching {
             composer.buildBanner(
@@ -1029,98 +1489,34 @@ private fun WizardPosterPreview(
                 audioVariant = "sub",
                 overrideEpisodeThumbUrl = wizardThumbUrl(context, 0),
                 overrideBannerUrl = wizardBannerUrl(context),
+                overrideCoverUrl = wizardCoverUrl(context),
             )
         }.onFailure { Logger.w("Anikuta:Onboarding:Config", it) { "wizard poster preview failed" } }
             .getOrNull()
     }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(120.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            val bitmap = banner
-            if (bitmap != null) {
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = "Poster preview",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else {
-                Text(
-                    text = "Rendering the preview…",
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        WizardArtRolesLegend(context)
-    }
-}
-
-/**
- * The three ART ROLES the composed banner pulls — named tiles so the roles
- * are explicit on a fresh install: the BANNER art (the wide stage), the
- * ARTWORK/cover art (the narrow poster card), and the EPISODE THUMBNAIL
- * (the row still).
- */
-@Composable
-private fun WizardArtRolesLegend(context: Context) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        WizardArtRoleTile(
-            label = "Background",
-            url = wizardBannerUrl(context),
-            modifier = Modifier.weight(1.15f),
-        )
-        WizardArtRoleTile(
-            label = "Artwork",
-            url = wizardCoverUrl(context),
-            modifier = Modifier.weight(0.7f),
-        )
-        WizardArtRoleTile(
-            label = "Thumbnail",
-            url = wizardThumbUrl(context, 0),
-            modifier = Modifier.weight(1.15f),
-        )
-    }
-}
-
-@Composable
-private fun WizardArtRoleTile(
-    label: String,
-    url: String,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(60.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-        ) {
-            AsyncImage(
-                model = url,
-                contentDescription = label,
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(120.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        val bitmap = banner
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Poster preview",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            Text(
+                text = "Rendering the preview…",
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Text(
-            text = label,
-            fontFamily = RobotoFamily,
-            fontSize = 10.5.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-        )
     }
 }

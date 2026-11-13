@@ -130,7 +130,28 @@ class ExtensionManager(
         scope.launch(Dispatchers.IO) {
             Logger.i(TAG) { "Loading all extensions (background)..." }
 
-            val results = loader.loadAll()
+            // ROUND 148 (the device report — the DeadSystemRuntimeException
+            // crash): the PackageManager query is a BINDER call into
+            // system_server, and during the restore's back-to-back APK
+            // installs the system can transiently answer DeadSystemException.
+            // The query was UNGUARDED and this scope has no
+            // CoroutineExceptionHandler — one bad binder call killed the whole
+            // process. Catch + ONE timed retry (transient by nature); on a
+            // second failure keep the previous state instead of dying.
+            val results = runCatching {
+                loader.loadAll()
+            }.recoverCatching { firstError ->
+                Logger.w(TAG, firstError) {
+                    "Package scan failed (${firstError.javaClass.simpleName}) — retrying once"
+                }
+                kotlinx.coroutines.delay(750)
+                loader.loadAll()
+            }.getOrElse { error ->
+                Logger.e(TAG, error) {
+                    "Package scan failed twice — keeping the previous extension state"
+                }
+                emptyList()
+            }
 
         // Phase DB-OPT (backward compat): if the enabledExtensions set is empty
         // (first launch after the upgrade that introduced per-package enable),

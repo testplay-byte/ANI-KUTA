@@ -139,6 +139,11 @@ class EpisodeBannerComposer(
         // the episode-thumb override so a fresh install (no library art) can
         // still preview a real BANNER image distinct from the thumbnail image.
         overrideBannerUrl: String? = null,
+        // ROUND 148 (the device report): the demo/wizard path's COVER art
+        // override — the "cover" artwork source gets its OWN image (the
+        // portrait poster crop), so Banner and Cover never render the same
+        // still in the preview.
+        overrideCoverUrl: String? = null,
     ): Bitmap? = withContext(Dispatchers.IO) {
         buildBannerInternal(
             mainId = mainId,
@@ -149,6 +154,7 @@ class EpisodeBannerComposer(
             overrideEpisodeTitle = overrideEpisodeTitle,
             overrideEpisodeThumbUrl = overrideEpisodeThumbUrl,
             overrideBannerUrl = overrideBannerUrl,
+            overrideCoverUrl = overrideCoverUrl,
         )
     }
 
@@ -162,6 +168,7 @@ class EpisodeBannerComposer(
         overrideEpisodeTitle: String? = null,
         overrideEpisodeThumbUrl: String? = null,
         overrideBannerUrl: String? = null,
+        overrideCoverUrl: String? = null,
     ): Bitmap? {
         return try {
             val details = contentRepository.getContentDetails(mainId)
@@ -178,8 +185,11 @@ class EpisodeBannerComposer(
             }
             // ROUND 146: the demo/wizard banner override seeds the background for
             // every artwork source (a fresh install has no content_details row).
+            // ROUND 148: the COVER source gets its own override (the portrait
+            // poster crop) — the banner override no longer pollutes it, so the
+            // Banner and Cover options render visibly different stages.
             val backgroundUrl = when (preferences.posterBackgroundSource) {
-                "cover" -> overrideBannerUrl ?: coverUrl ?: bannerUrl ?: extras?.coverUrlLarge
+                "cover" -> overrideCoverUrl ?: coverUrl ?: bannerUrl ?: extras?.coverUrlLarge
                 else -> overrideBannerUrl ?: bannerUrl ?: coverUrl ?: extras?.coverUrlLarge
             }
 

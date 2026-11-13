@@ -57,11 +57,6 @@ fun MoreScreen(
     onOpenTrackers: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
-    // ROUND 147 (the device report): every screen ENTRY starts at the
-    // TOP — the host's SaveableStateProvider resurrects the old scroll
-    // position, and screens landing "wherever they were left" was the
-    // complaint.
-    LaunchedEffect(Unit) { listState.scrollToItem(0) }
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
 

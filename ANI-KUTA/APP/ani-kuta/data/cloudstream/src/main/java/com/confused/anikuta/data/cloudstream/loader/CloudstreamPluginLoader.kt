@@ -267,6 +267,19 @@ class CloudstreamPluginLoader(
                     "diagnosis: ${file.name} calls a host-provided method this build " +
                         "may not carry (an API-version mismatch) — missing: ${t.message ?: "unknown"}"
                 }
+                // ROUND 148 (the device report): `NoSuchFieldError: No field
+                // $stable of type I in class ...plugins.Plugin` — the plugin
+                // was compiled against UPSTREAM CloudStream's Compose-processed
+                // Plugin class (its compiler emits a `$stable` Int static on
+                // every Compose-processed class); this host's clean-room Plugin
+                // carries none. Extension-side build gap, not a broken plugin —
+                // name it so the Errored row reads cleanly.
+                is NoSuchFieldError -> Logger.w(TAG) {
+                    "diagnosis: ${file.name} was compiled against a Compose-processed " +
+                        "CloudStream host (its code reads Plugin.\$stable) — this build's " +
+                        "clean-room Plugin API has no Compose stability marker. " +
+                        "Extension-side build gap; the plugin cannot load on this host."
+                }
             }
             // ROUND 98 (D-669): memoize — the deterministic failures must not
             // re-dex on every refresh (see the fast path above).

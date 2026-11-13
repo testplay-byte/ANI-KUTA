@@ -89,11 +89,6 @@ fun RestoreBackupScreen(
     val scope = rememberCoroutineScope()
 
     val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
-    // ROUND 147 (the device report): every screen ENTRY starts at the
-    // TOP — the host's SaveableStateProvider resurrects the old scroll
-    // position, and screens landing "wherever they were left" was the
-    // complaint.
-    LaunchedEffect(Unit) { lazyListState.scrollToItem(0) }
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 

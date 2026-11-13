@@ -313,17 +313,20 @@ class ExtensionBackupBridgeImpl(
         if (enabled && !appPreferences.isExtensionEnabled(pkgName)) {
             appPreferences.enableExtension(pkgName)
         }
-        // ROUND 148 (the device report: the extension stayed invisible/untrusted
-        // after the restore until the next app start): the install broadcast's
-        // earlier re-scan can have CACHED this package as Untrusted — its
-        // scan-time trust check (ExtensionLoader) ran before the trust write
-        // above landed, and nothing else re-scans afterwards. Trigger a FULL
-        // manager reload: [ExtensionManager.loadAll] is a fire-and-forget
-        // re-scan on the manager's own IO scope (the exact call its own
-        // callers — untrust, the package-change receiver — use), so the
-        // synchronous bridge contract is kept and the restore never blocks on
-        // a slow scan. The re-scan reads the FRESH trust set, so the extension
-        // moves to Installed and its sources register LIVE.
+        // ROUND 148 UPDATE (the DeadSystem crash): the per-state loadAll is
+        // GONE — for an N-APK restore it stacked up to 2N overlapping
+        // PackageManager scans (one per install + one per PACKAGE_ADDED
+        // broadcast) right while system_server was mid-install, and one
+        // transient DeadSystemException killed the whole process. The SINGLE
+        // post-restore reload lives in [reloadAniyomiExtensions]; the install
+        // receiver still refreshes per-install for liveness, and the
+        // manager's own loadAll gained the catch+retry.
+    }
+
+    override fun reloadAniyomiExtensions() {
+        // The fresh-scan re-reads the persisted trust set, so the just-trusted
+        // packages move to Installed and their sources register LIVE (the
+        // round-148 trust fix's intent, now at ONE point instead of N).
         extensionManager.loadAll()
     }
 

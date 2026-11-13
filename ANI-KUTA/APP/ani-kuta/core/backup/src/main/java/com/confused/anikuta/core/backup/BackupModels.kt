@@ -120,6 +120,13 @@ val PREFS_RESTORE_EXCLUDED_KEYS: Set<String> = setOf(
     "ads_first_open_timestamp",
     "ads_last_shown_timestamp",
     "ads_first_open_grace_consumed",
+    // ROUND 148 (the device report): the wizard's own flag NEVER rides a
+    // restore — a backup made on a finished install, restored mid-wizard,
+    // flipped the recipient's onboarding_completed and skipped them past
+    // the wizard (the restart then landed in the library with the ask
+    // firing at cold start). The recipient finishes THEIR OWN wizard; a
+    // settings-screen restore is unaffected (the flag is already set).
+    "onboarding_completed",
     // A tree URI from another device/app state is unusable and would make
     // downloads + backups silently no-op until re-picked (the round-134
     // verifier): the user re-selects the folder on restore.

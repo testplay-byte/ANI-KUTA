@@ -25,14 +25,18 @@ import androidx.compose.ui.graphics.Color
  */
 internal enum class OnboardingStep(val isPermissionStep: Boolean) {
     WELCOME(false),
+    // ROUND 148 (the device report): the GATE comes right after the welcome —
+    // "after the user clicks get started on the very first screen, he should
+    // be met with this make it yours screen." The theme step is now INSIDE
+    // the personalize block (the gate's list walks it first).
+    PERSONALIZE(false),
     THEME(false),
     // ROUND 144 (D-864): the INTERACTIVE personalize block — the user is asked
     // whether they want to see what they get and customize it NOW ("Lets check
-    // them out") or later in the app ("Later in the app"). The three config
-    // steps are thin hosts: the actual config UIs (live previews + presets)
-    // are composable SLOTS provided by :app (the module rules keep feature
-    // impls from importing the details/player renderers).
-    PERSONALIZE(false),
+    // them out") or later in the app ("Later in the app"). The config steps
+    // are thin hosts: the actual config UIs (live previews + presets) are
+    // composable SLOTS provided by :app (the module rules keep feature impls
+    // from importing the details/player renderers).
     DETAILS_UI(false),
     PLAYER_UI(false),
     NOTIF_UI(false),
@@ -49,15 +53,18 @@ internal enum class OnboardingStep(val isPermissionStep: Boolean) {
         /**
          * ROUND 147 (the user's order): the personalize BLOCK is ONE segment
          * in the progress bar while SKIPPED and SPLITS into its config steps
-         * once WALKED — the visible steps for the top bar's segments. THEME
-         * stays its own segment in both mappings (it is always walked); the
-         * gate itself is the block's single skipped-segment representation.
+         * once WALKED — the visible steps for the top bar's segments. ROUND
+         * 148: the THEME step is part of the block now, so it hides with the
+         * others while skipped (the gate itself is the block's one-segment
+         * representation).
          */
         fun visibleSteps(personalizeWalked: Boolean): List<OnboardingStep> =
             if (personalizeWalked) {
                 ordered
             } else {
-                ordered.filter { it != DETAILS_UI && it != PLAYER_UI && it != NOTIF_UI }
+                ordered.filter {
+                    it != THEME && it != DETAILS_UI && it != PLAYER_UI && it != NOTIF_UI
+                }
             }
     }
 }

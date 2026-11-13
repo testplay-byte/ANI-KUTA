@@ -709,6 +709,21 @@ fun AppRoot() {
     }
     val currentKey = backstack.last()
 
+    // ROUND 148 (the device report): the scroll-reset-on-FORWARD-ONLY rule.
+    // Every FORWARD entry (a push, a tab switch, the wizard handoff) lands
+    // at the TOP; going BACK from a child restores where the user was. The
+    // SavedStateHolder's per-key state is wiped right BEFORE a forward push
+    // (pop never wipes it) — replacing the round-147 per-screen
+    // LaunchedEffect scrollToItem(0) approach that also fired on back.
+    // (Moved UP from the AnimatedContent scope: the earliest push sites
+    // live above it, and the holder creation order inside one composition
+    // scope is irrelevant to its behavior.)
+    val saveableStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    val pushKey: (NavKey) -> Unit = { key ->
+        saveableStateHolder.removeState(key::class.simpleName ?: "screen")
+        backstack.add(key)
+    }
+
     // D-272: smart-link ad coordinator. Wraps every navigate-to-Details call so
     // the ad interstitial can gate it (one ad per 6h, try-again flow, time-spent-
     // outside verification). Declared AFTER `backstack` because it closes over
@@ -716,7 +731,7 @@ fun AppRoot() {
     // bypass the gate — they're system-initiated, not a user tap on an entry.
     val adsCoordinator = koinInject<AdsCoordinator>()
     val navigateToDetails: (AnimeDetailsKey) -> Unit = { key ->
-        adsCoordinator.requestNavigation { backstack.add(key) }
+        adsCoordinator.requestNavigation { pushKey(key) }
     }
 
     /**
@@ -790,8 +805,8 @@ fun AppRoot() {
                 mainActivity.anilistLoginSuccess = false
                 // Navigate to More → Trackers.
                 if (currentKey !is TrackersKey) {
-                    if (currentKey !is MoreKey) backstack.add(MoreKey)
-                    backstack.add(TrackersKey)
+                    if (currentKey !is MoreKey) pushKey(MoreKey)
+                    pushKey(TrackersKey)
                 }
             }
             mainActivity?.anilistLoginError?.let { error ->
@@ -875,7 +890,7 @@ fun AppRoot() {
                     backstack.removeAt(backstack.lastIndex)
                 }
             } else {
-                backstack.add(ExtensionsSettingsKey(initialTab = "cloudstream"))
+                pushKey(ExtensionsSettingsKey(initialTab = "cloudstream"))
             }
         }
     }
@@ -910,12 +925,12 @@ fun AppRoot() {
         val request = pendingNav ?: return@LaunchedEffect
         try {
             if (request.openUpdateHistory && backstack.lastOrNull() !is UpdateCheckLogKey) {
-                backstack.add(UpdateCheckLogKey)
+                pushKey(UpdateCheckLogKey)
             }
             // Round 143: the check-RESULT card opens the UPDATES screen (the
             // found-episodes list) — the history page stays for the failure card.
             if (request.openUpdates && backstack.lastOrNull() !is com.confused.anikuta.feature.updates.UpdatesKey) {
-                backstack.add(com.confused.anikuta.feature.updates.UpdatesKey)
+                pushKey(com.confused.anikuta.feature.updates.UpdatesKey)
             }
             // The deep link wins when both markers are present (a share link
             // IS the user's explicit destination); either way it's the same
@@ -958,7 +973,7 @@ fun AppRoot() {
                             backstack[backstack.lastIndex] = targetKey
                         }
                         // Anything else — push on top.
-                        else -> backstack.add(targetKey)
+                        else -> pushKey(targetKey)
                     }
                 } else if (request.shareMainId != null) {
                     // The share deep link is the app's OWN artifact — an
@@ -994,7 +1009,7 @@ fun AppRoot() {
     val pushTesting: (com.confused.anikuta.core.navigation.NavKey) -> Unit = { key ->
         val idx = backstack.indexOfFirst { it::class == key::class }
         when {
-            idx < 0 -> backstack.add(key)
+            idx < 0 -> pushKey(key)
             backstack[idx] == key -> while (backstack.size > idx + 1) backstack.removeAt(backstack.lastIndex)
             else -> {
                 while (backstack.size > idx + 1) backstack.removeAt(backstack.lastIndex)
@@ -1062,7 +1077,6 @@ fun AppRoot() {
         //   • The inner lambda parameter SHADOWS the outer `currentKey` val on
         //     purpose — every existing `when` branch body keeps working
         //     verbatim.
-        val saveableStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
             AnimatedContent(
                 targetState = currentKey,
@@ -1161,7 +1175,7 @@ fun AppRoot() {
                 onFinished = {
                     appPreferences.onboardingCompleted = true
                     backstack.clear()
-                    backstack.add(
+                    pushKey(
                         if (startTab == "library") AnimeLibraryKeyImpl else AnimeBrowseKey,
                     )
                 },
@@ -1174,7 +1188,7 @@ fun AppRoot() {
                     // pushes directly onto the backstack.
                     when (navKey) {
                         is AnimeDetailsKey -> navigateToDetails(navKey)
-                        else -> backstack.add(navKey)
+                        else -> pushKey(navKey)
                     }
                 },
             )
@@ -1185,7 +1199,7 @@ fun AppRoot() {
                         detailsKey = currentKey,
                         onBack = pop,
                         onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta, coverAccent, coverUrl ->
-                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta, coverAccentArgb = coverAccent, coverUrl = coverUrl))
+                            pushKey(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta, coverAccentArgb = coverAccent, coverUrl = coverUrl))
                         },
                         // Task 52: CloudStream episodes → the resolve sheet
                         // (Task 53 / RC-6): the details page stays visible under
@@ -1218,7 +1232,7 @@ fun AppRoot() {
                         // which would re-resolve an already-downloaded episode
                         // online and dead-end it).
                         onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent, coverUrl ->
-                            backstack.add(
+                            pushKey(
                                 com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                     providerName = providerName,
                                     animeTitle = animeTitle,
@@ -1294,7 +1308,7 @@ fun AppRoot() {
                         detailsKey = currentKey,
                         onBack = pop,
                         onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta, coverAccent, coverUrl ->
-                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta, coverAccentArgb = coverAccent, coverUrl = coverUrl))
+                            pushKey(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta, coverAccentArgb = coverAccent, coverUrl = coverUrl))
                         },
                         // Task 52: CloudStream episodes → the resolve sheet
                         // (Task 53 / RC-6, AnymeX entry pattern).
@@ -1324,7 +1338,7 @@ fun AppRoot() {
                         // which would re-resolve an already-downloaded episode
                         // online and dead-end it).
                         onNavigateToCsOfflineWatch = { offlineMediaUri, providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta, coverAccent, coverUrl ->
-                            backstack.add(
+                            pushKey(
                                 com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                     providerName = providerName,
                                     animeTitle = animeTitle,
@@ -1489,7 +1503,7 @@ fun AppRoot() {
                 // Task 61 (round 21 — the category subpages): tapping a CloudStream
                 // section's TITLE opens that category's own page.
                 onNavigateToCategory = { providerName, sectionTitle, sectionIndex ->
-                    backstack.add(
+                    pushKey(
                         com.confused.anikuta.feature.animesearch.CsCategoryKey(
                             providerName = providerName,
                             sectionTitle = sectionTitle,
@@ -1523,18 +1537,18 @@ fun AppRoot() {
                 )
             }
             is MoreKey -> MoreScreen(
-                onOpenSettings = { backstack.add(SettingsKey) },
-                onOpenDownloads = { backstack.add(DownloadsKey) },
-                onOpenHistory = { backstack.add(com.confused.anikuta.feature.animehistory.HistoryKey) },
-                onOpenUpdates = { backstack.add(com.confused.anikuta.feature.updates.UpdatesKey) },
-                onOpenProfile = { backstack.add(ProfileKey) },
-                onOpenAbout = { backstack.add(AboutKey) },
-                onOpenTrackers = { backstack.add(TrackersKey) },
+                onOpenSettings = { pushKey(SettingsKey) },
+                onOpenDownloads = { pushKey(DownloadsKey) },
+                onOpenHistory = { pushKey(com.confused.anikuta.feature.animehistory.HistoryKey) },
+                onOpenUpdates = { pushKey(com.confused.anikuta.feature.updates.UpdatesKey) },
+                onOpenProfile = { pushKey(ProfileKey) },
+                onOpenAbout = { pushKey(AboutKey) },
+                onOpenTrackers = { pushKey(TrackersKey) },
             )
             is DownloadsKey -> DownloadsScreen(
                 onBack = pop,
-                onOpenSettings = { backstack.add(DownloadSettingsKey) },
-                onOpenDownloaded = { backstack.add(DownloadedFilesKey) },
+                onOpenSettings = { pushKey(DownloadSettingsKey) },
+                onOpenDownloaded = { pushKey(DownloadedFilesKey) },
             )
             is DownloadedFilesKey -> DownloadedFilesScreen(
                 onBack = pop,
@@ -1555,7 +1569,7 @@ fun AppRoot() {
                             )
                         }
                         if (watchKey != null) {
-                            backstack.add(watchKey)
+                            pushKey(watchKey)
                         } else {
                             Logger.e("Anikuta:MainActivity") {
                                 "Downloads→Watch: no local URI found for mainId=$mainId, episodeKey=$episodeKey"
@@ -1609,23 +1623,23 @@ fun AppRoot() {
                 onBack = pop,
             )
             is SettingsKey -> SettingsScreen(
-                onOpenAppearance = { backstack.add(AppearanceKey) },
-                onOpenExtensions = { backstack.add(ExtensionsSettingsKey()) },
-                onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
+                onOpenAppearance = { pushKey(AppearanceKey) },
+                onOpenExtensions = { pushKey(ExtensionsSettingsKey()) },
+                onOpenAutoLink = { pushKey(AutoLinkSettingsKey) },
                 // D-388 (round 25): the UPDATES page is its own Settings row now
                 // (episode update checks, schedule, check-now, history).
-                onOpenUpdates = { backstack.add(UpdatesSettingsKey) },
+                onOpenUpdates = { pushKey(UpdatesSettingsKey) },
                 // D-388: Notifications points to the ALERTS page (master
                 // toggle, per-anime config, test) — not the updates page.
-                onOpenNotifications = { backstack.add(NotificationsKey) },
-                onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
-                onOpenVideoCaching = { backstack.add(VideoCachingKey) },
-                onOpenBackupRestore = { backstack.add(BackupRestoreKey) },
-                onOpenTorrent = { backstack.add(TorrentKey) },
-                onOpenPermissions = { backstack.add(PermissionsKey) },
-                onOpenDebug = { backstack.add(DebugSettingsKey) },
+                onOpenNotifications = { pushKey(NotificationsKey) },
+                onOpenPlayerSettings = { pushKey(PlayerSettingsKey) },
+                onOpenVideoCaching = { pushKey(VideoCachingKey) },
+                onOpenBackupRestore = { pushKey(BackupRestoreKey) },
+                onOpenTorrent = { pushKey(TorrentKey) },
+                onOpenPermissions = { pushKey(PermissionsKey) },
+                onOpenDebug = { pushKey(DebugSettingsKey) },
                 // D-561: the hidden long-press gate on the SAME row.
-                onOpenSponsorDebug = { backstack.add(SponsorDebugKey) },
+                onOpenSponsorDebug = { pushKey(SponsorDebugKey) },
                 // D-741 (round 116): onOpenAbout RETIRED — the Settings hub's
                 // About & Updates row is gone (the More page already carries
                 // the door + the update dot); AboutKey is still pushed by the
@@ -1639,63 +1653,63 @@ fun AppRoot() {
                     SettingsSearchNavigator.request(entry.page, entry.anchor)
                     when (entry.page) {
                         SettingsSearchPage.SETTINGS -> Unit
-                        SettingsSearchPage.APPEARANCE -> backstack.add(AppearanceKey)
+                        SettingsSearchPage.APPEARANCE -> pushKey(AppearanceKey)
                         SettingsSearchPage.APPEARANCE_GENERAL -> {
-                            backstack.add(AppearanceKey)
-                            backstack.add(AppearanceGeneralKey)
+                            pushKey(AppearanceKey)
+                            pushKey(AppearanceGeneralKey)
                         }
                         SettingsSearchPage.EPISODE_LIST -> {
-                            backstack.add(AppearanceKey)
-                            backstack.add(EpisodeSettingsKey)
+                            pushKey(AppearanceKey)
+                            pushKey(EpisodeSettingsKey)
                         }
                         // ROUND 105 (WS-C): the player page joins the search
                         // routing (the round-102 gap, closed with its rename).
                         SettingsSearchPage.PLAYER_EPISODE_LIST -> {
-                            backstack.add(AppearanceKey)
-                            backstack.add(PlayerEpisodeSettingsKey)
+                            pushKey(AppearanceKey)
+                            pushKey(PlayerEpisodeSettingsKey)
                         }
                         SettingsSearchPage.DETAILS_PAGE -> {
-                            backstack.add(AppearanceKey)
-                            backstack.add(DetailsPageSettingsKey)
+                            pushKey(AppearanceKey)
+                            pushKey(DetailsPageSettingsKey)
                         }
                         SettingsSearchPage.APP_ICON -> {
-                            backstack.add(AppearanceKey)
-                            backstack.add(AppIconKey)
+                            pushKey(AppearanceKey)
+                            pushKey(AppIconKey)
                         }
-                        SettingsSearchPage.EXTENSIONS -> backstack.add(ExtensionsSettingsKey())
-                        SettingsSearchPage.AUTO_LINK -> backstack.add(AutoLinkSettingsKey)
-                        SettingsSearchPage.UPDATES_SETTINGS -> backstack.add(UpdatesSettingsKey)
+                        SettingsSearchPage.EXTENSIONS -> pushKey(ExtensionsSettingsKey())
+                        SettingsSearchPage.AUTO_LINK -> pushKey(AutoLinkSettingsKey)
+                        SettingsSearchPage.UPDATES_SETTINGS -> pushKey(UpdatesSettingsKey)
                         SettingsSearchPage.UPDATE_CATEGORIES -> {
-                            backstack.add(UpdatesSettingsKey)
-                            backstack.add(UpdateCategoriesKey)
+                            pushKey(UpdatesSettingsKey)
+                            pushKey(UpdateCategoriesKey)
                         }
                         SettingsSearchPage.UPDATE_CHECK_LOG -> {
-                            backstack.add(UpdatesSettingsKey)
-                            backstack.add(UpdateCheckLogKey)
+                            pushKey(UpdatesSettingsKey)
+                            pushKey(UpdateCheckLogKey)
                         }
-                        SettingsSearchPage.NOTIFICATIONS -> backstack.add(NotificationsKey)
+                        SettingsSearchPage.NOTIFICATIONS -> pushKey(NotificationsKey)
                         SettingsSearchPage.NOTIFICATION_POSTER -> {
-                            backstack.add(NotificationsKey)
-                            backstack.add(NotificationPosterKey)
+                            pushKey(NotificationsKey)
+                            pushKey(NotificationPosterKey)
                         }
                         SettingsSearchPage.NOTIFICATIONS_LIBRARY -> {
-                            backstack.add(NotificationsKey)
-                            backstack.add(NotificationsLibraryKey)
+                            pushKey(NotificationsKey)
+                            pushKey(NotificationsLibraryKey)
                         }
-                        SettingsSearchPage.PLAYER -> backstack.add(PlayerSettingsKey)
-                        SettingsSearchPage.VIDEO_CACHING -> backstack.add(VideoCachingKey)
-                        SettingsSearchPage.DOWNLOAD_SETTINGS -> backstack.add(DownloadSettingsKey)
-                        SettingsSearchPage.DOWNLOADS_PAGE -> backstack.add(DownloadsKey)
-                        SettingsSearchPage.ABOUT -> backstack.add(AboutKey)
-                        SettingsSearchPage.TRACKERS -> backstack.add(TrackersKey)
-                        SettingsSearchPage.DEBUG -> backstack.add(DebugSettingsKey)
+                        SettingsSearchPage.PLAYER -> pushKey(PlayerSettingsKey)
+                        SettingsSearchPage.VIDEO_CACHING -> pushKey(VideoCachingKey)
+                        SettingsSearchPage.DOWNLOAD_SETTINGS -> pushKey(DownloadSettingsKey)
+                        SettingsSearchPage.DOWNLOADS_PAGE -> pushKey(DownloadsKey)
+                        SettingsSearchPage.ABOUT -> pushKey(AboutKey)
+                        SettingsSearchPage.TRACKERS -> pushKey(TrackersKey)
+                        SettingsSearchPage.DEBUG -> pushKey(DebugSettingsKey)
                         SettingsSearchPage.HISTORY ->
-                            backstack.add(com.confused.anikuta.feature.animehistory.HistoryKey)
+                            pushKey(com.confused.anikuta.feature.animehistory.HistoryKey)
                         SettingsSearchPage.UPDATES_PAGE ->
-                            backstack.add(com.confused.anikuta.feature.updates.UpdatesKey)
-                        SettingsSearchPage.PROFILE -> backstack.add(ProfileKey)
-                        SettingsSearchPage.TORRENT -> backstack.add(TorrentKey)
-                        SettingsSearchPage.PERMISSIONS -> backstack.add(PermissionsKey)
+                            pushKey(com.confused.anikuta.feature.updates.UpdatesKey)
+                        SettingsSearchPage.PROFILE -> pushKey(ProfileKey)
+                        SettingsSearchPage.TORRENT -> pushKey(TorrentKey)
+                        SettingsSearchPage.PERMISSIONS -> pushKey(PermissionsKey)
                     }
                 },
                 highlightAnchor = remember {
@@ -1712,7 +1726,7 @@ fun AppRoot() {
             is DebugSettingsKey -> com.confused.anikuta.settings.DebugSettingsScreen(
                 onBack = pop,
                 // D-388 (round 25): the dedicated Update Check History button.
-                onOpenUpdateCheckHistory = { backstack.add(UpdateCheckLogKey) },
+                onOpenUpdateCheckHistory = { pushKey(UpdateCheckLogKey) },
             )
             // D-561 (round 73): the hidden Always-sponsor page (HOLD the
             // "Debug options" row for TEN SECONDS — D-657 — to reach it).
@@ -1721,7 +1735,7 @@ fun AppRoot() {
             // same destination the extensions header's Science pill uses).
             is SponsorDebugKey -> com.confused.anikuta.settings.SponsorDebugScreen(
                 onBack = pop,
-                onOpenExtensionTesting = { backstack.add(ExtensionTestingKey) },
+                onOpenExtensionTesting = { pushKey(ExtensionTestingKey) },
             )
             // CloudStream V2: the plugin detail page — resolves the plugin across
             // Trusted/Untrusted/Failed/Available and shows metadata + live
@@ -1744,7 +1758,7 @@ fun AppRoot() {
             // the pattern used for orchestrator/contentRepository/downloadManager.
             is BackupRestoreKey -> com.confused.anikuta.settings.BackupRestoreScreen(
                 onBack = pop,
-                onOpenRestore = { backstack.add(RestoreBackupKey) },
+                onOpenRestore = { pushKey(RestoreBackupKey) },
             )
             // ROUND 135: the restore flow — its own page (details + restart).
             is RestoreBackupKey -> com.confused.anikuta.settings.RestoreBackupScreen(
@@ -1761,10 +1775,10 @@ fun AppRoot() {
             // D-193 Phase 3: combined Updates & Notifications settings
             is UpdatesSettingsKey -> UpdatesSettingsScreen(
                 onBack = pop,
-                onOpenNotifications = { backstack.add(NotificationsKey) },
-                onOpenCategories = { backstack.add(UpdateCategoriesKey) },
+                onOpenNotifications = { pushKey(NotificationsKey) },
+                onOpenCategories = { pushKey(UpdateCategoriesKey) },
                 // Task 64 (round 24): the content-update history page.
-                onOpenCheckLog = { backstack.add(UpdateCheckLogKey) },
+                onOpenCheckLog = { pushKey(UpdateCheckLogKey) },
                 // D-558: the search-landing anchor (mode-aware inside).
                 highlightAnchor = remember {
                     SettingsSearchNavigator.takeAnchor(SettingsSearchPage.UPDATES_SETTINGS)
@@ -1801,8 +1815,8 @@ fun AppRoot() {
             )
             is NotificationsKey -> NotificationsSettingsScreen(
                 onBack = pop,
-                onOpenLibrary = { backstack.add(NotificationsLibraryKey) },
-                onOpenPosterSettings = { backstack.add(NotificationPosterKey) },
+                onOpenLibrary = { pushKey(NotificationsLibraryKey) },
+                onOpenPosterSettings = { pushKey(NotificationPosterKey) },
                 // D-558: the search-landing anchor.
                 highlightAnchor = remember {
                     SettingsSearchNavigator.takeAnchor(SettingsSearchPage.NOTIFICATIONS)
@@ -1822,12 +1836,12 @@ fun AppRoot() {
             )
             is ExtensionsSettingsKey -> ExtensionsSettingsScreen(
                 onBack = pop,
-                onOpenRepoSettings = { backstack.add(ExtensionRepoSettingsKey) },
-                onOpenExtensionDetail = { backstack.add(ExtensionDetailKey(it)) },
+                onOpenRepoSettings = { pushKey(ExtensionRepoSettingsKey) },
+                onOpenExtensionDetail = { pushKey(ExtensionDetailKey(it)) },
                 // CloudStream V2: the CS plugin detail page (trust/uninstall/retry hub).
-                onOpenCloudstreamPluginDetail = { backstack.add(CloudstreamPluginDetailKey(it)) },
+                onOpenCloudstreamPluginDetail = { pushKey(CloudstreamPluginDetailKey(it)) },
                 // Round 82 (D-576): the extension TESTING suite entry.
-                onOpenExtensionTesting = { backstack.add(ExtensionTestingKey) },
+                onOpenExtensionTesting = { pushKey(ExtensionTestingKey) },
                 // Task 60: the tab the key asked for (the plugin-import hand-off
                 // pushes "cloudstream"; the branch smart-casts currentKey).
                 initialTab = currentKey.initialTab,
@@ -1869,7 +1883,7 @@ fun AppRoot() {
                 // gear opens the source preferences for this target (the
                 // target's id IS the source id; a non-configurable source
                 // gets the honest "This source has no settings." page).
-                onOpenSettings = { backstack.add(SourcePreferencesKey(currentKey.targetId)) },
+                onOpenSettings = { pushKey(SourcePreferencesKey(currentKey.targetId)) },
             )
             is ExtensionTestingStatsKey -> TestingStatsScreen(
                 onBack = pop,
@@ -1881,7 +1895,7 @@ fun AppRoot() {
             is ExtensionDetailKey -> ExtensionDetailScreen(
                 pkgName = currentKey.pkgName,
                 onBack = pop,
-                onOpenSourcePreferences = { sourceId -> backstack.add(SourcePreferencesKey(sourceId)) },
+                onOpenSourcePreferences = { sourceId -> pushKey(SourcePreferencesKey(sourceId)) },
                 // D-209: "Open in WebView" button on the extension detail page —
                 // opens the source's baseUrl in a WebView so the user can solve
                 // Cloudflare challenges manually. Cookies are saved automatically
@@ -1899,12 +1913,12 @@ fun AppRoot() {
                 onBack = pop,
             )
             is AppearanceKey -> AppearanceScreen(
-                onOpenGeneral = { backstack.add(AppearanceGeneralKey) },
-                onOpenDetailsPage = { backstack.add(DetailsPageSettingsKey) },
-                onOpenEpisodeSettings = { backstack.add(EpisodeSettingsKey) },
+                onOpenGeneral = { pushKey(AppearanceGeneralKey) },
+                onOpenDetailsPage = { pushKey(DetailsPageSettingsKey) },
+                onOpenEpisodeSettings = { pushKey(EpisodeSettingsKey) },
                 // ROUND 102 (WS-G): the player page's episode-list page.
-                onOpenPlayerEpisodeSettings = { backstack.add(PlayerEpisodeSettingsKey) },
-                onOpenAppIcon = { backstack.add(AppIconKey) },
+                onOpenPlayerEpisodeSettings = { pushKey(PlayerEpisodeSettingsKey) },
+                onOpenAppIcon = { pushKey(AppIconKey) },
                 onBack = pop,
                 // D-558: the search-landing anchor.
                 highlightAnchor = remember {
@@ -1974,7 +1988,7 @@ fun AppRoot() {
                         "play-entry: launching '${entry.animeTitle}' EP ${entry.episodeNumber} " +
                             "from cache (hls=${entry.isHls}, ${entry.cachedBytes}B, complete=${entry.complete})"
                     }
-                    backstack.add(buildWatchKeyFromCacheEntry(entry))
+                    pushKey(buildWatchKeyFromCacheEntry(entry))
                 },
             )
             is ProfileKey -> com.confused.anikuta.profile.ProfileScreen(
@@ -2104,10 +2118,10 @@ fun AppRoot() {
                     }
                     backstack.clear()
                     when (route) {
-                        "browse" -> backstack.add(AnimeBrowseKey)
-                        "library" -> backstack.add(AnimeLibraryKeyImpl)
-                        "search" -> backstack.add(AnimeSearchKey)
-                        "more" -> backstack.add(MoreKey)
+                        "browse" -> pushKey(AnimeBrowseKey)
+                        "library" -> pushKey(AnimeLibraryKeyImpl)
+                        "search" -> pushKey(AnimeSearchKey)
+                        "more" -> pushKey(MoreKey)
                     }
                 },
                 modifier = Modifier.align(Alignment.BottomCenter),
@@ -2141,7 +2155,7 @@ fun AppRoot() {
                     csResolveDownloadMode = false
                 },
                 onPlay = { playedKey ->
-                    backstack.add(playedKey)
+                    pushKey(playedKey)
                     csResolveRequest = null
                 },
                 onDownload = if (csResolveDownloadMode) {

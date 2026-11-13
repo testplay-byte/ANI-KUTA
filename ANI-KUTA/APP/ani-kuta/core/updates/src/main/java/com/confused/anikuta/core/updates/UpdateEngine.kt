@@ -549,6 +549,13 @@ class UpdateEngine(
                 // in TENTHS (number*10) so a special 12.5 (125) inserts ONCE and a
                 // later real 13 (130) still detects — the truncated-integer gate
                 // re-detected specials forever.
+                // ROUND 148 (the "notifications never arrive" report): the send
+                // result GATES the count advance — an episode whose send was
+                // temporarily impossible (the POST_NOTIFICATIONS grant absent)
+                // stays above lastKnown, so the NEXT check re-attempts the send
+                // instead of being consumed into the dedup log forever. Watched
+                // episodes consume normally.
+                var notifiedSubTenths = lastKnownSub.toLong()
                 for (ep in subEpisodes) {
                     val epNum = ep.episode_number.toInt()
                     val epTenths = Math.round(ep.episode_number * 10)
@@ -568,7 +575,10 @@ class UpdateEngine(
                         Logger.i(TAG) { "checkSingleAnime — NEW SUB: mainId=$mainId ep=$epNum watched=$isWatched" }
                         if (!isWatched) {
                             // D-198: episode_number Long→Double migration.
-                            notificationSender?.postNotification(mainId, epNum.toDouble(), "sub", "watchable")
+                            val sent = notificationSender?.postNotification(mainId, epNum.toDouble(), "sub", "watchable") ?: true
+                            if (sent) notifiedSubTenths = maxOf(notifiedSubTenths, epTenths)
+                        } else {
+                            notifiedSubTenths = maxOf(notifiedSubTenths, epTenths)
                         }
                         val sourceDateUpload = ep.date_upload
                         actualReleaseUpdater?.updateActualAt(mainId, epNum.toDouble(),
@@ -577,6 +587,7 @@ class UpdateEngine(
                 }
 
                 // New DUB episodes — always insert. ROUND 145 (M-4): the tenths gate.
+                var notifiedDubTenths = lastKnownDub.toLong()
                 for (ep in dubEpisodes) {
                     val epNum = ep.episode_number.toInt()
                     val epTenths = Math.round(ep.episode_number * 10)
@@ -596,7 +607,10 @@ class UpdateEngine(
                         Logger.i(TAG) { "checkSingleAnime — NEW DUB: mainId=$mainId ep=$epNum watched=$isWatched" }
                         if (!isWatched) {
                             // D-198: episode_number Long→Double migration.
-                            notificationSender?.postNotification(mainId, epNum.toDouble(), "dub", "watchable")
+                            val sent = notificationSender?.postNotification(mainId, epNum.toDouble(), "dub", "watchable") ?: true
+                            if (sent) notifiedDubTenths = maxOf(notifiedDubTenths, epTenths)
+                        } else {
+                            notifiedDubTenths = maxOf(notifiedDubTenths, epTenths)
                         }
                         val sourceDateUpload = ep.date_upload
                         actualReleaseUpdater?.updateActualAt(mainId, epNum.toDouble(),
@@ -619,8 +633,11 @@ class UpdateEngine(
                 // D-198 mapping over the INTEGER store column) — convert to Long
                 // tenths for the max (the stored value is interpreted in tenths
                 // going forward; the one-time re-detection wave is disclosed).
-                val newMaxSub = maxOf(maxSubTenths, lastKnownSub.toLong())
-                val newMaxDub = maxOf(maxDubTenths, lastKnownDub.toLong())
+                // ROUND 148: the advance caps at the highest NOTIFIED (or
+                // watched) episode — an ungranted send keeps its episode
+                // re-notifiable (maxSubTenths/maxDubTenths stay informational).
+                val newMaxSub = maxOf(notifiedSubTenths, lastKnownSub.toLong())
+                val newMaxDub = maxOf(notifiedDubTenths, lastKnownDub.toLong())
                 updateStore.updateCheckResult(
                     mainId = mainId,
                     lastCheckedAt = now,
