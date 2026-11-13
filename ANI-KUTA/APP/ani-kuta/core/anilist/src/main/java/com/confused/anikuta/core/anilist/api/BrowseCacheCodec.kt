@@ -45,6 +45,17 @@ object BrowseCacheCodec {
     const val SECTION_TOP_RATED = "top_rated"
 
     /**
+     * Round 148: the HOME screen's OWN storage keys (same `browse_cache`
+     * table, same 6h TTL, same codec — zero schema change). The OLD keys above
+     * stay untouched — the Search tab's offline fallback co-owns them
+     * (the D-278 trap): writers/readers of home rails MUST use the home_*
+     * keys, never mix the two namespaces.
+     */
+    const val SECTION_HOME_TRENDING = "home_trending"
+    const val SECTION_HOME_POPULAR = "home_popular"
+    const val SECTION_HOME_TOP_RATED = "home_top_rated"
+
+    /**
      * Serializes a list of anime into the stable browse-cache JSON format.
      * Omitting null fields keeps the payload compact + lets old decoders
      * default them to null on read.

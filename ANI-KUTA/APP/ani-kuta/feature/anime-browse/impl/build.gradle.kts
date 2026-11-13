@@ -20,6 +20,10 @@ dependencies {
     // Phase 3: continue-watching carousel
     implementation(project(":core:watch-progress"))
     implementation(project(":core:content"))
+    // Round 148: the home's Releasing-soon + Recently-released rails read the
+    // schedule + update stores directly (no new module).
+    implementation(project(":core:schedule"))
+    implementation(project(":core:updates"))
 
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)

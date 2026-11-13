@@ -73,7 +73,7 @@ import com.confused.anikuta.core.designsystem.theme.AnikutaTheme
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.navigation.NavKey
 import com.confused.anikuta.feature.animebrowse.AnimeBrowseKey
-import com.confused.anikuta.feature.animebrowse.BrowseScreen
+import com.confused.anikuta.feature.animebrowse.HomeScreen
 import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
 import com.confused.anikuta.feature.animedetails.DetailsScreen
 import com.confused.anikuta.feature.animedetails.describeDetailsKeyAnomaly
@@ -527,7 +527,7 @@ fun AppRoot() {
     val appContext = androidx.compose.ui.platform.LocalContext.current
     val navItems = remember {
         listOf(
-            NavItem("browse", "Browse", NavIcons.Browse),
+            NavItem("browse", "Home", NavIcons.Browse),
             NavItem("library", "Library", NavIcons.Library),
             NavItem("search", "Search", NavIcons.Search),
             NavItem("more", "More", NavIcons.More),
@@ -1180,7 +1180,7 @@ fun AppRoot() {
                     )
                 },
             )
-            is AnimeBrowseKey -> BrowseScreen(
+            is AnimeBrowseKey -> HomeScreen(
                 onNavigate = { navKey ->
                     // D-272: route Details navigations through the ad gate;
                     // everything else (e.g. Watch from a Continue-Watching card,
@@ -1190,6 +1190,13 @@ fun AppRoot() {
                         is AnimeDetailsKey -> navigateToDetails(navKey)
                         else -> pushKey(navKey)
                     }
+                },
+                // Round 148: the home's personal rails (Continue watching /
+                // Next up / Releasing soon / Recently released) open details
+                // BY mainId — the openDetailsByMainId semantics (works even
+                // after the content left the library; opens at that episode).
+                onOpenDetailsByMainId = { mainId, episodeNumber ->
+                    openDetailsByMainId(mainId, episodeNumber)
                 },
             )
             is AnimeDetailsKey -> {

@@ -284,7 +284,7 @@ fun BrowseScreen(
  * the composable later. Emits no UI.
  */
 @Composable
-private fun SectionPreloader(urls: List<String?>, width: Dp, height: Dp) {
+internal fun SectionPreloader(urls: List<String?>, width: Dp, height: Dp) {
     val context = LocalContext.current
     val density = LocalDensity.current
     val cleaned = remember(urls) { urls.filter { !it.isNullOrBlank() }.distinct() }
@@ -308,7 +308,7 @@ private fun SectionPreloader(urls: List<String?>, width: Dp, height: Dp) {
  * (D-253: sections never pop in — CORE_RULES §22 "no instant cuts").
  */
 @Composable
-private fun BrowseSection(visible: Boolean, content: @Composable () -> Unit) {
+internal fun BrowseSection(visible: Boolean, content: @Composable () -> Unit) {
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(tween(300)) + expandVertically(tween(300)),

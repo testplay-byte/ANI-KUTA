@@ -12,8 +12,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * D-405 (round 29): the BROWSE PRELOADER — warms the entire Browse page
- * WHILE the user works through the onboarding wizard.
+ * D-405 (round 29): the BROWSE PRELOADER — warms the HOME page (the tab the
+ * wizard's entry lands on; round 148 renamed the surface, the warm-up keeps
+ * its cache-first semantics) WHILE the user works through the onboarding
+ * wizard.
  *
  * The device report: "While the user is setting up the application and going
  * through the setup wizard, in the background what will happen is that the
@@ -24,24 +26,26 @@ import kotlinx.coroutines.withContext
  * properly loaded and managed."
  *
  * ## How it works
- *  1. **DATA** — the three browse sections (trending / popular / top-rated)
- *     load EXACTLY the way [com.confused.anikuta.feature.animebrowse
- *     .BrowseViewModel.loadSection] will load them on first composition:
- *     cache-first (`DataCacheRepository.getBrowseCache` + `BrowseCacheCodec
- *     .decode`), and only when the cache is missing/expired a network fetch
- *     + `upsertBrowseCache` — so the cache the Browse screen reads on entry
+ *  1. **DATA** — the three home discovery sections (home_trending /
+ *     home_popular / home_top_rated) load EXACTLY the way
+ *     [com.confused.anikuta.feature.animebrowse.HomeViewModel.loadSection]
+ *     will load them on first composition: cache-first
+ *     (`DataCacheRepository.getBrowseCache` + `BrowseCacheCodec.decode`),
+ *     and only when the cache is missing/expired a network fetch
+ *     + `upsertBrowseCache` — so the cache the Home screen reads on entry
  *     is already warm (or gets warmed here first).
  *  2. **IMAGES** — every cover URL of all three sections is enqueued into
- *     the Coil pipeline at the EXACT render sizes the Browse screen uses
- *     (`SectionPreloader`'s memory-cache contract: 128×192dp for carousel
- *     covers, 84×126dp for the hero posters — same size + no
+ *     the Coil pipeline at the EXACT render sizes the Home screen uses
+ *     (`SectionPreloader`'s memory-cache contract: 128×192dp for the rails'
+ *     covers (the home rails render the SAME 128dp cards Browse did —
+ *     visual continuity), 84×126dp for the hero posters — same size + no
  *     transformations = memory-cache HITS on first compose, so the page
  *     renders with covers instantly visible).
  *
  * Runs on `Dispatchers.IO` (SQL + JSON + network) with the Coil enqueue
  * hopping to Coil's own dispatcher. Every stage is logged (the wizard's
  * preload is fully diagnosable from logcat). Failures are soft — the
- * Browse screen's own loading path is untouched and unaffected (this is
+ * Home screen's own loading path is untouched and unaffected (this is
  * purely a warm-up).
  */
 object BrowsePreloader {
@@ -66,16 +70,19 @@ object BrowsePreloader {
         dataCacheRepository: DataCacheRepository,
     ) = withContext(Dispatchers.IO) {
         Logger.i(TAG) { "preload — START (wizard is running; warming Browse)" }
+        // Round 148: the tab serves the HOME screen now — warm the home_*
+        // sections (HomeViewModel's own cache keys; the old trending/popular/
+        // top_rated keys stay untouched for Search's offline fallback, D-278).
         val sections = listOf(
-            BrowseCacheCodec.SECTION_TRENDING to "TRENDING_DESC",
-            BrowseCacheCodec.SECTION_POPULAR to "POPULARITY_DESC",
-            BrowseCacheCodec.SECTION_TOP_RATED to "SCORE_DESC",
+            BrowseCacheCodec.SECTION_HOME_TRENDING to "TRENDING_DESC",
+            BrowseCacheCodec.SECTION_HOME_POPULAR to "POPULARITY_DESC",
+            BrowseCacheCodec.SECTION_HOME_TOP_RATED to "SCORE_DESC",
         )
         val all = mutableListOf<AniListAnime>()
         sections.forEach { (sectionKey, sort) ->
             val anime = runCatching { loadSection(anilistApi, dataCacheRepository, sectionKey, sort) }
                 .onFailure { e ->
-                    Logger.w(TAG) { "preload — $sectionKey failed (soft; Browse loads its own way): ${e.message}" }
+                    Logger.w(TAG) { "preload — $sectionKey failed (soft; Home loads its own way): ${e.message}" }
                 }
                 .getOrDefault(emptyList())
             all += anime
@@ -124,9 +131,9 @@ object BrowsePreloader {
     }
 
     /**
-     * One section, cache-first — mirrors BrowseViewModel.loadSection's
+     * One section, cache-first — mirrors HomeViewModel.loadSection's
      * cache semantics: a fresh cache row is used as-is; a missing/expired
-     * row triggers the network fetch + the cache upsert (so the Browse
+     * row triggers the network fetch + the cache upsert (so the Home
      * screen's cache-first read hits instantly later).
      */
     private suspend fun loadSection(
