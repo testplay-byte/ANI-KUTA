@@ -368,7 +368,7 @@ class HomeViewModel(
      *    (`content_details.data_episodes`), never point past it. No fabricated
      *    numbers — when the total is unknown the next-episode rule stands.
      */
-    private fun deriveNextUp(
+    private suspend fun deriveNextUp(
         continueRows: List<WatchProgress>,
         recentRows: List<WatchProgress>,
     ): List<HomeNextUpItem> {
