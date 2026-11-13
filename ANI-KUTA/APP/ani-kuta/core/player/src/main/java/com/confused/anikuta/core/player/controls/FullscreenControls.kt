@@ -97,7 +97,10 @@ fun FullscreenControls(
     onLockToggle: () -> Unit,
     onQualityClick: () -> Unit,
     onSubtitleClick: () -> Unit,
-    onAudioClick: () -> Unit = {},
+    // ROUND 145 (P-M3): the DEAD Audio button removed — the MPV stack never
+    // wired a handler (the only call site passed nothing) and a tap that does
+    // nothing is worse than no button. The CS stack keeps its own wired one.
+
     onServerClick: () -> Unit = {},
     onSpeedClick: () -> Unit = {},
     onMoreClick: () -> Unit = {},
@@ -106,7 +109,8 @@ fun FullscreenControls(
     onNextEpisode: () -> Unit = {},
     onSkipForward: () -> Unit = {},
     onPiPClick: () -> Unit = {},
-    onRotateClick: () -> Unit = {},
+    // ROUND 145 (P-M3): the DEAD Rotate button removed (same rationale — the
+    // MPV stack never wired a rotation handler).
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
     // Round 120 (D-748): opens the intro/outro marking sheet.
@@ -346,7 +350,6 @@ fun FullscreenControls(
                         ) {
                             FSSmallButton(icon = Icons.Default.Subtitles, contentDescription = "Subtitles", onClick = onSubtitleClick)
                             FSSmallButton(icon = Icons.Default.HighQuality, contentDescription = "Quality", onClick = onQualityClick)
-                            FSSmallButton(icon = Icons.Default.MusicNote, contentDescription = "Audio", onClick = onAudioClick)
                             // ROUND 121 (the device round's order): the top-right
                             // cluster is EPISODE NAVIGATION — previous + next.
                             // (The old intro/outro editor button moved into the
@@ -477,7 +480,6 @@ fun FullscreenControls(
                                             },
                                         )
                                         FSSpeedButton(speed = currentSpeed, onClick = onSpeedClick)
-                                        FSSmallButton(icon = Icons.Default.RotateRight, contentDescription = "Rotate", onClick = onRotateClick)
                                         FSSkipIconButton(onClick = onSkipForward)
                                     }
                                 }

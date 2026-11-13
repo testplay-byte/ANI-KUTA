@@ -3,6 +3,7 @@ package com.confused.anikuta.core.torrent
 import android.content.Context
 import com.confused.anikuta.core.common.Logger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -97,6 +98,17 @@ class TorrServerLoader(private val context: Context) {
     }
 
     /**
+     * ROUND 145 (H-3b): the ASYNC entry point for Application.onCreate — the
+     * recursive delete can span thousands of files after a heavy streaming
+     * session; on the main thread that was an ANR at startup. Dispatches to IO.
+     */
+    fun cleanupStaleCacheAsync() {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            cleanupStaleCache()
+        }
+    }
+
+    /**
      * Starts the server if it is not up yet (idempotent, single-flight).
      * Returns the base URL, or null when the engine failed to load
      * (unsupported device / native load error) — callers degrade to the
@@ -116,6 +128,17 @@ class TorrServerLoader(private val context: Context) {
                 // imports in the repo live in this block.
                 torrServer.TorrServer.touch()
                 torrServer.TorrServer.startTorrentServer(dir.absolutePath)
+                // ROUND 145 (H-3): the echo poll now demands OUR OWN start — a
+                // foreign TorrServer already bound to 8090 would answer /echo and
+                // be silently adopted (its cache dir, its lifecycle). The guard:
+                // the server must answer AND reflect OUR working directory via
+                // the settings echo round-trip? The pinned artifact exposes no
+                // such probe — so the adoption guard is the START ORDER: baseUrl
+                // is only set when OUR startTorrentServer call preceded the echo
+                // (a foreign listener still answers, but our start into the SAME
+                // port would have failed to bind and the process would log its
+                // own bind failure; the honest mitigation is the runtime check
+                // below + the documented port-conflict limitation).
                 val base = "http://127.0.0.1:$DEFAULT_PORT"
                 var ready = false
                 repeat(START_PROBE_ATTEMPTS) {
@@ -126,7 +149,17 @@ class TorrServerLoader(private val context: Context) {
                     kotlinx.coroutines.delay(1_000L)
                 }
                 if (!ready) {
-                    Logger.e(TAG) { "torrent server did not answer /echo within ${START_PROBE_ATTEMPTS}s" }
+                    Logger.e(TAG) { "torrent server did not answer /echo within ${START_PROBE_ATTEMPTS}s (a foreign app may own port $DEFAULT_PORT)" }
+                    return@withContext null
+                }
+                // ROUND 145 (H-3): the IDENTITY GUARD — our server creates its
+                // settings/DB files in the dir WE passed; a foreign TorrServer
+                // already bound to 8090 answers the echo but never writes into
+                // OUR dir. An empty dir + a live echo = a foreign listener:
+                // refuse (the torrent links stay hidden rather than riding
+                // another app's server).
+                if (dir.listFiles().isNullOrEmpty()) {
+                    Logger.e(TAG) { "the echo answered but OUR working dir stayed empty — refusing to adopt a foreign server on port $DEFAULT_PORT" }
                     return@withContext null
                 }
                 torrServer.TorrServer.addTrackers(TRACKERS.joinToString(separator = ",\n"))

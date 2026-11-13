@@ -158,10 +158,14 @@ fun OnboardingScreen(
     val context = LocalContext.current
     val preferences = koinInject<DownloadPreferences>()
     val steps = remember { OnboardingStep.ordered }
-    var stepIndex by remember { mutableIntStateOf(0) }
+    // ROUND 145 (M-7, the wizard slice): the step + the personalize fact are
+    // SAVEABLE — a rotation or a process death mid-wizard resumes where the
+    // user was instead of resetting to WELCOME (the permission states below
+    // already re-verify for real on resume).
+    var stepIndex by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
     // ROUND 144 (D-864): whether the user walked the personalize block —
     // the Finish summary reflects it honestly ("Personalized" vs "Defaults").
-    var personalizeEntered by remember { mutableStateOf(false) }
+    var personalizeEntered by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     fun stepIndexOf(step: OnboardingStep): Int = steps.indexOf(step)
 
     // ── The verified permission states (REAL system checks, never flags) ──

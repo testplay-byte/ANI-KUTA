@@ -135,6 +135,10 @@ class EpisodeBannerComposer(
         overrideTitle: String? = null,
         overrideEpisodeTitle: String? = null,
         overrideEpisodeThumbUrl: String? = null,
+        // ROUND 146: the demo/wizard path's BANNER art override — separate from
+        // the episode-thumb override so a fresh install (no library art) can
+        // still preview a real BANNER image distinct from the thumbnail image.
+        overrideBannerUrl: String? = null,
     ): Bitmap? = withContext(Dispatchers.IO) {
         buildBannerInternal(
             mainId = mainId,
@@ -144,6 +148,7 @@ class EpisodeBannerComposer(
             overrideTitle = overrideTitle,
             overrideEpisodeTitle = overrideEpisodeTitle,
             overrideEpisodeThumbUrl = overrideEpisodeThumbUrl,
+            overrideBannerUrl = overrideBannerUrl,
         )
     }
 
@@ -156,6 +161,7 @@ class EpisodeBannerComposer(
         overrideTitle: String? = null,
         overrideEpisodeTitle: String? = null,
         overrideEpisodeThumbUrl: String? = null,
+        overrideBannerUrl: String? = null,
     ): Bitmap? {
         return try {
             val details = contentRepository.getContentDetails(mainId)
@@ -170,9 +176,11 @@ class EpisodeBannerComposer(
             val extras = details?.let {
                 com.confused.anikuta.core.content.DataSourceExtras.fromJson(it.dataExtraJson)
             }
+            // ROUND 146: the demo/wizard banner override seeds the background for
+            // every artwork source (a fresh install has no content_details row).
             val backgroundUrl = when (preferences.posterBackgroundSource) {
-                "cover" -> coverUrl ?: bannerUrl ?: extras?.coverUrlLarge
-                else -> bannerUrl ?: coverUrl ?: extras?.coverUrlLarge
+                "cover" -> overrideBannerUrl ?: coverUrl ?: bannerUrl ?: extras?.coverUrlLarge
+                else -> overrideBannerUrl ?: bannerUrl ?: coverUrl ?: extras?.coverUrlLarge
             }
 
             // The episode's own title + thumbnail from the metadata cache.

@@ -73,12 +73,18 @@ import org.koin.compose.koinInject
 private const val WIZARD_DEMO_MAIN_ID = "wizard-demo"
 private const val WIZARD_DEMO_TITLE = "Demon Slayer"
 
-private fun demoThumb(context: Context, index: Int): String =
+// ROUND 146: the demo art roles are SEPARATE images — still_2 is the EPISODE
+// THUMBNAIL art (the rows), still_1 is the BANNER art (the poster stage and
+// the artwork-source preview). Never interchange them again.
+private fun wizardThumbUrl(context: Context, index: Int): String =
     if (index % 2 == 0) {
-        "android.resource://${context.packageName}/${com.confused.anikuta.R.drawable.ep_preview_still_1}"
-    } else {
         "android.resource://${context.packageName}/${com.confused.anikuta.R.drawable.ep_preview_still_2}"
+    } else {
+        "android.resource://${context.packageName}/${com.confused.anikuta.R.drawable.ep_preview_still_1}"
     }
+
+private fun wizardBannerUrl(context: Context): String =
+    "android.resource://${context.packageName}/${com.confused.anikuta.R.drawable.ep_preview_still_1}"
 
 /** The details preview's SEpisode demo rows (the settings page's vocabulary). */
 private fun wizardDemoEpisodes(context: Context) = (1..2).map { n ->
@@ -260,7 +266,7 @@ private fun WizardDemoDetailsRow(
         episode = episode,
         metadata = null,
         onClick = {},
-        fallbackCoverUrl = demoThumb(context, episode.episode_number.toInt()),
+        fallbackCoverUrl = wizardThumbUrl(context, episode.episode_number.toInt()),
         style = style,
         previewTapAll = {},
     )
@@ -367,7 +373,7 @@ private fun WizardPlayerPreview(styleKey: String, context: Context) {
         PlayerEpisodeRowData(
             episodeNumberText = n.toString(),
             displayTitle = if (n == 1) "The Journey Begins" else "Into the Fire",
-            thumbnailUrl = demoThumb(context, n),
+            thumbnailUrl = wizardThumbUrl(context, n),
             dateText = null,
             dateTextShort = null,
             audioLabels = listOf("SUB", "DUB"),
@@ -551,7 +557,8 @@ private fun WizardPosterPreview(
                 title = WIZARD_DEMO_TITLE,
                 episodeNumber = 6.0,
                 audioVariant = "sub",
-                overrideEpisodeThumbUrl = demoThumb(context, 1),
+                overrideEpisodeThumbUrl = wizardThumbUrl(context, 1),
+                overrideBannerUrl = wizardBannerUrl(context),
             )
         }.onFailure { Logger.w("Anikuta:Onboarding:Config", it) { "wizard poster preview failed" } }
             .getOrNull()

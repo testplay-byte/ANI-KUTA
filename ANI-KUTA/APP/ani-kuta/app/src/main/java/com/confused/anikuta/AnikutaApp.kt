@@ -122,7 +122,9 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
         // session's torrent_tmp leftovers never survive into this one (the
         // embedded server has no clean stop; see core/torrent/TORRENT-DESIGN.md).
         // REMOVAL SEAM: delete this call + the torrentModule line below (core/torrent/TORRENT-REMOVAL.md).
-        com.confused.anikuta.core.torrent.TorrServerLoader(this).cleanupStaleCache()
+        // ROUND 145 (H-3b): the wipe runs OFF the main thread (a large cache is
+        // an ANR at startup) — the loader has the async helper.
+        com.confused.anikuta.core.torrent.TorrServerLoader(this).cleanupStaleCacheAsync()
 
         // ── Extension compat setup (BEFORE Koin, BEFORE any extension loads) ──
         // Extensions use Injekt (a service locator) to resolve NetworkHelper,

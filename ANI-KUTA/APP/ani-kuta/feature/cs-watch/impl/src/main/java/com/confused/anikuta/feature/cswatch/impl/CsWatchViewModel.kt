@@ -922,6 +922,20 @@ class CsWatchViewModel(
             }
             return
         }
+        // ROUND 145 (P-H1): the OFFLINE DASH failures carry the MEDIA URI (the
+        // sidecar read / manifest parse errors emit linkUrl = metaUri — the
+        // same uri requestPlayOffline stored). The old currentLink-mismatch
+        // check dropped them (currentLink is null on offline loads) → a dead
+        // player with no error UI and no retry path. Fail the phase honestly.
+        if (state.playOfflineMediaUri != null && url == state.playOfflineMediaUri) {
+            Logger.w(TAG) { "engine error on OFFLINE playback (media uri match) — failing: $failureReason" }
+            _uiState.value = state.copy(
+                phase = Phase.FAILED,
+                resolveError = "Offline playback failed" +
+                    (failureReason?.let { " — $it" } ?: ""),
+            )
+            return
+        }
         if (state.currentLink?.url != url) return
         val failed = state.failedLinkUrls + url
         val reasons = if (failureReason != null) {

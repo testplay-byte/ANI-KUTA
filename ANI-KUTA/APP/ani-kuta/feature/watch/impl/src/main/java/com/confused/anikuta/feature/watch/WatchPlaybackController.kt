@@ -151,6 +151,14 @@ internal class WatchPlaybackController(
         upNextCountdown = 0
         offeredNextKeys.keys.removeAll { it != currentKey }
         dismissedNextKeys.keys.removeAll { it != currentKey }
+        // ROUND 145 (P-M4): the AniSkip AUTO latch is PER-VISIT — the map was
+        // never pruned anywhere, so revisiting an episode IN THE SAME SESSION
+        // suppressed its intro/outro auto-skip forever (AUTO users only;
+        // BUTTON mode still showed the pill). Every switch CLEARS the map: the
+        // latch's purpose is one-shot WITHIN a viewing (seeking back into the
+        // intro must not re-trigger), and a switch = a fresh visit for the
+        // entering episode. The intro key is "<epKey>", the outro key is
+        // "<epKey>|outro" — both clear together.
     }
 
     fun setCountdown(value: Int) {

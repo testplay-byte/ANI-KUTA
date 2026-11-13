@@ -491,12 +491,18 @@ class UpdateEngine(
             val sAnime = SAnime.create().apply { url = content.animeUrl ?: "" }
             val episodes = source.getEpisodeList(sAnime)
 
+            // ROUND 145 (M-4): the stored count is in TENTHS (number*10) so the
+            // fractional specials (12.5 -> 125) stop re-detecting forever while
+            // the next REAL episode (13 -> 130) still detects — a units-Long
+            // column cannot hold 12.5 without one of the two breaking. The first
+            // check after this ships re-detects the latest episode once (the
+            // feed badge re-arms; the notifications stay deduped by the sent
+            // log) — self-healing, disclosed in the round record.
             val lastKnown = state.lastKnownEpisodeCount ?: 0
-            // D-198: episode_number type changed from INTEGER to REAL (Double). The
-            // maxEpisodeNumber is now a Double — compare against lastKnown as a Double.
             val maxEpisodeNumber = episodes.maxOfOrNull { it.episode_number.toDouble() } ?: 0.0
+            val maxEpisodeTenths = Math.round(maxEpisodeNumber * 10)
 
-            if (maxEpisodeNumber <= lastKnown) {
+            if (maxEpisodeTenths <= lastKnown) {
                 // No new episodes — apply backoff.
                 val backoffStep = (state.backoffStep + 1).coerceAtMost(BACKOFF_STEPS.size - 1)
                 val nextCheckAt = now + BACKOFF_STEPS[backoffStep]
@@ -504,13 +510,13 @@ class UpdateEngine(
                     mainId = mainId,
                     lastCheckedAt = now,
                     nextCheckAt = nextCheckAt,
-                    lastKnownEpisodeCount = maxEpisodeNumber.toLong(),
+                    lastKnownEpisodeCount = maxEpisodeTenths,
                     consecutiveFailures = 0,
                     backoffStep = backoffStep,
                     lastKnownDubCount = state.lastKnownDubCount,
                     lastCheckedDubAt = state.lastCheckedDubAt,
                 )
-                Logger.d(TAG) { "checkSingleAnime — no new episodes: mainId=$mainId lastKnown=$lastKnown max=$maxEpisodeNumber nextCheck=${backoffStep}h backoff" }
+                Logger.d(TAG) { "checkSingleAnime — no new episodes: mainId=$mainId lastKnown=$lastKnown tenths=$maxEpisodeTenths nextCheck=${backoffStep}h backoff" }
                 CheckItemResult(
                     newEpisodes = 0,
                     outcome = "no-new-episodes",
@@ -539,10 +545,14 @@ class UpdateEngine(
                 var inserted = 0
                 val threeDaysMs = 3L * 24 * 60 * 60 * 1000
 
-                // New SUB episodes — always insert.
+                // New SUB episodes — always insert. ROUND 145 (M-4): the gate is
+                // in TENTHS (number*10) so a special 12.5 (125) inserts ONCE and a
+                // later real 13 (130) still detects — the truncated-integer gate
+                // re-detected specials forever.
                 for (ep in subEpisodes) {
                     val epNum = ep.episode_number.toInt()
-                    if (epNum > lastKnownSub) {
+                    val epTenths = Math.round(ep.episode_number * 10)
+                    if (epTenths > lastKnownSub) {
                         val epKey = "$mainId|${String.format("%05d", epNum)}"
                         val isWatched = watchProgressStore.isWatched(epKey)
                         updateStore.upsertEpisodeUpdate(
@@ -566,10 +576,11 @@ class UpdateEngine(
                     }
                 }
 
-                // New DUB episodes — always insert.
+                // New DUB episodes — always insert. ROUND 145 (M-4): the tenths gate.
                 for (ep in dubEpisodes) {
                     val epNum = ep.episode_number.toInt()
-                    if (epNum > lastKnownDub) {
+                    val epTenths = Math.round(ep.episode_number * 10)
+                    if (epTenths > lastKnownDub) {
                         val epKey = "$mainId|${String.format("%05d", epNum)}_dub"
                         val isWatched = watchProgressStore.isWatched(epKey)
                         updateStore.upsertEpisodeUpdate(
@@ -598,19 +609,22 @@ class UpdateEngine(
                     ?: (now + TimeUnit.HOURS.toMillis(24))
 
                 // D-193 v2 fix: always update BOTH sub + dub counts (we always check both).
-                val newMaxSub = maxOf(maxSub, lastKnownSub.toInt())
-                val newMaxDub = maxOf(maxDub, lastKnownDub.toInt())
+                // ROUND 145 (M-4): the counts advance in TENTHS.
+                val maxSubTenths = Math.round(subEpisodes.maxOfOrNull { it.episode_number * 10 } ?: 0.0)
+                val maxDubTenths = Math.round(dubEpisodes.maxOfOrNull { it.episode_number * 10 } ?: 0.0)
+                val newMaxSub = maxOf(maxSubTenths, lastKnownSub)
+                val newMaxDub = maxOf(maxDubTenths, lastKnownDub)
                 updateStore.updateCheckResult(
                     mainId = mainId,
                     lastCheckedAt = now,
                     nextCheckAt = nextCheckAt,
-                    lastKnownEpisodeCount = newMaxSub.toLong(),
+                    lastKnownEpisodeCount = newMaxSub,
                     consecutiveFailures = 0,
                     backoffStep = 0,
-                    lastKnownDubCount = newMaxDub.toLong(),
+                    lastKnownDubCount = newMaxDub,
                     lastCheckedDubAt = now,
                 )
-                Logger.i(TAG) { "checkSingleAnime — $inserted new episode(s): mainId=$mainId sub=$lastKnownSub→$newMaxSub dub=$lastKnownDub→$newMaxDub" }
+                Logger.i(TAG) { "checkSingleAnime — $inserted new episode(s): mainId=$mainId sub=$lastKnownSub→$newMaxSub dub=$lastKnownDub→$newMaxDub (tenths)" }
                 CheckItemResult(
                     newEpisodes = inserted,
                     outcome = if (inserted > 0) "new-episodes" else "no-new-episodes",

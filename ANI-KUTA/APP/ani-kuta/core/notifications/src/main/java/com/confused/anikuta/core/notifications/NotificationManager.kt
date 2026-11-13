@@ -210,12 +210,24 @@ class NotificationManager(
         // Residual: two anime still collide only when they share BOTH the
         // same 15-bit hash AND the same episode number — astronomically
         // unlikely (and the old within-anime collision class is gone).
-        // Bounds: 30000 + 32767*10000 + 9999 = 327_709_999 < Int.MAX_VALUE,
-        // so the old coerceAtMost(Int.MAX_VALUE) guard is mathematically
-        // redundant now and was dropped.
+        // Bounds (round 145, M-3): 30000 + 32767*20000 + 4999*3 + 2 =
+        // 655_372_999 < Int.MAX_VALUE — the old coerceAtMost guard stays
+        // redundant.
+        // ROUND 145 (M-3): the AUDIO VARIANT folds into the id — sub and dub of
+        // the SAME episode used to share ONE id (the second post silently
+        // replaced the first — the exact swallowed-banner class the block below
+        // documents for the episode-number axis). The episode slot narrows to
+        // 0..4999 (x10 precision + the variant 0..1) keeping the global bound
+        // well inside Int.MAX. The variant map: sub=0, dub=1, unknown=2.
+        val variantSlot = when (audioVariant.trim().lowercase()) {
+            "sub" -> 0
+            "dub" -> 1
+            else -> 2
+        }
         val notifId = NOTIFICATION_ID_BASE +
-            (mainId.hashCode() and 0x7FFF) * 10000 +
-            ((episodeNumber * 10f).roundToInt().coerceIn(0, 9999))
+            (mainId.hashCode() and 0x7FFF) * 20000 +
+            ((episodeNumber * 10f).roundToInt().coerceIn(0, 4999)) * 3 +
+            variantSlot
         val displayAudio = if (audioVariant == "sub") "SUB" else if (audioVariant == "dub") "DUB" else ""
         // D-496: "EP 12" not "EP 12.0" (Double toString), and 12.5 stays 12.5.
         val text = "EP ${episodeLabel(episodeNumber)}${if (displayAudio.isNotBlank()) " · $displayAudio" else ""} is now available"

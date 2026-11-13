@@ -462,10 +462,19 @@ fun CsWatchScreen(
     // button is the only way forward. Keyed on the card latch + episode so a
     // dismissed card stops the clock and a new episode restarts it cleanly.
     var upNextCountdown by remember { mutableStateOf<Int?>(null) }
+    // ROUND 145 (P-M2): the MPV-parity NEAR-END HOLD — the card latches at 95%,
+    // and the old countdown fired ~10s later at ≈95.7%, cutting the ending. The
+    // clock now HOLDS at full until the last 10 SECONDS of actual playback
+    // (the same rule the MPV stack shipped in round 123), then ticks down.
     LaunchedEffect(uiState.showUpNextCard, uiState.episodeNumber) {
         if (uiState.showUpNextCard && playerPreferences.autoPlayNext) {
-            // Local ticker + one state write per second — no smart-cast on the
-            // delegated property (the construct Kotlin is retiring).
+            // Hold: poll the playback position until (dur - pos) <= 10s.
+            while (engineState.durationMs <= 0 ||
+                engineState.durationMs - engineState.positionMs > 10_000L
+            ) {
+                delay(250L)
+                if (!uiState.showUpNextCard) return@LaunchedEffect
+            }
             var secondsLeft = 10
             upNextCountdown = secondsLeft
             while (secondsLeft > 0) {

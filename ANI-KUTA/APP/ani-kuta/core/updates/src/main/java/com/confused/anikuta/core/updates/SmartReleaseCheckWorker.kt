@@ -252,8 +252,9 @@ class SmartReleaseCheckWorker(
                             mainId = mainId,
                             lastCheckedAt = now,
                             nextCheckAt = nextCheckAt,
-                            // D-198: episodeNumber is now Double; lastKnownEpisodeCount is Long.
-                            lastKnownEpisodeCount = episodeNumber.toLong(),
+                            // D-198 + ROUND 145 (M-4): the count is in TENTHS
+                            // (number*10) — the fractional specials stop re-detecting.
+                            lastKnownEpisodeCount = Math.round(episodeNumber * 10),
                             consecutiveFailures = 0,
                             backoffStep = 0,
                             lastKnownDubCount = state.lastKnownDubCount,

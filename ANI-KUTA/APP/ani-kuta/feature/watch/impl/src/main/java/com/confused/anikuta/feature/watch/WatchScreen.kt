@@ -225,6 +225,12 @@ fun WatchScreen(
     // in the logs (4 observers registered after 4 entries).
     var logObserverRef by remember { mutableStateOf<`is`.xyz.mpv.MPVLib.LogObserver?>(null) }
     var eventObserverRef by remember { mutableStateOf<`is`.xyz.mpv.MPVLib.EventObserver?>(null) }
+    // ROUND 145 (P-H2): the INITIAL fd:// loadfile used to ride an UNTRACKED
+    // postDelayed(500) — leaving the screen within that window posted a
+    // loadfile at a DESTROYED mpv handle and a closed fd (a native-crash
+    // class). The runnable is tracked here so dispose can remove it, exactly
+    // like the observer refs above.
+    var pendingInitialLoadRef by remember { mutableStateOf<Runnable?>(null) }
     // D.FIX: ParcelFileDescriptor for offline playback (content:// → fd:// conversion).
     // Kept open while MPV plays from it. Closed on dispose.
     var mpvParcelFileDescriptor by remember { mutableStateOf<android.os.ParcelFileDescriptor?>(null) }
@@ -1395,7 +1401,7 @@ fun WatchScreen(
                 // (Ported from the old project's PlayerInitializer.loadVideo.)
                 if (loadUrl.startsWith("fd://")) {
                     Logger.i(TAG) { "Offline fd:// URL — delaying loadfile 500ms for surface readiness" }
-                    mpvView?.postDelayed({
+                    val initialLoad = Runnable {
                         try {
                             MPVLib.command(arrayOf("loadfile", loadUrl, "replace"))
                             MPVLib.setPropertyBoolean("pause", false)
@@ -1406,7 +1412,9 @@ fun WatchScreen(
                         } catch (e: Exception) {
                             Logger.e(TAG, e) { "Failed to load offline video (fd://)" }
                         }
-                    }, 500)
+                    }
+                    pendingInitialLoadRef = initialLoad
+                    mpvView?.postDelayed(initialLoad, 500)
                 } else {
                     // Video caching: wrap the network URL through the cache proxy
                     // (fail-open — original URL when caching doesn't apply). The
@@ -1503,6 +1511,11 @@ fun WatchScreen(
             // 4x event duplication in the logs.
             logObserverRef?.let { runCatching { MPVLib.removeLogObserver(it) } }
             eventObserverRef?.let { runCatching { MPVLib.removeObserver(it) } }
+            // ROUND 145 (P-H2): kill a PENDING initial fd:// load before the
+            // destroy — the old untracked postDelayed could fire at a freed
+            // mpv handle + a closed fd (a native-crash class).
+            pendingInitialLoadRef?.let { mpvView?.removeCallbacks(it) }
+            pendingInitialLoadRef = null
             mpvView?.let { view ->
                 runCatching { MPVLib.command(arrayOf("stop")) }
                 runCatching { view.destroy() }
