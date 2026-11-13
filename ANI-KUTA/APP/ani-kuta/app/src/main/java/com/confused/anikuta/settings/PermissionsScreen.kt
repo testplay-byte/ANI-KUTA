@@ -25,9 +25,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ChevronRight
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
@@ -344,7 +345,7 @@ private fun PermissionRow(
             }
             Spacer(Modifier.size(8.dp))
             Icon(
-                imageVector = if (granted) Icons.Filled.CheckCircle else Icons.AutoMirrored.Filled.ChevronRight,
+                imageVector = if (granted) Icons.Filled.CheckCircle else Icons.Filled.ChevronRight,
                 contentDescription = if (granted) grantedLabel else "Open",
                 tint = if (granted) {
                     MaterialTheme.colorScheme.primary

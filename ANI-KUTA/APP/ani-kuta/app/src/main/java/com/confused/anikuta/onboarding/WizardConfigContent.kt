@@ -647,7 +647,7 @@ fun WizardDetailsConfigContent(
             selectedIndex = if (sortDescending) 1 else 0,
             onSelect = { idx ->
                 prefs.sortDescending.set(idx == 1)
-                onDetailsSortChanged(ascending = idx == 0)
+                onDetailsSortChanged(idx == 0)
             },
         )
         Spacer(Modifier.height(16.dp))
@@ -783,7 +783,7 @@ fun WizardPlayerConfigContent(
             selectedIndex = if (sortDescending) 1 else 0,
             onSelect = { idx ->
                 episodePrefs.sortDescending.set(idx == 1)
-                onPlayerSortChanged(ascending = idx == 0)
+                onPlayerSortChanged(idx == 0)
             },
         )
         Spacer(Modifier.height(16.dp))
