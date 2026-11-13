@@ -8,7 +8,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -712,15 +711,21 @@ private fun OnboardingWelcomeStep(
         // ROUND 147 (the device report): the art ENTERS — the whole canvas
         // breathes in over the first second instead of popping onto black,
         // and the canvas base is warm-shifted to match the reddish default
-        // (was a purple-leaning 0xFF0D0A14).
-        var artRevealed by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { artRevealed = true }
-        val artAlpha by animateFloatAsState(
-            targetValue = if (artRevealed) 1f else 0f,
-            animationSpec = tween(900, easing = Motion.EasingEmphasized),
-            label = "welcomeArtReveal",
-        )
-        Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = artAlpha }) {
+        // (was a purple-leaning 0xFF0D0A14). The Animatable pattern (the
+        // finish step's check uses the same) — no animate*AsState import
+        // needed in this module.
+        val artAlpha = remember { androidx.compose.animation.core.Animatable(0f) }
+        LaunchedEffect(Unit) {
+            artAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(900, easing = Motion.EasingEmphasized),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = artAlpha.value },
+        ) {
             OnboardingBlobBackground(
                 accent = accent,
                 base = Color(0xFF120B0D),
