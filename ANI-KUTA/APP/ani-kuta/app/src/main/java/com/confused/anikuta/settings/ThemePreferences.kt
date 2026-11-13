@@ -44,8 +44,10 @@ class ThemePreferences(private val store: PreferenceStore) {
 
     val amoled = mutableStateOf(store.getBoolean(KEY_AMOLED, false))
 
+    // ROUND 147: the fresh-install default accent is RED (the user's order — a
+    // reddish special default instead of Midnight/Lime).
     val accentPreset = mutableStateOf(
-        AccentPreset.fromName(store.getString(KEY_ACCENT_PRESET, AccentPreset.LIME.name))
+        AccentPreset.fromName(store.getString(KEY_ACCENT_PRESET, AccentPreset.RED.name))
     )
 
     /**

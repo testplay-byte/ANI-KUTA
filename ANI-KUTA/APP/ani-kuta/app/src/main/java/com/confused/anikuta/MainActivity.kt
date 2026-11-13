@@ -202,21 +202,28 @@ class MainActivity : com.lagradost.cloudstream3.MainActivity() {
                 android.graphics.Color.TRANSPARENT,
             ),
         )
-        // ROUND 124 (R11): the POST_NOTIFICATIONS runtime request — it was
-        // only ever asked during ONBOARDING, so anyone who skipped onboarding
-        // (or restored data onto a new install) had notifications silently
-        // off forever: every postNotification() call no-ops without the grant
-        // (Android 13+). Asked once here per install; the system's own
-        // don't-ask-again handling prevents nagging.
+        // ROUND 124 (R11) + ROUND 147 (the device report): the ask must NEVER
+        // fire on the very first screen — onCreate runs before the wizard's
+        // first frame, so a fresh install saw the system permission dialog over
+        // the welcome art. The wizard's NOTIFICATIONS step owns the grant for
+        // fresh installs; THIS ask serves the POST-onboarding cohorts only (a
+        // restore landed onto an installed app, or the wizard was skipped) —
+        // gated on onboardingCompleted. The launcher itself registers
+        // unconditionally (the activity-result contract requires it before
+        // RESUMED, and re-registration per recreation is the framework norm).
+        val postNotificationsLauncher = registerForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+        ) { granted ->
+            Logger.i("Anikuta:MainActivity") { "POST_NOTIFICATIONS granted=$granted" }
+        }
+        val appPrefsForAsk = org.koin.core.context.GlobalContext.get()
+            .get<com.confused.anikuta.core.preferences.AppPreferences>()
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            appPrefsForAsk.onboardingCompleted &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            registerForActivityResult(
-                androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
-            ) { granted ->
-                Logger.i("Anikuta:MainActivity") { "POST_NOTIFICATIONS granted=$granted" }
-            }.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            postNotificationsLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         // D-220: Handle AniList OAuth redirect (anikuta://anilist-auth#access_token=...).
         // The token is in the URL fragment (not query). Parse + pass to AniListTracker.
@@ -3131,6 +3138,17 @@ private fun buildWatchKeyFromCacheEntry(
  * miniature of the real theme (the appearance page's palette-card UI).
  */
 private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
+    // ROUND 147 (the user's order): the EMBER card is FIRST and the fresh-install
+    // DEFAULT — a reddish special theme instead of Midnight/Lime.
+    OnboardingThemeChoice(
+        id = "ember",
+        mode = "dark",
+        title = "Ember",
+        subtitle = "Dark · Red",
+        previewBackground = Color(0xFF1A0F0D),
+        previewAccent = Color(0xFFF44336),
+        previewSurface = Color(0xFF2E1A16),
+    ),
     OnboardingThemeChoice(
         id = "midnight",
         mode = "dark",
@@ -3204,6 +3222,11 @@ private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
  */
 private fun applyOnboardingThemeById(prefs: ThemePreferences, id: String) {
     when (id) {
+        "ember" -> {
+            prefs.setThemeMode(ThemeMode.DARK)
+            prefs.setAccentPreset(AccentPreset.RED)
+            prefs.setAmoled(false)
+        }
         "midnight" -> {
             prefs.setThemeMode(ThemeMode.DARK)
             prefs.setAccentPreset(AccentPreset.LIME)
@@ -3258,9 +3281,13 @@ private fun currentOnboardingThemeId(prefs: ThemePreferences): String = when {
         else -> "daylight"
     }
     else -> when (prefs.accentPreset.value) {
+        AccentPreset.RED -> "ember"
+        AccentPreset.LIME -> "midnight"
         AccentPreset.CORAL -> "dusk"
         AccentPreset.VIOLET -> "night"
-        else -> "midnight"
+        // ROUND 147: the fresh-install default resolves to EMBER (the reddish
+        // special theme) — an unmapped state lands there.
+        else -> "ember"
     }
 }
 

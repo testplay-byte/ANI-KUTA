@@ -110,6 +110,16 @@ val BACKUP_PREFS_FILES: List<String> = listOf(
 val PREFS_RESTORE_EXCLUDED_KEYS: Set<String> = setOf(
     "pref_app_update_downloaded_apks",
     "pref_app_update_pending_post_install",
+    // ROUND 147 (M-6, the device report): the AD-SYSTEM state never rides a
+    // restore — the user cleared their data (the 3-day sponsor grace ACTIVE),
+    // restored their own backup, and the donor's ads_always_sponsor=true
+    // silently re-enabled the debug sponsor popup (bypassing the grace). The
+    // recipient keeps THEIR OWN ad state: the grace survives, the timestamps
+    // stay local, the debug toggle stays whatever the recipient set.
+    "ads_always_sponsor",
+    "ads_first_open_timestamp",
+    "ads_last_shown_timestamp",
+    "ads_first_open_grace_consumed",
     // A tree URI from another device/app state is unusable and would make
     // downloads + backups silently no-op until re-picked (the round-134
     // verifier): the user re-selects the folder on restore.
