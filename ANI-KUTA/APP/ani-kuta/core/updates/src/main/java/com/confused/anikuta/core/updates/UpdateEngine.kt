@@ -576,9 +576,9 @@ class UpdateEngine(
                         if (!isWatched) {
                             // D-198: episode_number Long→Double migration.
                             val sent = notificationSender?.postNotification(mainId, epNum.toDouble(), "sub", "watchable") ?: true
-                            if (sent) notifiedSubTenths = maxOf(notifiedSubTenths, epTenths)
+                            if (sent) notifiedSubTenths = maxOf(notifiedSubTenths, epTenths.toLong())
                         } else {
-                            notifiedSubTenths = maxOf(notifiedSubTenths, epTenths)
+                            notifiedSubTenths = maxOf(notifiedSubTenths, epTenths.toLong())
                         }
                         val sourceDateUpload = ep.date_upload
                         actualReleaseUpdater?.updateActualAt(mainId, epNum.toDouble(),
@@ -608,9 +608,9 @@ class UpdateEngine(
                         if (!isWatched) {
                             // D-198: episode_number Long→Double migration.
                             val sent = notificationSender?.postNotification(mainId, epNum.toDouble(), "dub", "watchable") ?: true
-                            if (sent) notifiedDubTenths = maxOf(notifiedDubTenths, epTenths)
+                            if (sent) notifiedDubTenths = maxOf(notifiedDubTenths, epTenths.toLong())
                         } else {
-                            notifiedDubTenths = maxOf(notifiedDubTenths, epTenths)
+                            notifiedDubTenths = maxOf(notifiedDubTenths, epTenths.toLong())
                         }
                         val sourceDateUpload = ep.date_upload
                         actualReleaseUpdater?.updateActualAt(mainId, epNum.toDouble(),
