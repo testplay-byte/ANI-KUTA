@@ -544,8 +544,16 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10188
+    const val versionName = "1.1.88"
+    // ROUND 147 (v1.1.88): release/1.1.88 — cut from the round-147 main head
+    // 5085bd18 (CI 43489196750 GREEN): the wizard rework (the merged
+    // PERMISSIONS step, the block-segmented progress, the personalize gate
+    // list, ALL accents + the AMOLED row, the completion FINISH, the 4x4
+    // details presets + the sorts, the NOTIF 3-way + the three distinct
+    // images), the extensions restore (the trust reload, the repo coupling,
+    // the linked-only option, the N-of-M summaries), the permissions screen
+    // rework, the scroll-to-top, the DARK+RED fresh-install default.
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
