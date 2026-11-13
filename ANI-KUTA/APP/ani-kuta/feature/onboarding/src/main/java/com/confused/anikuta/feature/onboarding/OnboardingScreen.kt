@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
@@ -145,6 +147,10 @@ fun OnboardingScreen(
     onThemeSelected: (String) -> Unit,
     selectedThemeMode: String,
     onThemeModeSelected: (String) -> Unit,
+    // ROUND 147 (the device report): the AMOLED row lives in the theme step —
+    // a real toggle next to the mode toggle, not a preset card.
+    amoledOn: Boolean,
+    onAmoledSelected: (Boolean) -> Unit,
     appVersion: String,
     onFinished: () -> Unit,
     // ROUND 144 (D-864): the interactive personalize block's config UIs —
@@ -164,9 +170,17 @@ fun OnboardingScreen(
     // already re-verify for real on resume).
     var stepIndex by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
     // ROUND 144 (D-864): whether the user walked the personalize block —
-    // the Finish summary reflects it honestly ("Personalized" vs "Defaults").
+    // the progress bar treats the block as ONE segment while skipped and
+    // SPLITS it once walked (the user's round-147 order).
     var personalizeEntered by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     fun stepIndexOf(step: OnboardingStep): Int = steps.indexOf(step)
+    // ROUND 147: the PROGRESS mapping — the visible steps depend on whether
+    // the personalize block was walked (one gate-segment when skipped, the
+    // block split into its config steps when walked). Each step host reads
+    // its (position, total) pair from here so every bar stays consistent.
+    val visibleSteps = remember(personalizeEntered) { OnboardingStep.visibleSteps(personalizeEntered) }
+    fun progressOf(step: OnboardingStep): Pair<Int, Int> =
+        (visibleSteps.indexOf(step) + 1) to visibleSteps.size
 
     // ── The verified permission states (REAL system checks, never flags) ──
     val folderUri by preferences.downloadFolderUri.changes.collectAsState(
@@ -257,146 +271,144 @@ fun OnboardingScreen(
                 OnboardingStep.WELCOME -> OnboardingWelcomeStep(
                     onGetStarted = { stepIndex = stepIndexOf(OnboardingStep.THEME) },
                 )
-                OnboardingStep.THEME -> OnboardingThemeStep(
-                    choices = themeChoices,
-                    selectedId = selectedThemeId,
-                    onSelected = onThemeSelected,
-                    selectedMode = selectedThemeMode,
-                    onModeSelected = onThemeModeSelected,
-                    onBack = { stepIndex-- },
-                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.PERSONALIZE) },
-                )
-                // ROUND 144 (D-864): the personalize GATE — "do you want to see
-                // what you get and customize it?" Two options, one tap each.
-                OnboardingStep.PERSONALIZE -> OnboardingPersonalizeStep(
-                    stepPosition = stepIndexOf(OnboardingStep.PERSONALIZE),
-                    totalSteps = steps.size - 1,
-                    onBack = { stepIndex-- },
-                    onCheckThemOut = {
-                        personalizeEntered = true
-                        stepIndex = stepIndexOf(OnboardingStep.DETAILS_UI)
-                    },
-                    onLaterInApp = { stepIndex = stepIndexOf(OnboardingStep.STORAGE) },
-                )
-                OnboardingStep.DETAILS_UI -> OnboardingConfigStep(
-                    stepPosition = stepIndexOf(OnboardingStep.DETAILS_UI),
-                    totalSteps = steps.size - 1,
-                    title = "Details page",
-                    smallTalk = "Pick the look you like — change it anytime.",
-                    onBack = { stepIndex-- },
-                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.PLAYER_UI) },
-                ) { detailsConfig() }
-                OnboardingStep.PLAYER_UI -> OnboardingConfigStep(
-                    stepPosition = stepIndexOf(OnboardingStep.PLAYER_UI),
-                    totalSteps = steps.size - 1,
-                    title = "Player page",
-                    smallTalk = "Same idea here — presets first, fine-tune later.",
-                    onBack = { stepIndex-- },
-                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.NOTIF_UI) },
-                ) { playerConfig() }
-                OnboardingStep.NOTIF_UI -> OnboardingConfigStep(
-                    stepPosition = stepIndexOf(OnboardingStep.NOTIF_UI),
-                    totalSteps = steps.size - 1,
-                    title = "Notifications",
-                    smallTalk = "New-episode alerts — your style, your artwork.",
-                    onBack = { stepIndex-- },
-                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.STORAGE) },
-                ) { notificationsConfig() }
-                OnboardingStep.STORAGE -> OnboardingPermissionStep(
-                    stepNumber = stepIndexOf(OnboardingStep.STORAGE),
-                    icon = Icons.Filled.Folder,
-                    title = "Download folder",
-                    actionLabel = "Choose folder",
-                    onAction = { folderPicker.launch(null) },
-                    statusGranted = folderValid,
-                    grantedLabel = "Folder verified",
-                    // D-407 (round 31): the report — "it could show the full
-                    // folder path which the user had selected". The readable
-                    // chain ("Internal storage › ANI-KUTA"), derived from the
-                    // SAF tree URI; null (hidden) when not derivable.
-                    grantedDetail = folderPath,
-                    allowChange = true,
-                    changeLabel = "Change folder",
-                    onChange = { folderPicker.launch(null) },
-                    onBack = { stepIndex-- },
-                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.RESTORE) },
-                )
+                OnboardingStep.THEME -> {
+                    val (position, total) = progressOf(OnboardingStep.THEME)
+                    OnboardingThemeStep(
+                        choices = themeChoices,
+                        selectedId = selectedThemeId,
+                        onSelected = onThemeSelected,
+                        selectedMode = selectedThemeMode,
+                        onModeSelected = onThemeModeSelected,
+                        amoledOn = amoledOn,
+                        onAmoledSelected = onAmoledSelected,
+                        stepPosition = position,
+                        totalSteps = total,
+                        onBack = { stepIndex-- },
+                        onContinue = { stepIndex = stepIndexOf(OnboardingStep.PERSONALIZE) },
+                    )
+                }
+                // ROUND 144 (D-864) → ROUND 147: the personalize GATE — a proper
+                // LIST of the personalization areas (one-line descriptions each,
+                // theming included), every row individually openable, plus the
+                // two one-tap CTAs.
+                OnboardingStep.PERSONALIZE -> {
+                    val (position, total) = progressOf(OnboardingStep.PERSONALIZE)
+                    OnboardingPersonalizeStep(
+                        stepPosition = position,
+                        totalSteps = total,
+                        onBack = { stepIndex-- },
+                        onOpenStep = { target ->
+                            personalizeEntered = true
+                            stepIndex = stepIndexOf(target)
+                        },
+                        onCheckThemOut = {
+                            personalizeEntered = true
+                            stepIndex = stepIndexOf(OnboardingStep.DETAILS_UI)
+                        },
+                        onLaterInApp = { stepIndex = stepIndexOf(OnboardingStep.STORAGE) },
+                    )
+                }
+                OnboardingStep.DETAILS_UI -> {
+                    val (position, total) = progressOf(OnboardingStep.DETAILS_UI)
+                    OnboardingConfigStep(
+                        stepPosition = position,
+                        totalSteps = total,
+                        title = "Details page",
+                        smallTalk = "Pick the look you like — change it anytime.",
+                        onBack = { stepIndex-- },
+                        onContinue = { stepIndex = stepIndexOf(OnboardingStep.PLAYER_UI) },
+                    ) { detailsConfig() }
+                }
+                OnboardingStep.PLAYER_UI -> {
+                    val (position, total) = progressOf(OnboardingStep.PLAYER_UI)
+                    OnboardingConfigStep(
+                        stepPosition = position,
+                        totalSteps = total,
+                        title = "Player page",
+                        smallTalk = "Same idea here — presets first, fine-tune later.",
+                        onBack = { stepIndex-- },
+                        onContinue = { stepIndex = stepIndexOf(OnboardingStep.NOTIF_UI) },
+                    ) { playerConfig() }
+                }
+                OnboardingStep.NOTIF_UI -> {
+                    val (position, total) = progressOf(OnboardingStep.NOTIF_UI)
+                    OnboardingConfigStep(
+                        stepPosition = position,
+                        totalSteps = total,
+                        title = "Notifications",
+                        smallTalk = "New-episode alerts — your style, your artwork.",
+                        onBack = { stepIndex-- },
+                        onContinue = { stepIndex = stepIndexOf(OnboardingStep.STORAGE) },
+                    ) { notificationsConfig() }
+                }
+                OnboardingStep.STORAGE -> {
+                    val (position, total) = progressOf(OnboardingStep.STORAGE)
+                    OnboardingPermissionStep(
+                        stepNumber = position,
+                        totalSteps = total,
+                        icon = Icons.Filled.Folder,
+                        title = "Download folder",
+                        actionLabel = "Choose folder",
+                        onAction = { folderPicker.launch(null) },
+                        statusGranted = folderValid,
+                        grantedLabel = "Folder verified",
+                        // D-407 (round 31): the report — "it could show the full
+                        // folder path which the user had selected". The readable
+                        // chain ("Internal storage › ANI-KUTA"), derived from the
+                        // SAF tree URI; null (hidden) when not derivable.
+                        grantedDetail = folderPath,
+                        allowChange = true,
+                        changeLabel = "Change folder",
+                        onChange = { folderPicker.launch(null) },
+                        // ROUND 147 (the user's order): back from Storage AFTER
+                        // SKIPPING the personalize block must land on the GATE —
+                        // the old stepIndex-- walked into the block's skipped
+                        // steps (Notifications → Player → …), re-showing screens
+                        // the user never walked.
+                        onBack = {
+                            if (personalizeEntered) stepIndex-- else stepIndex = stepIndexOf(OnboardingStep.PERSONALIZE)
+                        },
+                        onContinue = { stepIndex = stepIndexOf(OnboardingStep.RESTORE) },
+                    )
+                }
                 // ROUND 135: the restore step — a backup can be brought back
                 // right after the folder is set (the covers land in it).
-                OnboardingStep.RESTORE -> OnboardingRestoreStep(
-                    stepNumber = stepIndexOf(OnboardingStep.RESTORE),
-                    onBack = { stepIndex-- },
-                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.NOTIFICATIONS) },
-                )
-                OnboardingStep.NOTIFICATIONS -> OnboardingPermissionStep(
-                    stepNumber = stepIndexOf(OnboardingStep.NOTIFICATIONS),
-                    icon = Icons.Filled.Notifications,
-                    title = "Notifications",
-                    actionLabel = "Allow notifications",
-                    onAction = {
-                        // Below Android 13 the permission doesn't exist (auto-granted —
-                        // the verification already reports GRANTED).
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                    },
-                    statusGranted = notificationsGranted,
-                    grantedLabel = "Notifications enabled",
-                    allowChange = false,
-                    changeLabel = "",
-                    onChange = {},
-                    onBack = { stepIndex-- },
-                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.BATTERY) },
-                )
-                OnboardingStep.BATTERY -> OnboardingPermissionStep(
-                    stepNumber = stepIndexOf(OnboardingStep.BATTERY),
-                    icon = Icons.Filled.BatteryChargingFull,
-                    title = "Background usage",
-                    actionLabel = "Allow background usage",
-                    onAction = { OnboardingPermissions.requestBatteryExemption(context) },
-                    statusGranted = batteryExempted,
-                    grantedLabel = "Background usage allowed",
-                    allowChange = false,
-                    changeLabel = "",
-                    onChange = {},
-                    onBack = { stepIndex-- },
-                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.OVERLAY) },
-                )
-                // D-449 (round 41): the "Draw over other apps" step — the
-                // floating ad-return pill needs this special consent, and the
-                // v1.1.3 device round showed the wizard never asked. One tap
-                // opens the system's own toggle screen for THIS app; the
-                // ON_RESUME re-verify above marks the step granted the moment
-                // the user flips the toggle and comes back.
-                OnboardingStep.OVERLAY -> OnboardingPermissionStep(
-                    stepNumber = stepIndexOf(OnboardingStep.OVERLAY),
-                    icon = Icons.Filled.Layers,
-                    title = "Draw over other apps",
-                    // D-561 (round 73): the description the user dictated, WORD
-                    // FOR WORD — "the description is way too big… what the
-                    // description should say is this: … And that's it, nothing
-                    // more." One short line; the pill story stays untold here.
-                    description = "Let's AniKuta show floating elements, which make things easier.",
-                    actionLabel = "Allow drawing over apps",
-                    onAction = { OnboardingPermissions.requestOverlayPermission(context) },
-                    statusGranted = overlayGranted,
-                    grantedLabel = "Drawing over apps allowed",
-                    allowChange = false,
-                    changeLabel = "",
-                    onChange = {},
-                    onBack = { stepIndex-- },
-                    onContinue = { stepIndex = stepIndexOf(OnboardingStep.FINISH) },
-                )
+                OnboardingStep.RESTORE -> {
+                    val (position, total) = progressOf(OnboardingStep.RESTORE)
+                    OnboardingRestoreStep(
+                        stepPosition = position,
+                        totalSteps = total,
+                        onBack = { stepIndex-- },
+                        onContinue = { stepIndex = stepIndexOf(OnboardingStep.PERMISSIONS) },
+                    )
+                }
+                // ROUND 147 (the user's order): ALL permissions in ONE screen —
+                // notifications, background usage, draw-over-apps — each with
+                // its own real verified state + Allow affordance, Continue ABOVE
+                // Skip-for-now.
+                OnboardingStep.PERMISSIONS -> {
+                    val (position, total) = progressOf(OnboardingStep.PERMISSIONS)
+                    OnboardingPermissionsStep(
+                        stepPosition = position,
+                        totalSteps = total,
+                        notificationsGranted = notificationsGranted,
+                        onAllowNotifications = {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        },
+                        batteryExempted = batteryExempted,
+                        onAllowBattery = { OnboardingPermissions.requestBatteryExemption(context) },
+                        overlayGranted = overlayGranted,
+                        onAllowOverlay = { OnboardingPermissions.requestOverlayPermission(context) },
+                        onBack = { stepIndex-- },
+                        onContinue = { stepIndex = stepIndexOf(OnboardingStep.FINISH) },
+                    )
+                }
+                // ROUND 147 (the user's order): a COMPLETION screen — not a
+                // summary. The setup is done; celebrate it and go.
                 OnboardingStep.FINISH -> OnboardingFinishStep(
-                    themeChoices = themeChoices,
-                    selectedThemeId = selectedThemeId,
-                    personalizeEntered = personalizeEntered,
-                    folderValid = folderValid,
-                    notificationsGranted = notificationsGranted,
-                    batteryExempted = batteryExempted,
-                    overlayGranted = overlayGranted,
                     appVersion = appVersion,
-                    onBack = { stepIndex-- },
                     onFinish = onFinished,
                 )
             }
@@ -410,14 +422,19 @@ fun OnboardingScreen(
 
 /**
  * The wizard's top bar for the non-welcome steps: a circular back button +
- * the segmented progress (one segment per step after the welcome) + the
+ * the segmented progress (one segment per VISIBLE step — the personalize
+ * block reads as ONE segment while skipped and splits when walked) + the
  * step's ordinal.
+ *
+ * ROUND 147: [showBack] — the FINISH completion screen passes false (a
+ * completed setup has nothing to go back to).
  */
 @Composable
 private fun OnboardingTopBar(
     stepPosition: Int,
     totalSteps: Int,
     onBack: () -> Unit,
+    showBack: Boolean = true,
 ) {
     Row(
         modifier = Modifier
@@ -426,25 +443,28 @@ private fun OnboardingTopBar(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-            border = BorderStroke(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-            ),
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .clickable(onClick = onBack)
-                    // 14dp + 20dp + 14dp = a 48dp touch target (the Material
-                    // accessibility minimum; the glyph stays 20dp).
-                    .padding(14.dp)
-                    .size(20.dp),
-            )
+        if (showBack) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .clickable(onClick = onBack)
+                        // 14dp + 20dp + 14dp = a 48dp touch target (the Material
+                        // accessibility minimum; the glyph stays 20dp).
+                        .padding(14.dp)
+                        .size(20.dp),
+                )
+            }
+            Spacer(Modifier.size(12.dp))
         }
         Spacer(Modifier.size(12.dp))
         // The segmented progress — filled segments trail the current step.
@@ -689,10 +709,23 @@ private fun OnboardingWelcomeStep(
         // engine (no phase wraps, zero per-frame allocations) with shapes
         // that morph into polygons and split apart (see
         // [OnboardingBlobBackground]).
-        OnboardingBlobBackground(
-            accent = accent,
-            base = Color(0xFF0D0A14),
+        // ROUND 147 (the device report): the art ENTERS — the whole canvas
+        // breathes in over the first second instead of popping onto black,
+        // and the canvas base is warm-shifted to match the reddish default
+        // (was a purple-leaning 0xFF0D0A14).
+        var artRevealed by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { artRevealed = true }
+        val artAlpha by animateFloatAsState(
+            targetValue = if (artRevealed) 1f else 0f,
+            animationSpec = tween(900, easing = Motion.EasingEmphasized),
+            label = "welcomeArtReveal",
         )
+        Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = artAlpha }) {
+            OnboardingBlobBackground(
+                accent = accent,
+                base = Color(0xFF120B0D),
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -774,6 +807,12 @@ private fun OnboardingThemeStep(
     onSelected: (String) -> Unit,
     selectedMode: String,
     onModeSelected: (String) -> Unit,
+    // ROUND 147 (the device report): the AMOLED row — a REAL toggle next to
+    // the mode toggle, applied live, not a preset card pretending to be one.
+    amoledOn: Boolean,
+    onAmoledSelected: (Boolean) -> Unit,
+    stepPosition: Int,
+    totalSteps: Int,
     onBack: () -> Unit,
     onContinue: () -> Unit,
 ) {
@@ -824,7 +863,7 @@ private fun OnboardingThemeStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = 1, totalSteps = OnboardingStep.ordered.size - 1, onBack = onBack)
+        OnboardingTopBar(stepPosition = stepPosition, totalSteps = totalSteps, onBack = onBack)
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
             Text(
                 text = "Make it yours",
@@ -840,6 +879,16 @@ private fun OnboardingThemeStep(
                 selectedMode = selectedMode,
                 onModeSelected = onModeSelected,
             )
+            // ROUND 147 (the device report): the AMOLED row — a proper toggle
+            // row right under the mode toggle, DARK ONLY (AMOLED black is a
+            // dark-mode surface variant; hiding it in light mode is honest).
+            if (!isLight) {
+                Spacer(Modifier.size(10.dp))
+                OnboardingAmoledRow(
+                    checked = amoledOn,
+                    onCheckedChange = onAmoledSelected,
+                )
+            }
         }
         Spacer(Modifier.size(8.dp))
         // The carousel — the flexible heart of the step.
@@ -909,17 +958,53 @@ private fun OnboardingThemeStep(
             }
         }
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-            Text(
-                text = "You can further customize in the settings later.",
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
             Spacer(Modifier.size(18.dp))
             OnboardingPrimaryCta(label = "Continue", onClick = onContinue)
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/**
+ * ROUND 147 (the device report): the theme step's AMOLED toggle row — a glass
+ * panel with the label + a one-line explanation + a Switch. Live-applied via
+ * ThemePreferences (the same recompose-everything path the cards use).
+ */
+@Composable
+private fun OnboardingAmoledRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    OnboardingGlassPanel(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onCheckedChange(!checked) }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "AMOLED black",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.size(2.dp))
+                Text(
+                    text = "Pure black backgrounds — easiest on OLED batteries.",
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.size(10.dp))
+            androidx.compose.material3.Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+            )
         }
     }
 }
@@ -1117,7 +1202,8 @@ private fun OnboardingPaletteCard(
  */
 @Composable
 private fun OnboardingRestoreStep(
-    stepNumber: Int,
+    stepPosition: Int,
+    totalSteps: Int,
     onBack: () -> Unit,
     onContinue: () -> Unit,
 ) {
@@ -1155,7 +1241,7 @@ private fun OnboardingRestoreStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = stepNumber, totalSteps = OnboardingStep.ordered.size - 1, onBack = onBack)
+        OnboardingTopBar(stepPosition = stepPosition, totalSteps = totalSteps, onBack = onBack)
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -1208,16 +1294,73 @@ private fun OnboardingRestoreStep(
                     Text(
                         text = "Restored " + com.confused.anikuta.core.common.formatCount(
                             s.tableRowCount["library_item"] ?: 0,
-                        ) + " entries" +
-                            (if (s.csPluginsRestored > 0) ", ${s.csPluginsRestored} CloudStream plugins" else "") +
-                            (if (s.aniyomiInstalled > 0) ", ${s.aniyomiInstalled} extensions" else ""),
+                        ) + " entries",
                         fontFamily = RobotoFamily,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center,
                     )
-                    if (s.aniyomiInstalled > 0) {
+                    // ROUND 147 (the device report): the EXTENSION story told
+                    // honestly — installed vs missing per the backup manifest
+                    // (the user saw "extensions restored" with no idea whether
+                    // everything landed).
+                    val apkTotal = s.manifest.aniyomiApkCount
+                    val apkDone = s.aniyomiInstalled + s.aniyomiAlreadyInstalled
+                    val apkMissing = (apkTotal - apkDone - s.aniyomiFailed.size)
+                        .coerceAtLeast(0)
+                    if (apkTotal > 0) {
+                        Spacer(Modifier.size(6.dp))
+                        Text(
+                            text = buildString {
+                                append("Extensions: ")
+                                append(apkDone)
+                                append(" of ")
+                                append(apkTotal)
+                                append(" installed")
+                                if (apkMissing > 0) append(" · $apkMissing missing")
+                                if (s.aniyomiDeclined > 0) append(" · ${s.aniyomiDeclined} declined")
+                                if (s.aniyomiFailed.isNotEmpty()) {
+                                    append(" · ${s.aniyomiFailed.size} failed")
+                                }
+                            },
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (apkMissing > 0 || s.aniyomiFailed.isNotEmpty()) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    val csTotal = s.manifest.csPluginCount
+                    if (csTotal > 0) {
+                        Spacer(Modifier.size(4.dp))
+                        Text(
+                            text = buildString {
+                                append("CloudStream plugins: ")
+                                append(s.csPluginsRestored)
+                                append(" of ")
+                                append(csTotal)
+                                append(" restored")
+                                if (s.csPluginsFailed.isNotEmpty()) {
+                                    append(" · ${s.csPluginsFailed.size} failed")
+                                }
+                            },
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (s.csPluginsRestored < csTotal || s.csPluginsFailed.isNotEmpty()) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    if (apkDone > 0 || s.csPluginsRestored > 0) {
                         Spacer(Modifier.size(6.dp))
                         Text(
                             text = "Restart the app after setup to finish installing.",
@@ -1341,6 +1484,7 @@ private fun OnboardingRestoreStep(
 @Composable
 private fun OnboardingPermissionStep(
     stepNumber: Int,
+    totalSteps: Int,
     icon: ImageVector,
     title: String,
     actionLabel: String,
@@ -1366,7 +1510,7 @@ private fun OnboardingPermissionStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = stepNumber, totalSteps = OnboardingStep.ordered.size - 1, onBack = onBack)
+        OnboardingTopBar(stepPosition = stepNumber, totalSteps = totalSteps, onBack = onBack)
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -1561,25 +1705,228 @@ private fun OnboardingPermissionStep(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * D-405 (round 29) → D-406 (round 30): the finish step — the 2×2 grid of
- * setup-summary cards the round-30 report called PERFECT ("the very last
- * screen… is perfect. I don't have any issues with that screen"), with the
- * ONE reported defect fixed: the Start-watching CTA is now inside the
- * single root column at the BOTTOM (was a second root-level layout that
- * AnimatedContent stacked at the top of the screen).
+ * ROUND 147 (the device report): ALL permissions in ONE wizard screen —
+ * notifications, background usage, draw-over-apps — each row carrying its
+ * own REAL verified state (re-verified on ON_RESUME by the host) + its own
+ * Allow affordance. The bottom stacks Continue (primary) ABOVE "Skip for
+ * now" (secondary) — the user's explicit order; both are always present
+ * (everything here is optional).
+ */
+@Composable
+private fun OnboardingPermissionsStep(
+    stepPosition: Int,
+    totalSteps: Int,
+    notificationsGranted: Boolean,
+    onAllowNotifications: () -> Unit,
+    batteryExempted: Boolean,
+    onAllowBattery: () -> Unit,
+    overlayGranted: Boolean,
+    onAllowOverlay: () -> Unit,
+    onBack: () -> Unit,
+    onContinue: () -> Unit,
+) {
+    // ONE root column — the CTAs INSIDE it, at the bottom (the D-406 rule).
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding(),
+    ) {
+        OnboardingTopBar(stepPosition = stepPosition, totalSteps = totalSteps, onBack = onBack)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.weight(0.45f))
+            Text(
+                text = "Permissions",
+                fontFamily = RobotoFamily,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.size(6.dp))
+            // ROUND 144's plain-spoken line, kept: everything is optional.
+            Text(
+                text = "All permissions are optional — skip any you don't want.",
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.weight(0.5f))
+            OnboardingPermissionRow(
+                icon = Icons.Filled.Notifications,
+                title = "Notifications",
+                description = "New-episode release alerts.",
+                granted = notificationsGranted,
+                grantedLabel = "Allowed",
+                actionLabel = "Allow",
+                onAction = onAllowNotifications,
+            )
+            Spacer(Modifier.size(10.dp))
+            OnboardingPermissionRow(
+                icon = Icons.Filled.BatteryChargingFull,
+                title = "Background usage",
+                description = "Keeps update checks and downloads running.",
+                granted = batteryExempted,
+                grantedLabel = "Allowed",
+                actionLabel = "Allow",
+                onAction = onAllowBattery,
+            )
+            Spacer(Modifier.size(10.dp))
+            // D-561 (round 73): the overlay description the user dictated,
+            // WORD FOR WORD — "Let's AniKuta show floating elements, which
+            // make things easier." Nothing more.
+            OnboardingPermissionRow(
+                icon = Icons.Filled.Layers,
+                title = "Draw over other apps",
+                description = "Let's AniKuta show floating elements, which make things easier.",
+                granted = overlayGranted,
+                grantedLabel = "Allowed",
+                actionLabel = "Allow",
+                onAction = onAllowOverlay,
+            )
+            Spacer(Modifier.weight(0.8f))
+        }
+        Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+            // ROUND 147 (the user's order): Continue ABOVE Skip-for-now, and
+            // Continue stays the PRIMARY button regardless of the grant state
+            // (skipping is the choice, not the expected path).
+            OnboardingPrimaryCta(label = "Continue", onClick = onContinue)
+            Spacer(Modifier.size(10.dp))
+            OnboardingSecondaryCta(label = "Skip for now", onClick = onContinue)
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/**
+ * ROUND 147: one row of the merged permissions screen — the wizard's glass
+ * panel + the settings-row vocabulary (icon tile, ExtraBold title, one-line
+ * description). Granted rows show the check; ungranted rows show the Allow
+ * pill (a full tap target, not a text link).
+ */
+@Composable
+private fun OnboardingPermissionRow(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    granted: Boolean,
+    grantedLabel: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+) {
+    OnboardingGlassPanel(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(9.dp)
+                        .size(20.dp),
+                )
+            }
+            Spacer(Modifier.size(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontFamily = RobotoFamily,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.size(1.dp))
+                Text(
+                    text = description,
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.size(10.dp))
+            AnimatedContent(
+                targetState = granted,
+                transitionSpec = {
+                    (
+                        scaleIn(
+                            animationSpec = tween(240, easing = Motion.EasingEmphasized),
+                            initialScale = 0.8f,
+                        ) + fadeIn(tween(240))
+                        ) togetherWith (
+                        scaleOut(tween(160)) + fadeOut(tween(160))
+                        )
+                },
+                contentAlignment = Alignment.CenterEnd,
+                label = "onboardingPermissionRowState_$title",
+            ) { isGranted ->
+                if (isGranted) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = grantedLabel,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.size(6.dp))
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = grantedLabel,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                        ),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable(onClick = onAction),
+                    ) {
+                        Text(
+                            text = actionLabel,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * ROUND 147 (the device report): the finish is a COMPLETION SCREEN, not a
+ * summary — the setup is done, the app celebrates it, one CTA takes the user
+ * in. The progress bar renders fully filled with no back button (a completed
+ * setup has nothing to go back to).
  */
 @Composable
 private fun OnboardingFinishStep(
-    themeChoices: List<OnboardingThemeChoice>,
-    selectedThemeId: String,
-    // ROUND 144 (D-864): whether the user walked the personalize block.
-    personalizeEntered: Boolean,
-    folderValid: Boolean,
-    notificationsGranted: Boolean,
-    batteryExempted: Boolean,
-    overlayGranted: Boolean,
     appVersion: String,
-    onBack: () -> Unit,
     onFinish: () -> Unit,
 ) {
     // ONE root column — the CTA is INSIDE it, at the bottom (D-406).
@@ -1588,90 +1935,74 @@ private fun OnboardingFinishStep(
             .fillMaxSize()
             .navigationBarsPadding(),
     ) {
-        OnboardingTopBar(stepPosition = OnboardingStep.ordered.indexOf(OnboardingStep.FINISH), totalSteps = OnboardingStep.ordered.size - 1, onBack = onBack)
+        // The completion bar — fully filled, no back (a completed setup has
+        // nothing to go back to).
+        OnboardingTopBar(
+            stepPosition = OnboardingStep.ordered.size,
+            totalSteps = OnboardingStep.ordered.size,
+            onBack = {},
+            showBack = false,
+        )
         Column(
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.size(8.dp))
+            Spacer(Modifier.weight(0.8f))
+            // The check's landing moment — a scale-in with a gentle settle.
+            val checkScale = remember { androidx.compose.animation.core.Animatable(0.4f) }
+            LaunchedEffect(Unit) {
+                checkScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(520, easing = Motion.EasingEmphasized),
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(112.dp)
+                    .graphicsLayer {
+                        scaleX = checkScale.value
+                        scaleY = checkScale.value
+                    }
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(56.dp),
+                )
+            }
+            Spacer(Modifier.size(24.dp))
             Text(
-                text = "You're all set",
+                text = "Setup complete",
                 fontFamily = RobotoFamily,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Black,
                 color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.size(6.dp))
+            Spacer(Modifier.size(8.dp))
             Text(
-                text = "Here's how your setup landed — skipped items can be granted "
-                    + "anytime later.",
+                text = "Your anime home is ready. Everything you skipped can be "
+                    + "granted anytime in Settings.",
                 fontFamily = RobotoFamily,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 12.dp),
             )
-            Spacer(Modifier.size(18.dp))
-            val themeName = themeChoices
-                .firstOrNull { it.id == selectedThemeId }?.title ?: "Custom"
-            // The summary grid (D-405; ROUND 144 adds the personalize fact).
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                SummaryCard(
-                    icon = Icons.Filled.Palette,
-                    label = "Theme",
-                    value = themeName,
-                    done = true,
-                    modifier = Modifier.weight(1f),
-                )
-                SummaryCard(
-                    icon = Icons.Filled.Tune,
-                    label = "Details page",
-                    value = if (personalizeEntered) "Personalized" else "Defaults",
-                    done = true,
-                    modifier = Modifier.weight(1f),
-                )
-                SummaryCard(
-                    icon = Icons.Filled.Folder,
-                    label = "Folder",
-                    value = if (folderValid) "Verified" else "Skipped",
-                    done = folderValid,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Spacer(Modifier.size(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                SummaryCard(
-                    icon = Icons.Filled.Notifications,
-                    label = "Notifications",
-                    value = if (notificationsGranted) "Granted" else "Skipped",
-                    done = notificationsGranted,
-                    modifier = Modifier.weight(1f),
-                )
-                SummaryCard(
-                    icon = Icons.Filled.BatteryChargingFull,
-                    label = "Background",
-                    value = if (batteryExempted) "Allowed" else "Skipped",
-                    done = batteryExempted,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            // D-449: the overlay consent joins the summary (row 3, left cell).
-            Spacer(Modifier.size(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                SummaryCard(
-                    icon = Icons.Filled.Layers,
-                    label = "Draw over apps",
-                    value = if (overlayGranted) "Allowed" else "Skipped",
-                    done = overlayGranted,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.weight(1f))
         }
-        // The CTA + version line — pinned to the BOTTOM by the weighted
-        // column above (D-406: was a second root-level layout rendered at
-        // the TOP of the screen).
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
             OnboardingPrimaryCta(label = "Start watching", onClick = onFinish)
             Spacer(Modifier.size(10.dp))
@@ -1689,17 +2020,19 @@ private fun OnboardingFinishStep(
     }
 }
 
-/** One summary card of the finish grid (D-405). */
 /**
- * ROUND 144 (D-864): the personalize GATE — "do you want to see what you
- * get and customize it?" The user's spec: the settings are NOT shown by
- * default; two options, one tap each. One line of small talk, no more.
+ * ROUND 144 (D-864) → ROUND 147 (the device report): the personalize GATE is
+ * now a PROPER LIST — every personalization area gets a row (icon tile, title,
+ * ONE-LINE description), theming INCLUDED, each row individually openable.
+ * The two one-tap CTAs stay: "Lets check them out" walks the block in order;
+ * "Later in the app" skips straight to storage.
  */
 @Composable
 private fun OnboardingPersonalizeStep(
     stepPosition: Int,
     totalSteps: Int,
     onBack: () -> Unit,
+    onOpenStep: (OnboardingStep) -> Unit,
     onCheckThemOut: () -> Unit,
     onLaterInApp: () -> Unit,
 ) {
@@ -1715,14 +2048,7 @@ private fun OnboardingPersonalizeStep(
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.weight(0.8f))
-            Icon(
-                imageVector = Icons.Filled.Tune,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(56.dp),
-            )
-            Spacer(Modifier.size(18.dp))
+            Spacer(Modifier.weight(0.5f))
             Text(
                 text = "Make it yours",
                 fontFamily = RobotoFamily,
@@ -1740,11 +2066,118 @@ private fun OnboardingPersonalizeStep(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
+            Spacer(Modifier.weight(0.6f))
+            // The list — theming INCLUDED (the user's round-147 order).
+            OnboardingPersonalizeRow(
+                icon = Icons.Filled.Palette,
+                title = "Theme",
+                description = "Accent colors, light & dark, AMOLED black.",
+                done = true,
+                onClick = { onOpenStep(OnboardingStep.THEME) },
+            )
+            Spacer(Modifier.size(10.dp))
+            OnboardingPersonalizeRow(
+                icon = Icons.Filled.Tune,
+                title = "Details page",
+                description = "How episode lists look, sort, and read.",
+                onClick = { onOpenStep(OnboardingStep.DETAILS_UI) },
+            )
+            Spacer(Modifier.size(10.dp))
+            OnboardingPersonalizeRow(
+                icon = Icons.Filled.PlayArrow,
+                title = "Player page",
+                description = "The watch screen's episode-list style.",
+                onClick = { onOpenStep(OnboardingStep.PLAYER_UI) },
+            )
+            Spacer(Modifier.size(10.dp))
+            OnboardingPersonalizeRow(
+                icon = Icons.Filled.Notifications,
+                title = "Notifications",
+                description = "New-episode alerts and their artwork.",
+                onClick = { onOpenStep(OnboardingStep.NOTIF_UI) },
+            )
             Spacer(Modifier.weight(0.8f))
             OnboardingPrimaryCta(label = "Lets check them out", onClick = onCheckThemOut)
             Spacer(Modifier.size(10.dp))
             OnboardingSecondaryCta(label = "Later in the app", onClick = onLaterInApp)
             Spacer(Modifier.weight(0.35f))
+        }
+    }
+}
+
+/**
+ * ROUND 147: one row of the personalize gate's list — the wizard's glass
+ * panel carrying the settings-row vocabulary (icon tile + ExtraBold title +
+ * one-line description + a trailing affordance). [done] renders the check
+ * (the theme row — already walked) instead of the chevron.
+ */
+@Composable
+private fun OnboardingPersonalizeRow(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    onClick: () -> Unit,
+    done: Boolean = false,
+) {
+    OnboardingGlassPanel(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The icon tile — the 38dp rounded-corner accent-tinted square
+            // (the settings-row vocabulary).
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(9.dp)
+                        .size(20.dp),
+                )
+            }
+            Spacer(Modifier.size(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontFamily = RobotoFamily,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.size(1.dp))
+                Text(
+                    text = description,
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.size(8.dp))
+            if (done) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = "Already set up",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }
@@ -1799,55 +2232,6 @@ private fun OnboardingConfigStep(
             Spacer(Modifier.size(10.dp))
             OnboardingPrimaryCta(label = "Continue", onClick = onContinue)
             Spacer(Modifier.size(8.dp))
-        }
-    }
-}
-
-@Composable
-private fun SummaryCard(
-    icon: ImageVector,
-    label: String,
-    value: String,
-    done: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    OnboardingGlassPanel(modifier = modifier) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (done) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                },
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(Modifier.size(8.dp))
-            Text(
-                text = label,
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.size(2.dp))
-            Text(
-                text = value,
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = if (done) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                textAlign = TextAlign.Center,
-            )
         }
     }
 }

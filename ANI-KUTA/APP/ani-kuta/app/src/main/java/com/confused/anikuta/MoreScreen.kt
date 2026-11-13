@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +57,11 @@ fun MoreScreen(
     onOpenTrackers: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
+    // ROUND 147 (the device report): every screen ENTRY starts at the
+    // TOP — the host's SaveableStateProvider resurrects the old scroll
+    // position, and screens landing "wherever they were left" was the
+    // complaint.
+    LaunchedEffect(Unit) { listState.scrollToItem(0) }
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
 

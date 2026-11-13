@@ -38,8 +38,11 @@ enum class ThemeMode { LIGHT, DARK, SYSTEM }
 class ThemePreferences(private val store: PreferenceStore) {
 
     val themeMode = mutableStateOf(
-        runCatching { ThemeMode.valueOf(store.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name)) }
-            .getOrDefault(ThemeMode.SYSTEM)
+        // ROUND 147: the fresh-install default is DARK (with the RED accent
+        // default below, a fresh install lands on the dark reddish theme the
+        // user ordered — not the system's mode).
+        runCatching { ThemeMode.valueOf(store.getString(KEY_THEME_MODE, ThemeMode.DARK.name)) }
+            .getOrDefault(ThemeMode.DARK)
     )
 
     val amoled = mutableStateOf(store.getBoolean(KEY_AMOLED, false))

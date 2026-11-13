@@ -12,15 +12,16 @@ import androidx.compose.ui.graphics.Color
  *
  * The step machine itself lives in [OnboardingScreen] as plain state; this
  * enum is the vocabulary. WELCOME is the custom animated landing page (not
- * Material-styled — the user's explicit spec), THEME is the quick theme
- * picker (applies live), the permission steps each VERIFY real state
- * and are SKIPPABLE, RESTORE (round 135) offers to bring an `.anikuta`
- * backup back right after the folder is set, and FINISH is the summary +
- * the exit.
+ * Material-styled — the user's explicit spec), THEME is the theme picker
+ * (applies live), the PERSONALIZE block (round 144) asks once whether the
+ * user wants to walk the config steps, RESTORE (round 135) offers to bring
+ * an `.anikuta` backup back right after the folder is set, and FINISH is the
+ * completion screen + the exit.
  *
- * D-449 (round 41): OVERLAY joins the permission steps — the smart-link ad's
- * floating return pill (D-443/D-448) needs the "Display over other apps"
- * consent, and the v1.1.3 device round showed the wizard never asked for it.
+ * ROUND 147 (the device report): NOTIFICATIONS + BATTERY + OVERLAY merge into
+ * ONE PERMISSIONS step — the user asked for "ALL permissions combined into ONE
+ * wizard screen with Continue above Skip-for-now". Each permission keeps its
+ * own real verified state + its own Allow affordance inside that step.
  */
 internal enum class OnboardingStep(val isPermissionStep: Boolean) {
     WELCOME(false),
@@ -37,13 +38,27 @@ internal enum class OnboardingStep(val isPermissionStep: Boolean) {
     NOTIF_UI(false),
     STORAGE(true),
     RESTORE(false),
-    NOTIFICATIONS(true),
-    BATTERY(true),
-    OVERLAY(true),
+    // ROUND 147: the merged permissions screen (notifications + background
+    // usage + draw-over-apps in ONE step; all optional, all really verified).
+    PERMISSIONS(true),
     FINISH(false);
 
     companion object {
         val ordered: List<OnboardingStep> = entries.toList()
+
+        /**
+         * ROUND 147 (the user's order): the personalize BLOCK is ONE segment
+         * in the progress bar while SKIPPED and SPLITS into its config steps
+         * once WALKED — the visible steps for the top bar's segments. THEME
+         * stays its own segment in both mappings (it is always walked); the
+         * gate itself is the block's single skipped-segment representation.
+         */
+        fun visibleSteps(personalizeWalked: Boolean): List<OnboardingStep> =
+            if (personalizeWalked) {
+                ordered
+            } else {
+                ordered.filter { it != DETAILS_UI && it != PLAYER_UI && it != NOTIF_UI }
+            }
     }
 }
 

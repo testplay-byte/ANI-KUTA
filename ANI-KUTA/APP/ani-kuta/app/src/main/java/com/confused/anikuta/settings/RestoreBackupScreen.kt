@@ -89,6 +89,11 @@ fun RestoreBackupScreen(
     val scope = rememberCoroutineScope()
 
     val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // ROUND 147 (the device report): every screen ENTRY starts at the
+    // TOP — the host's SaveableStateProvider resurrects the old scroll
+    // position, and screens landing "wherever they were left" was the
+    // complaint.
+    LaunchedEffect(Unit) { lazyListState.scrollToItem(0) }
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 
@@ -393,17 +398,34 @@ fun RestoreBackupScreen(
                             if (summary.imagesRestored > 0) {
                                 DetailRow("Device cover files", formatCount(summary.imagesRestored))
                             }
-                            if (summary.csPluginsRestored > 0) {
-                                DetailRow("CloudStream plugins", formatCount(summary.csPluginsRestored))
+                            // ROUND 148: the extension totals — what actually
+                            // restored, honestly against what the archive carried
+                            // (the manifest counts), plus every failure by name.
+                            val aniyomiDone = summary.aniyomiInstalled + summary.aniyomiAlreadyInstalled
+                            if (summary.manifest.aniyomiApkCount > 0) {
+                                DetailRow(
+                                    "Aniyomi extensions",
+                                    "${formatCount(aniyomiDone)} of ${formatCount(summary.manifest.aniyomiApkCount)} installed",
+                                )
+                            } else if (aniyomiDone > 0) {
+                                DetailRow("Aniyomi installed", formatCount(aniyomiDone))
                             }
-                            if (summary.aniyomiAlreadyInstalled > 0) {
-                                DetailRow("Aniyomi already installed", formatCount(summary.aniyomiAlreadyInstalled))
-                            }
-                            if (summary.aniyomiInstalled > 0) {
-                                DetailRow("Aniyomi installed", formatCount(summary.aniyomiInstalled))
+                            if (summary.aniyomiDeclined > 0) {
+                                DetailRow("Aniyomi declined", formatCount(summary.aniyomiDeclined))
                             }
                             if (summary.aniyomiFailed.isNotEmpty()) {
                                 DetailRow("Aniyomi failed", summary.aniyomiFailed.joinToString(", "))
+                            }
+                            if (summary.manifest.csPluginCount > 0) {
+                                DetailRow(
+                                    "CloudStream plugins",
+                                    "${formatCount(summary.csPluginsRestored)} of ${formatCount(summary.manifest.csPluginCount)} restored",
+                                )
+                            } else if (summary.csPluginsRestored > 0) {
+                                DetailRow("CloudStream plugins", formatCount(summary.csPluginsRestored))
+                            }
+                            if (summary.csPluginsFailed.isNotEmpty()) {
+                                DetailRow("CloudStream failed", summary.csPluginsFailed.joinToString(", "))
                             }
                             DetailRow("Settings files", formatCount(summary.prefsFilesApplied.size))
                             Spacer(Modifier.height(10.dp))
@@ -571,8 +593,22 @@ internal fun formatRestoreToast(summary: RestoreSummary): String {
     val parts = mutableListOf<String>()
     parts += "${formatCount(summary.tableRowCount["library_item"] ?: 0)} entries"
     if (summary.offlineImagesRestored > 0) parts += "${formatCount(summary.offlineImagesRestored)} covers"
-    if (summary.csPluginsRestored > 0) parts += "${formatCount(summary.csPluginsRestored)} CloudStream"
-    if (summary.aniyomiInstalled > 0) parts += "${formatCount(summary.aniyomiInstalled)} Aniyomi installed"
+    // ROUND 148: the extension totals — installed (incl. already-present)
+    // against what the archive carried, plus the honest declined/failed counts.
+    val aniyomiDone = summary.aniyomiInstalled + summary.aniyomiAlreadyInstalled
+    if (summary.manifest.aniyomiApkCount > 0) {
+        parts += "${formatCount(aniyomiDone)} of ${formatCount(summary.manifest.aniyomiApkCount)} Aniyomi"
+    } else if (aniyomiDone > 0) {
+        parts += "${formatCount(aniyomiDone)} Aniyomi"
+    }
+    if (summary.aniyomiDeclined > 0) parts += "${formatCount(summary.aniyomiDeclined)} Aniyomi skipped"
+    if (summary.aniyomiFailed.isNotEmpty()) parts += "${formatCount(summary.aniyomiFailed.size)} Aniyomi failed"
+    if (summary.manifest.csPluginCount > 0) {
+        parts += "${formatCount(summary.csPluginsRestored)} of ${formatCount(summary.manifest.csPluginCount)} CloudStream"
+    } else if (summary.csPluginsRestored > 0) {
+        parts += "${formatCount(summary.csPluginsRestored)} CloudStream"
+    }
+    if (summary.csPluginsFailed.isNotEmpty()) parts += "${formatCount(summary.csPluginsFailed.size)} CloudStream failed"
     return "Restore finished — " + parts.joinToString(" · ")
 }
 

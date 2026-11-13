@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -59,6 +60,11 @@ fun AppearanceScreen(
     highlightAnchor: String? = null,
 ) {
     val lazyListState = rememberLazyListState()
+    // ROUND 147 (the device report): every screen ENTRY starts at the
+    // TOP — the host's SaveableStateProvider resurrects the old scroll
+    // position, and screens landing "wherever they were left" was the
+    // complaint.
+    LaunchedEffect(Unit) { lazyListState.scrollToItem(0) }
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 

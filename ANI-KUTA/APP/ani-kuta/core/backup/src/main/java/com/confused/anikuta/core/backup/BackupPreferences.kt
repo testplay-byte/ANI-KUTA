@@ -95,6 +95,13 @@ class BackupPreferences(private val store: PreferenceStore) {
     val includeExtensionCloudstream = store.preference(
         "pref_backup_ext_cloudstream", true, BooleanSerializer,
     )
+    /**
+     * ROUND 148: carry ONLY the extensions the current library still uses —
+     * off by default (the whole extension setup rides).
+     */
+    val includeExtensionsLinkedOnly = store.preference(
+        "pref_backup_ext_linked_only", false, BooleanSerializer,
+    )
 
     /**
      * The granular selection snapshot — what BOTH the manual and the
@@ -114,5 +121,6 @@ class BackupPreferences(private val store: PreferenceStore) {
         extensionRepos = includeExtensionRepos.get(),
         extensionAniyomi = includeExtensionAniyomi.get(),
         extensionCloudstream = includeExtensionCloudstream.get(),
+        extensionsLinkedOnly = includeExtensionsLinkedOnly.get(),
     )
 }

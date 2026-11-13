@@ -949,20 +949,31 @@ class BackupManager(
             // ── The CloudStream .cs3 FILES + records (after prefs — see the
             // ordering note above; the files land BEFORE any loader read). ──
             var csRestored = 0
+            // ROUND 148: the failed plugins' names — the summary surfaces them
+            // beside the restored/carried counts (mirrors aniyomiFailed).
+            val csPluginsFailed = mutableListOf<String>()
             val extState = entries.extState
             if (extState != null && bridge != null) {
                 extState.cloudstream.forEachIndexed { index, info ->
                     val bytes = entries.csPlugins[index]
                     if (bytes == null) {
                         Logger.w(TAG) { "restoreBackup: plugin #$index (${info.internalName}) has no file in the archive" }
+                        csPluginsFailed += info.name.ifBlank { info.internalName }
                         return@forEachIndexed
                     }
                     val ok = runCatching { bridge.restoreCloudstreamPlugin(info, bytes) }
                         .onFailure { Logger.w(TAG, it) { "restoreBackup: plugin ${info.internalName} failed" } }
                         .getOrDefault(false)
-                    if (ok) csRestored++
+                    if (ok) {
+                        csRestored++
+                    } else {
+                        csPluginsFailed += info.name.ifBlank { info.internalName }
+                    }
                 }
-                Logger.i(TAG) { "restoreBackup: $csRestored/${extState.cloudstream.size} cs3 plugins written" }
+                Logger.i(TAG) {
+                    "restoreBackup: $csRestored/${extState.cloudstream.size} cs3 plugins written, " +
+                        "${csPluginsFailed.size} failed"
+                }
                 // ROUND 136: reload the plugin manager — the restored plugins
                 // appear in the Extensions page LIVE (all records have files).
                 bridge.runCatching { onCloudstreamRestored() }
@@ -1072,7 +1083,9 @@ class BackupManager(
                 aniyomiInstalled = aniyomiInstalled,
                 aniyomiFailed = aniyomiFailed,
                 aniyomiAlreadyInstalled = aniyomiSkipped,
+                aniyomiDeclined = aniyomiDeclined,
                 csPluginsRestored = csRestored,
+                csPluginsFailed = csPluginsFailed,
             )
         }.onFailure { e ->
             Logger.e(TAG, e) { "restoreBackup: failed" }

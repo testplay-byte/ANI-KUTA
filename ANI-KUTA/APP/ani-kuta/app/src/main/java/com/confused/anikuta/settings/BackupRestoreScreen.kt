@@ -96,6 +96,11 @@ fun BackupRestoreScreen(
     val scope = rememberCoroutineScope()
 
     val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // ROUND 147 (the device report): every screen ENTRY starts at the
+    // TOP — the host's SaveableStateProvider resurrects the old scroll
+    // position, and screens landing "wherever they were left" was the
+    // complaint.
+    LaunchedEffect(Unit) { lazyListState.scrollToItem(0) }
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 
@@ -872,8 +877,10 @@ private fun includedSummary(preferences: BackupPreferences): String {
         o.imageCovers, o.imageSearchBrowse, o.imageEpisodeThumbnails,
         o.settingsApp, o.settingsSources, o.settingsSecurity,
         o.extensionRepos, o.extensionAniyomi, o.extensionCloudstream,
+        // ROUND 148: the linked-only filter is an item of its own.
+        o.extensionsLinkedOnly,
     ).count { it }
-    return "$on of 13 items included"
+    return "$on of 14 items included"
 }
 
 /** The checkmark popup — every includable item, grouped by category. */
@@ -910,6 +917,13 @@ private fun IncludeSelectionPopup(
                 PopupCheck("Extension repos", preferences.includeExtensionRepos)
                 PopupCheck("Aniyomi extensions", preferences.includeExtensionAniyomi)
                 PopupCheck("CloudStream extensions", preferences.includeExtensionCloudstream)
+                // ROUND 148: the linked-only filter — a modifier of the three
+                // switches above, not a payload slice of its own.
+                PopupCheck(
+                    "Only extensions my library uses",
+                    preferences.includeExtensionsLinkedOnly,
+                    subtitle = "Skips the extensions no current library item still needs",
+                )
             }
         },
         confirmButton = {
@@ -934,6 +948,9 @@ private fun PopupGroup(label: String) {
 private fun PopupCheck(
     label: String,
     checked: com.confused.anikuta.core.preferences.Preference<Boolean>,
+    // ROUND 148: an optional one-line explanation under the label (the
+    // linked-only row's semantics need more than a title).
+    subtitle: String? = null,
 ) {
     val state by checked.changes.collectAsState(initial = checked.get())
     Row(
@@ -943,13 +960,22 @@ private fun PopupCheck(
             .clickable { checked.set(!state) },
     ) {
         Checkbox(checked = state, onCheckedChange = { checked.set(it) })
-        Text(
-            label,
-            fontFamily = RobotoFamily,
-            fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                label,
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

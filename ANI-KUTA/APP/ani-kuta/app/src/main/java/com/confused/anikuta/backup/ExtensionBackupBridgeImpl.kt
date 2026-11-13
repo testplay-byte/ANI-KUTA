@@ -1,13 +1,16 @@
 package com.confused.anikuta.backup
 
 import android.content.Context
+import app.cash.sqldelight.db.SqlDriver
 import com.confused.anikuta.core.backup.AniyomiApkInfo
 import com.confused.anikuta.core.backup.BackupFormat
+import com.confused.anikuta.core.backup.BackupPreferences
 import com.confused.anikuta.core.backup.CloudstreamPluginInfo
 import com.confused.anikuta.core.backup.ExtensionBackupBridge
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.preferences.AppPreferences
 import com.confused.anikuta.core.providerapi.InstallStep
+import com.confused.anikuta.data.cloudstream.content.CsSourceIds
 import com.confused.anikuta.data.cloudstream.installer.CloudstreamPluginInstaller
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamPluginStore
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository
@@ -22,11 +25,18 @@ import java.io.File
 
 /**
  * The app-layer [ExtensionBackupBridge] — the ONLY place that can see both
- * extension ecosystems and the backup engine. Collects the installed
- * Aniyomi APKs (read from each package's `sourceDir`) and the CloudStream
- * .cs3 files for a backup; on restore it auto-installs the APKs (the user
- * confirms each system prompt through [PackageInstallerBackend]) and writes
- * the .cs3 files + records back with their exact backed-up trust state.
+ * extension ecosystems and the backup engine. Collects the installed Aniyomi
+ * APKs (read from each package's `sourceDir`) and the CloudStream .cs3 files
+ * for a backup; on restore it auto-installs the APKs (the user confirms each
+ * system prompt through [PackageInstallerBackend]) and writes the .cs3 files
+ * + records back with their exact backed-up trust state.
+ *
+ * ROUND 148: the collection also honors the linked-only option (the backup
+ * preferences' `extensionsLinkedOnly`) — when it is on, an extension/plugin
+ * is carried only when the CURRENT library still references one of its
+ * sources/providers. The used-source set is read straight from the same
+ * SQLite file through [driver] (the raw-driver read pattern the backup
+ * engine itself uses).
  */
 class ExtensionBackupBridgeImpl(
     private val context: Context,
@@ -37,6 +47,8 @@ class ExtensionBackupBridgeImpl(
     private val extensionRepoRepository: ExtensionRepoRepository,
     private val csRepoRepository: CloudstreamRepoRepository,
     private val csPluginManager: CloudstreamPluginManager,
+    private val backupPreferences: BackupPreferences,
+    private val driver: SqlDriver,
 ) : ExtensionBackupBridge {
 
     private val installerBackend = PackageInstallerBackend(context)
@@ -82,6 +94,28 @@ class ExtensionBackupBridgeImpl(
                 iconUrl = catalogIconByPkg[ext.pkgName].orEmpty(),
             )
             if (entry != null) entries += entry
+        }
+        // ROUND 148: the linked-only filter — keep only the extensions whose
+        // source ids intersect the source ids the current library references.
+        val linked = linkedOnlyFilter()
+        if (linked != null) {
+            val sourcesByPkg = extensionManager.installedExtensions.value
+                .associate { it.pkgName to it.sources.map { source -> source.id } }
+            val before = entries.size
+            entries.removeAll { entry ->
+                // No live source list (an Untrusted row never classloads its
+                // sources) — the linkage is genuinely unavailable: keep it.
+                val sourceIds = sourcesByPkg[entry.info.pkgName].orEmpty()
+                val unlinked = sourceIds.isNotEmpty() && sourceIds.none { it in linked.usedSourceIds }
+                if (unlinked) {
+                    Logger.i(TAG) { "collectAniyomiApks: ${entry.info.pkgName} not linked to the library — skipped" }
+                }
+                unlinked
+            }
+            Logger.i(TAG) {
+                "collectAniyomiApks: linked-only kept ${entries.size} of $before APK(s) " +
+                    "(${linked.usedSourceIds.size} library source id(s))"
+            }
         }
         Logger.i(TAG) { "collectAniyomiApks: ${entries.size} APK(s) collected" }
         return entries
@@ -130,7 +164,13 @@ class ExtensionBackupBridgeImpl(
 
     override fun collectCloudstreamPlugins(): List<ExtensionBackupBridge.CloudstreamPluginEntry> {
         val entries = mutableListOf<ExtensionBackupBridge.CloudstreamPluginEntry>()
+        // ROUND 148: the linked-only filter (read ONCE before the loop).
+        val linked = linkedOnlyFilter()
         csPluginStore.loadAll().forEach { record ->
+            if (linked != null && !pluginIsLinked(record.internalName, linked)) {
+                Logger.i(TAG) { "collectCloudstreamPlugins: ${record.internalName} not linked to the library — skipped" }
+                return@forEach
+            }
             // The record's own absolute path first; the repo-salted derive as
             // the fallback (a record from before a path change still resolves).
             val file = File(record.filePath).takeIf { it.exists() }
@@ -177,6 +217,70 @@ class ExtensionBackupBridgeImpl(
         return entries
     }
 
+    // ── The linked-only filter (round 148) ──────────────────────────────────
+
+    /**
+     * The linked-only state for ONE collect call: non-null when the backup
+     * option is on AND the library's used source ids were read — null means
+     * carry everything (the option is off, or the DB read failed: a failed
+     * linkage must never silently empty the payload).
+     */
+    private class LinkedOnlyFilter(val usedSourceIds: Set<Long>)
+
+    private fun linkedOnlyFilter(): LinkedOnlyFilter? {
+        if (!backupPreferences.options().extensionsLinkedOnly) return null
+        val ids = libraryUsedSourceIds() ?: return null
+        Logger.i(TAG) { "linked-only: ${ids.size} source id(s) referenced by the library" }
+        return LinkedOnlyFilter(ids)
+    }
+
+    /**
+     * The DISTINCT `main_entry.source_id` of every library_item row — the
+     * identities the CURRENT library still needs (Aniyomi source ids AND the
+     * CS-bridged synthetic ids, which are indistinguishable at this layer:
+     * both are Longs the extension ecosystems mint). Raw SQL through the
+     * injected [driver] — the same file the backup engine dumps.
+     */
+    private fun libraryUsedSourceIds(): Set<Long>? = runCatching {
+        val ids = mutableSetOf<Long>()
+        driver.executeQuery(
+            null,
+            "SELECT DISTINCT me.source_id FROM main_entry me " +
+                "JOIN library_item li ON li.main_id = me.main_id " +
+                "WHERE me.source_id IS NOT NULL",
+            { cursor ->
+                while (cursor.next().value) {
+                    cursor.getLong(0)?.let { ids.add(it) }
+                }
+                app.cash.sqldelight.db.QueryResult.Value(Unit)
+            },
+            0,
+            null,
+        )
+        ids
+    }.onFailure { e ->
+        Logger.w(TAG, e) { "linked-only: the library source query failed — keeping every extension" }
+    }.getOrNull()
+
+    /**
+     * Whether a CloudStream plugin still serves a provider the library
+     * references. The provider names come from the LIVE plugin manager's
+     * installed view (the record itself carries no provider list) and are
+     * hashed with the app's own bridge formula
+     * ([CsSourceIds.idFor]) — the exact identity a CS library entry's
+     * source id was minted with. A plugin with no loaded provider list
+     * (untrusted, or the manager has not finished loading) is KEPT — the
+     * linkage is genuinely unavailable, not "proven unused".
+     */
+    private fun pluginIsLinked(internalName: String, filter: LinkedOnlyFilter): Boolean {
+        val providerNames = csPluginManager.installed.value
+            .firstOrNull { it.internalName == internalName }
+            ?.providers?.map { it.name }
+            .orEmpty()
+        if (providerNames.isEmpty()) return true
+        return providerNames.any { name -> CsSourceIds.idFor(name) in filter.usedSourceIds }
+    }
+
     // ── Restore ─────────────────────────────────────────────────────────────
 
     override fun isPackageInstalled(pkgName: String): Boolean =
@@ -209,6 +313,18 @@ class ExtensionBackupBridgeImpl(
         if (enabled && !appPreferences.isExtensionEnabled(pkgName)) {
             appPreferences.enableExtension(pkgName)
         }
+        // ROUND 148 (the device report: the extension stayed invisible/untrusted
+        // after the restore until the next app start): the install broadcast's
+        // earlier re-scan can have CACHED this package as Untrusted — its
+        // scan-time trust check (ExtensionLoader) ran before the trust write
+        // above landed, and nothing else re-scans afterwards. Trigger a FULL
+        // manager reload: [ExtensionManager.loadAll] is a fire-and-forget
+        // re-scan on the manager's own IO scope (the exact call its own
+        // callers — untrust, the package-change receiver — use), so the
+        // synchronous bridge contract is kept and the restore never blocks on
+        // a slow scan. The re-scan reads the FRESH trust set, so the extension
+        // moves to Installed and its sources register LIVE.
+        extensionManager.loadAll()
     }
 
     /**
@@ -310,6 +426,10 @@ val extensionBackupBridgeModule = org.koin.dsl.module {
             extensionRepoRepository = get(),
             csRepoRepository = get(),
             csPluginManager = get(),
+            // ROUND 148: the linked-only option + the raw driver for the
+            // library's used-source query (both registered by their modules).
+            backupPreferences = get(),
+            driver = get(),
         )
     }
     // ROUND 137 (D-828): the interop restore bridge — the foreign-backup

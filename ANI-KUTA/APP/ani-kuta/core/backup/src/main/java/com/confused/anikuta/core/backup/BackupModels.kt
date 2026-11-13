@@ -184,6 +184,14 @@ data class BackupOptions(
     val extensionAniyomi: Boolean = true,
     /** The installed CloudStream .cs3 plugins — restored trusted. */
     val extensionCloudstream: Boolean = true,
+    /**
+     * ROUND 148: carry ONLY the extensions the current library still uses —
+     * an extension (or CloudStream plugin) whose sources/providers no
+     * library_item's main_entry still references is skipped. A modifier of
+     * the extension payload above, not a slice of its own: with every
+     * extension switch off this does nothing (hence not in anythingEnabled).
+     */
+    val extensionsLinkedOnly: Boolean = false,
 ) {
 
     /** TRUE when at least one slice is on (an all-off backup would be pointless). */
@@ -225,8 +233,14 @@ data class BackupOptions(
      */
     fun ownsPrefsFile(name: String): Boolean = when (name) {
         "anikuta_prefs" -> settingsApp || settingsSecurity || extensionAniyomi
+        // ROUND 148 (the device report: "repos empty after restore"): the
+        // repo lists also ride when the EXTENSIONS themselves ride — the
+        // repo prefs files gate on settingsSources || extensionRepos alone,
+        // so a backup with those two off but the extensions on restored a
+        // device whose extension pages were empty. Extensions are useless
+        // without their repositories.
         "anikuta_extension_repos", "anikuta_cloudstream_repos" ->
-            settingsSources || extensionRepos
+            settingsSources || extensionRepos || extensionAniyomi || extensionCloudstream
         "anikuta_cloudstream_plugins" -> extensionCloudstream
         "cs_source_memory" -> settingsSources || extensionCloudstream
         "rebuild_preference" -> settingsApp
@@ -340,8 +354,12 @@ data class RestoreSummary(
     val aniyomiFailed: List<String> = emptyList(),
     /** ROUND 135: Aniyomi APKs already on the device (skipped, trust re-applied). */
     val aniyomiAlreadyInstalled: Int = 0,
+    /** ROUND 148: Aniyomi APKs the user declined in the batch-install picker. */
+    val aniyomiDeclined: Int = 0,
     /** ROUND 135: CloudStream .cs3 plugins written back + re-registered. */
     val csPluginsRestored: Int = 0,
+    /** ROUND 148: CloudStream plugins that failed to restore (the names). */
+    val csPluginsFailed: List<String> = emptyList(),
     /** TRUE when the app should be restarted to pick up restored settings. */
     val restartRecommended: Boolean = true,
 )

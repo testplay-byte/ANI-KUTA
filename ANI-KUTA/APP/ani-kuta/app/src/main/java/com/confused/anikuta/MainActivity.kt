@@ -1124,35 +1124,29 @@ fun AppRoot() {
                 themeChoices = onboardingChoices,
                 selectedThemeId = onboardingSelectedThemeId,
                 onThemeSelected = { id ->
-                    applyOnboardingThemeById(themePreferencesForOnboarding, id)
+                    // ROUND 147: the cards are ACCENT swatches — selecting one
+                    // applies the accent only (the mode toggle and the AMOLED
+                    // row own their own states now).
+                    applyOnboardingAccent(themePreferencesForOnboarding, id)
                 },
                 selectedThemeMode = onboardingSelectedThemeMode,
                 onThemeModeSelected = { mode ->
-                    // D-406 (round 30): the mode toggle. When the applied
-                    // theme belongs to the OTHER bucket, apply the new mode's
-                    // DEFAULT CARD in one shot (mode + preset together) so the
-                    // app never flashes a mismatched accent for the ~220ms it
-                    // takes the carousel's settle to land on the same card —
-                    // the wizard then re-scrolls to that card and the settle
-                    // is a no-op (the highlight always equals the truth).
-                    // Same-bucket taps (and unmapped states) just set the
-                    // mode.
-                    val currentCard = onboardingChoices
-                        .firstOrNull { it.id == onboardingSelectedThemeId }
-                    if (currentCard != null && currentCard.mode != mode) {
-                        onboardingChoices.firstOrNull { it.mode == mode }?.let { default ->
-                            applyOnboardingThemeById(themePreferencesForOnboarding, default.id)
-                        }
-                    } else {
-                        themePreferencesForOnboarding.setThemeMode(
-                            when (mode) {
-                                "light" -> ThemeMode.LIGHT
-                                "dark" -> ThemeMode.DARK
-                                else -> ThemeMode.SYSTEM
-                            },
-                        )
-                    }
+                    // ROUND 147: the mode toggle sets the mode ONLY — the
+                    // accent carries across the flip (the carousel swaps to
+                    // the same accent's card in the other bucket; the
+                    // highlight always equals the truth).
+                    themePreferencesForOnboarding.setThemeMode(
+                        when (mode) {
+                            "light" -> ThemeMode.LIGHT
+                            "dark" -> ThemeMode.DARK
+                            else -> ThemeMode.SYSTEM
+                        },
+                    )
                 },
+                // ROUND 147 (the device report): the theme step's AMOLED row —
+                // live-applied, dark-only (the step hides it in light mode).
+                amoledOn = themePreferencesForOnboarding.amoled.value,
+                onAmoledSelected = { themePreferencesForOnboarding.setAmoled(it) },
                 appVersion = remember {
                     runCatching {
                         appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
@@ -3127,169 +3121,64 @@ private fun buildWatchKeyFromCacheEntry(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * D-403 → D-405 → D-406 (round 30): the wizard's curated quick-theme
- * CAROUSEL cards. D-406: every choice now carries its MODE bucket
- * ("light" | "dark") — the theme step's Light/Dark toggle (exactly two
- * options, no System) filters the carousel to the selected mode's themes
- * (the report: "Depending on the user's selection, below the appropriate
- * options will be shown"). The ids map to (ThemeMode, AccentPreset,
- * amoled) in [applyOnboardingThemeById]; the preview colors sample the
- * app's design-system palette (Color.kt) so each card is a faithful
- * miniature of the real theme (the appearance page's palette-card UI).
+ * ROUND 147 (the device report): the wizard's carousel is now the FULL ACCENT
+ * PALETTE — every real AccentPreset (RED first, the fresh-install default) as
+ * a card in BOTH mode buckets (the theme step's Light/Dark toggle filters to
+ * the current bucket). The background/surface ramp stays FIXED per the design
+ * system (only the accent changes — the AccentPreset contract), so every card
+ * in a bucket shares the same preview background/surface and varies the accent
+ * swatch. CUSTOM is excluded (the picker UI is a later phase; showing it would
+ * lie). The AMOLED state is NOT a card anymore — the theme step's dedicated
+ * AMOLED row owns it.
  */
-private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> = listOf(
-    // ROUND 147 (the user's order): the EMBER card is FIRST and the fresh-install
-    // DEFAULT — a reddish special theme instead of Midnight/Lime.
-    OnboardingThemeChoice(
-        id = "ember",
-        mode = "dark",
-        title = "Ember",
-        subtitle = "Dark · Red",
-        previewBackground = Color(0xFF1A0F0D),
-        previewAccent = Color(0xFFF44336),
-        previewSurface = Color(0xFF2E1A16),
-    ),
-    OnboardingThemeChoice(
-        id = "midnight",
-        mode = "dark",
-        title = "Midnight",
-        subtitle = "Dark · Lime",
-        previewBackground = Color(0xFF14111F),
-        previewAccent = Color(0xFFB1F256),
-        previewSurface = Color(0xFF3D3656),
-    ),
-    OnboardingThemeChoice(
-        id = "daylight",
-        mode = "light",
-        title = "Daylight",
-        subtitle = "Light · Lime",
-        previewBackground = Color(0xFFFAF9F6),
-        previewAccent = Color(0xFF5A8C1A),
-        previewSurface = Color(0xFFECE9E2),
-    ),
-    OnboardingThemeChoice(
-        id = "amoled",
-        mode = "dark",
-        title = "AMOLED",
-        subtitle = "Pure black · Violet",
-        previewBackground = Color(0xFF000000),
-        previewAccent = Color(0xFF9C27B0),
-        previewSurface = Color(0xFF1A1A1F),
-    ),
-    OnboardingThemeChoice(
-        id = "dusk",
-        mode = "dark",
-        title = "Dusk",
-        subtitle = "Dark · Coral",
-        previewBackground = Color(0xFF14111F),
-        previewAccent = Color(0xFFFF7043),
-        previewSurface = Color(0xFF3D3656),
-    ),
-    OnboardingThemeChoice(
-        id = "night",
-        mode = "dark",
-        title = "Night",
-        subtitle = "Dark · Violet",
-        previewBackground = Color(0xFF171226),
-        previewAccent = Color(0xFF9C27B0),
-        previewSurface = Color(0xFF3D3656),
-    ),
-    OnboardingThemeChoice(
-        id = "teal",
-        mode = "light",
-        title = "Teal Mist",
-        subtitle = "Light · Teal",
-        previewBackground = Color(0xFFFAF9F6),
-        previewAccent = Color(0xFF009688),
-        previewSurface = Color(0xFFECE9E2),
-    ),
-    OnboardingThemeChoice(
-        id = "coral_light",
-        mode = "light",
-        title = "Coral Day",
-        subtitle = "Light · Coral",
-        previewBackground = Color(0xFFFAF9F6),
-        previewAccent = Color(0xFFFF7043),
-        previewSurface = Color(0xFFECE9E2),
-    ),
-)
-
-/**
- * D-403: maps a wizard theme-card id to the actual (ThemeMode, AccentPreset,
- * amoled) triple and applies it LIVE — ThemePreferences' mutable states
- * recompose MainActivity's AnikutaTheme wrapper, so the whole app (including
- * the wizard itself) re-themes the instant a card is tapped.
- */
-private fun applyOnboardingThemeById(prefs: ThemePreferences, id: String) {
-    when (id) {
-        "ember" -> {
-            prefs.setThemeMode(ThemeMode.DARK)
-            prefs.setAccentPreset(AccentPreset.RED)
-            prefs.setAmoled(false)
-        }
-        "midnight" -> {
-            prefs.setThemeMode(ThemeMode.DARK)
-            prefs.setAccentPreset(AccentPreset.LIME)
-            prefs.setAmoled(false)
-        }
-        "daylight" -> {
-            prefs.setThemeMode(ThemeMode.LIGHT)
-            prefs.setAccentPreset(AccentPreset.LIME)
-            prefs.setAmoled(false)
-        }
-        "amoled" -> {
-            prefs.setThemeMode(ThemeMode.DARK)
-            prefs.setAccentPreset(AccentPreset.VIOLET)
-            prefs.setAmoled(true)
-        }
-        "dusk" -> {
-            prefs.setThemeMode(ThemeMode.DARK)
-            prefs.setAccentPreset(AccentPreset.CORAL)
-            prefs.setAmoled(false)
-        }
-        "night" -> {
-            prefs.setThemeMode(ThemeMode.DARK)
-            prefs.setAccentPreset(AccentPreset.VIOLET)
-            prefs.setAmoled(false)
-        }
-        "teal" -> {
-            prefs.setThemeMode(ThemeMode.LIGHT)
-            prefs.setAccentPreset(AccentPreset.TEAL)
-            prefs.setAmoled(false)
-        }
-        "coral_light" -> {
-            prefs.setThemeMode(ThemeMode.LIGHT)
-            prefs.setAccentPreset(AccentPreset.CORAL)
-            prefs.setAmoled(false)
-        }
+private fun buildOnboardingThemeChoices(): List<OnboardingThemeChoice> {
+    val darkBackground = Color(0xFF14111F)
+    val darkSurface = Color(0xFF3D3656)
+    val lightBackground = Color(0xFFFAF9F6)
+    val lightSurface = Color(0xFFECE9E2)
+    val ordered = listOf(AccentPreset.RED) +
+        AccentPreset.entries.filter { it != AccentPreset.RED && it != AccentPreset.CUSTOM }
+    return ordered.flatMap { preset ->
+        listOf(
+            OnboardingThemeChoice(
+                id = preset.name.lowercase(),
+                mode = "dark",
+                title = preset.displayName,
+                subtitle = "Dark · ${preset.displayName}",
+                previewBackground = darkBackground,
+                previewAccent = preset.seed,
+                previewSurface = darkSurface,
+            ),
+            OnboardingThemeChoice(
+                id = preset.name.lowercase(),
+                mode = "light",
+                title = preset.displayName,
+                subtitle = "Light · ${preset.displayName}",
+                previewBackground = lightBackground,
+                previewAccent = preset.seed,
+                previewSurface = lightSurface,
+            ),
+        )
     }
 }
 
 /**
- * D-403 → D-405 (round 29): the best-effort reverse mapping — which wizard
- * card best represents the CURRENT theme (used to seed the carousel's
- * initial position). D-405: SYSTEM no longer maps to a dedicated card (the
- * mode row owns it) — it resolves by ACCENT like the dark branch, since the
- * carousel's cards are accent/preset identities. Unmapped combinations fall
- * to the closest mode/accent card.
+ * ROUND 147: the carousel's selection is the ACCENT — applying a card sets
+ * the accent preset ONLY. The mode toggle owns the mode, the AMOLED row owns
+ * amoled: neither silently flips when an accent is picked (the old preset
+ * cards bundled all three and fought the dedicated controls).
  */
-private fun currentOnboardingThemeId(prefs: ThemePreferences): String = when {
-    prefs.amoled.value -> "amoled"
-    prefs.themeMode.value == ThemeMode.LIGHT -> when (prefs.accentPreset.value) {
-        AccentPreset.TEAL -> "teal"
-        AccentPreset.CORAL -> "coral_light"
-        else -> "daylight"
-    }
-    else -> when (prefs.accentPreset.value) {
-        AccentPreset.RED -> "ember"
-        AccentPreset.LIME -> "midnight"
-        AccentPreset.CORAL -> "dusk"
-        AccentPreset.VIOLET -> "night"
-        // ROUND 147: the fresh-install default resolves to EMBER (the reddish
-        // special theme) — an unmapped state lands there.
-        else -> "ember"
-    }
+private fun applyOnboardingAccent(prefs: ThemePreferences, id: String) {
+    prefs.setAccentPreset(AccentPreset.fromName(id))
 }
+
+/**
+ * ROUND 147: which carousel card highlights — simply the CURRENT ACCENT (the
+ * mode and amoled states are the dedicated controls' business, not the
+ * carousel's).
+ */
+private fun currentOnboardingThemeId(prefs: ThemePreferences): String =
+    prefs.accentPreset.value.name.lowercase()
 
 /**
  * D-405 → D-406 (round 30): the LIVE mode for the wizard's Light/Dark
