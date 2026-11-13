@@ -544,8 +544,18 @@ object AndroidConfig {
     // duplicate; the DB row is repaired if it was missing the file).
     // Also: SubtitleEngine.guessExtension gained .ttml (MPV detects external
     // sub formats by extension).
-    const val versionCode = 10120
-    const val versionName = "1.1.20"
+    const val versionCode = 10189
+    const val versionName = "1.1.89"
+    // ROUND 148 (v1.1.89): release/1.1.89 — cut from the round-148 main head
+    // 3e467663 (the code tree of CI-green fb5a14ac / run 43509003602): THE
+    // NOTIFICATIONS ROOT CAUSE (the blind post consumed episodes forever —
+    // the grant gate + the engine hold re-notify the backlog), the
+    // DeadSystem restore resilience (catch+retry, ONE reload), the wizard
+    // second pass (the rowStyle pin = the live-preview bug, the gate order,
+    // the icon presets, the NOTIF truth, the check-only permissions), the
+    // pushKey scroll semantics, the welcome redesign — AND THE NEW HOME
+    // SCREEN (the spec PROJECT-MAP/11; the hero + the seven rails, zero
+    // schema change). Carries rounds 147-148 on top of v1.1.88.
     // D-498 (round 57): release/1.1.20 — cut from the round-57 FEATURE branch
     // head cf067e68 (CI green — implementation run 35522908889 after four
     // one-fix rounds: the setMaxVideoSize setter shape, the Kotlin \$-template
