@@ -2,6 +2,8 @@
 
 ## 1.1.86 / 10186 — RELEASE (round 144 — the debug line; carries rounds 126-144)
 - RELEASED: the **v1.1.86** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, 76,076,032 bytes with the torrent engine's native lib, checksum 42bee0fa... verified) — v1.1.85 installs get the in-app update offer carrying round 144. Routine A on the round-144 head: release/1.1.86 + the bump b9a46110 + the tag v1.1.86; Release APK run 43299505509 GREEN.
+## 1.1.87 / 10187 — RELEASE (round 146 — the debug line; carries rounds 126-146)
+- RELEASED: the **v1.1.87** debug release is LIVE on testplay-byte (stable latest, arm64-v8a, 76,076,032 bytes, checksum eca1f418... verified) — v1.1.86 installs get the in-app update offer carrying round 146. Routine A on the round-146 head: release/1.1.87 + the bump fd39939f + the tag v1.1.87 (on the bump commit — first try); Release APK run 43464417108 GREEN. THE CRITICAL: this release carries the C-1 wizard-loop fix fresh installs need.
 ## Round 146 (shipped in v1.1.87)
 - SETUP WIZARD: rotation/process-death mid-wizard now RESUMES at your step (the state is saved); the preview art uses SEPARATE images — a dedicated BANNER still for the poster stage and a dedicated THUMBNAIL still for the episode rows (the composer renders a real banner on a fresh install).
 - PLAYER: leaving a downloaded episode within its first half-second can no longer crash the player (the pending loadfile is tracked and cancelled); CS OFFLINE failures now show the honest error instead of a dead black player; the CS Up Next card holds until the LAST 10 SECONDS before auto-advancing (the ending is no longer cut); the AniSkip AUTO re-arms when you revisit an episode; the dead Audio/Rotate buttons are removed from the MPV fullscreen bar.
