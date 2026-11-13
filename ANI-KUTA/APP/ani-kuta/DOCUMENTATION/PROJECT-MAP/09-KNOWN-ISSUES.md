@@ -59,18 +59,18 @@
 - **M-2 (open)** — Synchronous SQLDelight reads on the MAIN thread in the navigation
   lambdas (`getMainEntryByMainId`/`getContentDetails` — non-suspend, executeAsOneOrNull)
   — jank/ANR risk as the DB grows. ContentRepository.kt:81-100.
-- **M-3 (open)** — Episode notifications: SUB and DUB of the same episode share ONE id —
+- **M-3 (FIXED, round 146)** — Episode notifications: SUB and DUB of the same episode share ONE id —
   the second post replaces the first (the exact swallowed-banner class D-503 claimed
   fixed). NotificationManager.kt:216-218.
-- **M-4 (open)** — Fractional episode numbers (12.5) re-detect as NEW every check run (the
+- **M-4 (FIXED, round 146)** — Fractional episode numbers (12.5) re-detect as NEW every check run (the
   `.toLong()` truncation in the max-episode tracking) — the "new" badge never ages out.
   UpdateEngine.kt:497-607.
 - **M-5 (open)** — Restore is merge-only with NO rollback: a mid-restore failure after the
   DB COMMIT reports "Restore failed" while the DB half applied. BackupManager.kt:897-924.
-- **M-6 (open)** — The backup carries the ad-system prefs (a donor's `alwaysSponsor=true`
+- **M-6 (FIXED, round 147)** — The backup carried the ad-system prefs (a donor's `alwaysSponsor=true`
   re-enables the debug sponsor popup on the recipient; the grace timestamps cross over
   too). BackupModels.kt:110-117 (the exclusion list).
-- **M-7 (open)** — The wizard state is `remember` — a rotation resets to WELCOME.
+- **M-7 (FIXED, round 146)** — The wizard state was `remember` — a rotation reset to WELCOME (stepIndex + personalizeEntered are saveable).
   OnboardingScreen.kt:161-174.
 - **M-8 (open)** — The AniList OAuth poller captures a STALE `currentKey` once and polls
   forever (200ms), pushing TrackersKey regardless of the actual location.
