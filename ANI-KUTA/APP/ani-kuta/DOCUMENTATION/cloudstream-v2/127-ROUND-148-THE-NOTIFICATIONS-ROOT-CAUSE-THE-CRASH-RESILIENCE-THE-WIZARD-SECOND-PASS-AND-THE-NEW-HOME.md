@@ -112,6 +112,14 @@ rest-shadow, quiet one-time reveals, the hero as the only moving thing). Built:
 - The home degradations (documented in the spec): the airing-next card scopes to
   recently-watched mainIds (a full-library scan needs a new anime_update_state SELECT —
   deferred, no schema change this round); next-up's existence guard uses data_episodes.
-- NO release this round (no user order; D-738). The debug line stays v1.1.88/10188 —
-  the next release carries rounds 147-148.
-- Next decision: D-881; next record: 128.
+- **The release (D-881)**: the user's explicit order ('complete everything and do a
+  proper release so i can update the debug application') — Routine A on the round-148
+  head 3e467663 (the code tree of CI-green fb5a14ac + the docs commit): release/1.1.89
+  + ONE bump commit c66318f4 (10120/1.1.20 -> **10189/1.1.89**) + the annotated tag
+  v1.1.89 ON THE BUMP COMMIT (first try) -> Release APK run **43514915195 GREEN**;
+  verified live: stable + latest, ani-kuta-v1.1.89-debug-arm64-v8a.apk (76,187,408
+  bytes) + SHA256SUMS.txt; the downloaded SHA (57d810ef…) matches. v1.1.88 installs
+  get the in-app offer (10189 > 10188) — the release CARRIES the notifications
+  root-cause fix + the restore-crash resilience + the wizard second pass + THE NEW
+  HOME, on top of round 147.
+- Next decision: D-882; next record: 128.
