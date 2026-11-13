@@ -612,8 +612,12 @@ class UpdateEngine(
                 // ROUND 145 (M-4): the counts advance in TENTHS.
                 val maxSubTenths = Math.round(subEpisodes.maxOfOrNull { it.episode_number * 10 } ?: 0.0)
                 val maxDubTenths = Math.round(dubEpisodes.maxOfOrNull { it.episode_number * 10 } ?: 0.0)
-                val newMaxSub = maxOf(maxSubTenths, lastKnownSub)
-                val newMaxDub = maxOf(maxDubTenths, lastKnownDub)
+                // lastKnownSub/lastKnownDub are Double in the state model (the
+                // D-198 mapping over the INTEGER store column) — convert to Long
+                // tenths for the max (the stored value is interpreted in tenths
+                // going forward; the one-time re-detection wave is disclosed).
+                val newMaxSub = maxOf(maxSubTenths, lastKnownSub.toLong())
+                val newMaxDub = maxOf(maxDubTenths, lastKnownDub.toLong())
                 updateStore.updateCheckResult(
                     mainId = mainId,
                     lastCheckedAt = now,
