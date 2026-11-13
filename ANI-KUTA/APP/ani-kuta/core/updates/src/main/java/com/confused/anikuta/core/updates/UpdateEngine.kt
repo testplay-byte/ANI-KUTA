@@ -610,8 +610,11 @@ class UpdateEngine(
 
                 // D-193 v2 fix: always update BOTH sub + dub counts (we always check both).
                 // ROUND 145 (M-4): the counts advance in TENTHS.
-                val maxSubTenths = Math.round(subEpisodes.maxOfOrNull { it.episode_number * 10 } ?: 0.0)
-                val maxDubTenths = Math.round(dubEpisodes.maxOfOrNull { it.episode_number * 10 } ?: 0.0)
+                // SEpisode.episode_number is FLOAT — force Double before the
+                // elvis so Math.round(Double) -> Long resolves (the Float ?: Double
+                // LUB is Number & Comparable, which Math.round rejects).
+                val maxSubTenths = Math.round(subEpisodes.maxOfOrNull { it.episode_number.toDouble() * 10 } ?: 0.0)
+                val maxDubTenths = Math.round(dubEpisodes.maxOfOrNull { it.episode_number.toDouble() * 10 } ?: 0.0)
                 // lastKnownSub/lastKnownDub are Double in the state model (the
                 // D-198 mapping over the INTEGER store column) — convert to Long
                 // tenths for the max (the stored value is interpreted in tenths
